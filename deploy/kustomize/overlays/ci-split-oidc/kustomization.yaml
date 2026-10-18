@@ -1,0 +1,48 @@
+# Used only by CI (kind): split mode (one Deployment per service, the built-in Gateway in front) signing people in
+# through the real Keycloak (deploy/keycloak), issue #17. `inkcast-secrets` is made by scripts/dev/keycloak-e2e.sh.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: inkcast-split-oidc
+resources:
+  - namespace.yaml
+  - ../../base
+components:
+  - ../../components/split-services
+configMapGenerator:
+  - name: inkcast-config
+    behavior: merge
+    literals:
+      - INKCAST_PUBLIC_URL=http://localhost:8787   # the driver runs in the Gateway pod: the browser's view too
+      - INKCAST_ENV=ci
+      - INKCAST_LOGIN=oidc
+      - OIDC_ISSUER=http://keycloak.keycloak.svc:8080/realms/inkcast
+      - OIDC_CLIENT_ID=inkcast-identity
+      - OIDC_REQUIRED_ROLE=inkcast-user
+images:
+  - name: ghcr.io/inkcasthq/inkcast
+    newName: inkcast
+    newTag: ci
+patches:
+  - target: {kind: Deployment}
+    patch: |-
+      - op: add
+        path: /spec/template/spec/securityContext/runAsUser
+        value: 1001
+      - op: add
+        path: /spec/template/spec/securityContext/fsGroup
+        value: 1001
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never
+  # The base allows egress to 443 only; this Keycloak (and Mailpit) listen on 8080 and 8025 in their own namespace.
+  - target: {kind: NetworkPolicy, name: inkcast}
+    patch: |-
+      - op: add
+        path: /spec/egress/-
+        value:
+          to:
+            - namespaceSelector:
+                matchLabels: {kubernetes.io/metadata.name: keycloak}
+          ports:
+            - {port: 8080, protocol: TCP}
+            - {port: 8025, protocol: TCP}
