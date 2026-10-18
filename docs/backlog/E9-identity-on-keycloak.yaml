@@ -18,7 +18,7 @@ features:
   - id: F9.1.S2
     title: 'kind CI: Keycloak with the realm; end-to-end sign-in against it in single and split mode'
     status: in-progress
-    change: 'built in PR #14 for single mode on kind; split mode on kind still to do'
+    change: 'single mode in PR #14; split mode on kind in the PR fixing #17 (mark done when it merges)'
     acceptance:
     - The kind CI job deploys Keycloak with the realm and checks the placeholders were filled
     - A person with inkcast-user signs in through Keycloak's own login page end to end and reaches /api/v1/me
@@ -34,8 +34,8 @@ features:
   stories:
   - id: F9.2.S1
     title: Registration, email verification, terms; default role inkcast-user
-    status: in-progress
-    change: built in the self sign-up PR (mark done when it merges)
+    status: done
+    change: 'built in PR #19'
     acceptance:
     - A newcomer registers on Keycloak's own page, verifies the emailed link and accepts the terms, then reaches Inkcast's
       /api/v1/me with the default inkcast-user role (kind CI, real Keycloak and Mailpit)
