@@ -1,0 +1,63 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: inkcast-backup
+  labels: {app.kubernetes.io/name: inkcast, app.kubernetes.io/component: backup}
+spec:
+  schedule: "17 3 * * *"          # daily, off the hour; patch it per environment
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels: {app.kubernetes.io/name: inkcast, app.kubernetes.io/component: backup}
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 1800
+      ttlSecondsAfterFinished: 604800
+      template:
+        metadata:
+          labels: {app.kubernetes.io/name: inkcast, app.kubernetes.io/component: backup}
+        spec:
+          restartPolicy: Never
+          serviceAccountName: inkcast
+          automountServiceAccountToken: false
+          enableServiceLinks: false
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile: {type: RuntimeDefault}
+          # The data volume is ReadWriteOnce: the backup must run on the node that has it mounted.
+          affinity:
+            podAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector:
+                    matchLabels: {app.kubernetes.io/component: server}
+                  topologyKey: kubernetes.io/hostname
+          containers:
+            - name: backup
+              image: ghcr.io/inkcasthq/inkcast:0.1.0   # the same image as the server; environments pin both by digest
+              args: ["backup", "--to", "/backups"]
+              env:
+                - {name: INKCAST_DATABASE, value: /data/inkcast.db}
+                - {name: INKCAST_BACKUP_KEEP, value: "14"}
+                - {name: INKCAST_LOG_FORMAT, value: json}
+              resources:
+                requests: {cpu: 20m, memory: 64Mi}
+                limits: {memory: 256Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: [ALL]}
+              volumeMounts:
+                - {name: data, mountPath: /data}
+                - {name: backups, mountPath: /backups}
+                - {name: tmp, mountPath: /tmp}
+          volumes:
+            - name: data
+              persistentVolumeClaim: {claimName: inkcast-data}
+            - name: backups
+              persistentVolumeClaim: {claimName: inkcast-backups}
+            - name: tmp
+              emptyDir: {sizeLimit: 64Mi}

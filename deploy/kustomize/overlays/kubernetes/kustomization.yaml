@@ -11,6 +11,7 @@ resources:
 components:
   - ../../components/servicemonitor
   - ../../components/prometheus-rules   # alerts and SLO burn rates (generated: scripts/gen-alerts.py)
+  - ../../components/backup             # daily SQLite backups to their own volume (until PostgreSQL, E3)
   # - ../../components/dashboards       # Grafana sidecar ConfigMap (generated: scripts/gen-dashboards.py)
   # - ../../components/egress-cilium    # FQDN allow-list for outbound calls (Cilium)
   # - ../../components/external-secrets
@@ -25,6 +26,17 @@ patches:
         value: 1001
       - op: add
         path: /spec/template/spec/securityContext/fsGroup
+        value: 1001
+  - target: {kind: CronJob, name: inkcast-backup}
+    patch: |-
+      - op: add
+        path: /spec/jobTemplate/spec/template/spec/securityContext/runAsUser
+        value: 1001
+      - op: add
+        path: /spec/jobTemplate/spec/template/spec/securityContext/runAsGroup
+        value: 1001
+      - op: add
+        path: /spec/jobTemplate/spec/template/spec/securityContext/fsGroup
         value: 1001
   - target: {kind: NetworkPolicy, name: inkcast}
     patch: |-

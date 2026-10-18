@@ -7,6 +7,8 @@ namespace: inkcast
 resources:
   - namespace.yaml
   - ../../base
+components:
+  - ../../components/backup   # the restore drill in the kind job uses it
 secretGenerator:
   - name: inkcast-secrets
     options: {disableNameSuffixHash: true}
@@ -27,6 +29,17 @@ images:
     newName: inkcast
     newTag: ci
 patches:
+  - target: {kind: CronJob, name: inkcast-backup}
+    patch: |-
+      - op: add
+        path: /spec/jobTemplate/spec/template/spec/securityContext/runAsUser
+        value: 1001
+      - op: add
+        path: /spec/jobTemplate/spec/template/spec/securityContext/fsGroup
+        value: 1001
+      - op: add
+        path: /spec/jobTemplate/spec/template/spec/containers/0/imagePullPolicy
+        value: Never
   - target: {kind: Deployment, name: inkcast}
     patch: |-
       - op: add

@@ -1,0 +1,12 @@
+# Daily backups of the SQLite database (`inkcast backup`), until PostgreSQL brings base backups and point-in-time
+# recovery (E3.F3.1.S5). Restores: docs/runbooks/backup-restore.md. Alert: InkcastBackupMissing.
+#
+# Keep the backups somewhere the data volume isn't: inkcast-backups is a separate claim, so a storage class with
+# volume snapshots or off-cluster replication protects it further. A backup holds encrypted credentials and token
+# hashes: it is as sensitive as the database, and useless without INKCAST_SECRET_KEY (store the key elsewhere).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - pvc.yaml
+  - cronjob.yaml
+  - networkpolicy.yaml

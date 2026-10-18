@@ -159,6 +159,18 @@ groups:
       description: '{{ $value | humanizePercentage }} of inkcast-data is free. Writes will start failing; grow the PVC or
         purge.'
       runbook_url: https://github.com/inkcasthq/inkcast/blob/main/docs/runbooks/alerts.md#inkcastdatavolumenearlyfull
+  - alert: InkcastBackupMissing
+    expr: time() - kube_cronjob_status_last_successful_time{cronjob="inkcast-backup"} > 26 * 3600
+    for: 15m
+    labels:
+      severity: critical
+      team: inkcast
+      service: platform
+    annotations:
+      summary: No successful database backup for more than 26 hours
+      description: The inkcast-backup CronJob has not succeeded since {{ $value | humanizeDuration }} ago. The SQLite file
+        is the only copy of tokens, credentials, posts and the ledger until a backup succeeds.
+      runbook_url: https://github.com/inkcasthq/inkcast/blob/main/docs/runbooks/alerts.md#inkcastbackupmissing
 - name: inkcast.slo.api-availability
   interval: 1m
   rules:

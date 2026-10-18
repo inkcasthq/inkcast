@@ -160,6 +160,8 @@ jobs:
           curl -sf localhost:8787/api | grep -q swagger-ui-bundle.js
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:8787/mcp -H 'Accept: application/json, text/event-stream' -d '{}')" = 401
           curl -sf localhost:8787/.well-known/oauth-authorization-server | grep -q registration_endpoint
+      - name: Restore drill (back up, lose a row, restore, prove it is back; docs/runbooks/backup-restore.md)
+        run: scripts/ci-run.sh "restore drill" scripts/ops/backup-drill.sh inkcast
       - name: Deploy the split services (one Deployment per INKCAST_APP_NAME, built-in Gateway in front)
         run: |
           scripts/ci-run.sh "apply ci-split" kubectl apply -k deploy/kustomize/overlays/ci-split
