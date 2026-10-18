@@ -37,6 +37,9 @@ def files() -> dict[pathlib.Path, str]:
     return {
         OUT / "kustomization.yaml": HEADER + yaml.safe_dump(kustomization, sort_keys=False),
         OUT / "grafana-inkcast-platform.json": json.dumps(platform_dashboard(), indent=2) + "\n",
+        # The local stack (deploy/dev, Compose and kind) loads the same JSON from inside its own kustomization root.
+        ROOT / "deploy" / "dev" / "grafana" / "dashboards" / "grafana-inkcast-platform.json":
+            json.dumps(platform_dashboard(), indent=2) + "\n",
     }
 
 

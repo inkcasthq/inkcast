@@ -1,0 +1,12 @@
+# Prometheus for deploy/dev/compose.yaml: scrape the one Inkcast container, with the labels the dashboard and
+# alerts expect from Kubernetes (namespace, pod, service), and load the generated rules (alerts and SLOs).
+global:
+  scrape_interval: 5s
+  evaluation_interval: 15s
+rule_files:
+  - /etc/prometheus/rules.yaml
+scrape_configs:
+  - job_name: inkcast-metrics
+    static_configs:
+      - targets: ["inkcast:9090"]
+        labels: {namespace: inkcast, pod: inkcast, service: all}
