@@ -161,7 +161,7 @@ Maturity as listed on cncf.io/projects (checked 2026-10-18); re-check before rel
 | Secrets | External Secrets Operator | Sandbox (2022) | `components/external-secrets` |
 | Policy | Kyverno (image signature + SBOM verification) | Graduated | `deploy/policies` |
 | Network | NetworkPolicy default-deny; Cilium FQDN egress or OVN EgressFirewall | Cilium: Graduated | base + `components/egress-*` |
-| Metrics | Prometheus (ServiceMonitor) | Graduated | `components/servicemonitor` |
+| Metrics | Prometheus (ServiceMonitor) | Graduated | `components/servicemonitor`, `components/metrics-access` (who may scrape) |
 | Traces | OpenTelemetry | Graduated | issue 27 |
 | Logs | stdout JSON → Fluent Bit / Fluentd | Fluentd: Graduated | platform logging |
 | Autoscaling | KEDA on `inkcast_posts_due` / media queue | Graduated | social epic, issue 17 |
