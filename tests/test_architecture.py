@@ -173,3 +173,15 @@ class Workflows(unittest.TestCase):
                 runners.append((path.name, value))
                 self.assertNotRegex(value, r"-latest$", f"{path.name}: pin the runner image, not {value}")
         self.assertGreater(len(runners), 10, "the check must see the jobs, not silently nothing")
+
+    def test_codeql_runs_as_one_configuration_on_pull_requests_and_main(self):
+        """Issue #15: CodeQL inside ci.yml ran as ci.yml:codeql on PRs but publish.yml:codeql on main (ci.yml is
+        publish.yml's gate), so GitHub could not compare a PR with main. It lives in its own workflow."""
+        import pathlib
+        import yaml
+        root = pathlib.Path(__file__).resolve().parents[1] / ".github" / "workflows"
+        holders = [p.name for p in root.glob("*.yml") if "github/codeql-action/init" in p.read_text()]
+        self.assertEqual(holders, ["codeql.yml"])
+        triggers = yaml.safe_load((root / "codeql.yml").read_text())[True]   # YAML reads the key `on` as True
+        self.assertIn("pull_request", triggers)
+        self.assertEqual(triggers["push"]["branches"], ["main"])
