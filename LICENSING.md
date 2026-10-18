@@ -8,7 +8,7 @@ Copyright 2026 ScalarOps Technologies LLC. Inkcast is a product of ScalarOps Tec
 
 ## You can
 
-- **Use Inkcast for free, for any purpose that doesn't compete**, including commercial use: individuals, teams and whole companies publishing their own content.
+- **Use Inkcast for free, for any purpose that doesn't compete**, including commercial use: individuals, teams and whole companies publishing **their own** content. Publishing for clients is the exception; see the agencies section below.
 - **Self-host it** for your organisation's internal use, at any scale.
 - **Modify it**, and **share** copies and modified versions. Anyone who receives a copy must also receive the LICENSE and the `Required Notice` line.
 - **Build things that work with it**: plug-ins for new platforms, scripts, integrations, internal tooling.
@@ -47,13 +47,25 @@ A fork stays under these same terms. Changing the name doesn't change the licenc
 - **Allowed:** a company using Inkcast to publish and schedule **its own** content, public posts included, at any scale.
 - **Not allowed:** a company **packaging Inkcast's features for its customers**, for example inside its own SaaS or platform, or publishing on behalf of clients through a client-facing product built on Inkcast. That competes with Inkcast and needs a commercial licence.
 
+## Agencies and client publishing: commercial licence required
+
+Publishing, scheduling or managing content **on behalf of clients** with Inkcast is a **commercial use that needs a commercial licence**, even when clients never log in and Inkcast runs only on the agency's own systems. This covers:
+
+- marketing, PR, content and social media agencies;
+- freelancers and consultancies whose service is posting for others;
+- any business operating Inkcast for multiple brands it doesn't own.
+
+**Why.** Publishing on behalf of clients is part of Inkcast's own line of business: ScalarOps offers it as a paid agency and team product. An agency doing it with the free edition provides a service that competes with that product.
+
+Publishing for **your own** brands, and those of your corporate affiliates, stays free.
+
 ## Still unsure? Ask
 
 Embedding parts of Inkcast in a larger product, and other cases not covered above, depend on the details. Ask before you build. If it's fine, we'll say so in writing; if not, a commercial licence is the answer.
 
 ## Commercial licences
 
-ScalarOps grants **commercial licences** for uses the Shield licence doesn't cover: reselling, white-labelling, embedding, hosted offerings, or different warranty and support terms.
+ScalarOps grants **commercial licences** for uses the Shield licence doesn't cover: agency and client publishing, reselling, white-labelling, embedding, hosted offerings, or different warranty and support terms.
 
 Contact: **[LICENSING CONTACT — set before the repository goes public]**
 
