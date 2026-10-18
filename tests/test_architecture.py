@@ -156,3 +156,20 @@ class Architecture(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Workflows(unittest.TestCase):
+    """CI runs on a pinned runner image (issue #16): `ubuntu-latest` moves to a new Ubuntu on GitHub's date, not
+    ours, and kind, Docker Compose and Playwright's system packages all depend on it. Move deliberately, in a PR."""
+
+    def test_every_job_runs_on_a_pinned_image(self):
+        import pathlib
+        import re
+        workflows = sorted((pathlib.Path(__file__).resolve().parents[1] / ".github" / "workflows").glob("*.yml"))
+        self.assertTrue(workflows)
+        runners = []
+        for path in workflows:
+            for value in re.findall(r"^\s*runs-on:\s*(\S+)", path.read_text(), re.M):
+                runners.append((path.name, value))
+                self.assertNotRegex(value, r"-latest$", f"{path.name}: pin the runner image, not {value}")
+        self.assertGreater(len(runners), 10, "the check must see the jobs, not silently nothing")
