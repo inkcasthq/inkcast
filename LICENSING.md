@@ -1,81 +1,82 @@
 # Licensing
 
-Inkcast is **source-available** under the [PolyForm Shield License 1.0.0](LICENSE). You can read, run, change and share the code. You can't use it to compete with Inkcast. It is not "open source" as the Open Source Initiative defines it, because it limits competing use.
+Inkcast is **source-available**. Copyright 2026 ScalarOps Technologies LLC.
 
-Copyright 2026 ScalarOps Technologies LLC. Inkcast is a product of ScalarOps Technologies LLC.
+The code is licensed under the [PolyForm Shield License 1.0.0](LICENSE), plus one [additional permission](legal/ADDITIONAL-PERMISSIONS.md) for consultants. Uses outside those terms need a [commercial licence](legal/COMMERCIAL-LICENSE.md). It is not "open source" as the Open Source Initiative defines it, because it limits competing use.
 
-*This page is a plain-language summary. If it and the [LICENSE](LICENSE) ever disagree, the LICENSE wins.*
+*This page explains the model in plain language. The binding documents are [LICENSE](LICENSE), [legal/ADDITIONAL-PERMISSIONS.md](legal/ADDITIONAL-PERMISSIONS.md) and, for commercial customers, their signed agreement. If this page and those disagree, those win.*
 
-## You can
+## 1. The model in one table
 
-- **Use Inkcast for free, for any purpose that doesn't compete**, including commercial use: individuals, teams and whole companies publishing **their own** content. Publishing for clients is the exception; see the agencies section below.
-- **Self-host it** for your organisation's internal use, at any scale.
-- **Modify it**, and **share** copies and modified versions. Anyone who receives a copy must also receive the LICENSE and the `Required Notice` line.
-- **Build things that work with it**: plug-ins for new platforms, scripts, integrations, internal tooling.
-- **Contribute** improvements back. See [CONTRIBUTING.md](CONTRIBUTING.md).
+| Who | Doing what | Licence |
+|---|---|---|
+| Individuals, teams, companies of any size | Publishing **their own** content, including marketing and other revenue-generating posts | **Free** (PolyForm Shield) |
+| Anyone | Self-hosting, modifying, writing plug-ins, sharing copies with the notices intact | **Free** |
+| Consultants and integrators | Setting up, customising and supporting Inkcast **for one client's own use**, and billing for that work | **Free** (additional permission) |
+| Agencies, freelancers, any business | Publishing, scheduling or managing content **for clients** or for brands it doesn't own | **Commercial** |
+| A client that will **monetise** Inkcast (sell publishing, scheduling or content services to others with it) | Having it set up and running it | **Commercial**, held by that client |
+| Any company | Packaging Inkcast's features into **its own product, platform or SaaS** for its customers | **Commercial** |
+| Anyone | Hosting Inkcast as a service for others; reselling, rebranding or white-labelling it | **Commercial**, or not available |
+| Anyone | Using the **Inkcast name or logo** for a product, fork or service | Needs written permission ([TRADEMARKS.md](TRADEMARKS.md)) |
 
-## You can't
+## 2. Definitions
 
-- **Offer Inkcast, or a product built with it, that competes with Inkcast or with any product ScalarOps provides using it.** For example:
-  - a hosted or managed publishing/scheduling service for other people or companies;
-  - a repackaged, rebranded or white-labelled version, whether sold or given away;
-  - bundling Inkcast's functionality into your own product as a substitute for Inkcast.
+These terms have these meanings on this page and in the additional permission.
 
-  This holds even when the product is free, uses a different interface, or runs on a different platform.
-- **Use the Inkcast name or logo** for your product or fork. See [TRADEMARKS.md](TRADEMARKS.md).
+- **Own content.** Content published for **you** or your **affiliates** (organisations you control, that control you, or that are under common control with you), under your or their brands. It includes content that earns you money, such as marketing, announcements and your blog.
+- **Client publishing.** Publishing, scheduling or managing content **for another party**, or under brands you don't own, whether or not that party ever touches Inkcast.
+- **Monetise Inkcast.** Providing publishing, scheduling, cross-posting or content services **to others for payment** where Inkcast does the work. Earning money from your own content is not monetising Inkcast.
+- **Competing product.** As defined in the PolyForm Shield licence: any product, free or paid, under any name or interface, that substitutes for Inkcast or for a product ScalarOps provides using it. ScalarOps' line of business, named in the LICENSE, includes publishing for organisations **and** for agencies and others publishing on behalf of clients.
+- **Consultant services.** Installing, configuring, customising, operating, training on and supporting Inkcast **for a single client**, under the [additional permission](legal/ADDITIONAL-PERMISSIONS.md).
 
-A fork stays under these same terms. Changing the name doesn't change the licence.
+## 3. Free use
 
-## Consultants and integrators
+You may, without paying:
 
-**Additional permission.** ScalarOps Technologies LLC grants this permission on top of the PolyForm Shield License:
+- **use Inkcast for your own content,** at any scale, inside any organisation;
+- **self-host it,** modify it, and build plug-ins, scripts and integrations for it;
+- **share copies and modified versions,** as long as each recipient also gets the LICENSE and the `Required Notice` line. A fork stays under these same terms, whatever it is called;
+- **provide consultant services** under the additional permission;
+- **contribute** improvements (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 
-> You may install, configure, customise, operate and support Inkcast **for a client**, and charge for those services, as long as **all** of the following hold:
->
-> - the deployment is used only for that client's own internal purposes;
-> - the client is the party using the software;
-> - the deployment keeps the `Required Notice` and does not present Inkcast as your own product;
-> - **the client does not use Inkcast to provide services to others for payment.** If it does, the client needs a commercial licence before the consultant sets it up, and this permission does not cover the work.
+## 4. Uses that need a commercial licence
+
+- **Client publishing:** agencies; marketing, PR and social media firms; freelancers posting for others; any business running Inkcast for brands it doesn't own. This applies even when clients never log in and Inkcast runs only on your systems.
+- **Monetising Inkcast:** selling publishing, scheduling or content services to others with it. If a consultant sets Inkcast up for such a client, **the client** needs the commercial licence first.
+- **Embedding or packaging Inkcast's features** in your own product, platform or SaaS.
+- **Hosting it as a service** for others, or **reselling, rebranding or white-labelling** it.
+- **Different terms:** warranty, indemnity, support or service levels that the free licence doesn't give.
+
+See [legal/COMMERCIAL-LICENSE.md](legal/COMMERCIAL-LICENSE.md) for what a commercial licence covers and how to get one.
+
+## 5. Consultants
+
+Consultants may set up and support Inkcast for a client and charge for that work, under the [additional permission](legal/ADDITIONAL-PERMISSIONS.md).
 
 | A consultant **may** | A consultant **may not** |
 |---|---|
-| Set up and run Inkcast for one client's own internal use, and bill for the work | **Rebrand or white-label** Inkcast, or present it as their own product |
-| Build that client custom plug-ins and integrations | Run **one deployment for several clients**, or host it as a service for clients |
-| Train and support the client's team | Package Inkcast's features into **their own product or SaaS** offered to others |
-| | Set Inkcast up for a client that will **monetise it**: offering publishing, scheduling or content services to others with it. **That client must hold a commercial licence first.** |
+| Set up and run Inkcast for **one client's own content**, and bill for it | **Rebrand or white-label** Inkcast, or present it as their own product |
+| Build that client custom plug-ins and integrations | Run **one deployment for several clients**, or host it for clients |
+| Train and support the client's team | Package Inkcast's features into **their own product or SaaS** |
+| | Set it up for a client that will **monetise** it, unless that client holds a commercial licence |
 
-## Companies
+## 6. Quick check
 
-- **Allowed:** a company using Inkcast to publish and schedule **its own** content, public posts included, at any scale.
-- **"Its own content" includes revenue-generating content:** marketing posts, product announcements, a company blog. A company that profits from its own posts does not need a commercial licence for that.
-- **Not allowed:** a company **packaging Inkcast's features for its customers**, for example inside its own SaaS or platform, or publishing on behalf of clients through a client-facing product built on Inkcast. That competes with Inkcast and needs a commercial licence.
+1. **Is the content yours or your affiliates'?** Yes → free. No → commercial licence.
+2. **Will anyone pay you for publishing, scheduling or content services that Inkcast performs?** Yes → commercial licence.
+3. **Is Inkcast, or its features, part of something you give or sell to others** (product, SaaS, hosted service, rebranded copy)? Yes → commercial licence.
+4. **Are you a consultant setting it up for one client who answered "free" to 1–3?** Yes → free under the additional permission.
 
-## Agencies and client publishing: commercial licence required
+Still unsure? Ask before you build. We'll confirm in writing.
 
-Publishing, scheduling or managing content **on behalf of clients** with Inkcast is a **commercial use that needs a commercial licence**, even when clients never log in and Inkcast runs only on the agency's own systems. This covers:
+## 7. Contributions
 
-- marketing, PR, content and social media agencies;
-- freelancers and consultancies whose service is posting for others;
-- any business operating Inkcast for multiple brands it doesn't own.
+Contributions are accepted under the [Contributor License Agreement](legal/CLA-INDIVIDUAL.md); organisations use the [Entity CLA](legal/CLA-ENTITY.md). The CLA lets ScalarOps ship contributions under the free licence **and** commercial licences, and sell them, so one codebase serves both.
 
-**Why.** Publishing on behalf of clients is part of Inkcast's own line of business: ScalarOps offers it as a paid agency and team product. An agency doing it with the free edition provides a service that competes with that product.
+## 8. Third-party software
 
-Publishing for **your own** brands, and those of your corporate affiliates, stays free.
+Inkcast includes and depends on third-party software under its own licences; see [NOTICE](NOTICE). The terms above cover only ScalarOps' code.
 
-## Still unsure? Ask
+## Contact
 
-Embedding parts of Inkcast in a larger product, and other cases not covered above, depend on the details. Ask before you build. If it's fine, we'll say so in writing; if not, a commercial licence is the answer.
-
-## Commercial licences
-
-ScalarOps grants **commercial licences** for uses the Shield licence doesn't cover: agency and client publishing, reselling, white-labelling, embedding, hosted offerings, or different warranty and support terms.
-
-Contact: **[LICENSING CONTACT — set before the repository goes public]**
-
-## Contributions
-
-Contributions are accepted under the [Inkcast Contributor License Agreement](legal/CLA-INDIVIDUAL.md); organisations use the [Entity CLA](legal/CLA-ENTITY.md). The CLA lets ScalarOps distribute contributions under this licence **and** under commercial terms, so one codebase serves both the free and the paid offering.
-
-## Third-party software
-
-Inkcast includes or depends on third-party software under its own licences. See [NOTICE](NOTICE). The PolyForm Shield terms cover only ScalarOps' own code.
+Licensing and commercial enquiries: **[LICENSING CONTACT — set before the repository goes public]**
