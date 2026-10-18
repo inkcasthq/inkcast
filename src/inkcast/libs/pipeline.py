@@ -252,10 +252,11 @@ class Publisher:
         row = self.store.get_post(post_id)
         if not row or row["user_id"] != user_id:
             raise PlatformError(f"No post {post_id!r}.")
-        if row["status"] != "scheduled":
+        # One conditional update, so a scheduler claim can't land between a status check and the write.
+        if not self.store.cancel_if_scheduled(post_id, user_id):
+            status = (self.store.get_post(post_id) or row)["status"]
             raise PlatformError(
-                f"Post {post_id} is {row['status']}; only scheduled posts can be cancelled. Published stories have to "
+                f"Post {post_id} is {status}; only scheduled posts can be cancelled. Published stories have to "
                 "be removed on the platform itself."
             )
-        self.store.update_post(post_id, status="cancelled")
         return row["title"]

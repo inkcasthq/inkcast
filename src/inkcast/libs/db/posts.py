@@ -48,6 +48,17 @@ class PostsRepo(Database):
         cols = ", ".join(f"{k} = ?" for k in fields)
         self._exec(f"UPDATE posts SET {cols} WHERE id = ?", *fields.values(), post_id)
 
+    def cancel_if_scheduled(self, post_id: str, user_id: str) -> bool:
+        """Move one of the user's posts from 'scheduled' to 'cancelled' in a single conditional statement.
+
+        False when the post isn't 'scheduled' any more: the scheduler claimed it a moment ago, or it was already
+        cancelled. Checking the status and then updating it separately would let a claim slip in between, and the
+        post would go out after the cancel reported success."""
+        return self._exec(
+            "UPDATE posts SET status = 'cancelled', updated_at = ? WHERE id = ? AND user_id = ? AND status = 'scheduled'",
+            time.time(), post_id, user_id,
+        ) == 1
+
     def get_post(self, post_id: str) -> dict[str, Any] | None:
         row = self._one("SELECT * FROM posts WHERE id = ?", post_id)
         return dict(row) if row else None
