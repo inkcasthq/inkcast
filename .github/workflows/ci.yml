@@ -138,10 +138,8 @@ jobs:
           curl -sf localhost:8787/.well-known/oauth-authorization-server | grep -q registration_endpoint
       - name: Deploy the split services (one Deployment per INKCAST_APP_NAME, built-in Gateway in front)
         run: |
-          kubectl apply -k deploy/kustomize/overlays/ci-split
-          for d in $(kubectl -n inkcast-split get deploy -o name); do
-            kubectl -n inkcast-split rollout status "$d" --timeout=180s
-          done
+          scripts/ci-run.sh "apply ci-split" kubectl apply -k deploy/kustomize/overlays/ci-split
+          scripts/ci-run.sh "split rollout" scripts/ci-rollout.sh inkcast-split 180s
       - name: Smoke test the split services through the Gateway
         run: |
           set -euo pipefail

@@ -59,9 +59,10 @@ def detect_ref() -> str | None:
 
 def raw_base(source: str, ref: str | None) -> str | None:
     """Where relative images in the repository can be fetched publicly (GitHub only)."""
-    if not ref or not source.startswith("github.com/"):
+    host, _, repo = source.partition("/")
+    if not ref or host != "github.com" or repo.count("/") != 1:
         return None
-    return f"https://raw.githubusercontent.com/{source[len('github.com/'):]}/{ref}/"
+    return f"https://raw.githubusercontent.com/{repo}/{ref}/"
 
 
 def collect(patterns: list[str]) -> list[str]:
