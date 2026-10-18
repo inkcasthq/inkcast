@@ -107,7 +107,7 @@ class Publisher:
         return sorted(outcomes, key=lambda o: order.get(o.platform, 99))
 
     async def _send(self, post_id: str, user_id: str, platform: Platform, prepared: Prepared, attempts: int,
-                    scheduled: bool = False) -> Outcome:
+                    scheduled: bool = False, lag: float | None = None) -> Outcome:
         connected = self.store.get_credentials(user_id, platform.id)
         if not connected:
             self.store.update_post(post_id, status="failed", error=f"{platform.name} was disconnected.",
@@ -152,7 +152,8 @@ class Publisher:
         self.store.update_post(post_id, status=status, result_url=result.url, remote_id=result.remote_id,
                                error="; ".join(result.notes) or None,
                                events=self._event("post.published", post_id, user_id, platform.id, status=status,
-                                                  scheduled=scheduled, attempts=attempts))
+                                                  scheduled=scheduled, attempts=attempts,
+                                                  lag_seconds=round(lag, 3) if lag is not None else None))
         self._count(platform.id, status)
         return Outcome(platform.id, status, post_id=post_id, url=result.url, notes=result.notes, prepared=prepared,
                        remote_id=result.remote_id)
@@ -240,14 +241,16 @@ class Publisher:
         now = now or time.time()
         outcomes = [await self.recover(row) for row in self.store.claim_stuck(older_than=now - STUCK_AFTER)]
         for row in self.store.claim_due_posts(now):
-            self._observe("inkcast_publish_lag_seconds", max(0.0, now - float(row["run_at"])), platform=row["platform"])
+            lag = max(0.0, now - float(row["run_at"]))
+            self._observe("inkcast_publish_lag_seconds", lag, platform=row["platform"])
             platform = self.platforms.get(row["platform"])
             if platform is None:
                 self.store.update_post(row["id"], status="failed", error=f"Platform plug-in {row['platform']!r} is not installed.",
                                        events=self._event("post.failed", row["id"], row["user_id"], row["platform"], reason="plugin"))
                 continue
             prepared = Prepared.from_dict(json.loads(row["payload"]))
-            outcomes.append(await self._send(row["id"], row["user_id"], platform, prepared, row["attempts"], scheduled=True))
+            outcomes.append(await self._send(row["id"], row["user_id"], platform, prepared, row["attempts"], scheduled=True,
+                                             lag=lag))
         return outcomes
 
     async def run_forever(self, interval: float, stop: asyncio.Event, housekeeping: Any = None,

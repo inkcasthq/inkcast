@@ -59,6 +59,7 @@ def build_metrics(store: Store | None, registry: dict[str, Platform], config: Co
     m.counter("inkcast_cache_requests_total", "Cache reads by backend and result (hit or miss): the hit ratio.")
     m.counter("inkcast_cache_errors_total", "Cache backend failures by backend (a request fell back or failed).")
     m.counter("inkcast_outbox_events_total", "Domain events handed to event sinks, by sink and result (handled, failed).")
+    m.counter("inkcast_kpi_events_total", "Domain events folded into KPI rollups, by result (applied, duplicate).")
     if store is None:
         return m
     m.gauge("inkcast_posts", "Posts by status.", lambda: {(("status", k),): v for k, v in store.post_counts().items()})
