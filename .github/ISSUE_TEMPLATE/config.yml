@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/inkcasthq/inkcast/security/advisories/new
+    about: Report privately. Please don't open a public issue (see SECURITY.md).
+  - name: Commercial licence or "is my use free?"
+    url: https://github.com/inkcasthq/inkcast/blob/main/LICENSING.md
+    about: The licensing model, a quick check, and how to get a commercial licence.
+  - name: Documentation
+    url: https://github.com/inkcasthq/inkcast/blob/main/docs/README.md
+    about: Setup, architecture, CI/CD, plug-in guide and roadmap.

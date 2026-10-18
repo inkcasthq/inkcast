@@ -20,6 +20,13 @@ dependencies = [
   "python-multipart>=0.0.9",
 ]
 
+[project.urls]
+Homepage = "https://github.com/inkcasthq/inkcast"
+Documentation = "https://github.com/inkcasthq/inkcast/blob/main/docs/README.md"
+Licensing = "https://github.com/inkcasthq/inkcast/blob/main/LICENSING.md"
+Source = "https://github.com/inkcasthq/inkcast"
+Issues = "https://github.com/inkcasthq/inkcast/issues"
+
 [project.scripts]
 inkcast = "inkcast.server:main"
 

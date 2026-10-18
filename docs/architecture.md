@@ -143,3 +143,7 @@ Maturity as listed on cncf.io/projects (checked 2026-10-18); re-check before rel
 - **Scheduler:** with SQLite, run `inkcast all` as a single pod. With Postgres (issue 10), `web` and `worker` split.
 - **Platforms:** Medium cannot edit or delete via its API, and DEV unpublishing needs the platform UI. Inkcast cancels only what hasn't been sent.
 - **Images:** they must be public URLs. Uploading to Medium's image endpoint is planned.
+
+---
+<!-- inkcast-nav -->
+[Docs](../docs/README.md) · [Licensing](../LICENSING.md) · [Legal](../legal/README.md) · [Contributing](../CONTRIBUTING.md) · [Security](../SECURITY.md) · [Inkcast README](../README.md)
