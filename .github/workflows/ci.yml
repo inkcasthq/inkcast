@@ -62,7 +62,7 @@ jobs:
         run: |
           mkdir -p "$INKCAST_CAPTURE_DIR"
           PYTHONPATH=src:tests python -m unittest discover -s tests -v
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always() && matrix.python == '3.12'
         with:
           name: captures-${{ github.sha }}
@@ -96,12 +96,12 @@ jobs:
           fail-build: true
           severity-cutoff: high
           only-fixed: true
-      - uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+      - uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         if: always() && steps.scan.outputs.sarif != '' && (vars.CODE_SECURITY == 'true' || github.event.repository.visibility == 'public')
         with:
           sarif_file: ${{ steps.scan.outputs.sarif }}
           category: image
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always() && steps.scan.outputs.sarif != ''
         with:
           name: image-scan-${{ github.sha }}
@@ -151,10 +151,10 @@ jobs:
       security-events: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+      - uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           languages: python, javascript-typescript
           queries: security-extended
           config: |
             paths-ignore: [src/inkcast/static/vendor]
-      - uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+      - uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
