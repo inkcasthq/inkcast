@@ -4,6 +4,9 @@
 2. A service never imports another service; services share only libs, contracts, the store and HTTP.
 3. Every service is CamelCase, has a unique kebab full name, and its public paths match the route table.
 4. The kustomize route manifests agree with the route table.
+5. ``libs.secrets`` is the bottom layer: it imports nothing else from ``inkcast`` (logging, config and HTTP
+   all depend on it, never the reverse), and every ``reveal()`` lives in a file that is allowed to use one.
+6. Every source file carries the licence header.
 """
 
 import ast
@@ -25,7 +28,13 @@ def imports(path: pathlib.Path) -> set[str]:
     module = ".".join(path.relative_to(SRC).with_suffix("").parts)
     package = module[: -len(".__init__")] if path.name == "__init__.py" else module.rsplit(".", 1)[0]
     found = set()
-    for node in ast.walk(ast.parse(path.read_text())):
+    tree = ast.parse(path.read_text())
+    # `if TYPE_CHECKING:` imports are for type checkers only; they never run, so they are not a dependency.
+    typing_only = {id(n) for top in ast.walk(tree) if isinstance(top, ast.If)
+                   and isinstance(top.test, ast.Name) and top.test.id == "TYPE_CHECKING" for n in ast.walk(top)}
+    for node in ast.walk(tree):
+        if id(node) in typing_only:
+            continue
         if isinstance(node, ast.Import):
             found |= {a.name for a in node.names}
         elif isinstance(node, ast.ImportFrom):
@@ -61,6 +70,33 @@ class Architecture(unittest.TestCase):
                 if bad:
                     offenders[str(path.relative_to(SRC))] = bad
         self.assertEqual(offenders, {})
+
+    def test_secrets_is_the_bottom_layer(self):
+        offenders = {}
+        for path in (SRC / "inkcast" / "libs" / "secrets").rglob("*.py"):
+            bad = sorted(i for i in imports(path) if i.startswith("inkcast.") and not i.startswith("inkcast.libs.secrets"))
+            if bad:
+                offenders[str(path.relative_to(SRC))] = bad
+        self.assertEqual(offenders, {}, "libs/secrets must not depend on the rest of inkcast (it is imported by all of it)")
+
+    def test_reveal_is_only_called_where_a_credential_is_used(self):
+        """Every ``.reveal()`` is a place a secret leaves its wrapper: keep the list short and reviewed."""
+        allowed = {
+            "inkcast/libs/secrets",                 # the wrapper and the provider themselves
+            "inkcast/libs/config.py",               # validate(): lengths only
+            "inkcast/services/identity/login.py",   # the HMAC key, the IdP client secrets
+        }
+        found = {}
+        for path in (SRC / "inkcast").rglob("*.py"):
+            rel = str(path.relative_to(SRC))
+            if ".reveal(" in path.read_text() and not any(rel.startswith(a) for a in allowed):
+                found[rel] = path.read_text().count(".reveal(")
+        self.assertEqual(found, {}, "a new .reveal() call site: add it to the allow-list above if it is justified")
+
+    def test_every_source_file_has_the_licence_header(self):
+        missing = [str(p.relative_to(ROOT)) for d in ("src", "scripts") for p in (ROOT / d).rglob("*.py")
+                   if "static" not in p.parts and "LicenseRef-PolyForm-Shield-1.0.0" not in p.read_text()[:300]]
+        self.assertEqual(missing, [])
 
     def test_service_names(self):
         names = [s.full_name for s in BUILTIN.values()]
