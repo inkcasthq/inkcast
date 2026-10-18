@@ -5,6 +5,11 @@
 #             SLSA build provenance in GitHub's attestation store, then READ EACH ONE BACK
 #   release (tags only) -> GitHub Release with the manifests rendered against the digest
 #
+# PLAN SWITCH: GITHUB_ATTESTATIONS=true (repository variable) adds GitHub-native SLSA provenance.
+# GitHub supports artifact attestations in private repos only on Enterprise Cloud, so on Team the
+# image is still signed and carries an SBOM attestation (cosign, Sigstore), without GitHub's store.
+# Note: keyless signing records the repository and workflow path in the public Rekor log.
+#
 # Only `attest` can mint an OIDC token, and only `build` can write packages: least privilege
 # per job. The ci.yml gate runs first, so nothing unchecked is ever published.
 name: publish
@@ -95,7 +100,8 @@ jobs:
           set -euo pipefail
           cosign sign --yes "$IMAGE@$REF"
           cosign attest --yes --type spdxjson --predicate sbom-${{ github.sha }}.spdx.json "$IMAGE@$REF"
-      - name: SLSA build provenance
+      - name: SLSA build provenance (GitHub attestation store)
+        if: vars.GITHUB_ATTESTATIONS == 'true'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ env.IMAGE }}
@@ -110,8 +116,12 @@ jobs:
           ISSUER=https://token.actions.githubusercontent.com
           cosign verify --certificate-identity "$ID" --certificate-oidc-issuer "$ISSUER" "$IMAGE@$REF" > /dev/null
           cosign verify-attestation --type spdxjson --certificate-identity "$ID" --certificate-oidc-issuer "$ISSUER" "$IMAGE@$REF" > /dev/null
-          gh attestation verify "oci://$IMAGE@$REF" --repo "$GITHUB_REPOSITORY" > /dev/null
-          echo "Signature, SBOM attestation and provenance verified for $IMAGE@$REF" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ vars.GITHUB_ATTESTATIONS }}" = "true" ]; then
+            gh attestation verify "oci://$IMAGE@$REF" --repo "$GITHUB_REPOSITORY" > /dev/null
+            echo "Signature, SBOM attestation and provenance verified for $IMAGE@$REF" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Signature and SBOM attestation verified for $IMAGE@$REF (GitHub provenance off)" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
