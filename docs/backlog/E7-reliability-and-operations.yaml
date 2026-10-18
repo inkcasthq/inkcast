@@ -116,6 +116,23 @@ features:
       budget)'
     status: planned
     change: new
+  - id: F7.7.S4
+    title: 'Local Grafana stack for testing dashboards: Prometheus and Grafana on Docker Compose and on kind (deploy/dev),
+      provisioned from the generated dashboard and rules, seeded with real traffic, every panel checked'
+    status: in-progress
+    change: 'new; built in PR #8 (mark done when it merges)'
+    acceptance:
+    - scripts/dev/stack.sh compose and scripts/dev/stack.sh kind each start Inkcast, fake DEV and Medium, Prometheus and Grafana
+      with one command
+    - Grafana is provisioned (data source, dashboard) from the generated files, light theme only, anonymous viewer, bound
+      to localhost, no calls home
+    - Prometheus loads the generated alert and SLO rules; the scrape labels (namespace, pod, service) match the cluster's,
+      so the same queries work in both
+    - kind manifests pass Pod Security restricted; the monitoring namespace carries the label the Inkcast NetworkPolicy admits
+    - The seed signs in like an MCP client and makes publishes, scheduled sends, a Git sync and refused requests
+    - 'The check runs every panel''s queries through Grafana: any query error fails; the core panels must have data; a light
+      screenshot and summary are uploaded'
+    - Both paths run in CI (a Compose job and kind steps); secrets are generated per run and never committed
 - id: F7.8
   title: Traces and the OTLP exporter (replaces issue 27)
   stories:
