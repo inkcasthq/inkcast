@@ -267,3 +267,108 @@ class FetcherTests(unittest.TestCase):
             with self.assertRaisesRegex(SecretFetchError, "SSRF token was refused"):
                 agent.fetch("INKCAST_SECRET_KEY")
             self.assertEqual(agent.paths("X"), [token_file])
+
+
+class ProviderTests(unittest.TestCase):
+    def make(self, value="v1", **kw):
+        from inkcast.libs.secrets import Fetched, Fetcher, SecretsProvider
+
+        class Fake(Fetcher):
+            kind = "fake"
+
+            def __init__(self):
+                self.value, self.version, self.calls, self.fail, self.delay = value, 1, 0, False, 0.0
+
+            def fetch(self, name, *, force=False):
+                import time
+                self.calls += 1
+                self.last_force = force
+                if self.delay:
+                    time.sleep(self.delay)
+                if self.fail:
+                    raise RuntimeError("endpoint unreachable")
+                return Fetched(self.value, f"fake:{name}", f"v{self.version}")
+
+        now = [0.0]
+        fetcher = Fake()
+        redactor = Redactor()
+        provider = SecretsProvider(fetcher, clock=lambda: now[0], redactor=redactor, **kw)
+        return provider, fetcher, now, redactor
+
+    def test_caches_registers_and_reports_status_without_values(self):
+        provider, fetcher, now, redactor = self.make("pw-version-1", ttl=300)
+        a, b = provider.get("DB"), provider.get("DB")
+        self.assertEqual((a.reveal(), b.reveal(), fetcher.calls), ("pw-version-1", "pw-version-1", 1))
+        self.assertTrue(redactor.contains("pw-version-1"))  # registered before anything can log it
+        [s] = provider.status()
+        self.assertEqual((s["name"], s["source"], s["version"], s["length"], s["cache_hits"], s["fetches"], s["present"]),
+                         ("DB", "fake:DB", "v1", 12, 1, 1, True))
+        self.assertNotIn("pw-version-1", json.dumps(provider.status()))
+        self.assertEqual(provider.mode, "fake")
+        self.assertEqual(provider.names(), ["DB"])
+
+    def test_refresh_bypasses_the_cache_and_tells_listeners(self):
+        provider, fetcher, now, _ = self.make("pw-version-1")
+        events = []
+        provider.on_change(events.append)
+        provider.get("DB")
+        fetcher.value, fetcher.version = "pw-version-2", 2
+        self.assertEqual(provider.get("DB").reveal(), "pw-version-1")  # still cached
+        self.assertEqual(provider.refresh("DB", "db-auth-failure").reveal(), "pw-version-2")
+        self.assertTrue(fetcher.last_force)
+        [event] = events
+        self.assertEqual((event.name, event.reason, event.changed, event.version), ("DB", "db-auth-failure", True, "v2"))
+        self.assertNotEqual(event.fingerprint, event.previous_fingerprint)
+        self.assertEqual(provider.status()[0]["changes"], 1)
+        provider.refresh("DB", "again")  # same value: no event
+        self.assertEqual(len(events), 1)
+
+    def test_stale_on_error_is_bounded_by_max_stale(self):
+        provider, fetcher, now, _ = self.make("pw-version-1", ttl=100, max_stale=1000)
+        provider.get("DB")
+        now[0] = 200  # TTL expired
+        fetcher.fail = True
+        with self.assertLogs("inkcast.libs.secrets", "WARNING"):
+            self.assertEqual(provider.get("DB").reveal(), "pw-version-1")  # served stale
+        self.assertIn("endpoint unreachable", provider.status()[0]["last_error"])
+        self.assertTrue(provider.status()[0]["stale"])
+        self.assertEqual(provider.get("DB").reveal(), "pw-version-1")  # within the short retry window: no fetch
+        self.assertEqual(fetcher.calls, 2)
+        now[0] = 1300  # older than max_stale: the outage is now an error
+        with self.assertRaises(RuntimeError):
+            provider.get("DB")
+        with self.assertRaises(RuntimeError):  # a forced refresh never serves stale
+            provider.refresh("DB")
+        fetcher.fail = False
+        self.assertEqual(provider.get("DB").reveal(), "pw-version-1")
+        self.assertIsNone(provider.status()[0]["last_error"])
+
+    def test_single_flight_under_concurrency(self):
+        import threading
+        provider, fetcher, now, _ = self.make("pw")
+        fetcher.delay = 0.05
+        threads = [threading.Thread(target=provider.get, args=("DB",)) for _ in range(30)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(fetcher.calls, 1)
+
+    def test_absent_secrets_are_empty_and_require_raises(self):
+        from inkcast.libs.secrets import SecretNotFound, SecretsProvider
+        p = SecretsProvider(environ={"PRESENT": "value-here"})
+        self.assertFalse(p.get("MISSING"))
+        self.assertEqual(p.status()[0]["source"], "absent")
+        with self.assertRaises(SecretNotFound):
+            p.require("MISSING")
+        self.assertEqual(p.require("PRESENT").reveal(), "value-here")
+
+    def test_async_wrappers(self):
+        import asyncio
+        provider, fetcher, now, _ = self.make("pw")
+
+        async def run():
+            v = await provider.aget("DB")
+            w = await provider.arefresh("DB", "test")
+            return v.reveal(), w.reveal(), fetcher.calls
+        self.assertEqual(asyncio.run(run()), ("pw", "pw", 2))
