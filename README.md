@@ -125,7 +125,7 @@ Optional components add a ServiceMonitor, an ExternalSecret and a Kyverno image-
 **Without Kubernetes:**
 
 ```bash
-docker run -d --env-file .env -v inkcast-data:/data -p 8787:8787 ghcr.io/OWNER/inkcast:0.1.0
+docker run -d --env-file .env -v inkcast-data:/data -p 8787:8787 ghcr.io/inkcasthq/inkcast:0.1.0
 ```
 
 Put it behind HTTPS. Then everyone adds it with:
