@@ -115,13 +115,18 @@ class KeycloakSync:
         user = self.store.find_user_by_identity(self.prefix + keycloak_id)
         if not user or user.get("disabled_at"):
             return False
-        cut = self.store.disable_user(user["id"])
-        log.warning("Keycloak %s %s: Inkcast user %s disabled; cut off %d OAuth tokens, %d personal access tokens",
-                    state, keycloak_id, user["id"], cut["oauth_tokens"], cut["personal_access_tokens"],
-                    extra={"event": "identity.user.disabled", "user_id": user["id"], "reason": state, "via": via,
-                           **cut})
+        user_id = str(user["id"])
+        cut = self.store.disable_user(user_id)
+        # Only the Inkcast id, a fixed reason and counts reach the log: nothing from Keycloak's answers or the
+        # token tables (the identity key already ties the user id to the Keycloak id).
+        reason = "deleted" if state == "deleted" else "disabled"
+        oauth, pats, codes = (int(cut.get(k, 0)) for k in ("oauth_tokens", "personal_access_tokens", "codes"))
+        log.warning("Keycloak %s the person behind Inkcast user %s: cut off %d OAuth grants, %d PATs, %d codes",
+                    reason, user_id, oauth, pats, codes,
+                    extra={"event": "identity.user.disabled", "user_id": user_id, "reason": reason, "via": via,
+                           "revoked_oauth": oauth, "revoked_pats": pats, "revoked_codes": codes})
         if self.metrics:
-            self.metrics.inc("inkcast_identity_users_disabled_total", reason=state)
+            self.metrics.inc("inkcast_identity_users_disabled_total", reason=reason)
         return True
 
     async def tick(self) -> dict[str, int]:
