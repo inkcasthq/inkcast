@@ -25,3 +25,7 @@ We credit reporters in the advisory unless you prefer otherwise.
 ## Supported versions
 
 Until 1.0, only the latest release and `main` receive security fixes.
+
+---
+<!-- inkcast-nav -->
+[Docs](docs/README.md) · [Licensing](LICENSING.md) · [Legal](legal/README.md) · [Contributing](CONTRIBUTING.md) · [Inkcast README](README.md)

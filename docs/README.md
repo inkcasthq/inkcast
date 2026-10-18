@@ -2,6 +2,8 @@
 
 **Start here:** [Bootstrap](bootstrap.md) — organisations, repository settings, CLA, legal, business set-up, platform developer accounts, first deployment.
 
+> **Licensing in one line:** source-available ([PolyForm Shield](../LICENSE)). Free for your own content; agencies, monetised services and embedding need a [commercial licence](../legal/COMMERCIAL-LICENSE.md). [Details](../LICENSING.md).
+
 ## Product
 - [Product spec](product-spec.md): vision, users, identity and accounts (Keycloak), phases.
 - [Social platforms epic](design/social-platforms-epic.md): X, Instagram, TikTok design and sequencing.

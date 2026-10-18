@@ -39,7 +39,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with: {python-version: "3.12"}
       - run: pip install 'ruff==0.12.0'
-      - run: ruff check src tests
+      - run: scripts/ci-run.sh ruff ruff check src tests
       - name: Vendored API-docs bundles match ASSETS.lock (offline)
         run: bash scripts/vendor-assets.sh
 
@@ -53,15 +53,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with: {python-version: "${{ matrix.python }}"}
-      - run: pip install -e .
+      - run: scripts/ci-run.sh "pip install" pip install -e .
       # Pinning playwright pins the Chromium build it installs.
-      - run: pip install 'playwright==1.56.0' && python -m playwright install --with-deps chromium
+      - run: scripts/ci-run.sh playwright bash -c "pip install 'playwright==1.56.0' && python -m playwright install --with-deps chromium"
       - name: Unit + end-to-end tests (fake IdP, Medium, DEV; real browser for /api and /api/redoc)
         env:
           INKCAST_CAPTURE_DIR: ${{ runner.temp }}/captures
         run: |
           mkdir -p "$INKCAST_CAPTURE_DIR"
-          PYTHONPATH=src:tests python -m unittest discover -s tests -v
+          PYTHONPATH=src:tests scripts/ci-run.sh tests python -m unittest discover -s tests -v
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always() && matrix.python == '3.12'
         with:
@@ -77,7 +77,7 @@ jobs:
         run: |
           set -euo pipefail
           for d in deploy/kustomize/overlays/* deploy/kustomize/environments/*; do
-            echo "::group::$d"; kubectl kustomize "$d" > /dev/null; echo "ok"; echo "::endgroup::"
+            echo "::group::$d"; scripts/ci-run.sh "kustomize $d" kubectl kustomize "$d" -o "$RUNNER_TEMP/rendered.yaml"; echo "ok"; echo "::endgroup::"
           done
 
   image:
@@ -87,7 +87,7 @@ jobs:
       security-events: write   # upload the scan to code scanning
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: docker build -t inkcast:ci .
+      - run: scripts/ci-run.sh "docker build" docker build -t inkcast:ci .
       - name: Scan the image (Grype)
         id: scan
         uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2

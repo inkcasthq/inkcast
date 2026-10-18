@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: PolyForm-Shield-1.0.0
+# SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 # Copyright 2026 ScalarOps Technologies LLC
 """Logs and metrics, the cloud-native way: JSON logs to stdout (collected by
 Fluent Bit / the platform), Prometheus metrics on a separate port that is not
