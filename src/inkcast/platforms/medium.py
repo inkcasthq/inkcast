@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: PolyForm-Shield-1.0.0
+# SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 # Copyright 2026 ScalarOps Technologies LLC
 """Medium, through its official REST API and a self-issued integration token.
 
