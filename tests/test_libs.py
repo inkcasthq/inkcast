@@ -85,7 +85,7 @@ class Logging(unittest.TestCase):
 
 class ConfigGate(unittest.TestCase):
     def cfg(self, **kw):
-        return Config(public_url="http://localhost:8787", secret_key="k" * 40, database_path=":memory:", **kw)
+        return Config(**{"public_url": "http://localhost:8787", "secret_key": "k" * 40, "database_path": ":memory:", **kw})
 
     def test_each_service_checks_only_what_it_needs(self):
         c = self.cfg(login="oidc")                         # no OIDC settings at all
@@ -152,9 +152,22 @@ class ConfigGate(unittest.TestCase):
             with self.assertRaisesRegex(ConfigError, "not available in this build"):
                 load_config({**env, "INKCAST_SECRETS_SOURCE": "vault", "INKCAST_SECRETS_ENV": "dev"})
 
+    def test_the_gate_covers_the_posture_checks_and_skips_what_a_service_does_not_use(self):
+        from inkcast.launcher import gate
+        gw = self.cfg(secret_key="", upstreams={"publishing-api": "http://publishing-api:8787"})
+        gate(gw, resolve("Gateway"))                                           # no key, no problem
+        with self.assertRaisesRegex(ConfigError, "INKCAST_SECRET_KEY must be at least 32"):
+            gate(gw, resolve("PublishingApi"))
+        weak = self.cfg(secret_key="k" * 48, environment="production", public_url="https://inkcast.example.com")
+        with self.assertRaisesRegex(ConfigError, "(?s)Security posture problems.*not a random key"):
+            gate(weak, resolve("PublishingApi"))
+        with self.assertLogs("inkcast", "WARNING") as logs:                   # the same finding only warns elsewhere
+            gate(self.cfg(secret_key="k" * 48), resolve("PublishingApi"))
+        self.assertTrue(any("not a random key" in line for line in logs.output))
+
     def test_bad_config_exits_78_before_serving(self):
         env = {**os.environ, "PYTHONPATH": "src", "INKCAST_APP_NAME": "IdentityService", "INKCAST_LOGIN": "oidc",
-               "INKCAST_SECRET_KEY": "short", "INKCAST_METRICS_PORT": "0"}
+               "INKCAST_SECRET_KEY": "short", "INKCAST_METRICS_PORT": "0", "INKCAST_LOG_FORMAT": "json"}
         r = subprocess.run([sys.executable, "-m", "inkcast"], env=env, capture_output=True, text=True, timeout=60)
         self.assertEqual(r.returncode, EX_CONFIG)
         self.assertIn("INKCAST_SECRET_KEY must be at least 32", r.stderr)
@@ -163,6 +176,18 @@ class ConfigGate(unittest.TestCase):
                            text=True, timeout=60)
         self.assertEqual(r.returncode, EX_CONFIG)
         self.assertIn("CamelCase", r.stderr)
+        # Reading the configuration is behind the same gate: a bad number is exit 78, not a traceback.
+        r = subprocess.run([sys.executable, "-m", "inkcast"], env={**env, "INKCAST_METRICS_PORT": "nine"},
+                           capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, EX_CONFIG)
+        self.assertIn("INKCAST_METRICS_PORT must be a whole number", r.stderr)
+        self.assertNotIn("Traceback", r.stderr)
+        # `inkcast checks` prints the posture table without starting anything.
+        r = subprocess.run([sys.executable, "-m", "inkcast", "checks"], env={**env, "INKCAST_SECRET_KEY": "k" * 40},
+                           capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("secret-key-strength", r.stdout)
+        self.assertNotIn("kkkk", r.stdout)
 
 
 class Prefixes(unittest.TestCase):

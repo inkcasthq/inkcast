@@ -83,6 +83,8 @@ def _check_public_url(ctx: _Ctx) -> Check:
 
 def _check_secret_key(ctx: _Ctx) -> Check:
     key = ctx.config.secret_key.reveal()
+    if not key:  # a Gateway runs without one; Config.validate reports it where it is needed
+        return Check("secret-key-strength", "INKCAST_SECRET_KEY is strong", "skip", "No INKCAST_SECRET_KEY in this process.")
     if len(key) < 32:
         return Check("secret-key-strength", "INKCAST_SECRET_KEY is strong", "fail",
                      f"{len(key)} characters; at least 32 are required. Generate one with "

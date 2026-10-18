@@ -27,6 +27,7 @@ from starlette.routing import Mount, Route
 
 from ... import __version__
 from ..runtime import Context
+from ..secrets import run_checks
 from ..service import ServiceSpec
 
 
@@ -111,8 +112,25 @@ def compose(specs: Iterable[ServiceSpec], ctx: Context, prefix: str | None = Non
     return Starlette(routes=[*probes, *(Mount(path, app=sub) for path, sub in inner)], lifespan=lifespan)
 
 
+def secrets_status(ctx: Context) -> dict:
+    """Metadata about this process's secrets and posture. Contains no secret material: names, sources,
+    fingerprints (HMAC under a per-process key), ages, counts and the check table."""
+    provider = ctx.config.secrets
+    return {
+        "mode": provider.mode if provider else None,
+        "ttl_seconds": provider.ttl if provider else None,
+        "secrets": provider.status() if provider else [],
+        "checks": [c.as_dict() for c in run_checks(ctx.config)],
+    }
+
+
 def metrics_app(specs: Iterable[ServiceSpec], ctx: Context) -> Starlette:
-    """Prometheus /metrics plus probes, on a separate port that is never exposed publicly."""
+    """Prometheus /metrics, the probes and /secrets (status metadata, never values), on a separate port that
+    is never exposed publicly (the NetworkPolicy admits only the monitoring namespace)."""
     app = ctx.metrics.asgi()
-    app.router.routes.extend(probe_routes(specs, ctx))
+
+    async def secrets(_: Request) -> Response:
+        return JSONResponse(secrets_status(ctx), headers={"Cache-Control": "no-store"})
+
+    app.router.routes.extend([*probe_routes(specs, ctx), Route("/secrets", secrets)])
     return app

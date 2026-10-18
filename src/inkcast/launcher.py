@@ -6,10 +6,14 @@
     inkcast run PublishingApi        # one service
     inkcast run IdentityService,ConnectorService
     inkcast services                 # list what can run
+    inkcast checks                   # the security posture table for this configuration
     inkcast all | web | worker       # v0.1 modes, still accepted
 
 Configuration problems stop the process before it serves anything, with exit code 78
-(EX_CONFIG) and a list of what to fix, so a bad rollout fails fast and visibly.
+(EX_CONFIG) and a list of what to fix, so a bad rollout fails fast and visibly. That gate covers
+reading the configuration (a dangling NAME_FILE, a bad number), ``Config.validate`` for the services
+in this process, and the security posture checks (libs/secrets/checks.py): a ``fail`` stops the
+process, a ``warn`` is logged once with the event ``config.posture.warn``.
 """
 
 from __future__ import annotations
@@ -27,6 +31,8 @@ from .libs.config import Config, ConfigError, load_config
 from .libs.http.app import compose, metrics_app
 from .libs.observability import setup_logging
 from .libs.runtime import Context, build_context
+from .libs.secrets import problems, run_checks
+from .libs.secrets.checks import render
 from .libs.service import ServiceSpec, is_camel
 from .services import connectors, gateway, identity, publishing, scheduler
 
@@ -111,6 +117,29 @@ def _list_services() -> None:
     print(f"{'All':<18} {'inkcast':<20} {'both':<7} {', '.join(ALL)} in one process")
 
 
+def refuse(message: str) -> None:
+    """Stop before serving anything: EX_CONFIG, the reason on stderr and as the ``config.unsafe`` log event."""
+    log.error("Refusing to start: %s", message, extra={"event": "config.unsafe", "fatal": True})
+    print(f"inkcast: refusing to start.\n{message}", file=sys.stderr)
+    sys.exit(EX_CONFIG)
+
+
+def gate(config: Config, specs: list[ServiceSpec]) -> None:
+    """``Config.validate`` for these services, then the posture checks: ``fail`` refuses, ``warn`` is logged."""
+    needs = {n for s in specs for n in s.needs}
+    config.validate(needs)
+    fails, warns = problems(run_checks(config))
+    if fails:
+        raise ConfigError("Security posture problems:\n- " + "\n- ".join(f"{c.title}: {c.detail}" for c in fails))
+    for c in warns:
+        log.warning("Posture: %s: %s", c.title, c.detail, extra={"event": "config.posture.warn", "check": c.id})
+    if config.secrets:
+        config.secrets.startup_done()
+        for s in config.secrets.status():
+            log.info("Secret %s: %s (%s, fp=%s)", s["name"], "set" if s["present"] else "not set", s["source"],
+                     s["fingerprint"], extra={"event": "secrets.status", "secret_name": s["name"], "source": s["source"]})
+
+
 def main(argv: list[str] | None = None) -> None:
     import argparse
 
@@ -121,7 +150,7 @@ def main(argv: list[str] | None = None) -> None:
 
     parser = argparse.ArgumentParser(prog="inkcast", description=f"Inkcast {__version__}")
     parser.add_argument("command", nargs="?", default=None,
-                        help="run (default) | services | sync, or a v0.1 mode: all | web | worker")
+                        help="run (default) | services | checks | sync, or a v0.1 mode: all | web | worker")
     parser.add_argument("names", nargs="?", default=None, help="for run: CamelCase service name(s), comma-separated")
     args = parser.parse_args(argv)
 
@@ -129,9 +158,19 @@ def main(argv: list[str] | None = None) -> None:
         _list_services()
         return
 
-    if args.command not in (None, "run", *LEGACY_MODES):
+    if args.command not in (None, "run", "checks", *LEGACY_MODES):
         parser.error(f"unknown command {args.command!r}")
-    config = load_config()
+    # Logging first, so even a failure to read the configuration is a well-formed log line.
+    setup_logging(os.environ.get("INKCAST_LOG_FORMAT", "text").lower(), os.environ.get("INKCAST_LOG_LEVEL", "INFO"),
+                  service=os.environ.get("INKCAST_APP_NAME", "All"))
+    try:
+        config = load_config()
+    except ConfigError as exc:
+        refuse(str(exc))
+        return  # pragma: no cover - refuse() exits
+    if args.command == "checks":
+        render(run_checks(config))
+        return
     if args.command == "run" and args.names:
         app_name = args.names
     elif args.command in LEGACY_MODES:
@@ -142,12 +181,10 @@ def main(argv: list[str] | None = None) -> None:
     setup_logging(config.log_format, config.log_level, service=service_label)
     try:
         specs = resolve(app_name)
-        needs = {n for s in specs for n in s.needs}
-        config.validate(needs)
+        gate(config, specs)
     except ConfigError as exc:
-        log.error("%s", exc)
-        print(f"inkcast: refusing to start.\n{exc}", file=sys.stderr)
-        sys.exit(EX_CONFIG)
+        refuse(str(exc))
+        return  # pragma: no cover - refuse() exits
 
     ctx = build(config, specs)
     http_specs = [s for s in specs if s.kind == "http"]
