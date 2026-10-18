@@ -142,3 +142,7 @@ Subclass `Fetcher` in `libs/secrets/fetchers.py`, implement `fetch(name, force=F
 when you don't have the secret, raise `SecretFetchError` when you could not ask), optionally
 `describe()` and `paths()`, register it in `BACKENDS`, and add a test with a fake transport like
 `tests/test_secrets.py::FetcherTests` does for the agent.
+
+---
+<!-- inkcast-nav -->
+[Docs](../README.md) · [Licensing](../../LICENSING.md) · [Legal](../../legal/README.md) · [Contributing](../../CONTRIBUTING.md) · [Security](../../SECURITY.md) · [Inkcast README](../../README.md)

@@ -33,6 +33,7 @@ Every contributor signs the [Inkcast Contributor License Agreement](legal/CLA-IN
 - **Never put secrets in code, tests, fixtures, logs or tool output shown to the AI.** Platform credentials only ever pass through the one-time connect page.
 - **Keep the security posture:** consent on every authorization, hashed tokens, encrypted credentials, strict CSP on pages, no CDN assets.
 - **Keep dependencies few and permissively licensed.** Explain any new one in the pull request.
+- **Follow the house conventions** in the [contributor map](docs/contributor-map.md#house-conventions): catalogued log events, typed settings, rate limits on unauthenticated endpoints, and no blind retries.
 
 ## Reporting security issues
 

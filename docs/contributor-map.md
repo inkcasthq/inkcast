@@ -8,14 +8,16 @@ src/inkcast/
   cli.py               `inkcast sync`, the client CI uses
   libs/                SHARED LIBRARIES: used by every service, never imports a service
     config.py            every setting, read from the environment; validate(needs) per service
-    secrets.py           SecretValue, SecretsProvider, Sealer (encryption), token hashing
-    observability.py     JSON logs, the Redactor (masks secrets in every log line), metrics
+    secrets/             the bottom layer: SecretValue, fetchers (env/_FILE, dir, AWS agent…), SecretsProvider,
+                         value-based Redactor, naming convention, posture checks (docs/reference/secrets.md)
+    observability.py     JSON/text logs (every line scrubbed), request ids, the EVENTS catalogue, metrics
     auth/                Principal, scopes, TokenVerifier (OAuth tokens + personal access tokens)
     db/                  the store: one repository per domain, each owned by one service
     content/             parsing markdown stories (front matter, overrides, images, schedule)
     platforms/           the Platform plug-in interface + Medium, DEV
     contracts/           API models, the OpenAPI document, the public route table
-    http/                app composition (/ or /<full-name>), probes, REST auth + errors, pages, API docs
+    http/                app composition (/ or /<full-name>), request-id/body-limit middleware, rate limits,
+                         probes, REST auth + errors, pages, API docs
     pipeline.py          the publish pipeline: prepare → send → record (used by API and scheduler)
     runtime.py           the per-process Context every service is built from
     service.py           ServiceSpec: what a service is
@@ -36,7 +38,15 @@ docs/                  you are here; epics/ hold design, stories, implementation
 1. **`libs/` never imports `services/`.** If two services need something, it goes in `libs/`.
 2. **A service never imports another service.** Services share contracts (`libs/contracts`), the store (`libs/db`) and HTTP. That is what lets each one run on its own (`tests/test_split_mode.py` proves it).
 3. **Every route and tool checks a scope.** Use `Authed(scope, handler)` for REST and `principal(scope)` in MCP tools. There is no unauthenticated data route.
-4. **Secrets never leave as plain text.** Store hashes (`token_hash`) or sealed values (`Sealer`), wrap them in `SecretValue` in memory, and let the Redactor mask logs. Never return a credential from an API or a tool; show new tokens only on a browser page.
+4. **Secrets never leave as plain text.** Store hashes (`token_hash`) or sealed values (`Sealer`), and hold them in memory as `SecretValue`. Call `.reveal()` only where the credential is used; a test keeps the list of those places. Every loaded secret is registered with the Redactor, so it's masked in every log line and traceback. Never return a credential from an API or a tool; show new tokens only on a browser page.
+
+## House conventions
+
+- **Log events, not prose.** Use `log.info("…", extra={"event": "publish.recovered", …})`, with the name from `observability.EVENTS`. A test fails on an uncatalogued or unused event, so alerts never match on reworded text.
+- **Typed settings.** New settings go through `_Env` in `libs/config.py`, which is typed and raises `ConfigError` naming the variable. A new credential also goes in `SECRET_SETTINGS` with the `needs` it belongs to.
+- **Unauthenticated endpoints are rate-limited**: wrap them with `limited()` from `libs/http/ratelimit.py`.
+- **Before any retry**, ask: "could the first attempt have succeeded?" If yes, confirm with the platform (`find_existing`) or mark the post `unconfirmed`. Never re-send blindly.
+- **Check your config before deploying:** `inkcast checks` prints the security posture table.
 
 ## Recipes
 

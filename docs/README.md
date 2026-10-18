@@ -18,6 +18,7 @@
 - [Definition of done](definition-of-done.md): for every story and epic, including design notes, mockups, implementation docs and independent review.
 - [Epics](epics/README.md): design, stories, implementation and review per epic. Backlog as code in [backlog/](backlog/).
 - [Architecture decision records](adr/README.md)
+- [Secrets](reference/secrets.md): sources, the provider (TTL, single-flight, stale-on-error), naming, redaction, posture checks.
 - [CI/CD](cicd.md): pipeline, supply chain, environments and promotion, GitHub plan notes.
 - [Writing a platform plug-in](writing-a-platform-plugin.md)
 - API reference: served by every deployment at `/api` (Swagger UI) and `/api/redoc`. Screenshots: [Swagger UI](images/api-swagger-ui.png), [ReDoc](images/api-redoc.png).

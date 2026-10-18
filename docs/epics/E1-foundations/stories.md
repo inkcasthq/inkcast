@@ -22,7 +22,7 @@ Status key: ✅ done in this epic · ⏭ moved to a later epic (reason given).
 
 ## F1.4 Config and secrets
 - ✅ **S1 Config gate.** `Config.validate(needs)` checks only what the services in the process need. The launcher exits 78 before serving (`test_bad_config_exits_78_before_serving`).
-- ✅ **S2 `SecretValue`, `SecretsProvider`, Redactor.** Secrets print as `***`; log lines are redacted; the provider has TTL with jitter, single-flight and stale-on-error (`test_libs.Secrets`, `test_libs.Logging`). The reference secrets design is completed in this epic's review patches (see `review.md`).
+- ✅ **S2 `SecretValue`, `SecretsProvider`, Redactor.** Secrets print as `***`; log lines are redacted; the provider has TTL with jitter, single-flight and stale-on-error (`test_libs.Secrets`, `test_libs.Logging`). The reference secrets design was completed by the review patches: fetchers, naming, a value-registering Redactor, posture checks, and `GET /secrets` on the metrics port ([review.md](review.md), [docs/reference/secrets.md](../../reference/secrets.md)).
 - ✅ **S3 One public URL.** Every link Inkcast returns derives from `INKCAST_PUBLIC_URL`.
 
 ## F1.5 Gateway

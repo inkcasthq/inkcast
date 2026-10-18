@@ -21,6 +21,10 @@
 | `INKCAST_PATH_PREFIX` | `/` | `/`, `auto` (= `/<full-name>`) or a path |
 | `INKCAST_UPSTREAM_<NAME>` | none | Gateway only: base URL per service, e.g. `INKCAST_UPSTREAM_PUBLISHING_API=http://inkcast-publishing-api:8787` |
 | `INKCAST_OVERDUE_GRACE` | `600` | seconds past due before a scheduled post counts as overdue (gauge and alert) |
+| `INKCAST_ENV` | `production` (image) | strictness of the startup posture checks (review patch 5/6) |
+| `INKCAST_SECRETS_SOURCE`, `INKCAST_SECRETS_DIR`, `INKCAST_SECRETS_TTL`, `INKCAST_SECRETS_MAX_STALE`, `INKCAST_CONFIG_FILE`, naming (`INKCAST_SECRETS_ENV`, `_APP`, `_NAME_PATTERN`) | | the secrets design ([reference](../../reference/secrets.md)) |
+| `INKCAST_MAX_BODY_BYTES` | 10485760 | request body limit in every service and the Gateway |
+| `INKCAST_RATE_LIMIT_PER_MINUTE` | `60` | unauthenticated write endpoints |
 
 ## Data
 
@@ -35,7 +39,8 @@
 
 ## Verification
 
-- `PYTHONPATH=src:tests python -m unittest discover -s tests`: 80 tests, all passing. The end-to-end suites run once in a single process and again split behind the Gateway.
+- `PYTHONPATH=src:tests python -m unittest discover -s tests`: 118 tests, all passing after the review patches. The end-to-end suites run once in a single process and again split behind the Gateway.
+- Review: 18 findings (P0 1, P1 6, P2 11); 16 fixed by patches `30ff9c5`…`28db5a5`, 2 accepted ([review.md](review.md)).
 - `ruff check src tests scripts`: clean. `python scripts/gen-manifests.py --check`: current.
 - kind (CI): both overlays roll out under Pod Security `restricted`, and the split smoke test passes through the Gateway.
 
