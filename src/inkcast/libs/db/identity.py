@@ -125,6 +125,22 @@ class IdentityRepo(Database):
         )
         return dict(row) if row else None
 
+    def rotate_refresh(self, value: str, client_id: str) -> dict[str, Any] | None:
+        """Consume a refresh token and revoke its whole family in one transaction; the row, or None.
+
+        Only one caller can win: two refreshes with the same token are serialised by the write lock, and the
+        second finds nothing (so a stolen-and-replayed refresh token can't mint a second family). On PostgreSQL
+        (E3) the same shape is SELECT … FOR UPDATE, then DELETE, in one transaction."""
+        with self._tx() as c:
+            row = c.execute(
+                "SELECT * FROM tokens WHERE token_hash = ? AND kind = 'refresh' AND client_id = ? AND expires_at > ?",
+                (token_hash(value), client_id, time.time()),
+            ).fetchone()
+            if not row:
+                return None
+            c.execute("DELETE FROM tokens WHERE family = ?", (row["family"],))
+        return dict(row)
+
     def revoke_family(self, family: str) -> None:
         self._exec("DELETE FROM tokens WHERE family = ?", family)
 

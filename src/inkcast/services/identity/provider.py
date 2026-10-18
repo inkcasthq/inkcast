@@ -114,12 +114,19 @@ class InkcastOAuthProvider:
                             expires_at=int(row["expires_at"]), resource=row["resource"], subject=row["user_id"])
 
     async def exchange_refresh_token(self, client: OAuthClientInformationFull, refresh_token: RefreshToken, scopes: list[str]) -> OAuthToken:
-        row = self.store.get_token(refresh_token.token, "refresh")
+        # An omitted `scope` arrives as the token's own scopes (the SDK's token handler fills them in), so an empty
+        # list only comes from direct callers and means the same. An explicit request may narrow, never widen: a
+        # scope the token doesn't hold is refused, and never silently replaced by the broader original set.
+        requested = scopes or refresh_token.scopes
+        unknown = [s for s in requested if s not in refresh_token.scopes]
+        if unknown:
+            raise TokenError("invalid_scope", f"cannot request scope `{unknown[0]}` not provided by refresh token")
+        # Rotate atomically: the old refresh token and its family's access tokens stop working, and a concurrent
+        # refresh with the same token gets invalid_grant instead of a second, parallel family.
+        row = self.store.rotate_refresh(refresh_token.token, client.client_id)
         if not row:
-            raise TokenError("invalid_grant", "refresh token expired or revoked")
-        # Rotate: the old refresh token (and access tokens of the family) stop working.
-        self.store.revoke_family(row["family"])
-        granted = [s for s in (scopes or refresh_token.scopes) if s in refresh_token.scopes] or refresh_token.scopes
+            raise TokenError("invalid_grant", "refresh token expired, revoked or already used")
+        granted = [s for s in row["scopes"].split() if s in requested]
         return self._issue(client.client_id, row["user_id"], granted, row["resource"], family=uuid.uuid4().hex)
 
     async def load_access_token(self, token: str) -> AccessToken | None:

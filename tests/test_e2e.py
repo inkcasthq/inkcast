@@ -39,18 +39,30 @@ The story body.
 """
 
 
+_HANDED_OUT: set[int] = set()
+
+
 def free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+    """A port nothing else in this test run was given. The socket is closed before the server binds it, so the OS
+    may offer the same number again to the next caller (split mode asks for several in a row): never repeat one."""
+    while True:
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        if port not in _HANDED_OUT:
+            _HANDED_OUT.add(port)
+            return port
 
 
 def serve(app, port, **options):
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", **options))
-    threading.Thread(target=server.run, daemon=True).start()
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
     deadline = time.time() + 10
     while not server.started:
-        assert time.time() < deadline, "server did not start"
+        # uvicorn's thread ends at once when the port can't be bound: say so instead of waiting out the deadline.
+        assert thread.is_alive(), f"server on port {port} exited before starting (port already in use?)"
+        assert time.time() < deadline, f"server on port {port} did not start in 10 s"
         time.sleep(0.05)
     return server
 

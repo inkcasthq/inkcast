@@ -146,12 +146,15 @@ def openapi_document(public_url: str) -> dict[str, Any]:
             "/api/v1/stories:sync": {"post": _op(
                 "syncStories", "Publish or update markdown files from a repository", "Git publishing",
                 _resp("SyncResponse", "What happened to each file on each platform"), scope="stories:sync",
-                service=pub, body="SyncRequest", errors=(422,),
+                service=pub, body="SyncRequest", errors=(409, 422),
                 description=("Idempotent: files are matched to earlier posts through the publish ledger by "
                              "(source, path, platform). Unchanged content does nothing; changed content updates "
                              "the post in place where the platform allows it (DEV) and is reported `stale` where "
                              "it doesn't (Medium), never duplicated. Use the `Idempotency-Key` header to make "
-                             "client retries safe."))},
+                             "client retries safe: a repeat within 24 hours replays the first response "
+                             "(`Idempotent-Replayed: true`); a repeat while the first is still running gets 409 "
+                             "`idempotency_key_in_use` (retry shortly); the same key with a different body gets "
+                             "422 `idempotency_key_reused`."))},
             "/api/v1/ledger": {"get": _op(
                 "listLedger", "What each synced file became on each platform", "Git publishing",
                 _resp("LedgerEntry", "Ledger entries", array=True), scope="posts:read", service=pub,

@@ -91,6 +91,91 @@ class PlatformTests(unittest.TestCase):
         self.assertEqual(set(discover()), {"medium", "devto"})
 
 
+class RaceTests(unittest.TestCase):
+    """Check-then-act races found in review (2026-10-18): each test forces the interleaving that used to break."""
+
+    def setUp(self):
+        self.cfg = Config(public_url="http://localhost:8787", secret_key="k" * 40, database_path=":memory:",
+                          login="password", password="p" * 12)
+        self.store = Store(self.cfg.database_path, self.cfg.secret_key)
+        self.user = self.store.upsert_user("local:owner", "owner", None, None)
+
+    def test_cancel_cannot_race_the_scheduler(self):
+        from inkcast.libs.pipeline import Publisher
+        post_id = self.store.create_post(group_id="g", user_id=self.user["id"], platform="devto", title="T",
+                                         status="scheduled", run_at=time.time() - 1, payload={})
+        real_get = self.store.get_post
+
+        def get_then_scheduler_claims(pid):
+            row = real_get(pid)
+            self.store.get_post = real_get
+            self.assertEqual(len(self.store.claim_due_posts(time.time())), 1)   # the scheduler wins the gap
+            return row
+
+        self.store.get_post = get_then_scheduler_claims
+        with self.assertRaisesRegex(PlatformError, "is publishing"):
+            Publisher(self.store, {}).cancel(self.user["id"], post_id)
+        self.assertEqual(self.store.get_post(post_id)["status"], "publishing")    # not reported as cancelled
+
+        other = self.store.create_post(group_id="g", user_id=self.user["id"], platform="devto", title="U",
+                                       status="scheduled", run_at=time.time() + 3600, payload={})
+        self.assertEqual(Publisher(self.store, {}).cancel(self.user["id"], other), "U")
+        self.assertFalse(self.store.cancel_if_scheduled(other, self.user["id"]))  # second cancel: nothing to do
+        self.assertFalse(self.store.cancel_if_scheduled(post_id, "someone-else"))
+
+    def _refresh(self, scopes):
+        from mcp.shared.auth import OAuthClientInformationFull
+        oauth = InkcastOAuthProvider(self.cfg, self.store)
+        client = OAuthClientInformationFull(client_id="c1", redirect_uris=["http://localhost:1/cb"],
+                                            token_endpoint_auth_method="none")
+        tokens = oauth._issue("c1", self.user["id"], scopes, None, family="f1")
+        rt = asyncio.run(oauth.load_refresh_token(client, tokens.refresh_token))
+        return oauth, client, rt
+
+    def test_a_refresh_token_can_be_used_once_even_concurrently(self):
+        from mcp.server.auth.provider import TokenError
+        oauth, client, rt = self._refresh(["posts:read", "posts:write"])
+
+        async def both():
+            return await asyncio.gather(oauth.exchange_refresh_token(client, rt, []),
+                                        oauth.exchange_refresh_token(client, rt, []), return_exceptions=True)
+
+        results = asyncio.run(both())                     # both loaded the token before either rotated it
+        self.assertEqual(sum(isinstance(r, TokenError) for r in results), 1)
+        self.assertEqual(len({r["family"] for r in self.store._all("SELECT family FROM tokens")}), 1)
+
+    def test_rotation_is_atomic_across_connections(self):
+        import tempfile
+        import threading
+        path = tempfile.mkdtemp() + "/race.db"
+        a, b = Store(path, self.cfg.secret_key), Store(path, self.cfg.secret_key)
+        user = a.upsert_user("local:owner", "owner", None, None)
+        a.save_token("ic_rt_x", "refresh", "c1", user["id"], ["posts:read"], None, "fam", 600)
+        start, won = threading.Barrier(2), []
+
+        def rotate(store):
+            start.wait()
+            won.append(store.rotate_refresh("ic_rt_x", "c1"))
+
+        threads = [threading.Thread(target=rotate, args=(s,)) for s in (a, b)]
+        [t.start() for t in threads]
+        [t.join() for t in threads]
+        self.assertEqual(sum(r is not None for r in won), 1)
+        self.assertIsNone(a.rotate_refresh("ic_rt_x", "c2"))
+
+    def test_refresh_never_widens_the_requested_scope(self):
+        from mcp.server.auth.provider import TokenError
+        oauth, client, rt = self._refresh(["posts:read", "posts:write"])
+        with self.assertRaises(TokenError) as refused:
+            asyncio.run(oauth.exchange_refresh_token(client, rt, ["connections:write"]))
+        self.assertEqual(refused.exception.error, "invalid_scope")
+        self.assertIsNotNone(self.store.get_token(rt.token, "refresh"))       # refused before anything rotated
+        narrowed = asyncio.run(oauth.exchange_refresh_token(client, rt, ["posts:read"]))
+        self.assertEqual(narrowed.scope, "posts:read")
+        _, _, rt2 = self._refresh(["posts:read", "posts:write"])
+        self.assertEqual(asyncio.run(oauth.exchange_refresh_token(client, rt2, [])).scope, "posts:read posts:write")
+
+
 class OAuthTests(unittest.TestCase):
     def test_refresh_rotation_and_single_use_codes(self):
         cfg = Config(public_url="http://localhost:8787", secret_key="k" * 40, database_path=":memory:",

@@ -75,16 +75,34 @@ class LedgerRepo(Database):
 
     # ---- Idempotency-Key replay (24 h) ---------------------------------------------
 
-    def idempotent_response(self, user_id: str, key: str) -> tuple[str, str] | None:
-        """(request hash, stored response JSON) for a key used in the last 24 hours."""
-        row = self._one("SELECT request_hash, response FROM idempotency WHERE user_id = ? AND key = ? AND created_at > ?",
-                        user_id, key, time.time() - 86400)
-        return (row["request_hash"], row["response"]) if row else None
+    # A key is reserved (response '') before the work runs, then completed with the response. Reserving is one
+    # INSERT OR IGNORE, so of two identical requests exactly one runs; the other is told to retry, then replays the
+    # first one's response. A reservation left by a crash is given up after IDEMPOTENCY_PENDING_SECONDS.
+    IDEMPOTENCY_SECONDS = 86400
+    IDEMPOTENCY_PENDING_SECONDS = 900
 
-    def save_idempotent_response(self, user_id: str, key: str, request_hash: str, response: str) -> None:
-        self._exec("INSERT OR REPLACE INTO idempotency VALUES (?, ?, ?, ?, ?)", user_id, key, request_hash, response,
-                   time.time())
-        self._exec("DELETE FROM idempotency WHERE created_at < ?", time.time() - 86400)
+    def reserve_idempotency_key(self, user_id: str, key: str, request_hash: str) -> tuple[str, str] | None:
+        """None when this request now holds the key (run it, then `complete_` or `release_` it). Otherwise the
+        (request hash, response JSON) of the request holding it; the response is '' while that one is running."""
+        now = time.time()
+        with self._tx() as c:
+            c.execute("DELETE FROM idempotency WHERE user_id = ? AND key = ? AND (created_at <= ? OR"
+                      " (response = '' AND created_at <= ?))",
+                      (user_id, key, now - self.IDEMPOTENCY_SECONDS, now - self.IDEMPOTENCY_PENDING_SECONDS))
+            if c.execute("INSERT OR IGNORE INTO idempotency VALUES (?, ?, ?, '', ?)",
+                         (user_id, key, request_hash, now)).rowcount == 1:
+                return None
+            row = c.execute("SELECT request_hash, response FROM idempotency WHERE user_id = ? AND key = ?",
+                            (user_id, key)).fetchone()
+        return row["request_hash"], row["response"]
+
+    def complete_idempotency_key(self, user_id: str, key: str, response: str) -> None:
+        self._exec("UPDATE idempotency SET response = ? WHERE user_id = ? AND key = ?", response, user_id, key)
+        self._exec("DELETE FROM idempotency WHERE created_at < ?", time.time() - self.IDEMPOTENCY_SECONDS)
+
+    def release_idempotency_key(self, user_id: str, key: str) -> None:
+        """The request failed before it had a response: free the key so the client can retry with it."""
+        self._exec("DELETE FROM idempotency WHERE user_id = ? AND key = ? AND response = ''", user_id, key)
 
     def list_entries(self, user_id: str, source: str | None = None) -> list[dict[str, Any]]:
         if source:
