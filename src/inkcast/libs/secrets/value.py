@@ -20,7 +20,11 @@ from cryptography.fernet import Fernet, InvalidToken
 
 
 def token_hash(value: str) -> str:
-    """How bearer secrets (tokens, codes, tickets) are stored: only their SHA-256 hex digest."""
+    """How bearer secrets (tokens, codes, tickets) are stored: only their SHA-256 hex digest.
+
+    Only for values Inkcast mints itself with 256 bits of randomness (``new_secret``, PATs), where a
+    fast hash is the right choice (a lookup key, not a password): guessing is infeasible either way.
+    Never use it for anything a person chose; passwords are compared, not stored."""
     return hashlib.sha256(value.encode()).hexdigest()
 
 
@@ -68,7 +72,9 @@ class SecretValue:
         return secrets.compare_digest(self._value.encode(), other.encode())
 
     def __hash__(self) -> int:
-        return hash(token_hash(self._value))
+        # Equal to hash(the plain string), as __eq__ with a str requires. Python's string hash is keyed
+        # per process (SipHash), so this reveals nothing; no digest of the secret is computed.
+        return hash(self._value)
 
     def __reduce__(self):  # no pickling: a secret must not travel to another process by accident
         raise TypeError("SecretValue can't be pickled; reveal() it at the point of use instead")
