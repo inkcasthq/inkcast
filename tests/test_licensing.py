@@ -5,7 +5,7 @@ import re
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-SPDX = "SPDX-License-Identifier: PolyForm-Shield-1.0.0"
+SPDX = "SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0"
 
 
 class Licensing(unittest.TestCase):
@@ -26,7 +26,7 @@ class Licensing(unittest.TestCase):
 
     def test_package_metadata_declares_the_license(self):
         pyproject = (ROOT / "pyproject.toml").read_text()
-        self.assertIn('license = "PolyForm-Shield-1.0.0"', pyproject)
+        self.assertIn('license = "LicenseRef-PolyForm-Shield-1.0.0"', pyproject)
         self.assertRegex(pyproject, r'license-files = \[.*"LICENSE".*"NOTICE".*\]')
 
     def test_contribution_terms_exist_and_grant_relicensing(self):

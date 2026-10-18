@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: PolyForm-Shield-1.0.0
+// SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 // Copyright 2026 ScalarOps Technologies LLC
 // Starts Swagger UI from an external file so the page needs no inline script (strict CSP).
 window.addEventListener("DOMContentLoaded", function () {
