@@ -47,7 +47,7 @@
     {
       "type": "stat",
       "title": "Pods scraped",
-      "description": "up for every Inkcast target in the namespace (last value). Green when all answer; red when any target is down. Empty means nothing is scraped: check the ServiceMonitor.",
+      "description": "up for every Inkcast target in the namespace (last value): how many answer. Green from 1; red at 0, when none does (InkcastTargetDown pages). Grey 'No data' means nothing is scraped at all: check the ServiceMonitor.",
       "targets": [
         {
           "refId": "A",
@@ -63,8 +63,12 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "#59a14f",
+                "color": "#bab0ac",
                 "value": null
+              },
+              {
+                "color": "#e15759",
+                "value": 0
               },
               {
                 "color": "#59a14f",
@@ -766,8 +770,12 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "#59a14f",
+                "color": "#bab0ac",
                 "value": null
+              },
+              {
+                "color": "#59a14f",
+                "value": 0
               },
               {
                 "color": "#f28e2b",
@@ -821,8 +829,12 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "#59a14f",
+                "color": "#bab0ac",
                 "value": null
+              },
+              {
+                "color": "#59a14f",
+                "value": 0
               },
               {
                 "color": "#f28e2b",
@@ -1141,8 +1153,12 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "#59a14f",
+                "color": "#bab0ac",
                 "value": null
+              },
+              {
+                "color": "#59a14f",
+                "value": 0
               },
               {
                 "color": "#f28e2b",
