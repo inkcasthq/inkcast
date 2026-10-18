@@ -185,3 +185,19 @@ class Workflows(unittest.TestCase):
         triggers = yaml.safe_load((root / "codeql.yml").read_text())[True]   # YAML reads the key `on` as True
         self.assertIn("pull_request", triggers)
         self.assertEqual(triggers["push"]["branches"], ["main"])
+
+    def test_the_image_runs_a_python_the_tests_run_on(self):
+        """Issue #24: the Dockerfile's Python, every stage, is in the CI test matrix; the matrix starts at the
+        package's minimum (requires-python), so what we claim to support is what we test."""
+        import pathlib
+        import re
+        import yaml
+        root = pathlib.Path(__file__).resolve().parents[1]
+        image = set(re.findall(r"^FROM python:(\d+\.\d+)", (root / "Dockerfile").read_text(), re.M))
+        self.assertEqual(len(image), 1, f"one Python across the Dockerfile's stages: {image}")
+        ci = yaml.safe_load((root / ".github" / "workflows" / "ci.yml").read_text())
+        matrix = ci["jobs"]["test"]["strategy"]["matrix"]["python"]
+        self.assertLessEqual(image, set(matrix), "the image's Python must be one the tests run on")
+        floor = re.search(r'requires-python = ">=(\d+\.\d+)"', (root / "pyproject.toml").read_text()).group(1)
+        key = lambda v: tuple(map(int, v.split(".")))
+        self.assertEqual(min(matrix, key=key), floor, "test the oldest Python the package claims to support")

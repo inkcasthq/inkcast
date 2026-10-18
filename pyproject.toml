@@ -7,7 +7,7 @@ name = "inkcast"
 version = "0.1.0"
 description = "Publish and schedule your writing across platforms from Claude Code or any MCP client."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = "LicenseRef-PolyForm-Shield-1.0.0"
 license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "ScalarOps Technologies LLC" }]
@@ -41,7 +41,7 @@ packages = ["src/inkcast"]
 
 [tool.ruff]
 line-length = 130
-target-version = "py311"
+target-version = "py312"
 extend-exclude = ["src/inkcast/static"]
 
 [tool.ruff.lint]

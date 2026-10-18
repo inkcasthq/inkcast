@@ -19,7 +19,7 @@
 ```
 pull request ─► ci.yml ──────────────────────────────────────────────────────────────┐
                  lint (ruff, vendored-asset lock)                                    │ required
-                 test (py3.11–3.13; unit + e2e with fakes + real-browser docs check)  │ checks
+                 test (py3.12–3.15; unit + e2e with fakes + real-browser docs check)  │ checks
                  manifests (render every overlay/environment)                         │
                  image (build + Grype scan → code scanning)                           │
                  kind (deploy real image + manifests under PSS restricted, smoke)     │
@@ -86,7 +86,7 @@ Keyless signing writes the repository and workflow path, not code, to the public
 - PR required, with 1 approval and CODEOWNER review.
 - Required checks:
   - `lint`
-  - `test (3.11)`, `test (3.12)`, `test (3.13)`
+  - `test (3.12)`, `test (3.13)`, `test (3.14)`, `test (3.15)`
   - `manifests`
   - `image`
   - `kind`
