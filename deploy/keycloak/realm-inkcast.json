@@ -1,0 +1,64 @@
+{
+  "realm": "inkcast",
+  "displayName": "Inkcast",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": true,
+  "registrationEmailAsUsername": true,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "verifyEmail": true,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "rememberMe": false,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "failureFactor": 10,
+  "waitIncrementSeconds": 60,
+  "maxFailureWaitSeconds": 900,
+  "passwordPolicy": "length(12) and notUsername and notEmail",
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
+  "eventsEnabled": true,
+  "enabledEventTypes": ["LOGIN", "LOGIN_ERROR", "REGISTER", "REGISTER_ERROR", "LOGOUT", "UPDATE_PASSWORD", "VERIFY_EMAIL"],
+  "adminEventsEnabled": true,
+  "adminEventsDetailsEnabled": false,
+  "roles": {
+    "realm": [
+      {"name": "inkcast-user", "description": "May use Inkcast. Given to every account by default."},
+      {"name": "inkcast-admin", "description": "Inkcast operators: the admin portal (E6). Requires OTP or WebAuthn (E9.F9.4)."},
+      {"name": "default-roles-inkcast", "description": "Roles every new account gets.", "composite": true,
+       "composites": {"realm": ["inkcast-user"]}}
+    ]
+  },
+  "defaultRole": {"name": "default-roles-inkcast"},
+  "clients": [
+    {
+      "clientId": "inkcast-identity",
+      "name": "Inkcast sign-in (MCP clients, the API, personal access tokens)",
+      "description": "Confidential client for Inkcast's IdentityService. Secret from KC_INKCAST_CLIENT_SECRET, never in Git.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${KC_INKCAST_CLIENT_SECRET}",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "frontchannelLogout": true,
+      "redirectUris": ["${INKCAST_PUBLIC_URL}/auth/callback"],
+      "webOrigins": ["${INKCAST_PUBLIC_URL}"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "${INKCAST_PUBLIC_URL}/"
+      },
+      "fullScopeAllowed": true,
+      "defaultClientScopes": ["profile", "email", "roles", "web-origins"],
+      "optionalClientScopes": ["offline_access"]
+    }
+  ]
+}

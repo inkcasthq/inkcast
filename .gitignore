@@ -10,3 +10,4 @@ dist/
 # Local observability stack (scripts/dev/stack.sh): generated secrets and check output
 deploy/dev/.secrets/
 deploy/dev/.captures/
+deploy/keycloak/.secrets/

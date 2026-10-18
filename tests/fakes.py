@@ -13,7 +13,7 @@ from urllib.parse import urlencode
 
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import JSONResponse, RedirectResponse
+from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.routing import Route
 
 
@@ -26,6 +26,9 @@ class Fakes:
         self.next_user = {"sub": "kc-user-1", "preferred_username": "ada", "email": "ada@example.com",
                           "email_verified": True, "name": "Ada Lovelace", "realm_access": {"roles": ["inkcast-user"]}}
         self._codes: dict[str, dict] = {}
+        # Keycloak's own login form, when set: username -> (password, user claims). None signs `next_user` in at once.
+        self.kc_accounts: dict[str, tuple[str, dict]] | None = None
+        self._kc_sessions: dict[str, dict] = {}
         self._kc_tokens: dict[str, dict] = {}
         self.medium_posts: list[tuple[str, dict]] = []
         self.devto_articles: list[dict] = []
@@ -46,8 +49,26 @@ class Fakes:
         q = request.query_params
         assert q["client_id"] == self.oidc_client[0] and q["code_challenge_method"] == "S256"
         assert "openid" in q["scope"].split()
+        if self.kc_accounts is not None:                   # the page a person fills in, with Keycloak's markup
+            session = secrets.token_hex(8)
+            self._kc_sessions[session] = dict(q)
+            action = (f"{self.issuer}/login-actions/authenticate?session_code={session}&amp;execution=e1"
+                      f"&amp;client_id={q['client_id']}&amp;tab_id=t1")
+            return HTMLResponse(f'<html><body><form id="kc-form-login" onsubmit="return true;" action="{action}" '
+                                f'method="post"><input name="username"><input name="password" type="password">'
+                                f'</form></body></html>')
         code = secrets.token_hex(8)
         self._codes[code] = {"challenge": q["code_challenge"], "redirect_uri": q["redirect_uri"], "user": dict(self.next_user)}
+        return RedirectResponse(f"{q['redirect_uri']}?{urlencode({'code': code, 'state': q['state']})}", status_code=302)
+
+    async def kc_authenticate(self, request: Request):
+        q = self._kc_sessions.pop(request.query_params.get("session_code", ""), None)
+        f = await request.form()
+        account = (self.kc_accounts or {}).get(str(f.get("username", "")))
+        if not q or not account or account[0] != f.get("password"):
+            return HTMLResponse('<span id="input-error">Invalid username or password.</span>', status_code=200)
+        code = secrets.token_hex(8)
+        self._codes[code] = {"challenge": q["code_challenge"], "redirect_uri": q["redirect_uri"], "user": dict(account[1])}
         return RedirectResponse(f"{q['redirect_uri']}?{urlencode({'code': code, 'state': q['state']})}", status_code=302)
 
     async def oidc_token(self, request: Request):
@@ -157,6 +178,7 @@ class Fakes:
         return Starlette(routes=[
             Route(f"{kc}/.well-known/openid-configuration", self.oidc_config),
             Route(f"{kc}/protocol/openid-connect/auth", self.oidc_auth),
+            Route(f"{kc}/login-actions/authenticate", self.kc_authenticate, methods=["POST"]),
             Route(f"{kc}/protocol/openid-connect/token", self.oidc_token, methods=["POST"]),
             Route(f"{kc}/protocol/openid-connect/userinfo", self.oidc_userinfo),
             Route("/medium/v1/me", self.medium_me),

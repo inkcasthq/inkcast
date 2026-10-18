@@ -162,6 +162,8 @@ jobs:
           curl -sf localhost:8787/.well-known/oauth-authorization-server | grep -q registration_endpoint
       - name: Restore drill (back up, lose a row, restore, prove it is back; docs/runbooks/backup-restore.md)
         run: scripts/ci-run.sh "restore drill" scripts/ops/backup-drill.sh inkcast
+      - name: Sign in through a real Keycloak (E9.F9.1; realm from deploy/keycloak, a role-less user refused)
+        run: scripts/ci-run.sh "keycloak sign-in" scripts/dev/keycloak-e2e.sh
       - name: Deploy the split services (one Deployment per INKCAST_APP_NAME, built-in Gateway in front)
         run: |
           scripts/ci-run.sh "apply ci-split" kubectl apply -k deploy/kustomize/overlays/ci-split
@@ -194,7 +196,7 @@ jobs:
       - name: Diagnostics
         if: failure()
         run: |
-          for ns in inkcast inkcast-split monitoring; do
+          for ns in inkcast inkcast-split monitoring keycloak inkcast-oidc; do
             kubectl -n $ns get all,events || true
             kubectl -n $ns describe pod || true
             for d in $(kubectl -n $ns get deploy -o name); do kubectl -n $ns logs "$d" --tail=100 || true; done
