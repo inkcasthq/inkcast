@@ -35,7 +35,7 @@ class SplitHarness(Harness):
         cls.config = base
         cls.servers = [serve(cls.fakes.app(), fport)]
         upstreams, cls.contexts = {}, {}
-        for name in ("IdentityService", "PublishingApi", "ConnectorService"):
+        for name in ("IdentityService", "PublishingApi", "ConnectorService", "InsightsService"):
             [spec] = resolve(name)
             port = free_port()
             cfg = dataclasses.replace(base, port=port)
@@ -51,12 +51,15 @@ class SplitHarness(Harness):
         cls.servers.append(serve(compose([gw], cls.gateway), gport))
         cls.app = cls.contexts["PublishingApi"]  # what the inherited tests inspect (store, metrics)
 
+    def insights_context(self):
+        return self.contexts["InsightsService"]
+
 
 class SplitServices(SplitHarness, EndToEnd):
 
     def test_services_answer_under_their_full_names(self):
-        ports = {name: s.config.port for name, s in zip(("fakes", "IdentityService", "PublishingApi", "ConnectorService"),
-                                                         self.servers)}
+        ports = {name: s.config.port for name, s in zip(("fakes", "IdentityService", "PublishingApi", "ConnectorService",
+                                                          "InsightsService"), self.servers)}
 
         async def run():
             async with httpx2.AsyncClient() as c:

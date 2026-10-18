@@ -120,6 +120,16 @@ class PostsRepo(Database):
         row = self._one("SELECT COUNT(*) AS n FROM posts WHERE status = 'scheduled' AND run_at <= ?", now - grace)
         return int(row["n"]) if row else 0
 
+    def post_status_counts(self, user_id: str, since: float) -> dict[str, dict[str, int]]:
+        """status -> platform -> count, for one user's posts that changed since ``since`` (so a post scheduled
+        far ahead counts as scheduled now, and last month's published posts stay out)."""
+        rows = self._all("SELECT status, platform, COUNT(*) AS n FROM posts WHERE user_id = ? AND updated_at >= ?"
+                         " GROUP BY status, platform ORDER BY status, platform", user_id, since)
+        out: dict[str, dict[str, int]] = {}
+        for r in rows:
+            out.setdefault(r["status"], {})[r["platform"]] = int(r["n"])
+        return out
+
     def list_posts(self, user_id: str, start: float, end: float) -> list[dict[str, Any]]:
         rows = self._all(
             "SELECT * FROM posts WHERE user_id = ? AND run_at BETWEEN ? AND ? ORDER BY run_at", user_id, start, end

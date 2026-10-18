@@ -166,6 +166,10 @@ class Harness(unittest.TestCase):
         asyncio.run(self.run_tools(self.oauth_client(Browser(), storage), [("inkcast_platforms", {})]))
         return storage.tokens.access_token
 
+    def insights_context(self):
+        """The process that runs InsightsService (its outbox consumer is driven by hand in tests)."""
+        return self.app
+
 
 class EndToEnd(Harness):
     def test_discovery_points_clients_at_inkcast(self):
@@ -330,6 +334,82 @@ class EndToEnd(Harness):
         self.assertEqual(r["unknown_platform"].status_code, 404)
         self.assertEqual(r["sched"].headers["cache-control"], "no-store")
 
+    def test_insights_are_scoped_to_the_caller_and_come_from_rollups(self):
+        token = self.access_token()
+        base = self.config.public_url
+
+        async def run():
+            h = {"Authorization": f"Bearer {token}"}
+            from inkcast.services.insights import poller
+            async with httpx2.AsyncClient(timeout=30) as c:
+                link = (await c.post(f"{base}/api/v1/platforms/devto/connect-link", headers=h)).json()
+                await c.post(link["url"], data={"api_key": "devto-key"})
+                poller(self.insights_context()).drain()                  # other tests of this class emitted events too
+                start = await c.get(f"{base}/api/v1/insights/summary?days=7", headers=h)
+                start_series = await c.get(f"{base}/api/v1/insights/kpis?names=posts_published,posts_cancelled,sync_results"
+                                           "&grain=hour", headers=h)
+                now = await c.post(f"{base}/api/v1/posts", headers=h, json={"markdown": STORY, "platforms": ["devto"]})
+                sched = await c.post(f"{base}/api/v1/posts", headers=h, json={
+                    "markdown": STORY, "platforms": ["devto"],
+                    "publish_at": (datetime.now(timezone.utc) + timedelta(days=3)).isoformat()})
+                await c.post(f"{base}/api/v1/posts/{sched.json()['results'][0]['post_id']}/cancel", headers=h)
+                synced = await c.post(f"{base}/api/v1/stories:sync", headers=h, json={
+                    "source": "github.com/acme/blog", "files": [{"path": "a.md", "markdown": STORY.replace(
+                        "platforms: [medium, devto]", "platforms: [devto]")}]})
+                pat = (await c.post(f"{base}/api/v1/tokens", headers=h, json={"name": "ci", "scopes": ["posts:read"]})).json()
+                before = await c.get(f"{base}/api/v1/insights/summary?days=7", headers=h)
+                poller(self.insights_context()).drain()                  # what the worker does every few seconds
+                summary = await c.get(f"{base}/api/v1/insights/summary?days=7", headers=h)
+                series = await c.get(f"{base}/api/v1/insights/kpis?names=posts_published,posts_cancelled,sync_results&grain=hour",
+                                     headers=h)
+                unknown = await c.get(f"{base}/api/v1/insights/kpis?names=mrr", headers=h)
+                bad_grain = await c.get(f"{base}/api/v1/insights/kpis?names=posts_published&grain=week", headers=h)
+                no_scope = await c.get(f"{base}/api/v1/insights/summary", headers={"Authorization": f"Bearer {pat['token']}"})
+                anon = await c.get(f"{base}/api/v1/insights/summary")
+            return locals()
+        r = asyncio.run(run())
+        self.assertEqual(r["now"].json()["results"][0]["status"], "published")
+        self.assertEqual(r["synced"].json()["results"][0]["action"], "create")
+
+        def count(summary, status):
+            return summary["posts_by_status"].get(status, {}).get("devto", 0)
+
+        def total(series_response, name, **dims):
+            [series] = [x for x in series_response.json() if x["name"] == name]
+            return sum(p["value"] for p in series["points"] if all(p["dims"].get(k) == v for k, v in dims.items()))
+
+        s0, before, s = r["start"].json(), r["before"].json(), r["summary"].json()
+        self.assertEqual(count(before, "published") - count(s0, "published"), 2)   # live counts: no rollup needed
+        self.assertEqual((s["scope"], s["days"]), ("user", 7))
+        self.assertEqual(count(s, "cancelled") - count(s0, "cancelled"), 1)
+        self.assertEqual(s["ledger_by_status"].get("published", 0) - s0["ledger_by_status"].get("published", 0), 1)
+        devto = [x for x in s["publish_success"] if x["platform"] == "devto"][0]
+        devto0 = ([x for x in s0["publish_success"] if x["platform"] == "devto"] or [{"numerator": 0, "denominator": 0}])[0]
+        self.assertEqual((devto["numerator"] - devto0["numerator"], devto["denominator"] - devto0["denominator"]), (2, 2))
+        self.assertEqual(devto["rate"], devto["numerator"] / devto["denominator"])
+        self.assertEqual(s["sync_by_action"].get("create", 0) - s0["sync_by_action"].get("create", 0), 1)
+        self.assertEqual(s["sync_by_platform"].get("devto", 0) - s0["sync_by_platform"].get("devto", 0), 1)
+        self.assertEqual(total(r["series"], "posts_published", platform="devto", status="published")
+                         - total(r["start_series"], "posts_published", platform="devto", status="published"), 2)
+        self.assertEqual(total(r["series"], "posts_cancelled") - total(r["start_series"], "posts_cancelled"), 1)
+        self.assertEqual(total(r["series"], "sync_results", action="create") - total(r["start_series"], "sync_results", action="create"), 1)
+        self.assertEqual(r["unknown"].status_code, 422)                    # owner-only KPIs are not served here
+        self.assertEqual(r["bad_grain"].status_code, 422)
+        self.assertEqual((r["no_scope"].status_code, r["no_scope"].json()["error"]), (403, "insufficient_scope"))
+        self.assertEqual(r["anon"].status_code, 401)
+        # another person sees nothing of it
+        self.fakes.next_user = {**self.fakes.next_user, "sub": "kc-user-2", "preferred_username": "bob"}
+        try:
+            other = self.access_token()
+        finally:
+            self.fakes.next_user = {**self.fakes.next_user, "sub": "kc-user-1", "preferred_username": "ada"}
+
+        async def as_other():
+            async with httpx2.AsyncClient(timeout=30) as c:
+                return (await c.get(f"{base}/api/v1/insights/summary", headers={"Authorization": f"Bearer {other}"})).json()
+        theirs = asyncio.run(as_other())
+        self.assertEqual((theirs["posts_by_status"], theirs["publish_success"], theirs["ledger_by_status"]), ({}, [], {}))
+
     def test_openapi_and_docs_pages(self):
         base = self.config.public_url
 
@@ -352,7 +432,8 @@ class EndToEnd(Harness):
             "/api/v1/me", "/api/v1/platforms", "/api/v1/platforms/{platform_id}/connect-link",
             "/api/v1/platforms/{platform_id}/connection", "/api/v1/platforms/{platform_id}/destinations",
             "/api/v1/posts", "/api/v1/posts/{post_id}/cancel", "/api/v1/preview", "/api/v1/stories:sync",
-            "/api/v1/ledger", "/api/v1/tokens", "/api/v1/tokens/{token_id}"})
+            "/api/v1/ledger", "/api/v1/tokens", "/api/v1/tokens/{token_id}", "/api/v1/insights/summary",
+            "/api/v1/insights/kpis"})
         refs = set(re.findall(r'"#/components/schemas/(\w+)"', __import__("json").dumps(spec)))
         self.assertTrue(refs <= set(spec["components"]["schemas"]), refs - set(spec["components"]["schemas"]))
         for path, page in pages.items():

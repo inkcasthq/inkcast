@@ -176,3 +176,40 @@ class LedgerEntry(BaseModel):
     url: str | None = None
     message: str | None = None
     synced_at: str
+
+
+# ---- insights (InsightsService) ---------------------------------------------------------------
+
+
+class RateSummary(BaseModel):
+    platform: str
+    numerator: float
+    denominator: float
+    rate: float | None = Field(None, description="numerator / denominator, or null when nothing happened.")
+
+
+class InsightsSummary(BaseModel):
+    days: int
+    scope: str = Field(description="What the numbers are about: `user` now; `workspace` or `org` with E3.")
+    scope_id: str
+    posts_by_status: dict[str, dict[str, int]] = Field(description="status -> platform -> posts that changed in the period "
+                                                       "(a post scheduled for later counts as scheduled now).")
+    ledger_by_status: dict[str, int] = Field(description="Git publishing ledger entries by status, now.")
+    publish_success: list[RateSummary] = Field(description="published / (published + failed + unconfirmed), per platform.")
+    on_time: list[RateSummary] = Field(description="scheduled sends within two minutes of their time, per platform.")
+    sync_by_action: dict[str, int]
+    sync_by_platform: dict[str, int]
+
+
+class KpiPoint(BaseModel):
+    bucket: int = Field(description="Start of the bucket, UTC epoch seconds.")
+    dims: dict[str, str]
+    value: float
+    n: int = Field(description="Events behind the value (value / n is the mean for duration KPIs).")
+
+
+class KpiSeries(BaseModel):
+    name: str
+    unit: str
+    grain: str
+    points: list[KpiPoint]

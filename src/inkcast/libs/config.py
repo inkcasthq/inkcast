@@ -121,6 +121,7 @@ class Config:
     access_token_seconds: int = 3600
     refresh_token_seconds: int = 60 * 60 * 24 * 30
     scheduler_interval_seconds: float = 20.0
+    insights_interval_seconds: float = 10.0  # how often InsightsService folds new domain events into KPI rollups
     log_format: str = "text"  # "json" in containers
     log_level: str = "INFO"
     metrics_port: int = 9090  # Prometheus /metrics on its own port; 0 disables
@@ -315,6 +316,7 @@ def load_config(environ: Mapping[str, str] | None = None) -> Config:
         upstreams=env.prefixed("INKCAST_UPSTREAM_", lambda k: k.lower().replace("_", "-")),
         overdue_grace_seconds=env.float("INKCAST_OVERDUE_GRACE", "600"),
         scheduler_interval_seconds=env.float("INKCAST_SCHEDULER_INTERVAL", "20"),
+        insights_interval_seconds=env.float("INKCAST_INSIGHTS_INTERVAL", "10"),
         log_format=env.get("INKCAST_LOG_FORMAT", "text").lower(),
         log_level=env.get("INKCAST_LOG_LEVEL", "INFO"),
         metrics_port=env.int("INKCAST_METRICS_PORT", "9090"),
