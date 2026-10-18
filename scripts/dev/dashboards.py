@@ -39,6 +39,13 @@ import httpx2
 
 REDIRECT = "http://localhost:53682/callback"
 DASHBOARD_UID = "inkcast-platform"
+# Panels that may show "No data" in the dev stack, and why: listed in the summary so an empty panel is a stated
+# expectation, never a surprise (the /dashboard standard, step 9.2). Any other empty panel is reported as unexpected.
+EXPECTED_EMPTY = {
+    "Schedule timeliness SLO": "an error ratio over 1 h needs a late send to be non-zero; none is late in the seed",
+    "Rate-limited writes": "the seed stays under every rate limit",
+    "Cache hit ratio": "the dev stack runs no shared cache (INKCAST_CACHE_URL unset)",
+}
 REQUIRED = ["Pods scraped", "Version and plug-ins", "Scheduler ticks", "Publish outcomes", "Requests by status class",
             "Schedule lag p95", "Publish call p95"]
 
@@ -136,6 +143,14 @@ def seed(args: argparse.Namespace) -> int:
         else:
             if scheduled:
                 print("warning: scheduled posts had not gone out in time", file=sys.stderr)
+        # A second round once every series exists: rate() needs an increase after a series' first sample, so the
+        # per-route latency and request panels get points (the first round only created the series).
+        for i in range(2):
+            c.post(f"{base}/api/v1/preview", headers=h, json={"markdown": story(f"Seed {run} again {i}")})
+            c.post(f"{base}/api/v1/posts", headers=h, json={"markdown": story(f"Seed {run} again now {i}")})
+        c.post(f"{base}/api/v1/stories:sync", headers=h, json={"source": "github.com/acme/blog", "files": [
+            {"path": f"posts/seed-{run}-again.md", "markdown": story(f"Seed {run} git again", "[devto]")}]})
+        c.post(f"{base}/api/v1/posts", headers=h, json={"markdown": "x", "platforms": ["devto"]})
         summary = c.get(f"{base}/api/v1/insights/summary?days=1", headers=h)
         print("insights:", summary.status_code, json.dumps(summary.json().get("posts_by_status", {}))[:200])
     return 0
@@ -198,10 +213,23 @@ def screenshot(grafana: str, titles: list[str], shot: pathlib.Path) -> list[str]
         try:
             for title in [t for t in titles if t][:3]:
                 page.get_by_text(title, exact=False).first.wait_for(state="visible", timeout=60_000)
-            page.wait_for_load_state("networkidle", timeout=60_000)
-            page.wait_for_timeout(3000)                                     # let the charts draw
+            # Grafana draws a panel only once it is in view, so a full-page shot of a 1000 px window leaves the
+            # lower sections blank: grow the window to the whole page (twice: drawn panels can lengthen it).
+            for _ in range(2):
+                height = page.evaluate("Math.max(document.documentElement.scrollHeight, document.body.scrollHeight)")
+                page.set_viewport_size({"width": 1600, "height": min(max(int(height) + 40, 1000), 8000)})
+                page.wait_for_load_state("networkidle", timeout=60_000)
+                page.wait_for_timeout(2500)                                 # let the charts draw
+            for title in [t for t in titles if t]:
+                page.get_by_text(title, exact=False).first.wait_for(state="visible", timeout=30_000)
         except PlaywrightTimeout:
             problems.append("screenshot: the dashboard's panels never appeared in the browser")
+        # Read the page as a person would (borrowed from mongodb-poc's capture-console-dashboard.py).
+        text = page.inner_text("body") if not problems else ""
+        reading = {"No data": text.count("No data"), "NaN": text.count("NaN"), "Forbidden": text.count("Forbidden")}
+        (shot.parent / "reading.json").write_text(json.dumps(reading) + "\n")
+        if reading["Forbidden"] or reading["NaN"]:
+            problems.append(f"screenshot: the page shows {reading}")
         if page.get_by_text("failed to load its application files").count():
             problems.append("screenshot: Grafana showed 'failed to load its application files'")
         page.mouse.move(0, 0)                                               # no hover tooltip in the picture
@@ -246,12 +274,23 @@ def check(args: argparse.Namespace) -> int:
     shot = out / "inkcast-platform.light.png"
     if not args.no_screenshot:
         errors.extend(screenshot(grafana, [p.get("title", "") for p in panels(dashboard)], shot))
+    expected = {r["panel"]: why for r in rows if not r["data"]
+                for name, why in EXPECTED_EMPTY.items() if r["panel"].startswith(name)}
+    unexpected = [r["panel"] for r in rows if not r["data"] and not r["required"] and r["panel"] not in expected]
+    reading_file = out / "reading.json"
+    reading = json.loads(reading_file.read_text()) if reading_file.exists() else {}
     ok = not errors and not empty_required
     lines = [f"# Dashboard check: {'PASS' if ok else 'FAIL'}", "",
              f"Grafana {grafana}, Prometheus {prom}, namespace `{ns}`, {len(rows)} panels.", "",
              "| Panel | Required | Data | Errors |", "|---|---|---|---|"]
     lines += [f"| {r['panel']} | {'yes' if r['required'] else ''} | {'yes' if r['data'] else 'no'} | "
               f"{'; '.join(r['errors']) or ''} |" for r in rows]
+    if expected:
+        lines += ["", "Empty as expected:"] + [f"- {k}: {v}" for k, v in expected.items()]
+    if unexpected:
+        lines += ["", "Empty, not expected (look into it): " + ", ".join(unexpected)]
+    if reading:
+        lines += ["", "The rendered page reads: " + ", ".join(f"'{k}' x{v}" for k, v in reading.items())]
     lines += [""] + [f"- {e}" for e in errors if e.startswith("screenshot:")] if any(
         e.startswith("screenshot:") for e in errors) else []
     (out / "summary.md").write_text("\n".join(lines) + "\n")
