@@ -39,7 +39,7 @@ features:
     status: planned
   - id: F3.1.S5
     title: 'Backups: CloudNativePG scheduled base backups + WAL archiving to object storage; PITR; restore drill in CI (restore
-      latest backup, run the e2e suite). Until then: VolumeSnapshot CronJob + sqlite3 .backup Job'
+      into a new Cluster, run the e2e suite). Decision: ADR-0014'
     status: planned
     change: new
     acceptance:
@@ -57,6 +57,18 @@ features:
     title: Outbox and kpi_rollups as PostgreSQL tables in the owning schemas (BIGSERIAL seq; index-only cursor reads); migrations
     status: planned
     change: new
+  - id: F3.1.S9
+    title: 'SQLite stopgap until F3.1.S5: inkcast backup/restore/backups, the backup component (daily CronJob, own volume,
+      deny-all network), InkcastBackupMissing, restore runbook, restore drill in CI on kind'
+    status: in-progress
+    change: new; closes the gap review's P0 (no backups) until PostgreSQL
+    acceptance:
+    - A backup taken while the server writes is consistent (WAL included), passes PRAGMA integrity_check, and has a manifest
+      with SHA-256 and row counts
+    - Retention removes the oldest only after a good backup; a failed backup removes nothing
+    - A restore verifies first, refuses under a live server, and keeps the replaced database
+    - The kind CI job backs up, deletes a row, restores and finds the row again
+    - No successful backup for 26 h raises InkcastBackupMissing (critical) with a runbook
 - id: F3.2
   title: Organizations and workspaces
   stories:
