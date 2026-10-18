@@ -9,6 +9,7 @@ Each ADR records one significant decision: the context, the options considered, 
 | [0003](0003-data-store.md) | SQLite now with per-domain repositories; PostgreSQL in E3 | Accepted |
 | [0004](0004-web-frontend.md) | React + TypeScript SPA with a backend-for-frontend session | Accepted |
 | [0005](0005-personal-access-tokens.md) | Personal access tokens: scoped, hashed, shown once, can't mint tokens | Accepted |
+| [0006](0006-identity-on-keycloak.md) | Identity on Keycloak, authorization (MCP OAuth, consent, PATs) in Inkcast | Accepted |
 
 ---
 <!-- inkcast-nav -->
