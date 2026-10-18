@@ -15,8 +15,15 @@ Grafana http://localhost:3000, Prometheus http://localhost:9091, namespace `inkc
 | Publish success SLO: error ratio over 1 h |  | yes |  |
 | Schedule timeliness SLO: error ratio over 1 h |  | no |  |
 | Requests by status class (per second, stacked) | yes | yes |  |
-| Request p95 by route (seconds) |  | no |  |
+| Request p95 by route (seconds) |  | yes |  |
 | API availability SLO: error ratio over 1 h |  | yes |  |
 | Rate-limited writes (per second) |  | no |  |
 | Outbox lag (seconds) |  | yes |  |
 | Cache hit ratio (share) |  | no |  |
+
+Empty as expected:
+- Schedule timeliness SLO: error ratio over 1 h: an error ratio over 1 h needs a late send to be non-zero; none is late in the seed
+- Rate-limited writes (per second): the seed stays under every rate limit
+- Cache hit ratio (share): the dev stack runs no shared cache (INKCAST_CACHE_URL unset)
+
+The rendered page reads: 'No data' x3, 'NaN' x0, 'Forbidden' x0

@@ -82,7 +82,7 @@
       "panel": "Request p95 by route (seconds)",
       "type": "timeseries",
       "required": false,
-      "data": false,
+      "data": true,
       "errors": []
     },
     {
