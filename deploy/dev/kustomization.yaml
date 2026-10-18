@@ -1,0 +1,47 @@
+# kind: the CI overlay's Inkcast (namespace inkcast) pointed at fake platforms, plus Prometheus and Grafana
+# (namespace monitoring). Development only. Run it with scripts/dev/stack.sh kind (it makes .secrets/ first).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../kustomize/overlays/ci
+  - k8s/fakes.yaml
+  - k8s/monitoring.yaml
+configMapGenerator:
+  - name: inkcast-config
+    namespace: inkcast
+    behavior: merge
+    options: {disableNameSuffixHash: true}
+    literals:
+      - INKCAST_ENV=development
+      - INKCAST_API_URL_DEVTO=http://inkcast-fakes:8999/devto/api
+      - INKCAST_API_URL_MEDIUM=http://inkcast-fakes:8999/medium/v1
+      - INKCAST_SCHEDULER_INTERVAL=5
+      - INKCAST_INSIGHTS_INTERVAL=5
+  - name: prometheus-config
+    namespace: monitoring
+    files:
+      - prometheus.yml=prometheus/kind.yml
+      - rules.yaml=prometheus/rules.yaml
+  - name: grafana-provisioning
+    namespace: monitoring
+    files:
+      - datasource.yaml=grafana/datasource.yaml
+      - dashboards.yaml=grafana/dashboards.yaml
+  - name: grafana-dashboards
+    namespace: monitoring
+    files:
+      - grafana/dashboards/grafana-inkcast-platform.json
+secretGenerator:
+  - name: inkcast-secrets
+    namespace: inkcast
+    behavior: replace
+    options: {disableNameSuffixHash: true}
+    files:
+      - secret-key=.secrets/secret-key
+      - password=.secrets/password
+    literals:
+      - oidc-client-secret=unused
+  - name: grafana-admin
+    namespace: monitoring
+    files:
+      - password=.secrets/grafana-admin-password

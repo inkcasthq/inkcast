@@ -2,7 +2,7 @@
 
 How Inkcast reads, holds, rotates and hides its credentials. Code lives in `src/inkcast/libs/secrets/`.
 
-Inkcast has four credentials of its own:
+Inkcast has five credentials of its own:
 
 | Setting | Used by | What it is |
 | --- | --- | --- |
@@ -10,6 +10,7 @@ Inkcast has four credentials of its own:
 | `OIDC_CLIENT_SECRET` | IdentityService (`INKCAST_LOGIN=oidc`) | the client secret at your OpenID Connect provider |
 | `GITHUB_CLIENT_SECRET` | IdentityService (`INKCAST_LOGIN=github`) | the GitHub OAuth app secret |
 | `INKCAST_PASSWORD` | IdentityService (`INKCAST_LOGIN=password`) | the one shared password |
+| `INKCAST_CACHE_PASSWORD` | every service except the Gateway, when `INKCAST_CACHE_URL` is set | the Redis/Valkey password (`AUTH`); never part of the URL |
 
 Platform credentials (a DEV API key, a Medium token) never come from configuration: people type
 them on the connect page and they are sealed into the database.

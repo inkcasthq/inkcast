@@ -29,6 +29,7 @@ from datetime import datetime, timezone
 from ...libs.content.story import StoryError, parse_story
 from ...libs.contracts.models import LedgerEntry, SyncRequest, SyncResponse, SyncResult
 from ...libs.db import Store
+from ...libs.events import DomainEvent
 from ...libs.observability import Metrics
 from ...libs.pipeline import Publisher
 from ...libs.platforms import Platform, PlatformError, Prepared
@@ -56,6 +57,10 @@ class GitSync:
             results += await self._file(user_id, req, f.path, f.markdown, f.image_base_url or req.image_base_url)
         for r in results:
             self._count(r.platform, r.action)
+        if not req.dry_run:
+            self.store.enqueue(*(DomainEvent("sync.result", user_id=user_id, subject=f"{req.source}:{r.path}",
+                                             attrs={"platform": r.platform, "action": r.action, "source": req.source})
+                                 for r in results))
         return SyncResponse(source=req.source, ref=req.ref, dry_run=req.dry_run, results=results)
 
     async def _file(self, user_id: str, req: SyncRequest, path: str, markdown: str,

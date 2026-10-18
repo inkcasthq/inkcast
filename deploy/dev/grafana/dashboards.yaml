@@ -1,0 +1,9 @@
+# Grafana provisioning: load every generated dashboard JSON (scripts/gen-dashboards.py) from one folder.
+apiVersion: 1
+providers:
+  - name: inkcast
+    folder: Inkcast
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    options: {path: /var/lib/grafana/dashboards, foldersFromFilesStructure: false}

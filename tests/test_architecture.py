@@ -85,6 +85,7 @@ class Architecture(unittest.TestCase):
             "inkcast/libs/secrets",                 # the wrapper and the provider themselves
             "inkcast/libs/config.py",               # validate(): lengths only
             "inkcast/services/identity/login.py",   # the HMAC key, the IdP client secrets
+            "inkcast/libs/cache/redis.py",          # the AUTH command to Redis/Valkey
         }
         found = {}
         for path in (SRC / "inkcast").rglob("*.py"):

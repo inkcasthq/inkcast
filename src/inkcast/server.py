@@ -18,7 +18,7 @@ def build(config: Config, transport=None) -> Context:
 
 
 def asgi_app(ctx: Context):
-    return compose(resolve("IdentityService,PublishingApi,ConnectorService"), ctx)
+    return compose(resolve("IdentityService,PublishingApi,ConnectorService,InsightsService"), ctx)
 
 
 def metrics_app(ctx: Context):

@@ -170,3 +170,165 @@ class Fakes:
             Route("/devto/api/articles/me/all", self.devto_mine),
             Route("/devto/api/articles/{aid:int}", self.devto_update, methods=["PUT"]),
         ])
+
+
+class FakeRedis:
+    """A Redis/Valkey server speaking RESP2 on a local port, in Python: GET, SET (PX/NX), DEL, INCRBY, PEXPIRE,
+    PTTL, HSET, HMGET, PING, AUTH, SELECT, SCRIPT LOAD, EVAL, EVALSHA. It can't run Lua, so it carries a
+    Python twin of each script Inkcast ships, chosen by the script's SHA-1 (the same hash EVALSHA uses).
+    ``dropped`` counts connections the test cut (``kill()``), to test reconnects."""
+
+    def __init__(self, password: str | None = None, clock=None):
+        import time
+
+        self.password = password
+        self.clock = clock or time.time
+        self.data: dict[str, object] = {}
+        self.expires: dict[str, float] = {}
+        self.scripts: dict[str, str] = {}
+        self.commands: list[str] = []
+        self.connections = 0
+        self.server = None
+        self._writers: list = []
+
+    async def start(self) -> int:
+        import asyncio
+        self.server = await asyncio.start_server(self._serve, "127.0.0.1", 0)
+        return self.server.sockets[0].getsockname()[1]
+
+    async def stop(self) -> None:
+        self.kill()
+        self.server.close()
+        await self.server.wait_closed()
+
+    def kill(self) -> None:
+        """Cut every open connection (a restart, a failover)."""
+        for w in self._writers:
+            w.close()
+        self._writers.clear()
+
+    # ---- the protocol -------------------------------------------------------------------
+
+    async def _serve(self, reader, writer) -> None:
+        from inkcast.libs.cache.resp import RespError, read_reply
+        self.connections += 1
+        self._writers.append(writer)
+        authed = self.password is None
+        try:
+            while True:
+                try:
+                    args = await read_reply(reader)
+                except (Exception, RespError):
+                    return
+                name = args[0].decode().upper()
+                rest = [a.decode() if isinstance(a, bytes) else a for a in args[1:]]
+                self.commands.append(name)
+                if name == "AUTH":
+                    authed = rest[-1] == self.password
+                    reply = b"+OK\r\n" if authed else b"-WRONGPASS invalid username-password pair\r\n"
+                elif not authed:
+                    reply = b"-NOAUTH Authentication required.\r\n"
+                else:
+                    try:
+                        reply = self._encode(self._dispatch(name, rest))
+                    except RespError as exc:
+                        reply = f"-{exc}\r\n".encode()
+                writer.write(reply)
+                await writer.drain()
+        finally:
+            writer.close()
+
+    def _encode(self, value) -> bytes:
+        if value is None:
+            return b"$-1\r\n"
+        if isinstance(value, bool):
+            return b":%d\r\n" % int(value)
+        if isinstance(value, int):
+            return b":%d\r\n" % value
+        if isinstance(value, str):
+            if value.startswith("+"):
+                return f"{value}\r\n".encode()
+            data = value.encode()
+            return b"$%d\r\n%s\r\n" % (len(data), data)
+        if isinstance(value, list):
+            return b"*%d\r\n" % len(value) + b"".join(self._encode(v) for v in value)
+        raise TypeError(value)
+
+    def _alive(self, key: str) -> bool:
+        if key in self.expires and self.expires[key] <= self.clock():
+            self.data.pop(key, None)
+            self.expires.pop(key, None)
+        return key in self.data
+
+    def _dispatch(self, name: str, a: list):
+        from inkcast.libs.cache.resp import RespError
+        if name == "PING":
+            return "+PONG"
+        if name == "SELECT":
+            return "+OK"
+        if name == "GET":
+            return str(self.data[a[0]]) if self._alive(a[0]) else None
+        if name == "SET":
+            key, value, opts = a[0], a[1], [str(o).upper() for o in a[2:]]
+            if "NX" in opts and self._alive(key):
+                return None
+            self.data[key] = value
+            self.expires.pop(key, None)
+            if "PX" in opts:
+                self.expires[key] = self.clock() + int(a[2 + opts.index("PX") + 1]) / 1000
+            return "+OK"
+        if name == "DEL":
+            return int(self._alive(a[0]) and self.data.pop(a[0], None) is not None)
+        if name == "INCRBY":
+            value = (int(self.data[a[0]]) if self._alive(a[0]) else 0) + int(a[1])
+            self.data[a[0]] = value
+            return value
+        if name == "PEXPIRE":
+            if not self._alive(a[0]):
+                return 0
+            self.expires[a[0]] = self.clock() + int(a[1]) / 1000
+            return 1
+        if name == "PTTL":
+            return int((self.expires[a[0]] - self.clock()) * 1000) if a[0] in self.expires and self._alive(a[0]) else -1
+        if name == "HSET":
+            h = self.data[a[0]] if self._alive(a[0]) else {}
+            if not isinstance(h, dict):
+                raise RespError("WRONGTYPE Operation against a key holding the wrong kind of value")
+            for k, v in zip(a[1::2], a[2::2]):
+                h[k] = v
+            self.data[a[0]] = h
+            return len(a[1::2])
+        if name == "HMGET":
+            h = self.data[a[0]] if self._alive(a[0]) else {}
+            return [h.get(f) for f in a[1:]]
+        if name == "SCRIPT":
+            sha = hashlib.sha1(a[1].encode()).hexdigest()
+            self.scripts[sha] = a[1]
+            return sha
+        if name in ("EVAL", "EVALSHA"):
+            sha = hashlib.sha1(a[0].encode()).hexdigest() if name == "EVAL" else a[0]
+            if name == "EVALSHA" and sha not in self.scripts:
+                raise RespError("NOSCRIPT No matching script. Please use EVAL.")
+            nkeys = int(a[1])
+            keys, argv = a[2:2 + nkeys], a[2 + nkeys:]
+            return self._script(sha, keys, argv)
+        raise RespError(f"ERR unknown command '{name}'")
+
+    def _script(self, sha: str, keys: list, argv: list):
+        from inkcast.libs.cache.redis import TOKEN_BUCKET_SHA
+        from inkcast.libs.cache.resp import RespError
+        if sha != TOKEN_BUCKET_SHA:
+            raise RespError("ERR the fake knows only Inkcast's token bucket script")
+        capacity, rate, now, cost = (float(x) for x in argv)
+        state = self._dispatch("HMGET", [keys[0], "t", "ts"])
+        tokens, ts = (float(state[0]), float(state[1])) if state[0] is not None else (capacity, now)
+        tokens = min(capacity, tokens + (now - ts) * rate)
+        wait = 0.0
+        if tokens >= cost:
+            tokens -= cost
+        else:
+            wait = (cost - tokens) / rate
+        self._dispatch("HSET", [keys[0], "t", repr(tokens), "ts", repr(now)])
+        if rate > 0:
+            self._dispatch("PEXPIRE", [keys[0], str(int(capacity / rate * 1000 + 0.999))])
+        return repr(wait)

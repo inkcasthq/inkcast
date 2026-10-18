@@ -1,0 +1,81 @@
+# Local observability stack: Inkcast + fake DEV/Medium + Prometheus + Grafana, to try the dashboards and alerts
+# against live data. Development only (INKCAST_ENV=development, password sign-in, fake platforms).
+#
+#   scripts/dev/stack.sh compose          # build, start, seed traffic, check every panel, screenshot
+#   scripts/dev/stack.sh compose-down     # stop and delete the volumes
+#
+# Ports are bound to localhost only: Inkcast http://localhost:8787, Grafana http://localhost:3000 (anonymous
+# viewer, light theme; admin password in deploy/dev/.secrets/grafana-admin-password), Prometheus
+# http://localhost:9091. The secret files are made by stack.sh, never committed (.gitignore).
+name: inkcast-dev
+
+services:
+  fakes:
+    image: inkcast:dev
+    build: {context: ../.., dockerfile: Dockerfile}
+    entrypoint: ["python", "/repo/scripts/dev/fake_platforms.py"]
+    environment:
+      FAKES_PUBLIC_URL: http://fakes:8999
+    volumes:
+      - ../../scripts/dev:/repo/scripts/dev:ro
+      - ../../tests:/repo/tests:ro
+
+  inkcast:
+    image: inkcast:dev
+    build: {context: ../.., dockerfile: Dockerfile}
+    command: ["all"]
+    depends_on: [fakes]
+    ports: ["127.0.0.1:8787:8787"]
+    environment:
+      INKCAST_ENV: development
+      INKCAST_PUBLIC_URL: http://localhost:8787
+      INKCAST_LOGIN: password
+      INKCAST_PASSWORD_FILE: /run/secrets/inkcast_password
+      INKCAST_SECRET_KEY_FILE: /run/secrets/inkcast_secret_key
+      INKCAST_API_URL_DEVTO: http://fakes:8999/devto/api
+      INKCAST_API_URL_MEDIUM: http://fakes:8999/medium/v1
+      INKCAST_SCHEDULER_INTERVAL: "5"
+      INKCAST_INSIGHTS_INTERVAL: "5"
+    secrets: [inkcast_password, inkcast_secret_key]
+    volumes: [inkcast-data:/data]
+
+  prometheus:
+    image: quay.io/prometheus/prometheus:v3.5.0
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus",
+              "--storage.tsdb.retention.time=2d"]
+    depends_on: [inkcast]
+    ports: ["127.0.0.1:9091:9090"]
+    volumes:
+      - ./prometheus/compose.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules.yaml:/etc/prometheus/rules.yaml:ro
+      - prometheus-data:/prometheus
+
+  grafana:
+    image: grafana/grafana-oss:12.1.0
+    depends_on: [prometheus]
+    ports: ["127.0.0.1:3000:3000"]
+    environment:
+      PROMETHEUS_URL: http://prometheus:9090
+      GF_USERS_DEFAULT_THEME: light                    # Inkcast figures are light only
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/grafana-inkcast-platform.json
+      GF_ANALYTICS_REPORTING_ENABLED: "false"         # no calls home (and nothing to reach when air-gapped)
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+    secrets: [grafana_admin_password]
+    volumes:
+      - ./grafana/datasource.yaml:/etc/grafana/provisioning/datasources/prometheus.yaml:ro
+      - ./grafana/dashboards.yaml:/etc/grafana/provisioning/dashboards/inkcast.yaml:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+secrets:
+  inkcast_password: {file: ./.secrets/password}
+  inkcast_secret_key: {file: ./.secrets/secret-key}
+  grafana_admin_password: {file: ./.secrets/grafana-admin-password}
+
+volumes:
+  inkcast-data: {}
+  prometheus-data: {}

@@ -256,8 +256,8 @@ features:
   - id: F3.10.S1
     title: 'libs/cache: CacheBackend, MemoryCache, RedisCache (RESP client), FakeRedis, distributed rate limiter with fallback;
       INKCAST_CACHE_URL/INKCAST_CACHE_PASSWORD'
-    status: in-progress
-    change: 'new; built in PR #8 (mark done when it merges)'
+    status: done
+    change: 'new; built in PR #8'
   - id: F3.10.S2
     title: Valkey Kustomize component (OpenShift restricted-v2, non-root image, mirrored), egress NetworkPolicy rule for 6379
       (namespace + pod selectors), password from the secrets store; kind CI runs split mode with Valkey

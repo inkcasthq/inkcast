@@ -99,6 +99,10 @@ jobs:
           for d in deploy/kustomize/overlays/* deploy/kustomize/environments/*; do
             echo "::group::$d"; scripts/ci-run.sh "kustomize $d" kubectl kustomize "$d" -o "$RUNNER_TEMP/rendered.yaml"; echo "ok"; echo "::endgroup::"
           done
+      - name: Alert rules pass promtool (deploy/dev/prometheus/rules.yaml, the PrometheusRule's groups)
+        run: |
+          scripts/ci-run.sh "promtool check rules" docker run --rm -v "$PWD/deploy/dev/prometheus:/w:ro" \
+            --entrypoint promtool quay.io/prometheus/prometheus:v3.5.0 check rules /w/rules.yaml
 
   image:
     runs-on: ubuntu-latest
@@ -171,14 +175,56 @@ jobs:
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:8788/mcp -H 'Accept: application/json, text/event-stream' -d '{}')" = 401
           test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8788/connect/expired)" = 400
           test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8788/api/v1/tokens)" = 401
+      - name: Python, Playwright and Chromium for the dashboard check
+        run: |
+          pip install -e . 'playwright==1.56.0'
+          python -m playwright install --with-deps chromium
+      - name: Dashboards on kind (deploy/dev; Prometheus and Grafana, seeded, every panel checked)
+        run: BUILD=0 scripts/ci-run.sh "dashboards on kind" scripts/dev/stack.sh kind
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: dashboards-kind-${{ github.sha }}
+          path: deploy/dev/.captures/
+          include-hidden-files: true    # .captures is a dot-directory
+          if-no-files-found: warn
+          retention-days: 14
       - name: Diagnostics
         if: failure()
         run: |
-          for ns in inkcast inkcast-split; do
+          for ns in inkcast inkcast-split monitoring; do
             kubectl -n $ns get all,events || true
             kubectl -n $ns describe pod || true
             for d in $(kubectl -n $ns get deploy -o name); do kubectl -n $ns logs "$d" --tail=100 || true; done
           done
+
+  dashboards:
+    # The local observability stack under Docker Compose (deploy/dev): Inkcast + fake platforms + Prometheus +
+    # Grafana; seeds real traffic, runs every panel's queries through Grafana, screenshots the dashboard.
+    runs-on: ubuntu-latest
+    needs: [manifests]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with: {python-version: "3.12"}
+      - run: |
+          pip install -e . 'playwright==1.56.0'
+          python -m playwright install --with-deps chromium
+      - name: Compose stack, seed and check
+        run: scripts/ci-run.sh "dashboards on compose" scripts/dev/stack.sh compose
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: dashboards-compose-${{ github.sha }}
+          path: deploy/dev/.captures/
+          include-hidden-files: true    # .captures is a dot-directory
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Diagnostics
+        if: failure()
+        run: |
+          docker compose -f deploy/dev/compose.yaml ps -a || true
+          docker compose -f deploy/dev/compose.yaml logs --tail=80 || true
 
   codeql:
     if: (vars.CODE_SECURITY == 'true' || github.event.repository.visibility == 'public')   # needs GitHub Code Security on private repos

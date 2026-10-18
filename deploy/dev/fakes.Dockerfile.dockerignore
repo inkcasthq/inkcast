@@ -1,0 +1,4 @@
+# Dev only (BuildKit uses this instead of the root .dockerignore for fakes.Dockerfile): just the two files it copies.
+*
+!tests/fakes.py
+!scripts/dev/fake_platforms.py

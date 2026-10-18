@@ -104,6 +104,10 @@ class LedgerRepo(Database):
         """The request failed before it had a response: free the key so the client can retry with it."""
         self._exec("DELETE FROM idempotency WHERE user_id = ? AND key = ? AND response = ''", user_id, key)
 
+    def ledger_status_counts(self, user_id: str) -> dict[str, int]:
+        rows = self._all("SELECT status, COUNT(*) AS n FROM ledger WHERE user_id = ? GROUP BY status ORDER BY status", user_id)
+        return {r["status"]: int(r["n"]) for r in rows}
+
     def list_entries(self, user_id: str, source: str | None = None) -> list[dict[str, Any]]:
         if source:
             rows = self._all("SELECT * FROM ledger WHERE user_id = ? AND source = ? ORDER BY path, platform", user_id, source)

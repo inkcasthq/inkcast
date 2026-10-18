@@ -31,6 +31,7 @@ SCOPES: dict[str, str] = {
     "stories:sync": "Sync markdown files from a repository (create, update or skip by content).",
     "connections:read": "See which platforms are connected and list their destinations.",
     "connections:write": "Create connect links and disconnect platforms.",
+    "insights:read": "Read your publishing KPIs (counts, success and on-time rates, Git sync outcomes).",
 }
 
 PAT_PREFIX = "ink_pat_"

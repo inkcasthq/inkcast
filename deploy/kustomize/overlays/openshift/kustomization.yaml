@@ -9,6 +9,8 @@ resources:
   - route.yaml
 components:
   - ../../components/servicemonitor     # needs user-workload monitoring enabled
+  - ../../components/prometheus-rules   # alerts and SLO burn rates (generated: scripts/gen-alerts.py)
+  # - ../../components/dashboards       # Grafana sidecar ConfigMap (generated: scripts/gen-dashboards.py)
   # - ../../components/egress-openshift # allow-list outbound hosts (OVN-Kubernetes EgressFirewall)
   # - ../../components/external-secrets # if secrets come from Vault / a cloud secret manager
 patches:

@@ -376,3 +376,206 @@ class RateLimits(unittest.TestCase):
             self.assertEqual(codes, [400, 400, 429])
             codes = [c.post("/auth/callback", data={"pending": "x", "password": "guess"}).status_code for _ in range(3)]
             self.assertEqual(codes[-1], 429)
+
+
+class MetricsRegistry(unittest.TestCase):
+    """The tiny Prometheus registry: histograms render in the text format; route labels stay a closed set."""
+
+    def test_histogram_renders_cumulative_buckets_sum_and_count(self):
+        from inkcast.libs.observability import Metrics
+        m = Metrics()
+        m.histogram("t_seconds", "test", (0.1, 1.0))
+        m.observe("t_seconds", 0.05, route="/a")
+        m.observe("t_seconds", 0.5, route="/a")
+        m.observe("t_seconds", 7.0, route="/a")
+        m.observe("unregistered", 1.0)                    # ignored, never raises
+        text = m.render()
+        self.assertIn("# TYPE t_seconds histogram", text)
+        self.assertIn('t_seconds_bucket{route="/a",le="0.1"} 1', text)
+        self.assertIn('t_seconds_bucket{route="/a",le="1"} 2', text)
+        self.assertIn('t_seconds_bucket{route="/a",le="+Inf"} 3', text)
+        self.assertIn('t_seconds_sum{route="/a"} 7.55', text)
+        self.assertIn('t_seconds_count{route="/a"} 3', text)
+
+    def test_route_labels_cover_every_public_path_and_nothing_else(self):
+        from inkcast.libs.contracts.openapi import openapi_document
+        from inkcast.libs.observability import route_label
+        for template in openapi_document("http://localhost:8787")["paths"]:
+            sample = template.replace("{platform_id}", "devto").replace("{post_id}", "pst_0123456789ab") \
+                             .replace("{token_id}", "tok_0123456789ab")
+            self.assertEqual(route_label(sample), template)                                 # the contract maps to itself
+            self.assertEqual(route_label("/publishing-api" + sample), template)             # whatever the prefix
+        self.assertEqual(route_label("/connect/tkt_abcdef0123456789"), "/connect/{ticket}")
+        self.assertEqual(route_label("/api/v1/posts/pst_1/cancel/extra"), "other")         # unknown shapes collapse
+        self.assertEqual(route_label("/wp-admin.php"), "other")
+        self.assertEqual(route_label("/api/v1/platforms/" + "x" * 300), "other")
+
+    def test_every_request_is_observed_by_route_template_not_path(self):
+        cfg = Config(public_url="http://localhost:8787", secret_key="k" * 40, database_path=":memory:",
+                     login="password", password="p" * 12)
+        specs = resolve("PublishingApi,ConnectorService")
+        ctx = build(cfg, specs)
+        with TestClient(compose(specs, ctx), base_url="http://localhost:8787") as c:
+            c.get("/api/v1/posts")                          # 401
+            c.get("/connect/tkt_000000000001")              # 400: the ticket is unknown
+            c.get("/livez")                                 # a probe: never observed
+        text = ctx.metrics.render()
+        self.assertIn('inkcast_http_request_duration_seconds_count{code="4xx",method="GET",route="/api/v1/posts"} 1', text)
+        self.assertIn('inkcast_http_request_duration_seconds_count{code="4xx",method="GET",route="/connect/{ticket}"} 1', text)
+        self.assertNotIn("tkt_000000000001", text)
+        self.assertNotIn('route="/livez"', text)
+
+
+class CacheBackends(unittest.TestCase):
+    """libs/cache: the in-memory adapter, the RESP client against a fake Redis/Valkey, and the rate limiter on both."""
+
+    def run_async(self, coro):
+        import asyncio
+        return asyncio.run(coro)
+
+    def test_memory_cache_ttl_lru_and_single_flight(self):
+        import asyncio
+        from inkcast.libs.cache.memory import MemoryCache
+        now = [0.0]
+        cache = MemoryCache(max_entries=3, clock=lambda: now[0])
+
+        async def run():
+            self.assertTrue(await cache.set("a", "1", ttl=10))
+            self.assertFalse(await cache.set("a", "2", ttl=10, nx=True))        # NX respects an existing key
+            self.assertEqual(await cache.get("a"), "1")
+            now[0] = 11
+            self.assertIsNone(await cache.get("a"))                             # expired
+            for k in "bcd":
+                await cache.set(k, k)
+            await cache.get("b")                                                # b is now the most recent
+            await cache.set("e", "e")                                           # evicts the least recent: c
+            self.assertEqual([await cache.get(k) for k in "bcde"], ["b", None, "d", "e"])
+            self.assertEqual(await cache.incr("n", ttl=5), 1)
+            self.assertEqual(await cache.incr("n"), 2)
+            loads = []
+
+            async def loader():
+                loads.append(1)
+                await asyncio.sleep(0.01)
+                return "loaded"
+            results = await asyncio.gather(*(cache.get_or_load("k", loader, ttl=5) for _ in range(5)))
+            self.assertEqual(results, ["loaded"] * 5)
+            self.assertEqual(len(loads), 1)                                     # single flight
+            self.assertEqual(await cache.get_or_load("k", loader), "loaded")    # a hit
+        self.run_async(run())
+
+    def test_resp_client_and_token_bucket_against_a_fake_server(self):
+        import asyncio
+        from fakes import FakeRedis
+        from inkcast.libs.cache import build_cache
+        from inkcast.libs.cache.resp import RespError
+        from inkcast.libs.observability import Metrics
+
+        async def run():
+            clock = [1000.0]
+            server = FakeRedis(password="s3cret", clock=lambda: clock[0])
+            port = await server.start()
+            metrics = Metrics()
+            metrics.counter("inkcast_cache_errors_total", "")
+            metrics.counter("inkcast_cache_requests_total", "")
+            try:
+                wrong = build_cache(f"redis://127.0.0.1:{port}/1", SecretValue("nope"), metrics)
+                with self.assertRaisesRegex(RespError, "WRONGPASS"):
+                    await wrong.get("x")
+                await wrong.close()
+                cache = build_cache(f"redis://127.0.0.1:{port}/1", SecretValue("s3cret"), metrics)
+                cache._clock = lambda: clock[0]
+                self.assertTrue(await cache.ping())
+                self.assertEqual(server.commands[-3:], ["AUTH", "SELECT", "PING"])
+                self.assertTrue(await cache.set("k", "v", ttl=5))
+                self.assertFalse(await cache.set("k", "w", nx=True))
+                self.assertEqual(await cache.get("k"), "v")
+                self.assertEqual(await cache.incr("c", ttl=5), 1)
+                self.assertEqual(await cache.incr("c"), 2)
+                self.assertTrue(await cache.delete("k"))
+                self.assertIsNone(await cache.get("k"))
+                # the token bucket: 3 tokens, one every 20 s, atomic in the server
+                waits = [await cache.token_bucket("rl:x:a", 3, 3 / 60) for _ in range(4)]
+                self.assertEqual(waits[:3], [0.0, 0.0, 0.0])
+                self.assertAlmostEqual(waits[3], 20.0, places=3)
+                self.assertEqual(await cache.token_bucket("rl:x:b", 3, 3 / 60), 0.0)      # another client
+                clock[0] += 20
+                self.assertEqual(await cache.token_bucket("rl:x:a", 3, 3 / 60), 0.0)      # refilled
+                self.assertIn("EVALSHA", server.commands)
+                server.scripts.clear()                                                    # a server restart lost the script
+                self.assertGreater(await cache.token_bucket("rl:x:a", 3, 3 / 60), 0.0)    # NOSCRIPT → EVAL
+                self.assertIn("EVAL", server.commands)
+                # a cut connection reconnects once, transparently
+                connections = server.connections
+                server.kill()
+                await asyncio.sleep(0.01)
+                self.assertTrue(await cache.ping())
+                self.assertEqual(server.connections, connections + 1)
+                # only the refused password counted as a failure: NOSCRIPT and a reconnect are handled, not errors
+                self.assertIn('inkcast_cache_errors_total{backend="redis"} 1', metrics.render())
+                await cache.close()
+            finally:
+                await server.stop()
+        self.run_async(run())
+
+    def test_url_parsing_refuses_passwords_and_bad_schemes(self):
+        from inkcast.libs.cache import parse_cache_url
+        self.assertEqual(parse_cache_url("rediss://cache.example:6380/2")["tls"], True)
+        self.assertEqual(parse_cache_url("redis://cache")["port"], 6379)
+        with self.assertRaisesRegex(ValueError, "INKCAST_CACHE_PASSWORD"):
+            parse_cache_url("redis://:hunter2@cache:6379/0")
+        with self.assertRaisesRegex(ValueError, "redis://"):
+            parse_cache_url("http://cache:6379")
+        cfg = Config(public_url="http://localhost:8787", secret_key="k" * 40, database_path=":memory:",
+                     cache_url="redis://:pw@cache")
+        with self.assertRaisesRegex(ConfigError, "INKCAST_CACHE_PASSWORD"):
+            cfg.validate(("secret_key",))
+
+    def test_rate_limiter_shares_buckets_through_the_cache_and_falls_back_when_it_is_down(self):
+        from fakes import FakeRedis
+        from inkcast.libs.cache import build_cache
+        from inkcast.libs.http.ratelimit import RateLimiter
+        from inkcast.libs.observability import Metrics
+
+        async def run():
+            server = FakeRedis()
+            port = await server.start()
+            metrics = Metrics()
+            for name in ("inkcast_cache_errors_total", "inkcast_cache_requests_total", "inkcast_ratelimit_total"):
+                metrics.counter(name, "")
+            cache = build_cache(f"redis://127.0.0.1:{port}", metrics=metrics)
+            try:
+                replica_a = RateLimiter(per_minute=2, backend=cache, metrics=metrics)
+                replica_b = RateLimiter(per_minute=2, backend=cache, metrics=metrics)
+                self.assertEqual(await replica_a.check("register", "1.2.3.4"), 0.0)
+                self.assertEqual(await replica_b.check("register", "1.2.3.4"), 0.0)
+                self.assertGreater(await replica_a.check("register", "1.2.3.4"), 0.0)   # the two replicas share one bucket
+                self.assertEqual(await replica_b.check("register", "5.6.7.8"), 0.0)
+                text = metrics.render()
+                self.assertIn('inkcast_ratelimit_total{decision="allowed",limit="register"} 3', text)
+                self.assertIn('inkcast_ratelimit_total{decision="limited",limit="register"} 1', text)
+            finally:
+                await server.stop()
+            with self.assertLogs("inkcast.libs.http.ratelimit", "WARNING") as logs:          # the cache is gone
+                self.assertEqual(await replica_a.check("register", "9.9.9.9"), 0.0)        # in-process fallback
+                self.assertEqual(await replica_a.check("register", "9.9.9.9"), 0.0)
+                self.assertGreater(await replica_a.check("register", "9.9.9.9"), 0.0)      # still enforced locally
+            self.assertEqual(len([line for line in logs.output if "fall back" in line]), 1)   # warned once
+            self.assertIn("inkcast_cache_errors_total", metrics.render())
+            self.assertIn('inkcast_cache_errors_total{backend="redis"}', metrics.render())
+            await cache.close()
+        self.run_async(run())
+
+    def test_cache_password_is_read_only_when_a_cache_is_configured(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "cache-pw")
+            with open(path, "w") as f:
+                f.write("redis-pw")
+            base = {"INKCAST_PUBLIC_URL": "http://localhost:8787", "INKCAST_SECRET_KEY": "k" * 40,
+                    "INKCAST_CACHE_PASSWORD_FILE": path}
+            self.assertEqual(load_config(base).cache_url, "")
+            self.assertNotIn("INKCAST_CACHE_PASSWORD", load_config(base).secrets.names())        # nothing asked for
+            cfg = load_config({**base, "INKCAST_CACHE_URL": "redis://cache:6379/0/"})
+            self.assertEqual(cfg.cache_url, "redis://cache:6379/0")
+            self.assertEqual(cfg.cache_password, SecretValue("redis-pw"))
+            cfg.validate(("secret_key",))
