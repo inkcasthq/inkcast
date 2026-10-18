@@ -34,17 +34,20 @@ A fork stays under these same terms. Changing the name doesn't change the licenc
 >
 > - the deployment is used only for that client's own internal purposes;
 > - the client is the party using the software;
-> - the deployment keeps the `Required Notice` and does not present Inkcast as your own product.
+> - the deployment keeps the `Required Notice` and does not present Inkcast as your own product;
+> - **the client does not use Inkcast to provide services to others for payment.** If it does, the client needs a commercial licence before the consultant sets it up, and this permission does not cover the work.
 
 | A consultant **may** | A consultant **may not** |
 |---|---|
 | Set up and run Inkcast for one client's own internal use, and bill for the work | **Rebrand or white-label** Inkcast, or present it as their own product |
 | Build that client custom plug-ins and integrations | Run **one deployment for several clients**, or host it as a service for clients |
 | Train and support the client's team | Package Inkcast's features into **their own product or SaaS** offered to others |
+| | Set Inkcast up for a client that will **monetise it**: offering publishing, scheduling or content services to others with it. **That client must hold a commercial licence first.** |
 
 ## Companies
 
 - **Allowed:** a company using Inkcast to publish and schedule **its own** content, public posts included, at any scale.
+- **"Its own content" includes revenue-generating content:** marketing posts, product announcements, a company blog. A company that profits from its own posts does not need a commercial licence for that.
 - **Not allowed:** a company **packaging Inkcast's features for its customers**, for example inside its own SaaS or platform, or publishing on behalf of clients through a client-facing product built on Inkcast. That competes with Inkcast and needs a commercial licence.
 
 ## Agencies and client publishing: commercial licence required
