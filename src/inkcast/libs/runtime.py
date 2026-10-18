@@ -58,6 +58,7 @@ def build_metrics(store: Store | None, registry: dict[str, Platform], config: Co
     m.counter("inkcast_ratelimit_total", "Rate-limit decisions on unauthenticated writes, by limit and decision.")
     m.counter("inkcast_cache_requests_total", "Cache reads by backend and result (hit or miss): the hit ratio.")
     m.counter("inkcast_cache_errors_total", "Cache backend failures by backend (a request fell back or failed).")
+    m.counter("inkcast_outbox_events_total", "Domain events handed to event sinks, by sink and result (handled, failed).")
     if store is None:
         return m
     m.gauge("inkcast_posts", "Posts by status.", lambda: {(("status", k),): v for k, v in store.post_counts().items()})
@@ -68,6 +69,10 @@ def build_metrics(store: Store | None, registry: dict[str, Platform], config: Co
     m.gauge("inkcast_posts_oldest_due_age_seconds",
             "Age of the oldest due post still waiting (0 when the queue is empty): the queue's head-of-line lag.",
             lambda: {(): store.oldest_due_age(time.time())})
+    m.gauge("inkcast_outbox_pending", "Domain events a consumer has not handled yet, by consumer.",
+            lambda: {(("consumer", c),): n for c, (n, _) in store.outbox_lag().items()})
+    m.gauge("inkcast_outbox_oldest_age_seconds", "Age of the oldest unhandled event, by consumer (consumer lag).",
+            lambda: {(("consumer", c),): age for c, (_, age) in store.outbox_lag().items()})
     return m
 
 
