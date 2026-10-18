@@ -212,13 +212,20 @@ Real Keycloak, Medium and DEV have not been exercised by the test suite yet. Try
 
 Early: v0.1, single node, SQLite. The path to the hosted SaaS — Postgres, workspaces, an admin portal on Keycloak, API tokens on sign-up, a mobile app — is in [docs/product-spec.md](docs/product-spec.md) and [docs/issues/](docs/issues/).
 
+## Documentation
+
+Everything is indexed in [docs/README.md](docs/README.md): product spec, architecture, CI/CD, plug-in guide, roadmap and legal.
+
 ## License
 
-Inkcast is **source-available** under the [PolyForm Shield License 1.0.0](LICENSE).
+Inkcast is **source-available**: [PolyForm Shield 1.0.0](LICENSE), plus an [additional permission](legal/ADDITIONAL-PERMISSIONS.md) for consultants.
 
-- **Free for any non-competing use,** including inside companies: self-host it, modify it, share it.
-- **Not allowed:** offering it, or a rebranded or repackaged version, as a competing product or hosted service.
+| | Licence |
+|---|---|
+| Publishing **your own** content, self-hosting, modifying, building plug-ins | **Free** |
+| Consultants setting it up for one client's own content | **Free** |
+| Publishing **for clients** (agencies), selling Inkcast-powered services, embedding it in your product or SaaS, hosting or white-labelling it | **Commercial** |
 
-[LICENSING.md](LICENSING.md) explains what is and isn't allowed, and how to get a commercial licence. Contributions require the [CLA](legal/CLA-INDIVIDUAL.md); see [CONTRIBUTING.md](CONTRIBUTING.md). "Inkcast" is a trademark of ScalarOps Technologies LLC; see [TRADEMARKS.md](TRADEMARKS.md).
+Details and a quick check: [LICENSING.md](LICENSING.md). Contributions require the [CLA](legal/CLA-INDIVIDUAL.md). "Inkcast" is a trademark of ScalarOps Technologies LLC ([TRADEMARKS.md](TRADEMARKS.md)).
 
 Copyright 2026 ScalarOps Technologies LLC.
