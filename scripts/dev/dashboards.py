@@ -16,8 +16,9 @@ query API, exactly as the dashboard does:
   - a query that errors fails the check (a typo, a metric renamed, a bad label);
   - the panels named by --require must return data (the ones the seed always feeds);
   - every other panel is reported as having data or not, never silently skipped.
-It then takes a light-theme screenshot of the whole dashboard (Playwright) and writes `summary.md` and
-`summary.json` next to it. Exit status is non-zero when any query errors or a required panel is empty.
+It then takes a light-theme screenshot of the whole dashboard (Playwright), which counts only once the panels
+have rendered in the browser, and writes `summary.md` and `summary.json` next to it. Exit status is non-zero
+when any query errors, a required panel is empty, or the dashboard doesn't render.
 """
 
 from __future__ import annotations
@@ -173,6 +174,36 @@ def has_values(frames: list[dict]) -> bool:
     return False
 
 
+def screenshot(grafana: str, titles: list[str], shot: pathlib.Path) -> list[str]:
+    """A light, full-page screenshot of the dashboard as a person sees it; problems found while taking it.
+
+    Grafana refuses to start its UI for a browser it doesn't recognise, and Playwright's headless Chromium says
+    "HeadlessChrome": the page then shows "failed to load its application files" while every query still works.
+    So the browser presents the ordinary Chrome user agent of its own version, and the screenshot counts only
+    once panel titles are on the page (kiosk mode hides the dashboard title, not the panels')."""
+    from playwright.sync_api import TimeoutError as PlaywrightTimeout, sync_playwright
+    problems: list[str] = []
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        agent = (f"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                 f"Chrome/{browser.version} Safari/537.36")
+        page = browser.new_page(viewport={"width": 1600, "height": 1000}, color_scheme="light", user_agent=agent)
+        page.goto(f"{grafana}/d/{DASHBOARD_UID}/?orgId=1&from=now-30m&to=now&theme=light&kiosk",
+                  wait_until="domcontentloaded", timeout=90_000)
+        try:
+            for title in [t for t in titles if t][:3]:
+                page.get_by_text(title, exact=False).first.wait_for(state="visible", timeout=60_000)
+            page.wait_for_load_state("networkidle", timeout=60_000)
+            page.wait_for_timeout(3000)                                     # let the charts draw
+        except PlaywrightTimeout:
+            problems.append("screenshot: the dashboard's panels never appeared in the browser")
+        if page.get_by_text("failed to load its application files").count():
+            problems.append("screenshot: Grafana showed 'failed to load its application files'")
+        page.screenshot(path=str(shot), full_page=True)
+        browser.close()
+    return problems
+
+
 def check(args: argparse.Namespace) -> int:
     grafana, prom, ns = args.grafana.rstrip("/"), args.prometheus.rstrip("/"), args.namespace
     out = pathlib.Path(args.out)
@@ -205,21 +236,15 @@ def check(args: argparse.Namespace) -> int:
         rows.append({"panel": title, "type": p.get("type"), "required": required, "data": got_data, "errors": problems})
     shot = out / "inkcast-platform.light.png"
     if not args.no_screenshot:
-        from playwright.sync_api import sync_playwright
-        with sync_playwright() as pw:
-            browser = pw.chromium.launch()
-            page = browser.new_page(viewport={"width": 1600, "height": 1000}, color_scheme="light")
-            page.goto(f"{grafana}/d/{DASHBOARD_UID}/?orgId=1&from=now-30m&to=now&theme=light&kiosk",
-                      wait_until="networkidle", timeout=90_000)
-            page.wait_for_timeout(4000)
-            page.screenshot(path=str(shot), full_page=True)
-            browser.close()
+        errors.extend(screenshot(grafana, [p.get("title", "") for p in panels(dashboard)], shot))
     ok = not errors and not empty_required
     lines = [f"# Dashboard check: {'PASS' if ok else 'FAIL'}", "",
              f"Grafana {grafana}, Prometheus {prom}, namespace `{ns}`, {len(rows)} panels.", "",
              "| Panel | Required | Data | Errors |", "|---|---|---|---|"]
     lines += [f"| {r['panel']} | {'yes' if r['required'] else ''} | {'yes' if r['data'] else 'no'} | "
               f"{'; '.join(r['errors']) or ''} |" for r in rows]
+    lines += [""] + [f"- {e}" for e in errors if e.startswith("screenshot:")] if any(
+        e.startswith("screenshot:") for e in errors) else []
     (out / "summary.md").write_text("\n".join(lines) + "\n")
     (out / "summary.json").write_text(json.dumps({"ok": ok, "panels": rows}, indent=2) + "\n")
     print("\n".join(lines))
