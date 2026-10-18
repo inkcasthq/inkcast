@@ -43,3 +43,4 @@ patches:
                 matchLabels: {kubernetes.io/metadata.name: keycloak}
           ports:
             - {port: 8080, protocol: TCP}
+            - {port: 8025, protocol: TCP}     # Mailpit's API: the sign-up test reads the verification email

@@ -8,7 +8,9 @@
 #
 # Checks, each one failing the script: the realm imported with its placeholders filled (no "${" left), a person
 # with the inkcast-user role signs in end to end and reaches /api/v1/me as themselves, and a person without the
-# role is refused by Inkcast after Keycloak accepted their password. Secrets are random per run, never committed.
+# role is refused by Inkcast after Keycloak accepted their password, a newcomer signs up (registration, the emailed
+# verification link from Mailpit, the terms) and arrives with the default role, and one who never verifies is
+# held back. Secrets are random per run, never committed.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 KC="$ROOT/deploy/keycloak"
@@ -17,11 +19,12 @@ k="${KUBECTL:-kubectl}"
 rand() { python3 -c 'import secrets; print(secrets.token_urlsafe(24), end="")'; }
 
 mkdir -p "$S"
-for name in admin-password inkcast-client-secret; do [ -s "$S/$name" ] || rand > "$S/$name"; done
+for name in admin-password inkcast-client-secret smtp-password; do [ -s "$S/$name" ] || rand > "$S/$name"; done
 
 echo "== Keycloak with the inkcast realm"
 $k apply -k "$KC"
 $k -n keycloak rollout status deploy/keycloak --timeout=420s
+$k -n keycloak rollout status deploy/mailpit --timeout=180s
 kcadm() { $k -n keycloak exec deploy/keycloak -- /opt/keycloak/bin/kcadm.sh "$@"; }
 kcadm config credentials --server http://localhost:8080 --realm master --user admin --password "$(cat "$S/admin-password")"
 redirects="$(kcadm get clients -r inkcast -q clientId=inkcast-identity --fields redirectUris,secret)"
@@ -45,12 +48,17 @@ $k -n inkcast-oidc create secret generic inkcast-secrets --from-literal=secret-k
 $k -n inkcast-oidc rollout restart deploy/inkcast
 $k -n inkcast-oidc rollout status deploy/inkcast --timeout=180s
 
-drive() {  # user password expect
-  $k -n inkcast-oidc exec -i deploy/inkcast -- env KC_USER="$1" KC_PASSWORD="$2" KC_EXPECT="$3" python - \
-    < "$ROOT/scripts/dev/oidc_signin.py"
+drive() {  # user password expect [register]
+  $k -n inkcast-oidc exec -i deploy/inkcast -- env KC_USER="$1" KC_PASSWORD="$2" KC_EXPECT="$3" KC_REGISTER="${4:-}" \
+    MAILPIT_URL=http://mailpit.keycloak.svc:8025 python - < "$ROOT/scripts/dev/oidc_signin.py"
 }
 echo "-- ada@example.com (has inkcast-user): must sign in"
 drive ada@example.com "$ok_pw" allowed
 echo "-- no-role@example.com (role removed): must be refused by Inkcast"
 drive no-role@example.com "$no_pw" refused
+newcomer="new-$(date -u +%H%M%S)@example.com"
+echo "-- $newcomer signs up (E9.F9.2.S1): register, verify the emailed link, accept the terms, arrive with the default role"
+drive "$newcomer" "$(rand)C3!" allowed 1
+echo "-- unverified-$newcomer signs up but never verifies: must not reach Inkcast"
+drive "unverified-$newcomer" "$(rand)D4!" unverified 1
 echo "Keycloak sign-in end to end: PASS"

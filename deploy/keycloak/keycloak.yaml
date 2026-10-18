@@ -43,6 +43,11 @@ spec:
               valueFrom: {secretKeyRef: {name: keycloak-secrets, key: inkcast-client-secret}}
             - name: INKCAST_PUBLIC_URL
               valueFrom: {configMapKeyRef: {name: keycloak-realm-settings, key: INKCAST_PUBLIC_URL}}
+            # SMTP for verification and password-reset emails (realm smtpServer placeholders). Dev: Mailpit, no auth.
+            - name: KC_SMTP_PASSWORD
+              valueFrom: {secretKeyRef: {name: keycloak-secrets, key: smtp-password}}
+          envFrom:
+            - configMapRef: {name: keycloak-smtp}       # KC_SMTP_HOST, _PORT, _FROM, _AUTH, _USER, _STARTTLS, _SSL
           ports:
             - {name: http, containerPort: 8080}
             - {name: management, containerPort: 9000}
@@ -74,3 +79,58 @@ spec:
   selector: {app.kubernetes.io/name: keycloak}
   ports:
     - {name: http, port: 8080, targetPort: http}
+---
+# Development and CI only: Mailpit catches Keycloak's emails (verification, password reset) and shows them through an
+# API (http://mailpit.keycloak.svc:8025/api/v1), so the sign-up test can follow the link a person would click.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mailpit
+  namespace: keycloak
+  labels: {app.kubernetes.io/name: mailpit}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: mailpit}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: mailpit}
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: mailpit
+          image: axllent/mailpit:v1.28.3
+          ports:
+            - {name: smtp, containerPort: 1025}
+            - {name: http, containerPort: 8025}
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}              # its message store (a temporary file)
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mailpit
+  namespace: keycloak
+spec:
+  selector: {app.kubernetes.io/name: mailpit}
+  ports:
+    - {name: smtp, port: 1025, targetPort: smtp}
+    - {name: http, port: 8025, targetPort: http}
