@@ -177,17 +177,17 @@ def has_values(frames: list[dict]) -> bool:
 def screenshot(grafana: str, titles: list[str], shot: pathlib.Path) -> list[str]:
     """A light, full-page screenshot of the dashboard as a person sees it; problems found while taking it.
 
-    Grafana refuses to start its UI for a browser it doesn't recognise, and Playwright's headless Chromium says
-    "HeadlessChrome": the page then shows "failed to load its application files" while every query still works.
-    So the browser presents the ordinary Chrome user agent of its own version, and the screenshot counts only
-    once panel titles are on the page (kiosk mode hides the dashboard title, not the panels')."""
+    The page gets an explicit locale and time zone: on a CI runner Chromium inherits the POSIX locale, and
+    Grafana's frontend dies at start on it ("RangeError: Invalid language tag: en-US@posix"), showing "failed to
+    load its application files" while every query through its API still works. So the screenshot counts only
+    once panel titles are on the page (kiosk mode hides the dashboard title, not the panels'), and if they never
+    appear the page's errors and failed requests are reported."""
     from playwright.sync_api import TimeoutError as PlaywrightTimeout, sync_playwright
     problems: list[str] = []
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
-        agent = (f"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
-                 f"Chrome/{browser.version} Safari/537.36")
-        page = browser.new_page(viewport={"width": 1600, "height": 1000}, color_scheme="light", user_agent=agent)
+        page = browser.new_page(viewport={"width": 1600, "height": 1000}, color_scheme="light",
+                                locale="en-US", timezone_id="UTC")
         seen: list[str] = []                                                # why a page didn't render, if it didn't
         page.on("pageerror", lambda e: seen.append(f"page error: {e}"))
         page.on("console", lambda m: seen.append(f"console {m.type}: {m.text[:300]}") if m.type == "error" else None)
