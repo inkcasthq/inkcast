@@ -199,6 +199,9 @@ All settings are environment variables; see [.env.example](.env.example). Each s
 | `INKCAST_UPSTREAM_<SERVICE>` | | Gateway only: e.g. `INKCAST_UPSTREAM_PUBLISHING_API=http://inkcast-publishing-api:8787` |
 | `INKCAST_OVERDUE_GRACE` | `600` | seconds past due before a scheduled post counts as overdue (metric and alert) |
 | `INKCAST_INSIGHTS_INTERVAL` | `10` | seconds between InsightsService passes that fold new events into KPI rollups |
+| `INKCAST_KEYCLOAK_SYNC_CLIENT_ID` | | with `INKCAST_LOGIN=oidc` on Keycloak: the service-account client (`inkcast-sync`) the user sync signs in as, so a person disabled or deleted in Keycloak loses their Inkcast tokens within a minute. Its secret: `INKCAST_KEYCLOAK_SYNC_SECRET(_FILE)` |
+| `INKCAST_KEYCLOAK_SYNC_INTERVAL` | `30` | seconds between reads of Keycloak's USER admin events |
+| `INKCAST_KEYCLOAK_RECONCILE_INTERVAL` | `600` | seconds between full re-reads of every Keycloak person Inkcast knows (also at start) |
 | `INKCAST_ENV` | `production` in the image | `production`/`staging` make the startup security checks strict; `ci`/`development` relax them. `inkcast checks` prints the table |
 | `INKCAST_SECRETS_SOURCE` | `env` | where secrets come from: `env` (`NAME` or `NAME_FILE`), `dir` (a mounted Secret directory, `INKCAST_SECRETS_DIR`), `agent` (the AWS Secrets Manager agent), `aws`, `chain`. See [docs/reference/secrets.md](docs/reference/secrets.md) |
 | `INKCAST_MAX_BODY_BYTES` | 10 MB | larger requests get 413 before any handler runs |

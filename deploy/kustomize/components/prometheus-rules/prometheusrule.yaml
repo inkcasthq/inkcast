@@ -180,6 +180,19 @@ spec:
         description: The inkcast-backup CronJob has not succeeded since {{ $value | humanizeDuration }} ago. The SQLite file
           is the only copy of tokens, credentials, posts and the ledger until a backup succeeds.
         runbook_url: https://github.com/inkcasthq/inkcast/blob/main/docs/runbooks/alerts.md#inkcastbackupmissing
+    - alert: InkcastIdentitySyncFailing
+      expr: sum(increase(inkcast_identity_sync_total{result="error"}[15m])) > 0 and sum(increase(inkcast_identity_sync_total{result="ok"}[15m]))
+        == 0
+      for: 5m
+      labels:
+        severity: warning
+        team: inkcast
+        service: identity
+      annotations:
+        summary: The Keycloak user sync has failed for 15 minutes
+        description: Every Keycloak user sync pass for 15 minutes failed, so people disabled or deleted in Keycloak keep their
+          Inkcast tokens until it recovers. Sign-in itself is unaffected.
+        runbook_url: https://github.com/inkcasthq/inkcast/blob/main/docs/runbooks/alerts.md#inkcastidentitysyncfailing
   - name: inkcast.slo.api-availability
     interval: 1m
     rules:
