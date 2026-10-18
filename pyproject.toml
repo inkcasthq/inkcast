@@ -28,11 +28,13 @@ Source = "https://github.com/inkcasthq/inkcast"
 Issues = "https://github.com/inkcasthq/inkcast/issues"
 
 [project.scripts]
-inkcast = "inkcast.server:main"
+inkcast = "inkcast.launcher:main"
 
-# Third-party platform plug-ins register here, e.g. in their own pyproject:
+# Third-party plug-ins register here, e.g. in their own pyproject:
 # [project.entry-points."inkcast.platforms"]
 # hashnode = "inkcast_hashnode:HashnodePlatform"
+# [project.entry-points."inkcast.services"]
+# AnalyticsService = "inkcast_analytics:SERVICE"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/inkcast"]

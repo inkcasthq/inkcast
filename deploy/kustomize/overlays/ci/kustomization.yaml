@@ -19,6 +19,7 @@ configMapGenerator:
     behavior: merge
     literals:
       - INKCAST_PUBLIC_URL=http://localhost:8787
+      - INKCAST_ENV=ci                  # the throwaway key below would fail the production posture checks
       - INKCAST_LOGIN=password
       - INKCAST_PASSWORD_FILE=/var/run/secrets/inkcast/password
 images:

@@ -25,16 +25,17 @@ from mcp.server.auth.provider import (
 )
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
-from ..config import Config
-from ..storage import Store, new_secret
-
-SCOPE = "inkcast"
+from ...libs.auth import SCOPE, TokenVerifier
+from ...libs.config import Config
+from ...libs.db import Store
+from ...libs.secrets import new_secret
 
 
 class InkcastOAuthProvider:
     def __init__(self, config: Config, store: Store):
         self.config = config
         self.store = store
+        self.verifier = TokenVerifier(store)
 
     # ---- clients (RFC 7591 dynamic registration) --------------------------
 
@@ -122,11 +123,8 @@ class InkcastOAuthProvider:
         return self._issue(client.client_id, row["user_id"], granted, row["resource"], family=uuid.uuid4().hex)
 
     async def load_access_token(self, token: str) -> AccessToken | None:
-        row = self.store.get_token(token, "access")
-        if not row or not self.store.get_user(row["user_id"]):
-            return None
-        return AccessToken(token=token, client_id=row["client_id"], scopes=row["scopes"].split(),
-                           expires_at=int(row["expires_at"]), resource=row["resource"], subject=row["user_id"])
+        """OAuth access tokens and personal access tokens alike (see libs.auth.TokenVerifier)."""
+        return self.verifier.access_token(token)
 
     async def revoke_token(self, token: AccessToken | RefreshToken) -> None:
         for kind in ("access", "refresh"):

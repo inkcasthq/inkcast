@@ -18,6 +18,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -28,12 +29,21 @@ import httpx2
 from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
 
-from ..config import Config
-from . import pages
+from ...libs.config import Config
+from ...libs.http import pages
+
+log = logging.getLogger(__name__)
 
 
 class LoginError(Exception):
     """Sign-in failed or isn't allowed; the message is shown to the person."""
+
+
+def refused(provider: str, reason: str, who: str | None = None) -> LoginError:
+    """Log a refused sign-in (never a credential) and build the error shown to the person."""
+    log.warning("Sign-in refused (%s): %s", provider, reason,
+                extra={"event": "auth.login.refused", "provider": provider, "subject": who or ""})
+    return LoginError(reason)
 
 
 @dataclass
@@ -61,7 +71,7 @@ class IdentityProvider(ABC):
     # A per-authorization secret derived from the server key, so PKCE verifiers
     # don't need their own storage.
     def _derived(self, label: str, pending_id: str) -> str:
-        digest = hmac.new(self.config.secret_key.encode(), f"{label}:{pending_id}".encode(), hashlib.sha256).digest()
+        digest = hmac.new(self.config.secret_key.reveal().encode(), f"{label}:{pending_id}".encode(), hashlib.sha256).digest()
         return base64.urlsafe_b64encode(digest).decode().rstrip("=")
 
 
@@ -109,7 +119,7 @@ class OIDCIdentity(IdentityProvider):
                 "code": q.get("code", ""),
                 "redirect_uri": self.callback_url,
                 "client_id": self.config.oidc_client_id,
-                "client_secret": self.config.oidc_client_secret,
+                "client_secret": self.config.oidc_client_secret.reveal(),
                 "code_verifier": verifier,
             }, headers={"Accept": "application/json"})
             token.raise_for_status()
@@ -145,12 +155,13 @@ class OIDCIdentity(IdentityProvider):
                 value = value.get(part) if isinstance(value, dict) else None
             roles = value if isinstance(value, list) else ([value] if value else [])
             if c.oidc_required_role not in roles:
-                raise LoginError(f"Your account doesn't have the {c.oidc_required_role!r} role needed for Inkcast.")
+                raise refused("oidc", f"Your account doesn't have the {c.oidc_required_role!r} role needed for Inkcast.",
+                              claims.get("sub"))
         if c.oidc_allowed_email_domains:
             domain = (email or "").rsplit("@", 1)[-1].lower()
             if not (email and claims.get("email_verified") and domain in c.oidc_allowed_email_domains):
-                raise LoginError("Inkcast is limited to verified email addresses at: "
-                                 + ", ".join(c.oidc_allowed_email_domains) + ".")
+                raise refused("oidc", "Inkcast is limited to verified email addresses at: "
+                              + ", ".join(c.oidc_allowed_email_domains) + ".", claims.get("sub"))
 
 
 def _jwt_claims(token: str | None) -> dict[str, Any]:
@@ -179,7 +190,7 @@ class GitHubIdentity(IdentityProvider):
         api = self.config.github_api_url
         try:
             token = await self.http.post(f"{self.config.github_url}/login/oauth/access_token", data={
-                "client_id": self.config.github_client_id, "client_secret": self.config.github_client_secret,
+                "client_id": self.config.github_client_id, "client_secret": self.config.github_client_secret.reveal(),
                 "code": q.get("code", ""), "redirect_uri": self.callback_url,
             }, headers={"Accept": "application/json"})
             token.raise_for_status()
@@ -196,7 +207,7 @@ class GitHubIdentity(IdentityProvider):
         c = self.config
         allowed = c.allow_any_user or login in c.github_allowed_users or bool(set(orgs) & set(c.github_allowed_orgs))
         if not allowed:
-            raise LoginError(f"GitHub user @{user['login']} isn't allowed to use this Inkcast server.")
+            raise refused("github", f"GitHub user @{user['login']} isn't allowed to use this Inkcast server.", login)
         return pending_id, Identity(key=f"github:{user['id']}", display=f"@{user['login']}",
                                     email=user.get("email"), name=user.get("name"))
 
@@ -209,9 +220,9 @@ class PasswordIdentity(IdentityProvider):
         form = await request.form()
         pending_id = str(form.get("pending", ""))
         supplied = str(form.get("password", ""))
-        if not hmac.compare_digest(supplied.encode(), self.config.password.encode()):
+        if self.config.password != supplied:  # SecretValue compares in constant time
             await asyncio.sleep(1)  # slow down guessing
-            raise LoginError("Wrong password.")
+            raise refused("password", "Wrong password.")
         return pending_id, Identity(key="local:owner", display="owner")
 
 

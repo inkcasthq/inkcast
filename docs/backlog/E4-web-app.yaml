@@ -1,0 +1,75 @@
+# Backlog as code. File with: scripts/backlog/file.py inkcasthq/inkcast (see docs/epics/README.md)
+id: E4
+title: SaaS web app
+status: planned
+goal: React + TypeScript SPA with a BFF session; mockups approved first.
+features:
+- id: F4.1
+  title: Shell and design system
+  stories:
+  - id: F4.1.S1
+    title: Vite workspace, packages/ui, light and dark themes
+    status: planned
+  - id: F4.1.S2
+    title: Responsive to 360px, axe-clean
+    status: planned
+  - id: F4.1.S3
+    title: CI web job (typecheck, vitest, Playwright)
+    status: planned
+- id: F4.2
+  title: BFF session
+  stories:
+  - id: F4.2.S1
+    title: 'WebApp service: OIDC with Keycloak, HttpOnly SameSite session'
+    status: planned
+  - id: F4.2.S2
+    title: Generated API client
+    status: planned
+- id: F4.3
+  title: Onboarding
+  stories:
+  - id: F4.3.S1
+    title: "Mockup: sign-up \u2192 workspace \u2192 connect \u2192 first token \u2192 Git guide"
+    status: planned
+  - id: F4.3.S2
+    title: Build
+    status: planned
+- id: F4.4
+  title: Connections
+  stories:
+  - id: F4.4.S1
+    title: 'Mockup: health badges, scopes, reconnect, posts at risk'
+    status: planned
+  - id: F4.4.S2
+    title: Build
+    status: planned
+- id: F4.5
+  title: Composer
+  stories:
+  - id: F4.5.S1
+    title: 'Mockup: editor with per-platform preview and counters'
+    status: planned
+  - id: F4.5.S2
+    title: Build (server-rendered preview from prepare())
+    status: planned
+- id: F4.6
+  title: Calendar
+  stories:
+  - id: F4.6.S1
+    title: 'Mockup: week/month, drag to reschedule, IANA time zone'
+    status: planned
+  - id: F4.6.S2
+    title: Build
+    status: planned
+  - id: F4.6.S3
+    title: Post list and history with errors
+    status: planned
+- id: F4.7
+  title: Tokens and settings
+  stories:
+  - id: F4.7.S1
+    title: Mockup
+    status: planned
+  - id: F4.7.S2
+    title: Build
+    status: planned

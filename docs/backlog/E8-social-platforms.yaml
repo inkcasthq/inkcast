@@ -1,0 +1,24 @@
+# Backlog as code. File with: scripts/backlog/file.py inkcasthq/inkcast (see docs/epics/README.md)
+id: E8
+title: Social platforms
+status: planned
+goal: X, TikTok, Instagram (see docs/design/social-platforms-epic.md).
+features:
+- id: F8.1
+  title: Interface v2
+  stories:
+  - id: F8.1.S1
+    title: Media pipeline and async publish (see docs/issues 15-19)
+    status: planned
+- id: F8.2
+  title: Platforms
+  stories:
+  - id: F8.2.S1
+    title: X
+    status: planned
+  - id: F8.2.S2
+    title: Instagram
+    status: planned
+  - id: F8.2.S3
+    title: TikTok (consent UI designed before the audit)
+    status: planned

@@ -1,0 +1,54 @@
+# Backlog as code. File with: scripts/backlog/file.py inkcasthq/inkcast (see docs/epics/README.md)
+id: E5
+title: Billing
+status: planned
+goal: Pluggable billing provider, plans and entitlements.
+features:
+- id: F5.1
+  title: BillingProvider interface and fake adapter
+  stories:
+  - id: F5.1.S1
+    title: checkout_url, portal_url, verify_webhook, parse_event
+    status: planned
+- id: F5.2
+  title: Plans as config
+  stories:
+  - id: F5.2.S1
+    title: 'plans.yaml: posts per month, channels, seats, workspaces'
+    status: planned
+- id: F5.3
+  title: Metering and entitlements
+  stories:
+  - id: F5.3.S1
+    title: Usage counters
+    status: planned
+  - id: F5.3.S2
+    title: libs/entitlements checks in publishing and identity
+    status: planned
+- id: F5.4
+  title: Webhooks
+  stories:
+  - id: F5.4.S1
+    title: Idempotent processing
+    status: planned
+  - id: F5.4.S2
+    title: Plan-change events
+    status: planned
+- id: F5.5
+  title: Billing UI
+  stories:
+  - id: F5.5.S1
+    title: Mockup
+    status: planned
+  - id: F5.5.S2
+    title: Build
+    status: planned
+- id: F5.6
+  title: Real provider
+  stories:
+  - id: F5.6.S1
+    title: ADR choosing the provider
+    status: planned
+  - id: F5.6.S2
+    title: Adapter
+    status: planned

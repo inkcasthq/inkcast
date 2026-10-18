@@ -1,0 +1,29 @@
+<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>Git publishing · Inkcast mockup</title><style>:root{--bg:#f7f5f0;--fg:#1d1b18;--muted:#6b665d;--card:#fff;--line:#e3ded3;--accent:#c2410c;--accent-fg:#fff;--ok:#15803d;--ok-bg:#dcfce7;--warn:#a16207;--warn-bg:#fef9c3;--err:#b91c1c;--err-bg:#fee2e2;--info-bg:#e0f2fe;--info:#075985}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+.app{display:grid;grid-template-columns:220px 1fr;min-height:100vh}.side{background:#fff;border-right:1px solid var(--line);padding:18px 14px}
+.brand{font-weight:700;color:var(--accent);font-size:18px;margin:0 6px 18px}.ws{border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:16px;font-size:13px}
+.nav a{display:flex;gap:10px;align-items:center;padding:8px 10px;border-radius:8px;color:var(--fg);text-decoration:none;margin-bottom:2px}.nav a.on{background:var(--bg);font-weight:600}
+.main{padding:24px 32px;max-width:1180px}h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:0 0 10px}.sub{color:var(--muted);margin:0 0 20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px}.grid{display:grid;gap:16px}.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}
+.btn{display:inline-block;padding:8px 14px;border-radius:8px;border:1px solid var(--line);background:#fff;font-weight:600;font-size:13px}.btn.p{background:var(--accent);border-color:var(--accent);color:#fff}
+.pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600}.ok{background:var(--ok-bg);color:var(--ok)}.warn{background:var(--warn-bg);color:var(--warn)}.err{background:var(--err-bg);color:var(--err)}.info{background:var(--info-bg);color:var(--info)}
+table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line);vertical-align:top}th{font-size:12px;color:var(--muted);font-weight:600;text-transform:none}
+.muted{color:var(--muted)}code{background:var(--bg);padding:1px 6px;border-radius:5px;font-size:12px}.row{display:flex;gap:10px;align-items:center}.sp{justify-content:space-between}
+input,textarea,select{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;font:inherit;background:#fff}label{display:block;font-weight:600;margin:12px 0 6px;font-size:13px}
+.steps{display:flex;gap:8px;margin-bottom:20px}.step{flex:1;border-top:4px solid var(--line);padding-top:8px;font-size:12px;color:var(--muted)}.step.done{border-color:var(--ok);color:var(--fg)}.step.on{border-color:var(--accent);color:var(--fg);font-weight:600}
+.banner{border-radius:10px;padding:10px 14px;margin-bottom:16px}.note{font-size:12px;color:var(--muted);margin-top:6px}
+
+@media (max-width:760px){.app{grid-template-columns:1fr}.side{border-right:0;border-bottom:1px solid var(--line);padding:10px 12px}
+.side .ws,.side .note{display:none}.brand{margin:0 0 8px}.nav{display:flex;gap:4px;overflow-x:auto;white-space:nowrap}.nav a{padding:6px 10px}
+.main{padding:16px}.g2,.g3{grid-template-columns:1fr}.row.sp{flex-wrap:wrap;align-items:flex-start}.steps{flex-wrap:wrap}.step{flex:1 1 40%}
+table{font-size:13px}.card{padding:14px}}
+</style></head><body><div class=app><aside class=side><div class=brand>Inkcast</div><div class=ws><div class=muted style='font-size:11px'>Workspace</div><b>Ada's writing</b> ▾</div><nav class=nav><a class="">Compose</a><a class="">Calendar</a><a class="">Posts</a><a class="on">Git publishing</a><a class="">Connections</a><a class="">Tokens</a><a class="">Billing</a><a class="">Settings</a></nav><div class=note style='margin-top:24px'>MOCKUP · E4 · not final</div></aside><main class=main>
+<div class="row sp"><div><h1>Git publishing</h1><p class=sub>What each file in your repositories became on each platform (the publish ledger).</p></div><span class="btn p">Set up a repository</span></div>
+<div class=card><div class="row sp"><h2>github.com/ada/blog</h2><span class=muted>last sync 4 min ago · commit <code>9f3c2e1</code></span></div><table>
+<tr><th>File</th><th>Platform</th><th>Result</th><th>Post</th></tr>
+<tr><td><code>posts/why-agents.md</code></td><td>DEV</td><td><span class="pill ok">updated in place</span></td><td><a>dev.to/ada/why-we-built…</a></td></tr>
+<tr><td><code>posts/why-agents.md</code></td><td>Medium</td><td><span class="pill warn">stale</span><div class=note>Changed since publishing; Medium can't be edited. Update by hand.</div></td><td><a>medium.com/@ada/why-we…</a></td></tr>
+<tr><td><code>posts/mcp-auth.md</code></td><td>DEV</td><td><span class="pill ok">unchanged</span></td><td><a>dev.to/ada/notes-on-mcp…</a></td></tr>
+<tr><td><code>posts/gateway.md</code></td><td>DEV</td><td><span class="pill warn">unconfirmed</span><div class=note>Will be checked on DEV before anything is resent.</div></td><td></td></tr>
+</table></div>
+</main></div></body></html>
