@@ -8,13 +8,18 @@ features:
   title: Alert catalogue
   stories:
   - id: F7.1.S1
-    title: "catalogue \u2192 PrometheusRule and docs: overdue posts, scheduler stalled, unconfirmed rate, reauth needed"
+    title: 'catalogue → PrometheusRule and docs: overdue posts, scheduler stalled, unconfirmed rate, reauth needed'
     status: planned
+  - id: F7.1.S2
+    title: 'Alerts: authz error rate, Keycloak/OpenFGA drift, billing webhook rejections and reconcile drift, licence expiring,
+      seat-sync failures'
+    status: planned
+    change: new
 - id: F7.2
   title: Channel health
   stories:
   - id: F7.2.S1
-    title: "healthy \u2192 degraded \u2192 reauth_required \u2192 revoked"
+    title: healthy → degraded → reauth_required → revoked
     status: planned
   - id: F7.2.S2
     title: Refresh lock and refresh-token merge

@@ -37,7 +37,7 @@ docs/                  you are here; epics/ hold design, stories, implementation
 
 1. **`libs/` never imports `services/`.** If two services need something, it goes in `libs/`.
 2. **A service never imports another service.** Services share contracts (`libs/contracts`), the store (`libs/db`) and HTTP. That is what lets each one run on its own (`tests/test_split_mode.py` proves it).
-3. **Every route and tool checks a scope.** Use `Authed(scope, handler)` for REST and `principal(scope)` in MCP tools. There is no unauthenticated data route.
+3. **Every route and tool is authorized.** Today: `Authed(scope, handler)` for REST and `principal(scope)` in MCP tools. With E3: the one `authz.require(principal, relation, ref, scope=…)` path, which checks the token scope **and** OpenFGA. Routes declare `permission=…` or `public=True`, and a test fails any route that declares neither. There is no unauthenticated data route. See [authorization.md](authorization.md).
 4. **Secrets never leave as plain text.** Store hashes (`token_hash`) or sealed values (`Sealer`), and hold them in memory as `SecretValue`. Call `.reveal()` only where the credential is used; a test keeps the list of those places. Every loaded secret is registered with the Redactor, so it's masked in every log line and traceback. Never return a credential from an API or a tool; show new tokens only on a browser page.
 
 ## House conventions
@@ -65,6 +65,12 @@ Follow [writing-a-platform-plugin.md](writing-a-platform-plugin.md). Subclass `P
 2. Register it in `launcher.BUILTIN` (built-in) or under the `inkcast.services` entry point (plug-in).
 3. If it serves public paths, add them to `libs/contracts/routes.py` and run `python scripts/gen-manifests.py`.
 4. `inkcast services` now lists it; `INKCAST_APP_NAME=<Name>` runs it.
+
+### Change who may do what
+
+1. Edit `authz/model.fga`, and add or adjust tests in `authz/model.fga.yaml`, including a negative case.
+2. Run `fga model test --tests authz/model.fga.yaml`, then regenerate `authz/model.json` (`fga model transform --file authz/model.fga --output-format json | python3 -m json.tool > authz/model.json`).
+3. Never add a role column, a role check on JWT claims, or business state (approval, plan) as a tuple.
 
 ### Add a setting
 1. Add a field with a safe default to `Config` in `libs/config.py`, and read it in `load_config()`. Secrets use `_env("NAME")`, which also reads `NAME_FILE`.

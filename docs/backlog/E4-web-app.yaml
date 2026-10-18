@@ -29,7 +29,7 @@ features:
   title: Onboarding
   stories:
   - id: F4.3.S1
-    title: "Mockup: sign-up \u2192 workspace \u2192 connect \u2192 first token \u2192 Git guide"
+    title: 'Mockup: sign-up → workspace → connect → first token → Git guide'
     status: planned
   - id: F4.3.S2
     title: Build
@@ -73,3 +73,25 @@ features:
   - id: F4.7.S2
     title: Build
     status: planned
+- id: F4.8
+  title: Members and roles
+  stories:
+  - id: F4.8.S1
+    title: 'Mockup: members table (relations, billable or free seat, MFA, SSO), invite with seat impact, agency access'
+    status: done
+    change: new
+  - id: F4.8.S2
+    title: 'Build: invite, grant and revoke through the E3 member API; seat-limit paywall (E5.F5.5.S3)'
+    status: planned
+    change: new
+- id: F4.9
+  title: Approvals
+  stories:
+  - id: F4.9.S1
+    title: 'Mockup: approval queue with per-platform previews, Git origin, policy chip, client step'
+    status: done
+    change: new
+  - id: F4.9.S2
+    title: 'Build: reviewers approve (can_approve); approval status in the DB; plan-gated depth (E5)'
+    status: planned
+    change: new

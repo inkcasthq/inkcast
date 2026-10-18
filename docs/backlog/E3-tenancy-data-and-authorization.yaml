@@ -1,0 +1,208 @@
+# Backlog as code. File with: scripts/backlog/file.py inkcasthq/inkcast (see docs/epics/README.md)
+id: E3
+title: Tenancy, data and authorization (OpenFGA)
+status: planned
+goal: 'PostgreSQL, organizations and workspaces, and authorization on OpenFGA from day 1 (docs/authorization.md, ADR-0007):
+  deny by default, one enforcement path for web, mobile, REST, MCP and jobs; business state stays in the DB.'
+features:
+- id: F3.0
+  title: 'Spike: OpenFGA in production'
+  stories:
+  - id: F3.0.S1
+    title: Check latency, p99 and ListObjects limits at 100k tuples on Postgres; consistency modes
+    status: planned
+    change: new
+    acceptance:
+    - Numbers and the chosen modes recorded in ADR-0007
+  - id: F3.0.S2
+    title: 'Keycloak to OpenFGA sync: event-listener SPI vs polling admin events, air-gapped image builds'
+    status: planned
+    change: new
+    acceptance:
+    - ADR-0008 accepted or amended
+- id: F3.1
+  title: PostgreSQL repositories
+  stories:
+  - id: F3.1.S1
+    title: Postgres implementation of each repository (schema per service); the OpenFGA store uses the same operator in its
+      own database
+    status: planned
+    change: refined
+  - id: F3.1.S2
+    title: Versioned, reversible migrations
+    status: planned
+  - id: F3.1.S3
+    title: Posts queue with FOR UPDATE SKIP LOCKED
+    status: planned
+  - id: F3.1.S4
+    title: CI runs the suite on SQLite and Postgres
+    status: planned
+- id: F3.2
+  title: Organizations and workspaces
+  stories:
+  - id: F3.2.S1
+    title: Organization and workspace tables hold business state only; organization id = Keycloak Organization id; every account
+      has a personal organization; kind (personal, team, client) and billing_parent for managed client orgs
+    status: planned
+    change: refined
+    acceptance:
+    - No role or permission columns
+    - Personal organization created at first login (E9.F9.2.S2)
+  - id: F3.2.S2
+    title: 'Roles are OpenFGA relations: org owner, admin, member, billing_admin; workspace manager, editor, reviewer, publisher,
+      viewer, client_reviewer'
+    status: planned
+    change: replaces old F3.2.S1 (members with role columns)
+    acceptance:
+    - authz/model.fga is the single definition
+    - UI and API show roles derived from relations
+  - id: F3.2.S3
+    title: Membership changes require can_manage_members (model rule)
+    status: planned
+    change: replaces old F3.2.S2 (grant only roles at or below your own)
+    acceptance:
+    - 'Model test: editors and reviewers cannot manage members'
+  - id: F3.2.S4
+    title: Invites as rows (token, role, expiry, accepted_at); accepting writes the tuple through the outbox
+    status: planned
+    change: refined
+  - id: F3.2.S5
+    title: Ledger and tokens keyed by workspace (migration from user)
+    status: planned
+    change: refined
+  - id: F3.2.S6
+    title: Grant API writes seat_assignments and agency_grants in the same transaction and calls entitlements before billable
+      or agency tuples (E5.F5.3.S5, F5.9)
+    status: planned
+    change: new
+- id: F3.3
+  title: Isolation and audit
+  stories:
+  - id: F3.3.S1
+    title: Row-level security on workspace_id as defence in depth behind OpenFGA
+    status: planned
+    change: refined
+  - id: F3.3.S2
+    title: Cross-tenant negative suite at the model-test and API level
+    status: planned
+    change: refined
+  - id: F3.3.S3
+    title: Audit log of every state change, grant, revoke and billing action, with actor (web, API, MCP, action)
+    status: planned
+    change: refined
+- id: F3.4
+  title: Bring your own platform app credentials per workspace
+  stories:
+  - id: F3.4.S1
+    title: Per-workspace OAuth app credentials for platforms
+    status: planned
+- id: F3.5
+  title: Authorization model as code
+  stories:
+  - id: F3.5.S1
+    title: authz/model.fga with the owner's model, the two fixes and the tier relations; authz/model.json compiled and checked
+      in CI
+    status: done
+    change: new
+    acceptance:
+    - fga model validate passes
+    - CI fails when model.json is stale
+  - id: F3.5.S2
+    title: 'authz/model.fga.yaml: the owner''s five scenarios plus removed author, outside publisher, agency without grant,
+      tenant list isolation, billing admin, client reviewer, custom role'
+    status: done
+    change: new
+    acceptance:
+    - fga model test passes in CI (14 tests, 39 checks, 3 list-objects)
+  - id: F3.5.S3
+    title: 'Model versions: inkcast authz apply-model writes a version; INKCAST_FGA_MODEL_ID pinned per deploy'
+    status: planned
+    change: new
+    acceptance:
+    - Rollback runbook
+- id: F3.6
+  title: Pluggable PolicyEngine (libs/authz)
+  stories:
+  - id: F3.6.S1
+    title: PolicyEngine interface (check, batch_check, list_objects, write, delete, read) with typed Ref and relation constants
+    status: planned
+    change: new
+  - id: F3.6.S2
+    title: 'OpenFgaEngine over the REST API with httpx2: store and model id from config, credentials via SecretsProvider,
+      timeouts, fail closed'
+    status: planned
+    change: new
+  - id: F3.6.S3
+    title: LocalEngine evaluating authz/model.json over tuples in the DB (tests, laptops, small air-gapped self-hosts)
+    status: planned
+    change: new
+    acceptance:
+    - The same model.fga.yaml passes in Python tests
+  - id: F3.6.S4
+    title: INKCAST_AUTHZ_ENGINE; posture check (hosted production requires openfga); readiness checks the store and model
+      id
+    status: planned
+    change: new
+  - id: F3.6.S5
+    title: authz.denied and authz.error events; inkcast_authz_checks_total{relation,result} and latency
+    status: planned
+    change: new
+- id: F3.7
+  title: One enforcement path, deny by default
+  stories:
+  - id: F3.7.S1
+    title: 'authz.require(principal, relation, ref, scope): token scope AND OpenFGA; 403 denied, 503 engine error'
+    status: planned
+    change: new
+  - id: F3.7.S2
+    title: Authed(..., permission=...); architecture test fails any route without a permission or public=True
+    status: planned
+    change: new
+  - id: F3.7.S3
+    title: MCP tools call the same require(); a test enumerates every tool
+    status: planned
+    change: new
+  - id: F3.7.S4
+    title: SchedulerWorker re-checks can_publish at send time; Git sync checks per file and channel
+    status: planned
+    change: new
+  - id: F3.7.S5
+    title: List endpoints via ListObjects on workspaces or BatchCheck
+    status: planned
+    change: new
+- id: F3.8
+  title: Relationship lifecycle
+  stories:
+  - id: F3.8.S1
+    title: Lifecycle tuples (workspace org, channel workspace, post workspace and author) through a transactional outbox;
+      deletes remove tuples
+    status: planned
+    change: new
+  - id: F3.8.S2
+    title: 'Member API: grant or revoke manager, editor, reviewer, publisher, client reviewer; one-call agency grant; all
+      audited'
+    status: planned
+    change: new
+  - id: F3.8.S3
+    title: Reconciler compares DB-owned relationships with tuples, fixes drift, reports a metric
+    status: planned
+    change: new
+- id: F3.9
+  title: OpenFGA operations
+  stories:
+  - id: F3.9.S1
+    title: 'Kustomize component: OpenFGA on Postgres, OpenShift restricted-v2, migrate Job, mirrored images'
+    status: planned
+    change: new
+  - id: F3.9.S2
+    title: NetworkPolicy (only Inkcast services reach OpenFGA); credentials from the secrets store
+    status: planned
+    change: new
+  - id: F3.9.S3
+    title: 'kind CI: end-to-end suite split with INKCAST_AUTHZ_ENGINE=openfga'
+    status: planned
+    change: new
+  - id: F3.9.S4
+    title: 'Runbooks: model rollout and rollback, store backup and restore, drift'
+    status: planned
+    change: new

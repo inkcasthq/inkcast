@@ -1,6 +1,6 @@
 # E9 Identity on Keycloak: design
 
-**Why now:** the web app (E4), the admin portal (E6) and SaaS self sign-up all depend on it. The decision is [ADR-0006](../../adr/0006-identity-on-keycloak.md): Keycloak decides *who you are*; Inkcast decides *what a client or token may do*.
+**Why now:** the web app (E4), the admin portal (E6) and SaaS self sign-up all depend on it. **Refined 2026-10-18:** authorization moved to OpenFGA ([docs/authorization.md](../../authorization.md)). Keycloak Organizations are tenants (`organization:<id>`); every account gets a personal organization; membership changes sync into OpenFGA tuples, with a scheduled reconcile ([ADR-0008](../../adr/0008-keycloak-openfga-sync.md)). The decision is [ADR-0006](../../adr/0006-identity-on-keycloak.md): Keycloak decides *who you are*; Inkcast decides *what a client or token may do*.
 
 ## Use cases
 
@@ -50,7 +50,10 @@ sequenceDiagram
 ### Inkcast changes
 
 - **Allow-list of issuers:** `oidc:<issuer>#<sub>` stays the user key, and a realm migration can't silently create duplicates.
-- **User sync:** an `IdentitySync` worker consumes admin events. A disabled or deleted user is suspended: all tokens are revoked, and sign-in is refused.
+- **Identity and membership sync (F9.5):** an `IdentitySync` worker consumes Keycloak user and Organization events.
+  - Membership and admin changes become OpenFGA tuples.
+  - A disabled or deleted user loses all tokens **and tuples**, and sign-in is refused.
+  - A scheduled reconcile removes access even when an event was missed.
 - **Admin portal (E6):** it lists Inkcast users joined with their Keycloak linked identities, read through the Keycloak admin API with a dedicated service account.
 
 ## Stories

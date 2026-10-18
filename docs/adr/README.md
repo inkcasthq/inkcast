@@ -10,6 +10,13 @@ Each ADR records one significant decision: the context, the options considered, 
 | [0004](0004-web-frontend.md) | React + TypeScript SPA with a backend-for-frontend session | Accepted |
 | [0005](0005-personal-access-tokens.md) | Personal access tokens: scoped, hashed, shown once, can't mint tokens | Accepted |
 | [0006](0006-identity-on-keycloak.md) | Identity on Keycloak, authorization (MCP OAuth, consent, PATs) in Inkcast | Accepted |
+| [0007](0007-openfga-authorization.md) | OpenFGA for authorization, pluggable engine, one enforcement path | Accepted |
+| [0008](0008-keycloak-openfga-sync.md) | Keycloak → OpenFGA: polled events plus scheduled reconcile | Proposed (spike E3.F3.0.S2) |
+| [0009](0009-authorization-identifiers.md) | Tuple ids: Inkcast user id, Keycloak Organization id | Accepted |
+| [0010](0010-pricing-and-packaging.md) | Five per-seat tiers, fair seats, Agency add-on, organization is the billing account | Accepted (prices to validate) |
+| [0011](0011-entitlements-and-quotas.md) | Plans as code, per-org snapshots, 403 → 409 → 402, atomic quotas | Accepted |
+| [0012](0012-offline-licences.md) | Ed25519-signed offline licences; self-host editions | Accepted |
+| [0013](0013-billing-webhooks-and-events.md) | Hosted checkout, signed webhooks, inbox/outbox, provider API as truth | Accepted |
 
 ---
 <!-- inkcast-nav -->

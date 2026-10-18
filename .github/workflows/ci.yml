@@ -69,6 +69,26 @@ jobs:
           path: ${{ runner.temp }}/captures
           retention-days: 14
 
+  authz:
+    # The OpenFGA authorization model (authz/): valid, its tests pass, and the compiled JSON is current.
+    runs-on: ubuntu-latest
+    env:
+      FGA_VERSION: "0.8.2"
+      FGA_SHA256: e48c4a73cf68031fe9fc0827f1462a9b2d6981e3d2e9b82f1e1c2e120c293443
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install the OpenFGA CLI (pinned version and checksum)
+        run: |
+          curl -sSL -o fga.tgz "https://github.com/openfga/cli/releases/download/v${FGA_VERSION}/fga_${FGA_VERSION}_linux_amd64.tar.gz"
+          echo "${FGA_SHA256}  fga.tgz" | sha256sum -c
+          tar -xzf fga.tgz fga && sudo install fga /usr/local/bin/fga
+      - run: scripts/ci-run.sh "fga model validate" fga model validate --file authz/model.fga
+      - run: scripts/ci-run.sh "fga model test" fga model test --tests authz/model.fga.yaml
+      - name: Compiled model is current
+        run: |
+          fga model transform --file authz/model.fga --output-format json | python3 -m json.tool > "$RUNNER_TEMP/model.json"
+          scripts/ci-run.sh "authz/model.json is stale (run: fga model transform --file authz/model.fga --output-format json | python3 -m json.tool > authz/model.json)" diff -u authz/model.json "$RUNNER_TEMP/model.json"
+
   manifests:
     runs-on: ubuntu-latest
     steps:

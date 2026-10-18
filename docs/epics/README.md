@@ -15,13 +15,14 @@ The backlog behind these is code: `docs/backlog/*.yaml`, filed as GitHub issues 
 |---|---|---|
 | [E1 Platform foundations](E1-foundations/design.md) | One codebase, many services; shared libraries; launcher, prefixes, Gateway; config gate; split-mode CI | Done: reviewed, 0 open P0/P1 |
 | [E2 Git publishing](E2-git-publishing/design.md) | Personal access tokens, publish ledger, `stories:sync`, in-place updates, CLI, GitHub Action | Done: reviewed, 0 open P0/P1 |
-| [E9 Identity on Keycloak](E9-identity-keycloak/design.md) | SaaS realm as code, self sign-up, social login, MFA, enterprise SSO, user sync, real Keycloak in CI. Needed before E4 and E6 | Next |
-| E3 Tenancy and data | PostgreSQL repositories, workspaces, members and invites, row-level security, audit log | Planned |
+| [E3 Tenancy, data and authorization](E3-tenancy-authorization/design.md) | PostgreSQL; organizations and workspaces; **authorization on OpenFGA from day 1** ([design](../authorization.md)): model as code (done), pluggable engine, one enforcement path, Keycloak sync | Planned (model done) |
 | [E4 SaaS web app](E4-web-app/design.md) | React SPA, BFF session, onboarding, connections, composer, calendar | Mockups for approval |
-| E5 Billing | Pluggable `BillingProvider`, plans and entitlements, metering, webhooks | Planned |
+| [E5 Billing, entitlements and metering](E5-billing/design.md) | Delivers E10: `SubscriptionService`, catalogue as code, entitlements after OpenFGA (403 → 409 → 402), webhooks, offline licences, Agency add-on | Planned |
 | E6 Admin portal | Operator API and UI behind Keycloak `inkcast-admin`: users, queues, audit, overrides | Planned |
 | E7 Reliability | Alert catalogue, channel health, capability manifest, contract tests, outbound webhooks | Planned |
 | E8 Social platforms | X, TikTok, Instagram ([design](../design/social-platforms-epic.md)) | Planned |
+| [E9 Identity on Keycloak](E9-identity-keycloak/design.md) | SaaS realm as code, self sign-up, social login, MFA, enterprise SSO, user sync, real Keycloak in CI. Needed before E4 and E6 | Next |
+| [E10 Tiers and subscriptions (spike)](E10-tiers-and-billing/design.md) | Free, Personal, Team, Business, Enterprise per seat; Agency add-on; provider bake-off; pricing validation | Next |
 
 ---
 <!-- inkcast-nav -->

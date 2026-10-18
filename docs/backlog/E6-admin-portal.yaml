@@ -38,5 +38,15 @@ features:
     title: Audit search
     status: planned
   - id: F6.4.S2
-    title: Plan overrides and feature flags (no impersonation)
+    title: Plan overrides and feature flags through the SubscriptionService operator API (reason and expiry required, audited;
+      no impersonation)
     status: planned
+    change: refined
+  - id: F6.4.S3
+    title: Read-only view of a user's effective access (OpenFGA expand)
+    status: planned
+    change: new
+  - id: F6.4.S4
+    title: Licence register view (issued self-host licences, metadata only)
+    status: planned
+    change: new

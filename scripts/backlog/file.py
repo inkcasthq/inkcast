@@ -45,6 +45,19 @@ def design_link(repo: str, epic: dict) -> str:
     return f"https://github.com/{repo}/blob/main/docs/epics/README.md"
 
 
+def story_body(repo: str, epic: dict, feature: dict, story: dict, parent: str) -> str:
+    """Issue body: where the story sits, how it changed in the last refinement, and its acceptance criteria."""
+    lines = [f"Part of {feature['id']} {feature['title']} ({epic['id']}).{parent}"]
+    if story.get("change"):
+        lines.append(f"\nRefinement: {story['change']}.")
+    if story.get("timebox"):
+        lines.append(f"\nTime box: {story['timebox']} (spike).")
+    if story.get("acceptance"):
+        lines.append("\n**Acceptance criteria**\n" + "\n".join(f"- [ ] {a}" for a in story["acceptance"]))
+    lines.append(f"\nDefinition of done: https://github.com/{repo}/blob/main/docs/definition-of-done.md")
+    return "\n".join(lines)
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("repo")
@@ -82,9 +95,7 @@ def main(argv: list[str]) -> int:
                            f"\n\nDesign: {link}", ["feature"], all(s["status"] == "done" for s in feature["stories"]))
             for story in feature["stories"]:
                 parent = f"\n\nFeature: {f_url}" if f_url else ""
-                create(f"[{story['id']}] {story['title']}",
-                       f"Part of {feature['id']} {feature['title']} ({epic['id']}).{parent}\n\n"
-                       f"Definition of done: https://github.com/{args.repo}/blob/main/docs/definition-of-done.md",
+                create(f"[{story['id']}] {story['title']}", story_body(args.repo, epic, feature, story, parent),
                        ["story"], story["status"] == "done")
     return 0
 
