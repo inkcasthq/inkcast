@@ -1,0 +1,22 @@
+# Development and CI: Keycloak with the inkcast realm (E9.F9.1). Run with scripts/dev/keycloak-e2e.sh, which makes
+# .secrets/ first (random admin password and client secret, never committed). The realm file is the source of
+# truth for the realm's settings; secrets and URLs reach it through ${...} placeholders at import.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - keycloak.yaml
+configMapGenerator:
+  - name: keycloak-realm
+    namespace: keycloak
+    files:
+      - realm-inkcast.json
+  - name: keycloak-realm-settings
+    namespace: keycloak
+    literals:
+      - INKCAST_PUBLIC_URL=http://localhost:8787      # where Inkcast's /auth/callback is, as the browser sees it
+secretGenerator:
+  - name: keycloak-secrets
+    namespace: keycloak
+    files:
+      - admin-password=.secrets/admin-password
+      - inkcast-client-secret=.secrets/inkcast-client-secret
