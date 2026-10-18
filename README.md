@@ -89,7 +89,7 @@ Both doc pages render from **vendored, hash-locked bundles** in `src/inkcast/sta
 ## Quick start (local, single user)
 
 ```bash
-pip install .            # Python ≥ 3.11
+pip install .            # Python ≥ 3.12 (the image runs 3.14)
 export INKCAST_LOGIN=password INKCAST_PASSWORD='a long passphrase here' \
        INKCAST_SECRET_KEY=$(python -c 'import secrets;print(secrets.token_urlsafe(48))')
 inkcast                  # serves http://localhost:8787/mcp
@@ -215,7 +215,7 @@ PYTHONPATH=src:tests python -m unittest discover -s tests -v
 CI runs on every pull request ([docs/cicd.md](docs/cicd.md)):
 
 - lint and the vendored-asset lock;
-- the test suite on Python 3.11–3.13;
+- the test suite on Python 3.12–3.15;
 - rendering of every manifest overlay;
 - an image build and vulnerability scan;
 - a **kind** deployment of the real image under Pod Security `restricted`, both as one pod and as split services behind the Gateway;

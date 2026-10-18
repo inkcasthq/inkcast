@@ -33,7 +33,7 @@ scripts/file-issues.sh inkcasthq/inkcast          # files the roadmap issues in 
 - **Branches → protect `main`:**
   - require a pull request, 1 approval and **code-owner review**;
   - require linear history, and allow no force pushes;
-  - required checks: `lint`, `test (3.11)`, `test (3.12)`, `test (3.13)`, `manifests`, `image`, `kind`. Add `codeql` once the repo is public or GitHub Code Security is on.
+  - required checks: `lint`, `test (3.12)`, `test (3.13)`, `test (3.14)`, `test (3.15)`, `manifests`, `image`, `kind`. Add `codeql` once the repo is public or GitHub Code Security is on.
 - **Environments:**
   - `staging`;
   - `production`, with deployments limited to `main` and tags.
