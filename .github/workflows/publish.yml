@@ -44,7 +44,7 @@ jobs:
     # and only that orphan branch (scripts/ci-publish-captures.sh); runs even when the gate fails.
     needs: [gate]
     if: always() && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
       actions: read
@@ -59,7 +59,7 @@ jobs:
 
   build:
     needs: [gate]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
@@ -85,7 +85,7 @@ jobs:
 
   sbom:
     needs: [build]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: read
@@ -100,7 +100,7 @@ jobs:
 
   attest:
     needs: [build, sbom]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
@@ -145,7 +145,7 @@ jobs:
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [build, attest]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
