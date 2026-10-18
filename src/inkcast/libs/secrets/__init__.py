@@ -13,6 +13,7 @@
 ``naming``         the naming convention for remote ids, and "config files hold names only"
 ``provider``       ``SecretsProvider``: TTL with jitter, single-flight, stale-on-error, refresh(),
                    on_change(), fingerprints, status()
+``checks``         startup security posture checks (pass/warn/fail), gated by the launcher
 =================  ======================================================================
 
 Import from this package (``from inkcast.libs.secrets import SecretValue``); the module layout
@@ -22,6 +23,7 @@ below it may change.
 from __future__ import annotations
 
 from .mask import describe_keys, fingerprint, fully_mask, mask_value, partly_mask
+from .checks import Check, problems, run_checks
 from .fetchers import (
     AgentFetcher, AwsSdkFetcher, ChainFetcher, DirectoryFetcher, EnvFetcher, Fetched, Fetcher, NotInstalledError,
     SecretFetchError, VaultFetcher, fetcher_from_environ,
@@ -32,9 +34,9 @@ from .redactor import REDACTOR, Redactor, is_sensitive_key
 from .value import Sealer, SecretValue, as_str, new_secret, token_hash
 
 __all__ = [
-    "REDACTOR", "AgentFetcher", "AwsSdkFetcher", "ChainFetcher", "ConfigFileError", "DirectoryFetcher", "EnvFetcher",
+    "REDACTOR", "AgentFetcher", "AwsSdkFetcher", "ChainFetcher", "Check", "ConfigFileError", "DirectoryFetcher", "EnvFetcher",
     "Fetched", "Fetcher", "NamingError", "NotInstalledError", "Redactor", "Sealer", "SecretEvent", "SecretFetchError",
     "SecretNaming", "SecretNotFound", "SecretValue", "SecretsProvider", "VaultFetcher", "as_str", "describe_keys",
     "fetcher_from_environ", "fingerprint", "fully_mask", "is_sensitive_key", "load_config_file", "mask_value", "new_secret",
-    "partly_mask", "render_secret_name", "secret_slug", "token_hash",
+    "partly_mask", "problems", "render_secret_name", "run_checks", "secret_slug", "token_hash",
 ]

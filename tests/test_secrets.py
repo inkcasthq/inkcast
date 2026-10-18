@@ -372,3 +372,74 @@ class ProviderTests(unittest.TestCase):
             w = await provider.arefresh("DB", "test")
             return v.reveal(), w.reveal(), fetcher.calls
         self.assertEqual(asyncio.run(run()), ("pw", "pw", 2))
+
+
+class PostureCheckTests(unittest.TestCase):
+    def checks(self, environ=None, **cfg):
+        import io
+        from inkcast.libs.config import Config
+        from inkcast.libs.secrets import run_checks
+        from inkcast.libs.secrets.checks import render
+        base = dict(public_url="https://inkcast.example.com", secret_key="Q7r!x9Lm2vP0sZ4bN8cH1dK5fG3jT6wY-aE", database_path=":memory:")
+        config = Config(**{**base, **cfg})
+        out = run_checks(config, redactor=Redactor(), environ=environ or {})
+        render(out, io.StringIO())
+        return {c.id: c for c in out}
+
+    def test_hard_failures_and_production_tightening(self):
+        from inkcast.libs.secrets import problems
+        c = self.checks(public_url="http://inkcast.example.com", secret_key="short")
+        self.assertEqual((c["public-url-https"].status, c["secret-key-strength"].status), ("fail", "fail"))
+        fails, _ = problems(list(c.values()))
+        self.assertEqual({f.id for f in fails}, {"public-url-https", "secret-key-strength"})
+        self.assertEqual(self.checks(public_url="http://localhost:8787")["public-url-https"].status, "info")
+        self.assertEqual(self.checks(secret_key="k" * 48)["secret-key-strength"].status, "warn")       # not random
+        self.assertEqual(self.checks(secret_key="k" * 48, environment="production")["secret-key-strength"].status, "fail")
+        self.assertEqual(self.checks(secret_key="changeme-" * 5)["secret-key-strength"].status, "warn")
+        self.assertEqual(self.checks()["secret-key-strength"].status, "pass")
+        self.assertEqual(self.checks(reveal_secrets=True)["no-reveal-flag"].status, "warn")
+        self.assertEqual(self.checks(reveal_secrets=True, environment="production")["no-reveal-flag"].status, "fail")
+        self.assertEqual(self.checks(environment="production", log_format="text")["log-format-json"].status, "warn")
+        self.assertEqual(self.checks(environment="production", log_level="DEBUG")["debug-flags"].status, "warn")
+        self.assertEqual(self.checks(environment="production", login="password", password="p" * 12)["login-method"].status, "warn")
+        self.assertEqual(self.checks({"INKCAST_FORWARDED_ALLOW_IPS": "*"})["forwarded-ips"].status, "info")
+
+    def test_environment_and_file_posture_never_mention_values(self):
+        import os
+        import stat
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            key_file = os.path.join(d, "secret-key")
+            with open(key_file, "w") as f:
+                f.write("v" * 40)
+            os.chmod(key_file, 0o644)
+            env = {"INKCAST_SECRET_KEY_FILE": key_file, "GITHUB_CLIENT_SECRET": "gh-secret-in-env-0123", "INKCAST_LOGIN": "oidc",
+                   "INKCAST_ALLOW_ANY_USER": "true", "INKCAST_SECRET_ID_X": "arn:aws:x"}
+            c = self.checks(env)
+            self.assertEqual(c["secret-files-protected"].status, "warn")
+            self.assertIn(key_file, c["secret-files-protected"].detail)
+            self.assertEqual(c["env-scrubbed"].status, "warn")
+            self.assertIn("GITHUB_CLIENT_SECRET", c["env-scrubbed"].detail)
+            self.assertNotIn("gh-secret-in-env", c["env-scrubbed"].detail)
+            self.assertNotIn("INKCAST_SECRET_KEY_FILE", c["env-scrubbed"].detail)   # a pointer, not a value
+            self.assertNotIn("INKCAST_ALLOW_ANY_USER", c["env-scrubbed"].detail)   # a switch
+            os.chmod(key_file, stat.S_IRUSR | stat.S_IWUSR)
+            c = self.checks({"INKCAST_SECRET_KEY_FILE": key_file})
+            self.assertEqual((c["secret-files-protected"].status, c["env-scrubbed"].status), ("pass", "pass"))
+            self.assertEqual(c["redaction-active"].status, "warn")  # a fresh Redactor with nothing registered
+            self.assertIn(c["non-root"].status, ("pass", "warn"))
+            self.assertIn(c["core-dumps"].status, ("pass", "warn", "skip"))
+            self.assertEqual(c["secrets-source"].status, "skip")
+
+    def test_checks_see_the_provider(self):
+        from inkcast.libs.config import load_config
+        from inkcast.libs.secrets import run_checks
+        env = {"INKCAST_PUBLIC_URL": "http://localhost:1", "INKCAST_SECRET_KEY": "Q7r!x9Lm2vP0sZ4bN8cH1dK5fG3jT6wY-aE",
+               "INKCAST_LOGIN": "password", "INKCAST_PASSWORD": "p" * 12, "INKCAST_METRICS_PORT": "0"}
+        config = load_config(env)
+        by_id = {c.id: c for c in run_checks(config, environ=env)}
+        self.assertEqual(by_id["redaction-active"].status, "pass")
+        self.assertIn("Mode env", by_id["secrets-source"].detail)
+        self.assertIn("not set: GITHUB_CLIENT_SECRET, OIDC_CLIENT_SECRET", by_id["secrets-source"].detail)
+        self.assertIn("INKCAST_PASSWORD", by_id["env-scrubbed"].detail)
+        self.assertNotIn("pppp", " ".join(c.detail for c in by_id.values()))
