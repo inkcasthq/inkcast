@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "inkcast"
+version = "0.1.0"
+description = "Publish and schedule your writing across platforms from Claude Code or any MCP client."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "mcp>=2.2,<3",
+  "httpx2>=2.5",
+  "uvicorn>=0.30",
+  "pyyaml>=6",
+  "cryptography>=42",
+  "python-multipart>=0.0.9",
+]
+
+[project.scripts]
+inkcast = "inkcast.server:main"
+
+# Third-party platform plug-ins register here, e.g. in their own pyproject:
+# [project.entry-points."inkcast.platforms"]
+# hashnode = "inkcast_hashnode:HashnodePlatform"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/inkcast"]
