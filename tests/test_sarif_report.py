@@ -12,8 +12,8 @@ SCRIPT = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "dev" / "sari
 
 
 def sarif(severity: str, level: str = "warning") -> dict:
-    loc = {"physicalLocation": {"artifactLocation": {"uri": "app.py"}, "region": {"startLine": 2, "startColumn": 11,
-                                                                                    "endColumn": 25}}}
+    loc = {"physicalLocation": {"artifactLocation": {"uri": "app.py"}, "region": {"startLine": 2, "startColumn": 10,
+                                                                                    "endColumn": 27}}}
     rule = {"id": "py/clear-text-logging-sensitive-data", "shortDescription": {"text": "Clear-text logging"},
             "properties": {"security-severity": severity}}
     return {"runs": [{"tool": {"driver": {"rules": [rule]}}, "results": [{
