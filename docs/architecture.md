@@ -1,35 +1,63 @@
-# Inkcast architecture (v0.1)
+# Inkcast architecture
 
-## Components
+Inkcast is **one codebase that runs as several services**. Every service ships in the same image. `INKCAST_APP_NAME` picks which ones a process runs, and `All` (the default) runs them all, as the single-process server always did. The decisions behind this are in [ADR-0001](adr/0001-one-codebase-many-services.md) and [ADR-0002](adr/0002-gateway.md). For where a change goes and the rules tests enforce, see the [contributor map](contributor-map.md).
 
+## Services
+
+```mermaid
+flowchart LR
+  subgraph Clients
+    CC[Claude Code / MCP]; GHA[GitHub Action / inkcast sync]; BR[Browser]; SPA[Web app · E4]
+  end
+  GW[Gateway<br/>Gateway API in clusters · built-in Gateway elsewhere]
+  subgraph image["One image · INKCAST_APP_NAME selects"]
+    ID[IdentityService<br/>OAuth AS · sign-in · consent · tokens]
+    PUB[PublishingApi<br/>REST /api/v1 · MCP /mcp · Git sync · ledger]
+    CON[ConnectorService<br/>connect pages · credential vault]
+    SCH[SchedulerWorker<br/>scheduled sends · heartbeats]
+  end
+  KC[(Keycloak<br/>social login, account linking)]
+  DB[(Store<br/>SQLite now · PostgreSQL in E3)]
+  PL[Medium · DEV · …]
+  CC & GHA & BR & SPA --> GW --> ID & PUB & CON
+  ID <--> KC
+  ID & PUB & CON & SCH --> DB
+  PUB & SCH --> PL
+  CON --> PL
 ```
-                 ┌──────────────────────── Inkcast server ────────────────────────┐
- MCP client      │  OAuth 2.1 AS  ──►  Identity provider (pluggable)             │      Keycloak / any OIDC
- (Claude Code) ─►│  /register /authorize /token /revoke     oidc | github | password ├──►  GitHub OAuth app
-                 │  consent page                                                  │
-                 │                                                                │
-                 │  MCP resource /mcp  ──►  tools  ──►  Publisher ──► Platform plug-ins ├──►  Medium API
-                 │                                         │         (entry points)    ├──►  Forem/DEV API
- Browser ───────►│  /connect/{ticket} (enter platform keys)│                           │
-                 │                                         ▼                           │
-                 │                 Store (SQLite → Postgres)   ◄── Scheduler loop      │
-                 └────────────────────────────────────────────────────────────────────┘
-```
+
+| `INKCAST_APP_NAME` | Full name (URL prefix, k8s name) | Owns | Public paths |
+|---|---|---|---|
+| `IdentityService` | `identity-service` | OAuth 2.1 authorization server, sign-in (Keycloak/OIDC, GitHub, password), consent, personal access tokens | `/.well-known/oauth-authorization-server`, `/authorize`, `/token`, `/register`, `/revoke`, `/auth/*`, `/tokens/*`, `/api/v1/tokens*` |
+| `PublishingApi` | `publishing-api` | posts, previews, Git publishing (stories sync, ledger), REST API and docs, MCP endpoint | `/mcp`, `/.well-known/oauth-protected-resource*`, `/api*` |
+| `ConnectorService` | `connector-service` | one-time connect pages, the encrypted credential vault | `/connect/*` |
+| `SchedulerWorker` | `scheduler-worker` | sends scheduled posts, safe retries, heartbeats, housekeeping | none (probes and metrics only) |
+| `Gateway` | `gateway` | routes public paths to services by the route table | everything above |
+| `All` | `inkcast` | the four product services in one process | everything |
+
+- **Prefixes.** `INKCAST_PATH_PREFIX` serves a process at `/` (default), under `/<full-name>` (`auto`), or under any path.
+- **Stable paths.** The public paths above never change with the split. They come from one route table, `libs/contracts/routes.py`, which drives the built-in Gateway, the generated Gateway API HTTPRoutes and each service's spec.
+
+## Layers
+
+| Layer | Package | Rule |
+|---|---|---|
+| Entry | `launcher.py`, `cli.py` | Parse the command, validate config for the chosen services (exit 78 on a problem), build the context, serve |
+| Services | `services/<name>/` | Each one exposes `SERVICE: ServiceSpec`, and never imports another service |
+| Contracts | `libs/contracts/` | API models, the OpenAPI document and the route table: the only thing clients and services agree on |
+| Shared libraries | `libs/` (config, secrets, observability, auth, db, content, platforms, http, pipeline, runtime) | Reusable, and never imports a service |
+| Plug-ins | `inkcast.platforms`, `inkcast.services` entry points | Platforms and services can come from other packages |
 
 | Module | Responsibility |
 |---|---|
-| `auth/provider.py` | OAuth 2.1 authorization server for MCP clients: dynamic client registration (RFC 7591), PKCE S256, single-use codes, rotating refresh tokens, revocation (RFC 7009). Metadata per RFC 8414 / RFC 9728 is served by the MCP SDK. |
-| `auth/identity.py` | Who the person is. `OIDCIdentity` (Keycloak or any OpenID Connect provider, with PKCE), `GitHubIdentity`, `PasswordIdentity`. Each returns a stable identity key, `oidc:<issuer>#<sub>` or `github:<id>`. |
-| `auth/pages.py` | Sign-in, consent and connect pages, with a strict Content-Security-Policy, no framing, and `no-store` caching. |
-| `platforms/` | The `Platform` interface, built-ins (Medium, DEV) and the entry-point registry. |
-| `story.py` | Platform-neutral story: front matter, per-platform overrides, image URL fixing, schedule validation. Pure: no I/O. |
-| `publisher.py` | Fan-out to platforms, immediate sends, scheduled sends with retry (`60s`, `5m`, `30m`), cancel. |
-| `storage.py` | Users, OAuth state, encrypted credentials, posts. |
-| `service.py` | Use cases (platforms, connect, publish, posts, cancel), shared by the MCP tools and the REST API. |
-| `models.py` | Request/response models. They are the single source for the tool schemas and the OpenAPI document. |
-| `api.py` | REST API `/api/v1`, OpenAPI 3.1 at `/api/openapi.json`, Swagger UI at `/api` and ReDoc at `/api/redoc`, rendered from vendored, hash-locked bundles. |
-| `observability.py` | JSON logs, Prometheus metrics. |
-| `server.py` | MCP tools (thin renderings of the service), browser routes, probes, run modes (`all`/`web`/`worker`), coordinated shutdown. |
+| `libs/auth` | `TokenVerifier` turns an OAuth access token or a personal access token into a `Principal` (user, scopes, kind). REST (`Authed`) and MCP tools check a scope on every call. |
+| `libs/db` | One `Database` with domain repositories (`IdentityRepo`, `VaultRepo`, `PostsRepo`, `LedgerRepo`), each owned by one service ([ADR-0003](adr/0003-data-store.md)). |
+| `libs/content` | Platform-neutral story: front matter, per-platform overrides, image URL fixing, schedule validation. Pure, with no I/O. |
+| `libs/platforms` | The `Platform` interface (`prepare` is pure; `publish`, `update` and `find_existing` do I/O, with `capabilities`), the built-ins and the registry. |
+| `libs/pipeline` | Fan-out to platforms, sends, safe retries (`60s`, `5m`, `30m`), updates, confirmation of unconfirmed sends, cancel. |
+| `libs/http` | App composition and prefixes, probes, REST auth and problem+json errors, the HTML pages (strict CSP), and Swagger UI/ReDoc from vendored, hash-locked bundles. |
+| `libs/observability` | JSON logs with a `service` field; the Redactor masks tokens and keys in every line; Prometheus metrics. |
+| `libs/secrets` | `SecretValue`, `SecretsProvider`, `Sealer` (encryption at rest), token hashing. |
 
 ## Sign-in flow (what Claude Code does on `/mcp` → Authenticate)
 
@@ -48,17 +76,19 @@
 - Platform credentials are encrypted with a Fernet key derived from `INKCAST_SECRET_KEY`. Rotating that key requires reconnecting platforms; a KMS-backed envelope is planned (issue 09).
 - OAuth codes and access/refresh tokens are stored only as SHA-256 hashes.
 - Access tokens last 1 hour and refresh tokens 30 days. A refresh revokes the whole token family.
+- Personal access tokens (`ink_pat_…`) are stored as hashes, carry only the scopes they were created with, expire (90 days by default), and can't create or revoke tokens. A new token is shown once: in the API response, or on the `/tokens/new` page after a fresh sign-in. It never appears in an AI transcript ([ADR-0005](adr/0005-personal-access-tokens.md)).
 - Platform keys never pass through the AI. `inkcast_connect` returns a one-time, 15-minute link instead. The key is verified against the platform before it is stored.
 
 **Authorization**
 
 - Consent is required for every authorization. Dynamically registered clients can't obtain tokens silently, which addresses the "confused deputy" risk in the MCP security guidance.
-- Every tool resolves the user from the token's subject, and every query is scoped to that user.
+- Every REST route and MCP tool checks a scope against the caller's `Principal`, and every query is scoped to that user.
 - Hosted mode refuses to start unless sign-in is restricted (role, email domain, org or user list), or open sign-up is enabled explicitly.
 
 **Transport and pages**
 
 - DNS-rebinding protection checks `Host` headers on `/mcp`. `INKCAST_PUBLIC_URL` must be `https` unless it is localhost.
+- The built-in Gateway passes `Host` through unchanged so services can pin it, replaces client-supplied `X-Forwarded-*` headers, and caps request bodies at 10 MB.
 - Pages send a strict Content-Security-Policy, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer` and `Cache-Control: no-store`.
 
 ## Cloud-native design
@@ -72,10 +102,10 @@
 | Build, release, run | One image per commit, released by digest, configured per environment by Kustomize. |
 | Processes | Stateless web tier (OAuth state, tokens and posts live in the store). SQLite in v0.1 pins one replica; Postgres lifts it. |
 | Port binding | `:8787` app, `:9090` metrics + probes. |
-| Concurrency | `inkcast web` scales horizontally; `inkcast worker` runs the scheduler. Claiming is atomic, so several workers are safe. |
+| Concurrency | Each service is its own process type (`INKCAST_APP_NAME`), and scales on its own. Claiming due posts is atomic, so several schedulers are safe. |
 | Disposability | SIGTERM stops intake, lets in-flight requests finish (25 s grace) and **finishes the current scheduler tick**, so no post is half-sent. |
 | Logs | JSON to stdout, no files. OAuth codes never logged (HTTP client and access logs held at WARNING). |
-| Admin processes | `inkcast` CLI modes; key rotation and migrations come later as one-off Jobs. |
+| Admin processes | `inkcast services`, `inkcast sync`; key rotation and migrations come later as one-off Jobs. |
 
 ### Runtime contract
 
@@ -92,6 +122,9 @@
 - `inkcast_scheduler_ticks_total`
 - `inkcast_posts{status}`
 - `inkcast_posts_due` (queue depth, ready for a KEDA scaler)
+- `inkcast_posts_overdue` (scheduled posts past `INKCAST_OVERDUE_GRACE`; the scheduler is behind or stopped)
+- `inkcast_sync_total{platform,action}`
+- `inkcast_gateway_requests_total{upstream,code}`
 
 **Pod security:**
 
@@ -102,7 +135,7 @@
 **Duplicate-safe publishing:**
 
 - Connection errors and 429s are retried.
-- A timeout *after* a publish request was sent, or a 5xx on it, marks the post `unknown` for a human to check. Retrying could post twice.
+- A timeout *after* a publish request was sent, or a 5xx on it, marks the post `unconfirmed`. Inkcast never retries it blindly: Git publishing asks the platform (`find_existing`) first, and anything else waits for a human.
 
 ### CNCF building blocks
 
@@ -133,16 +166,16 @@ Maturity as listed on cncf.io/projects (checked 2026-10-18); re-check before rel
 
 | Stage | Topology |
 |---|---|
-| v0.1 | One pod (`inkcast all`), SQLite on an RWO PVC, `Recreate` strategy |
-| Phase 1 | `inkcast web` Deployment (≥ 2 replicas, RollingUpdate, PodDisruptionBudget, topology spread) + `inkcast worker` Deployment + CloudNativePG cluster |
+| Now (default) | One pod (`All`), SQLite on an RWO PVC, `Recreate` strategy |
+| Now (split, CI and evaluation) | `components/split-services`: one Deployment per service plus the Gateway, sharing the SQLite volume on one node |
+| E3 | Split services on PostgreSQL (CloudNativePG): HTTP services with ≥ 2 replicas, RollingUpdate, PodDisruptionBudget, topology spread; the scheduler scaled on `inkcast_posts_due` |
 | Phase 2 | Media workers scaled by KEDA, object storage, CloudEvents webhooks (social epic) |
 
-## Known limits of v0.1
+## Known limits
 
-- **Storage:** single node, SQLite.
-- **Scheduler:** with SQLite, run `inkcast all` as a single pod. With Postgres (issue 10), `web` and `worker` split.
-- **Platforms:** Medium cannot edit or delete via its API, and DEV unpublishing needs the platform UI. Inkcast cancels only what hasn't been sent.
-- **Images:** they must be public URLs. Uploading to Medium's image endpoint is planned.
+- **Storage:** SQLite. Split services share one volume on one node until PostgreSQL arrives (E3).
+- **Platforms:** Medium can't edit or delete through its API. Git publishing reports changed Medium posts as `stale`. DEV unpublishing needs the platform UI. Inkcast cancels only what hasn't been sent.
+- **Images:** they must be public URLs. Git publishing rewrites relative images to raw GitHub URLs. Uploading is planned.
 
 ---
 <!-- inkcast-nav -->

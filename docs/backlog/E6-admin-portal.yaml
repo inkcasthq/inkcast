@@ -1,0 +1,42 @@
+# Backlog as code. File with: scripts/backlog/file.py inkcasthq/inkcast (see docs/epics/README.md)
+id: E6
+title: Admin portal
+status: planned
+goal: Operator API and UI behind Keycloak inkcast-admin.
+features:
+- id: F6.1
+  title: Access
+  stories:
+  - id: F6.1.S1
+    title: AdminService with the inkcast-admin realm role
+    status: planned
+  - id: F6.1.S2
+    title: Separate admin bundle
+    status: planned
+- id: F6.2
+  title: Users and workspaces
+  stories:
+  - id: F6.2.S1
+    title: Users with linked identities
+    status: planned
+  - id: F6.2.S2
+    title: Suspend and unsuspend
+    status: planned
+- id: F6.3
+  title: Queues
+  stories:
+  - id: F6.3.S1
+    title: Failed and unconfirmed posts across tenants
+    status: planned
+  - id: F6.3.S2
+    title: Scheduler heartbeat and channel health overview
+    status: planned
+- id: F6.4
+  title: Audit and overrides
+  stories:
+  - id: F6.4.S1
+    title: Audit search
+    status: planned
+  - id: F6.4.S2
+    title: Plan overrides and feature flags (no impersonation)
+    status: planned

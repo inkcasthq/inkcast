@@ -14,13 +14,15 @@ Every contributor signs the [Inkcast Contributor License Agreement](legal/CLA-IN
 
 ## Workflow
 
+0. Read the [contributor map](docs/contributor-map.md) (where your change goes, the four rules the tests enforce, step-by-step recipes) and the [definition of done](docs/definition-of-done.md).
 1. Open an issue first for anything bigger than a small fix, so we can agree on the approach.
 2. Fork, branch from `main`, and keep each pull request focused.
 3. Run the checks locally:
    ```bash
    pip install -e . 'playwright==1.56.0' && python -m playwright install chromium
    PYTHONPATH=src:tests python -m unittest discover -s tests
-   ruff check src tests
+   ruff check src tests scripts
+   python scripts/gen-manifests.py --check   # split-service manifests match the code
    scripts/vendor-assets.sh            # vendored API-docs bundles still match their lock
    ```
 4. **Add tests.** New platform plug-ins come with a fake of the platform's API (see `tests/fakes.py`) and a guide-compliant `prepare()`. Read [docs/writing-a-platform-plugin.md](docs/writing-a-platform-plugin.md).

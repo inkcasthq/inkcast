@@ -1,0 +1,84 @@
+# Backlog as code. File with: scripts/backlog/file.py inkcasthq/inkcast (see docs/epics/README.md)
+id: E1
+title: Platform foundations
+status: done
+goal: One codebase, many services; shared libraries; launcher; prefixes; Gateway; config gate; split-mode CI.
+features:
+- id: F1.1
+  title: Launcher and service registry
+  stories:
+  - id: F1.1.S1
+    title: ServiceSpec and entry-point registry
+    status: done
+  - id: F1.1.S2
+    title: INKCAST_APP_NAME (CamelCase, comma-separated, All)
+    status: done
+  - id: F1.1.S3
+    title: inkcast services
+    status: done
+- id: F1.2
+  title: Shared libraries
+  stories:
+  - id: F1.2.S1
+    title: Move shared code to libs/ with compatibility aliases
+    status: done
+  - id: F1.2.S2
+    title: Domain repositories over one Database
+    status: done
+  - id: F1.2.S3
+    title: "Architecture test (no libs\u2192services, no service\u2192service)"
+    status: done
+- id: F1.3
+  title: HTTP app factory
+  stories:
+  - id: F1.3.S1
+    title: 'INKCAST_PATH_PREFIX: / | auto | path'
+    status: done
+  - id: F1.3.S2
+    title: Probes and problem+json in one place
+    status: done
+  - id: F1.3.S3
+    title: One public OpenAPI document tagged by service and scope
+    status: done
+- id: F1.4
+  title: Config and secrets
+  stories:
+  - id: F1.4.S1
+    title: Per-service config gate, exit 78
+    status: done
+  - id: F1.4.S2
+    title: SecretValue, SecretsProvider, Redactor (reference secrets design)
+    status: done
+  - id: F1.4.S3
+    title: Derive every URL from INKCAST_PUBLIC_URL
+    status: done
+- id: F1.5
+  title: Gateway
+  stories:
+  - id: F1.5.S1
+    title: Built-in Gateway from the route table
+    status: done
+  - id: F1.5.S2
+    title: Generated Gateway API HTTPRoutes
+    status: done
+  - id: F1.5.S3
+    title: Generated split-services component
+    status: done
+- id: F1.6
+  title: CI
+  stories:
+  - id: F1.6.S1
+    title: 'kind: split services through the Gateway'
+    status: done
+  - id: F1.6.S2
+    title: End-to-end suite in single and split mode
+    status: done
+- id: F1.7
+  title: Docs
+  stories:
+  - id: F1.7.S1
+    title: ADRs, definition of done, contributor map, epic docs
+    status: done
+  - id: F1.7.S2
+    title: Backlog as code
+    status: done
