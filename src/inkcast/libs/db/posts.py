@@ -65,11 +65,15 @@ class PostsRepo(Database):
                 )
         return [{**dict(r), "attempts": r["attempts"] + 1} for r in rows]
 
-    def recover_stuck(self, older_than: float) -> int:
-        """Posts left 'publishing' by a crash go back to 'scheduled'."""
-        return self._exec(
-            "UPDATE posts SET status = 'scheduled' WHERE status = 'publishing' AND updated_at < ?", older_than
-        )
+    def claim_stuck(self, older_than: float) -> list[dict[str, Any]]:
+        """Posts left 'publishing' by a crash or restart, moved atomically to 'recovering' so one worker resolves
+        each. The caller decides what they become: a send may or may not have reached the platform, so they
+        are never simply put back in the queue (that is how schedulers post twice)."""
+        with self._tx() as c:
+            rows = c.execute("SELECT * FROM posts WHERE status = 'publishing' AND updated_at < ?", (older_than,)).fetchall()
+            for r in rows:
+                c.execute("UPDATE posts SET status = 'recovering', updated_at = ? WHERE id = ?", (time.time(), r["id"]))
+        return [dict(r) for r in rows]
 
     def post_counts(self) -> dict[str, int]:
         rows = self._all("SELECT status, COUNT(*) AS n FROM posts GROUP BY status")

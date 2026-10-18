@@ -59,6 +59,7 @@ EVENTS: dict[str, tuple[str, str]] = {
     "gateway.upstream.unreachable": ("critical", "The built-in Gateway could not reach a service."),
     "scheduler.tick.failed": ("critical", "A scheduler tick crashed; the next tick retries."),
     "publish.unconfirmed": ("warning", "A platform may or may not have published a post; it is never retried automatically."),
+    "publish.recovered": ("warning", "A post left 'publishing' by a restart was resolved: confirmed, rescheduled or unconfirmed."),
     "auth.login.refused": ("warning", "A sign-in was refused by the allow-list, role or password check."),
 }
 

@@ -64,7 +64,7 @@ class PublishRequest(BaseModel):
     dry_run: bool = Field(False, description="Validate and preview only; nothing is sent or stored.")
 
 
-PostStatus = Literal["preview", "scheduled", "publishing", "published", "draft", "unlisted", "failed",
+PostStatus = Literal["preview", "scheduled", "publishing", "recovering", "published", "draft", "unlisted", "failed",
                      "skipped", "unconfirmed", "cancelled"]
 
 

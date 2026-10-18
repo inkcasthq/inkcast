@@ -25,6 +25,7 @@ log = logging.getLogger(__name__)
 
 MAX_ATTEMPTS = 4
 RETRY_DELAYS = [60, 300, 1800]  # seconds after attempt 1, 2, 3
+STUCK_AFTER = 600  # a post 'publishing' for longer than this was interrupted (the HTTP timeout is 30 s)
 
 
 @dataclass
@@ -182,10 +183,36 @@ class Publisher:
         status = found.status if found.status in ("draft", "unlisted") else "published"
         return Outcome(platform.id, status, url=found.url, remote_id=found.remote_id)
 
+    async def recover(self, row: dict[str, Any]) -> Outcome:
+        """A post the process was sending when it stopped. The request may or may not have reached the platform,
+        so: ask the platform (``find_existing``) when it can tell; otherwise mark it ``unconfirmed`` for a person.
+        Only a post the platform says is *missing* goes back in the queue."""
+        post_id, platform = row["id"], self.platforms.get(row["platform"])
+        if platform is None:
+            self.store.update_post(post_id, status="failed", error=f"Platform plug-in {row['platform']!r} is not installed.")
+            return Outcome(row["platform"], "failed", post_id=post_id)
+        prepared = Prepared.from_dict(json.loads(row["payload"]))
+        found = await self.confirm(row["user_id"], platform, prepared)
+        if found is None:
+            message = (f"Inkcast restarted while this post was being sent to {platform.name}, which can't be checked "
+                       f"automatically. Check {platform.name} before publishing it again.")
+            self.store.update_post(post_id, status="unconfirmed", error=message)
+            outcome = Outcome(platform.id, "unconfirmed", post_id=post_id, message=message)
+        elif found.status == "missing":
+            self.store.update_post(post_id, status="scheduled", run_at=time.time(),
+                                   error=f"Interrupted before {platform.name} received it; sending again.")
+            outcome = Outcome(platform.id, "scheduled", post_id=post_id, message="Interrupted; sending again.")
+        else:
+            self.store.update_post(post_id, status=found.status, result_url=found.url, remote_id=found.remote_id, error=None)
+            outcome = Outcome(platform.id, found.status, post_id=post_id, url=found.url, remote_id=found.remote_id)
+        self._count(platform.id, "recovered")
+        log.warning("Post %s on %s was interrupted mid-send; now %s", post_id, platform.id, outcome.status,
+                    extra={"event": "publish.recovered", "post_id": post_id, "platform": platform.id, "status": outcome.status})
+        return outcome
+
     async def run_due(self, now: float | None = None) -> list[Outcome]:
         now = now or time.time()
-        self.store.recover_stuck(older_than=now - 600)
-        outcomes = []
+        outcomes = [await self.recover(row) for row in self.store.claim_stuck(older_than=now - STUCK_AFTER)]
         for row in self.store.claim_due_posts(now):
             platform = self.platforms.get(row["platform"])
             if platform is None:
