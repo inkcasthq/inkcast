@@ -51,7 +51,7 @@ class AlertCatalogue(unittest.TestCase):
         registered = set(build_metrics(store, {}, Config(public_url="http://localhost:8787", secret_key="k" * 40,
                                                          database_path=":memory:"))._help)
         external = {"up", "kube_pod_container_status_restarts_total", "kubelet_volume_stats_available_bytes",
-                    "kubelet_volume_stats_capacity_bytes"}
+                    "kubelet_volume_stats_capacity_bytes", "kube_cronjob_status_last_successful_time"}
         exprs = [a.expr for a in ALERTS] + [s.good for s in SLOS] + [s.total for s in SLOS]
         for expr in exprs:
             with self.subTest(expr=expr):

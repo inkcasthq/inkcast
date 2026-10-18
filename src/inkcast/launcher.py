@@ -148,10 +148,14 @@ def main(argv: list[str] | None = None) -> None:
     if argv[:1] == ["sync"]:  # the CI/laptop client has its own options
         from .cli import sync_main
         sys.exit(sync_main(argv[1:]))
+    if argv[:1] in (["backup"], ["restore"], ["backups"]):  # operations on the database file, with their own options
+        from .backup import backup_main, list_main, restore_main
+        sys.exit({"backup": backup_main, "restore": restore_main, "backups": list_main}[argv[0]](argv[1:]))
 
     parser = argparse.ArgumentParser(prog="inkcast", description=f"Inkcast {__version__}")
     parser.add_argument("command", nargs="?", default=None,
-                        help="run (default) | services | checks | sync, or a v0.1 mode: all | web | worker")
+                        help="run (default) | services | checks | sync | backup | restore | backups, "
+                             "or a v0.1 mode: all | web | worker")
     parser.add_argument("names", nargs="?", default=None, help="for run: CamelCase service name(s), comma-separated")
     args = parser.parse_args(argv)
 

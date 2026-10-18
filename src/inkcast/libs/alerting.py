@@ -145,6 +145,12 @@ ALERTS: tuple[Alert, ...] = (
           "warning", "The SQLite volume has less than 10% free",
           "{{ $value | humanizePercentage }} of inkcast-data is free. Writes will start failing; grow the PVC or purge.",
           "platform", for_="15m"),
+    Alert("InkcastBackupMissing",
+          'time() - kube_cronjob_status_last_successful_time{cronjob="inkcast-backup"} > 26 * 3600',
+          "critical", "No successful database backup for more than 26 hours",
+          "The inkcast-backup CronJob has not succeeded since {{ $value | humanizeDuration }} ago. The SQLite file is "
+          "the only copy of tokens, credentials, posts and the ledger until a backup succeeds.", "platform",
+          for_="15m"),
 )
 
 SLOS: tuple[Slo, ...] = (
