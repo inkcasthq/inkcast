@@ -186,7 +186,8 @@ jobs:
         with:
           name: dashboards-kind-${{ github.sha }}
           path: deploy/dev/.captures/
-          if-no-files-found: ignore
+          include-hidden-files: true    # .captures is a dot-directory
+          if-no-files-found: warn
           retention-days: 14
       - name: Diagnostics
         if: failure()
@@ -216,7 +217,8 @@ jobs:
         with:
           name: dashboards-compose-${{ github.sha }}
           path: deploy/dev/.captures/
-          if-no-files-found: ignore
+          include-hidden-files: true    # .captures is a dot-directory
+          if-no-files-found: warn
           retention-days: 14
       - name: Diagnostics
         if: failure()
