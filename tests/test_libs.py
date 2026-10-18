@@ -12,7 +12,7 @@ import unittest
 from starlette.testclient import TestClient
 
 from inkcast.launcher import EX_CONFIG, build, resolve
-from inkcast.libs.config import Config, ConfigError
+from inkcast.libs.config import Config, ConfigError, load_config
 from inkcast.libs.http.app import compose
 from inkcast.libs.observability import JsonFormatter, Redactor, redact
 from inkcast.libs.secrets import SecretsProvider, SecretValue
@@ -99,6 +99,58 @@ class ConfigGate(unittest.TestCase):
             self.cfg(upstreams={"publishing-api": "ftp://x"}).validate(["upstreams"])
         with self.assertRaisesRegex(ConfigError, "INKCAST_PATH_PREFIX"):
             self.cfg(path_prefix="nope").validate([])
+
+    def test_unreadable_secret_files_only_stop_the_services_that_need_them(self):
+        # The shared ConfigMap sets INKCAST_PASSWORD_FILE for every pod; the Gateway mounts no secrets and must start.
+        env = {"INKCAST_PUBLIC_URL": "http://localhost:8787", "INKCAST_LOGIN": "password",
+               "INKCAST_PASSWORD_FILE": "/var/run/secrets/inkcast/nope-password",
+               "INKCAST_SECRET_KEY_FILE": "/var/run/secrets/inkcast/nope-key",
+               "INKCAST_UPSTREAM_PUBLISHING_API": "http://publishing-api:8787"}
+        cfg = load_config(env)
+        self.assertEqual(sorted(cfg.secret_errors), ["INKCAST_PASSWORD", "INKCAST_SECRET_KEY"])
+        cfg.validate(resolve("Gateway")[0].needs)                         # no secrets needed: starts
+        with self.assertRaisesRegex(ConfigError, r"INKCAST_SECRET_KEY can't be read.*nope-key") as caught:
+            cfg.validate(resolve("PublishingApi")[0].needs)                # needs the key, not the password
+        self.assertNotIn("INKCAST_PASSWORD", str(caught.exception))
+        with self.assertRaisesRegex(ConfigError, r"INKCAST_PASSWORD can't be read.*nope-password"):
+            cfg.validate(resolve("IdentityService")[0].needs)
+        self.assertEqual(sorted(s["name"] for s in cfg.secrets.status()), ["GITHUB_CLIENT_SECRET", "OIDC_CLIENT_SECRET"])
+
+    def test_secrets_flow_through_the_provider_and_never_print(self):
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "config.env"), "w") as f:
+                f.write("INKCAST_PUBLIC_URL=https://file.example.com\nINKCAST_METRICS_PORT=0\nINKCAST_ENV=staging\n")
+            os.makedirs(os.path.join(d, "mnt"))
+            with open(os.path.join(d, "mnt", "secret-key"), "w") as f:
+                f.write("s" * 40)
+            env = {"INKCAST_CONFIG_FILE": os.path.join(d, "config.env"), "INKCAST_PUBLIC_URL": "https://env.example.com",
+                   "INKCAST_SECRETS_DIR": os.path.join(d, "mnt"), "INKCAST_LOGIN": "password", "INKCAST_PASSWORD": "p" * 12}
+            cfg = load_config(env)
+            self.assertEqual(cfg.public_url, "https://env.example.com")      # the real environment wins over the file
+            self.assertEqual((cfg.metrics_port, cfg.environment), (0, "staging"))
+            self.assertEqual(cfg.secret_key, "s" * 40)
+            self.assertEqual(cfg.secret_key.reveal(), "s" * 40)
+            self.assertNotIn("ssss", repr(cfg))
+            self.assertNotIn("pppp", repr(cfg))
+            self.assertEqual(cfg.secrets.mode, "env+dir")
+            by_name = {s["name"]: s for s in cfg.secrets.status()}
+            self.assertTrue(by_name["INKCAST_SECRET_KEY"]["source"].startswith("file:"))
+            self.assertEqual(by_name["INKCAST_PASSWORD"]["source"], "env")
+            self.assertEqual(by_name["OIDC_CLIENT_SECRET"]["source"], "absent")
+            self.assertNotIn("ssss", str(cfg.secrets.status()))
+            cfg.validate()
+            with self.assertRaisesRegex(ConfigError, "INKCAST_METRICS_PORT must be a whole number"):
+                load_config({**env, "INKCAST_METRICS_PORT": "nine"})
+            with self.assertRaisesRegex(ConfigError, "looks like a credential"):
+                with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
+                    f.write("INKCAST_SECRET_KEY: " + "x" * 40 + "\n")
+                load_config({**env, "INKCAST_CONFIG_FILE": f.name})
+            with self.assertRaisesRegex(ConfigError, "INKCAST_ENV must be one of"):
+                load_config({**env, "INKCAST_ENV": "prod"}).validate()
+            with self.assertRaisesRegex(ConfigError, "INKCAST_LOG_REVEAL_SECRETS must not"):
+                load_config({**env, "INKCAST_ENV": "production", "INKCAST_LOG_REVEAL_SECRETS": "true"}).validate()
+            with self.assertRaisesRegex(ConfigError, "not available in this build"):
+                load_config({**env, "INKCAST_SECRETS_SOURCE": "vault", "INKCAST_SECRETS_ENV": "dev"})
 
     def test_bad_config_exits_78_before_serving(self):
         env = {**os.environ, "PYTHONPATH": "src", "INKCAST_APP_NAME": "IdentityService", "INKCAST_LOGIN": "oidc",

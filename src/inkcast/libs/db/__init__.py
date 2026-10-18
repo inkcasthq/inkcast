@@ -18,7 +18,7 @@ LedgerRepo         PublishingApi       ledger
 
 from __future__ import annotations
 
-from ..secrets import Sealer, new_secret, token_hash
+from ..secrets import Sealer, SecretValue, new_secret, token_hash
 from . import identity, ledger, posts, vault
 from .database import Database
 from .identity import IdentityRepo
@@ -30,7 +30,7 @@ from .vault import VaultRepo
 class Store(IdentityRepo, VaultRepo, PostsRepo, LedgerRepo):
     SCHEMAS = (identity.SCHEMA, vault.SCHEMA, posts.SCHEMA, ledger.SCHEMA)
 
-    def __init__(self, path: str, secret_key: str):
+    def __init__(self, path: str, secret_key: "str | SecretValue"):
         super().__init__(path)
         self.sealer = Sealer(secret_key)
 

@@ -61,7 +61,7 @@ class IdentityProvider(ABC):
     # A per-authorization secret derived from the server key, so PKCE verifiers
     # don't need their own storage.
     def _derived(self, label: str, pending_id: str) -> str:
-        digest = hmac.new(self.config.secret_key.encode(), f"{label}:{pending_id}".encode(), hashlib.sha256).digest()
+        digest = hmac.new(self.config.secret_key.reveal().encode(), f"{label}:{pending_id}".encode(), hashlib.sha256).digest()
         return base64.urlsafe_b64encode(digest).decode().rstrip("=")
 
 
@@ -109,7 +109,7 @@ class OIDCIdentity(IdentityProvider):
                 "code": q.get("code", ""),
                 "redirect_uri": self.callback_url,
                 "client_id": self.config.oidc_client_id,
-                "client_secret": self.config.oidc_client_secret,
+                "client_secret": self.config.oidc_client_secret.reveal(),
                 "code_verifier": verifier,
             }, headers={"Accept": "application/json"})
             token.raise_for_status()
@@ -179,7 +179,7 @@ class GitHubIdentity(IdentityProvider):
         api = self.config.github_api_url
         try:
             token = await self.http.post(f"{self.config.github_url}/login/oauth/access_token", data={
-                "client_id": self.config.github_client_id, "client_secret": self.config.github_client_secret,
+                "client_id": self.config.github_client_id, "client_secret": self.config.github_client_secret.reveal(),
                 "code": q.get("code", ""), "redirect_uri": self.callback_url,
             }, headers={"Accept": "application/json"})
             token.raise_for_status()
@@ -209,7 +209,7 @@ class PasswordIdentity(IdentityProvider):
         form = await request.form()
         pending_id = str(form.get("pending", ""))
         supplied = str(form.get("password", ""))
-        if not hmac.compare_digest(supplied.encode(), self.config.password.encode()):
+        if self.config.password != supplied:  # SecretValue compares in constant time
             await asyncio.sleep(1)  # slow down guessing
             raise LoginError("Wrong password.")
         return pending_id, Identity(key="local:owner", display="owner")
