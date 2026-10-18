@@ -125,6 +125,9 @@ class Config:
     metrics_port: int = 9090  # Prometheus /metrics on its own port; 0 disables
     shutdown_grace_seconds: float = 25.0
     max_body_bytes: int = 10 * 1024 * 1024  # a request body above this is refused with 413 before any handler runs
+    # Writes per minute per client address on the endpoints anyone can call without a token (client
+    # registration, the token page, the password form, the connect page). 0 disables the limit.
+    rate_limit_per_minute: int = 60
     extra_allowed_hosts: tuple[str, ...] = ()
     # Per-platform API base URL overrides, e.g. {"devto": "https://community.example.com/api"}
     platform_urls: dict[str, str] = field(default_factory=dict)
@@ -305,6 +308,7 @@ def load_config(environ: Mapping[str, str] | None = None) -> Config:
         metrics_port=env.int("INKCAST_METRICS_PORT", "9090"),
         shutdown_grace_seconds=env.float("INKCAST_SHUTDOWN_GRACE", "25"),
         max_body_bytes=env.int("INKCAST_MAX_BODY_BYTES", str(10 * 1024 * 1024)),
+        rate_limit_per_minute=env.int("INKCAST_RATE_LIMIT_PER_MINUTE", "60"),
         reveal_secrets=env.bool("INKCAST_LOG_REVEAL_SECRETS"),
         secrets=provider,
         secret_errors=secret_errors,

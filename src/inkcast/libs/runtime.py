@@ -16,6 +16,7 @@ from .. import __version__
 from .auth import TokenVerifier
 from .config import Config
 from .db import Store
+from .http.ratelimit import RateLimiter
 from .observability import Metrics
 from .pipeline import Publisher
 from .platforms import Platform, load_platforms
@@ -32,6 +33,7 @@ class Context:
     verifier: TokenVerifier | None
     services: tuple[str, ...] = ()  # CamelCase names running in this process
     extras: dict = field(default_factory=dict)  # per-service objects (e.g. the MCP server)
+    limiter: RateLimiter = field(default_factory=RateLimiter)  # for the endpoints anyone can call (libs/http/ratelimit)
 
     @property
     def runs_scheduler(self) -> bool:
@@ -64,4 +66,5 @@ def build_context(config: Config, transport: httpx2.AsyncBaseTransport | None = 
     metrics = build_metrics(store, registry, config)
     publisher = Publisher(store, registry, metrics) if store else None
     verifier = TokenVerifier(store) if store else None
-    return Context(config, store, http, registry, metrics, publisher, verifier, services=services)
+    return Context(config, store, http, registry, metrics, publisher, verifier, services=services,
+                   limiter=RateLimiter(config.rate_limit_per_minute))

@@ -342,3 +342,37 @@ class GatewayProxy(unittest.TestCase):
         self.assertNotIn("forwarded", h)
         self.assertEqual(httpx2.post(f"{self.base}/api/v1/echo", content=b"x" * 600).status_code, 413)
         self.assertEqual(httpx2.get(f"{self.base}/nothing-here").status_code, 404)
+
+
+class RateLimits(unittest.TestCase):
+    def test_token_bucket_per_client(self):
+        from inkcast.libs.http.ratelimit import RateLimiter
+        now = [0.0]
+        limiter = RateLimiter(per_minute=3, clock=lambda: now[0])
+        self.assertEqual([limiter.allow("x", "a") for _ in range(3)], [0.0, 0.0, 0.0])
+        self.assertGreater(limiter.allow("x", "a"), 0)                 # the burst is spent
+        self.assertEqual(limiter.allow("x", "b"), 0.0)                 # another client is unaffected
+        self.assertEqual(limiter.allow("y", "a"), 0.0)                 # another limit name too
+        now[0] = 20                                                    # one token per 20 s at 3/min
+        self.assertEqual(limiter.allow("x", "a"), 0.0)
+        self.assertEqual(RateLimiter(per_minute=0).allow("x", "a"), 0.0)   # disabled
+
+    def test_unauthenticated_write_endpoints_answer_429_problem_json(self):
+        cfg = Config(public_url="http://localhost:8787", secret_key="k" * 40, database_path=":memory:",
+                     login="password", password="p" * 12, rate_limit_per_minute=2)
+        specs = resolve("IdentityService,ConnectorService")
+        client_meta = {"client_name": "t", "redirect_uris": ["http://localhost:1/cb"], "grant_types": ["authorization_code"],
+                       "response_types": ["code"], "token_endpoint_auth_method": "none"}
+        with TestClient(compose(specs, build(cfg, specs)), base_url="http://localhost:8787") as c:
+            self.assertEqual(c.post("/register", json=client_meta).status_code, 201)
+            self.assertEqual(c.post("/register", json=client_meta).status_code, 201)
+            r = c.post("/register", json=client_meta)
+            self.assertEqual((r.status_code, r.json()["error"]), (429, "rate_limited"))
+            self.assertIn("Retry-After", r.headers)
+            self.assertEqual(c.get("/.well-known/oauth-authorization-server").status_code, 200)   # reads are never limited
+            codes = [c.get("/tokens/new", params={"name": "x", "scopes": "stories:sync"}).status_code for _ in range(3)]
+            self.assertEqual(codes[-1], 429)                                                        # a GET that writes
+            codes = [c.post("/connect/nope", data={"api_key": "x"}).status_code for _ in range(3)]
+            self.assertEqual(codes, [400, 400, 429])
+            codes = [c.post("/auth/callback", data={"pending": "x", "password": "guess"}).status_code for _ in range(3)]
+            self.assertEqual(codes[-1], 429)

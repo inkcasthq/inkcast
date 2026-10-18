@@ -14,6 +14,7 @@ from starlette.routing import Route
 
 from ...libs.contracts.routes import ROUTES
 from ...libs.http import pages
+from ...libs.http.ratelimit import limited
 from ...libs.platforms import PlatformError
 from ...libs.runtime import Context
 from ...libs.service import ServiceSpec
@@ -42,7 +43,8 @@ def _routes(ctx: Context) -> list[Route]:
         who = account.handle or account.name
         return pages.message(f"{p.name} connected", f"Connected as {who}. You can close this tab and go back to Claude.")
 
-    return [Route("/connect/{ticket}", connect, methods=["GET", "POST"])]
+    # Each POST verifies credentials against the platform: rate limited per client address.
+    return [Route("/connect/{ticket}", limited(connect, ctx.limiter, "connect"), methods=["GET", "POST"])]
 
 
 SERVICE = ServiceSpec(

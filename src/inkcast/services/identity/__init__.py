@@ -26,6 +26,7 @@ from ...libs.auth import SCOPE, SCOPES, Principal
 from ...libs.contracts.models import TokenCreate, TokenCreated, TokenInfo
 from ...libs.contracts.routes import ROUTES
 from ...libs.http import pages
+from ...libs.http.ratelimit import limited
 from ...libs.http.rest import ApiError, Authed, json_body
 from ...libs.runtime import Context
 from ...libs.service import ServiceSpec
@@ -75,6 +76,9 @@ def _routes(ctx: Context) -> list[Route]:
         client_registration_options=settings.client_registration_options,
         revocation_options=settings.revocation_options,
     )
+    # Anyone can register a client (RFC 7591) and each registration is a row: bound it per client address.
+    routes = [Route(r.path, limited(r.endpoint, ctx.limiter, "register"), methods=sorted(r.methods or []))
+              if r.path == "/register" else r for r in routes]
 
     # ---- browser sign-in and consent ----------------------------------------------
 
@@ -167,9 +171,10 @@ def _routes(ctx: Context) -> list[Route]:
     return [
         *routes,
         Route("/auth/login", auth_login, methods=["GET"]),
-        Route("/auth/callback", auth_callback, methods=["GET", "POST"]),
+        # POST is the password form: a guess per request, so it is rate limited per client address.
+        Route("/auth/callback", limited(auth_callback, ctx.limiter, "login"), methods=["GET", "POST"]),
         Route("/auth/consent", auth_consent, methods=["GET", "POST"]),
-        Route("/tokens/new", tokens_new, methods=["GET"]),
+        Route("/tokens/new", limited(tokens_new, ctx.limiter, "tokens-new", {"GET"}), methods=["GET"]),  # a GET that writes
         Route("/api/v1/tokens", authed(None, list_tokens, oauth_only=True), methods=["GET"]),
         Route("/api/v1/tokens", authed(None, create_token, oauth_only=True), methods=["POST"]),
         Route("/api/v1/tokens/{token_id}", authed(None, revoke, oauth_only=True), methods=["DELETE"]),
