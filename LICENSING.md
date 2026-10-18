@@ -80,3 +80,7 @@ Inkcast includes and depends on third-party software under its own licences; see
 ## Contact
 
 Licensing and commercial enquiries: **[LICENSING CONTACT — set before the repository goes public]**
+
+---
+<!-- inkcast-nav -->
+[Docs](docs/README.md) · [Legal](legal/README.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Inkcast README](README.md)

@@ -18,3 +18,7 @@
 To ask, use the licensing contact in [LICENSING.md](LICENSING.md).
 
 *Trademark registration is in progress; until it completes, these remain common-law marks of ScalarOps Technologies LLC.*
+
+---
+<!-- inkcast-nav -->
+[Docs](docs/README.md) · [Licensing](LICENSING.md) · [Legal](legal/README.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Inkcast README](README.md)

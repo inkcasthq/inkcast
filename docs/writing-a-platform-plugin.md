@@ -55,3 +55,7 @@ hashnode = "inkcast_hashnode:HashnodePlatform"
 - **Never put the title in the body** unless the platform requires it (Medium does). The story body never includes it.
 - **Word errors for the person reading Claude's reply.** Say what went wrong and how to fix it.
 - **Test against a fake of the platform's API.** Copy the pattern in `tests/fakes.py`.
+
+---
+<!-- inkcast-nav -->
+[Docs](../docs/README.md) · [Licensing](../LICENSING.md) · [Legal](../legal/README.md) · [Contributing](../CONTRIBUTING.md) · [Security](../SECURITY.md) · [Inkcast README](../README.md)

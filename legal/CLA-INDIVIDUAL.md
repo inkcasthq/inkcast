@@ -69,3 +69,7 @@ This agreement is the whole agreement between You and the Company about Your Con
 ---
 
 **Signed electronically by the GitHub account recorded with the signature, on the date recorded.**
+
+---
+<!-- inkcast-nav -->
+[Docs](../docs/README.md) · [Licensing](../LICENSING.md) · [Legal](../legal/README.md) · [Contributing](../CONTRIBUTING.md) · [Security](../SECURITY.md) · [Inkcast README](../README.md)

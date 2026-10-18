@@ -31,3 +31,7 @@
 - **Signing:** CLA Assistant set-up, and signature records retained and exportable.
 - **Trademark:** filing for "Inkcast".
 - **Ownership:** an IP ownership memo confirming ScalarOps owns all code to date, with no claims from employers or clients.
+
+---
+<!-- inkcast-nav -->
+[Docs](../docs/README.md) · [Licensing](../LICENSING.md) · [Contributing](../CONTRIBUTING.md) · [Security](../SECURITY.md) · [Inkcast README](../README.md)

@@ -25,3 +25,7 @@ The Entity therefore grants **ScalarOps Technologies LLC** and its successors th
 | Signatory name and title | |
 | Signature and date | |
 | Designated Contributors (name, email, GitHub account) | |
+
+---
+<!-- inkcast-nav -->
+[Docs](../docs/README.md) · [Licensing](../LICENSING.md) · [Legal](../legal/README.md) · [Contributing](../CONTRIBUTING.md) · [Security](../SECURITY.md) · [Inkcast README](../README.md)

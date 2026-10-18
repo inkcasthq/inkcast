@@ -113,3 +113,7 @@ Designed cloud-native, on CNCF building blocks: Kubernetes/OpenShift, Keycloak, 
 > 6. Add Hashnode, WordPress (application passwords) and Ghost (Admin API) plug-ins, each with a fake API and tests.
 >
 > Keep these from v0.1: secrets never in chat, consent on every authorization, hashed tokens, end-to-end tests with fakes for every external service.
+
+---
+<!-- inkcast-nav -->
+[Docs](../docs/README.md) · [Licensing](../LICENSING.md) · [Legal](../legal/README.md) · [Contributing](../CONTRIBUTING.md) · [Security](../SECURITY.md) · [Inkcast README](../README.md)
