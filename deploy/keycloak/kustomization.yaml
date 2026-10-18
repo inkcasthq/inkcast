@@ -14,9 +14,20 @@ configMapGenerator:
     namespace: keycloak
     literals:
       - INKCAST_PUBLIC_URL=http://localhost:8787      # where Inkcast's /auth/callback is, as the browser sees it
+  - name: keycloak-smtp
+    namespace: keycloak
+    literals:                                         # dev: Mailpit in this namespace, no auth, no TLS
+      - KC_SMTP_HOST=mailpit.keycloak.svc
+      - KC_SMTP_PORT=1025
+      - KC_SMTP_FROM=no-reply@inkcast.test
+      - KC_SMTP_AUTH=false
+      - KC_SMTP_USER=
+      - KC_SMTP_STARTTLS=false
+      - KC_SMTP_SSL=false
 secretGenerator:
   - name: keycloak-secrets
     namespace: keycloak
     files:
       - admin-password=.secrets/admin-password
       - inkcast-client-secret=.secrets/inkcast-client-secret
+      - smtp-password=.secrets/smtp-password       # unused while KC_SMTP_AUTH=false

@@ -1,7 +1,7 @@
 # Backlog as code. File with: scripts/backlog/file.py inkcasthq/inkcast (see docs/epics/README.md)
 id: E9
 title: Identity on Keycloak
-status: next
+status: in-progress
 goal: Keycloak is the single identity layer of the SaaS (sign-up, social login, MFA, enterprise SSO); Inkcast keeps MCP OAuth,
   consent and tokens (ADR-0006). Needed before E4 and E6.
 features:
@@ -10,8 +10,8 @@ features:
   stories:
   - id: F9.1.S1
     title: Realm export deploy/keycloak/realm-inkcast.json (clients, roles, policies; no secrets)
-    status: in-progress
-    change: 'built in PR #14 (mark done when it merges)'
+    status: done
+    change: 'built in PR #14'
     acceptance:
     - 'deploy/keycloak/realm-inkcast.json: realm, roles, the inkcast-identity client; no secret or person in Git'
     - Secrets and URLs through ${...} placeholders filled at import; tests/test_keycloak_realm.py keeps it so
@@ -34,11 +34,19 @@ features:
   stories:
   - id: F9.2.S1
     title: Registration, email verification, terms; default role inkcast-user
-    status: planned
+    status: in-progress
+    change: built in the self sign-up PR (mark done when it merges)
+    acceptance:
+    - A newcomer registers on Keycloak's own page, verifies the emailed link and accepts the terms, then reaches Inkcast's
+      /api/v1/me with the default inkcast-user role (kind CI, real Keycloak and Mailpit)
+    - A newcomer who never verifies never reaches Inkcast
+    - The realm declares every required action it relies on (listing them replaces Keycloak's defaults); SMTP settings are
+      placeholders, no SMTP secret in Git
+    - The driver is tested against a Keycloak-shaped fake (registration, verification email, terms) in single and split mode
   - id: F9.2.S2
     title: First login creates the Inkcast user and their personal organization (owner tuple; emits org.created)
     status: planned
-    change: refined
+    change: needs E3's organizations (F3.2) for the personal organization; the Inkcast user is already created at first login
 - id: F9.3
   title: Social login and account linking
   stories:

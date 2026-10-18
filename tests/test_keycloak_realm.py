@@ -30,11 +30,25 @@ class Realm(unittest.TestCase):
 
     def test_every_placeholder_is_fed_by_the_deployment(self):
         used = set(re.findall(r"\$\{([A-Z0-9_]+)\}", self.text))
-        self.assertEqual(used, {"KC_INKCAST_CLIENT_SECRET", "INKCAST_PUBLIC_URL"})
+        self.assertTrue({"KC_INKCAST_CLIENT_SECRET", "INKCAST_PUBLIC_URL", "KC_SMTP_HOST", "KC_SMTP_PASSWORD"} <= used)
         docs = list(yaml.safe_load_all(DEPLOYMENT.read_text()))
-        container = next(d for d in docs if d and d["kind"] == "Deployment")["spec"]["template"]["spec"]["containers"][0]
-        self.assertEqual(used - {e["name"] for e in container["env"]}, set(), "an unfilled placeholder stays literal")
+        keycloak = next(d for d in docs if d and d["kind"] == "Deployment" and d["metadata"]["name"] == "keycloak")
+        container = keycloak["spec"]["template"]["spec"]["containers"][0]
+        given = {e["name"] for e in container["env"]}
+        kustomization = yaml.safe_load((DEPLOYMENT.parent / "kustomization.yaml").read_text())
+        for ref in container.get("envFrom", []):                     # keys of the generated ConfigMaps it loads
+            generator = next(g for g in kustomization["configMapGenerator"] if g["name"] == ref["configMapRef"]["name"])
+            given |= {lit.split("=", 1)[0] for lit in generator.get("literals", [])}
+        self.assertEqual(used - given, set(), "an unfilled placeholder stays literal")
         self.assertIn("--import-realm", container["args"])
+
+    def test_required_actions_keep_keycloak_defaults_and_require_the_terms(self):
+        """Listing required actions replaces Keycloak's defaults, so the ones Inkcast relies on must all be here."""
+        actions = {a["alias"]: a for a in self.realm["requiredActions"]}
+        for alias in ("VERIFY_EMAIL", "UPDATE_PASSWORD", "CONFIGURE_TOTP", "webauthn-register", "TERMS_AND_CONDITIONS"):
+            self.assertTrue(actions[alias]["enabled"], alias)
+        self.assertTrue(actions["TERMS_AND_CONDITIONS"]["defaultAction"], "every new account accepts the terms")
+        self.assertEqual(self.realm["smtpServer"]["password"], "${KC_SMTP_PASSWORD}")
 
     def test_the_client_is_a_confidential_pkce_code_flow_with_exact_redirects(self):
         c = self.client

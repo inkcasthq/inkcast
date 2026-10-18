@@ -23,18 +23,42 @@
   "revokeRefreshToken": true,
   "refreshTokenMaxReuse": 0,
   "eventsEnabled": true,
-  "enabledEventTypes": ["LOGIN", "LOGIN_ERROR", "REGISTER", "REGISTER_ERROR", "LOGOUT", "UPDATE_PASSWORD", "VERIFY_EMAIL"],
+  "enabledEventTypes": [
+    "LOGIN",
+    "LOGIN_ERROR",
+    "REGISTER",
+    "REGISTER_ERROR",
+    "LOGOUT",
+    "UPDATE_PASSWORD",
+    "VERIFY_EMAIL"
+  ],
   "adminEventsEnabled": true,
   "adminEventsDetailsEnabled": false,
   "roles": {
     "realm": [
-      {"name": "inkcast-user", "description": "May use Inkcast. Given to every account by default."},
-      {"name": "inkcast-admin", "description": "Inkcast operators: the admin portal (E6). Requires OTP or WebAuthn (E9.F9.4)."},
-      {"name": "default-roles-inkcast", "description": "Roles every new account gets.", "composite": true,
-       "composites": {"realm": ["inkcast-user"]}}
+      {
+        "name": "inkcast-user",
+        "description": "May use Inkcast. Given to every account by default."
+      },
+      {
+        "name": "inkcast-admin",
+        "description": "Inkcast operators: the admin portal (E6). Requires OTP or WebAuthn (E9.F9.4)."
+      },
+      {
+        "name": "default-roles-inkcast",
+        "description": "Roles every new account gets.",
+        "composite": true,
+        "composites": {
+          "realm": [
+            "inkcast-user"
+          ]
+        }
+      }
     ]
   },
-  "defaultRole": {"name": "default-roles-inkcast"},
+  "defaultRole": {
+    "name": "default-roles-inkcast"
+  },
   "clients": [
     {
       "clientId": "inkcast-identity",
@@ -50,15 +74,93 @@
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": false,
       "frontchannelLogout": true,
-      "redirectUris": ["${INKCAST_PUBLIC_URL}/auth/callback"],
-      "webOrigins": ["${INKCAST_PUBLIC_URL}"],
+      "redirectUris": [
+        "${INKCAST_PUBLIC_URL}/auth/callback"
+      ],
+      "webOrigins": [
+        "${INKCAST_PUBLIC_URL}"
+      ],
       "attributes": {
         "pkce.code.challenge.method": "S256",
         "post.logout.redirect.uris": "${INKCAST_PUBLIC_URL}/"
       },
       "fullScopeAllowed": true,
-      "defaultClientScopes": ["profile", "email", "roles", "web-origins"],
-      "optionalClientScopes": ["offline_access"]
+      "defaultClientScopes": [
+        "profile",
+        "email",
+        "roles",
+        "web-origins"
+      ],
+      "optionalClientScopes": [
+        "offline_access"
+      ]
     }
-  ]
+  ],
+  "requiredActions": [
+    {
+      "alias": "TERMS_AND_CONDITIONS",
+      "name": "Terms and Conditions",
+      "providerId": "TERMS_AND_CONDITIONS",
+      "enabled": true,
+      "defaultAction": true,
+      "priority": 10,
+      "config": {}
+    },
+    {
+      "alias": "VERIFY_EMAIL",
+      "name": "Verify Email",
+      "providerId": "VERIFY_EMAIL",
+      "enabled": true,
+      "defaultAction": false,
+      "priority": 20,
+      "config": {}
+    },
+    {
+      "alias": "UPDATE_PASSWORD",
+      "name": "Update Password",
+      "providerId": "UPDATE_PASSWORD",
+      "enabled": true,
+      "defaultAction": false,
+      "priority": 30,
+      "config": {}
+    },
+    {
+      "alias": "UPDATE_PROFILE",
+      "name": "Update Profile",
+      "providerId": "UPDATE_PROFILE",
+      "enabled": true,
+      "defaultAction": false,
+      "priority": 40,
+      "config": {}
+    },
+    {
+      "alias": "CONFIGURE_TOTP",
+      "name": "Configure OTP",
+      "providerId": "CONFIGURE_TOTP",
+      "enabled": true,
+      "defaultAction": false,
+      "priority": 50,
+      "config": {}
+    },
+    {
+      "alias": "webauthn-register",
+      "name": "Webauthn Register",
+      "providerId": "webauthn-register",
+      "enabled": true,
+      "defaultAction": false,
+      "priority": 60,
+      "config": {}
+    }
+  ],
+  "smtpServer": {
+    "host": "${KC_SMTP_HOST}",
+    "port": "${KC_SMTP_PORT}",
+    "from": "${KC_SMTP_FROM}",
+    "fromDisplayName": "Inkcast",
+    "auth": "${KC_SMTP_AUTH}",
+    "user": "${KC_SMTP_USER}",
+    "password": "${KC_SMTP_PASSWORD}",
+    "starttls": "${KC_SMTP_STARTTLS}",
+    "ssl": "${KC_SMTP_SSL}"
+  }
 }
