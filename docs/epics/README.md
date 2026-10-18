@@ -16,7 +16,7 @@ The backlog behind these is code: `docs/backlog/*.yaml`, filed as GitHub issues 
 | [E1 Platform foundations](E1-foundations/design.md) | One codebase, many services; shared libraries; launcher, prefixes, Gateway; config gate; split-mode CI | In review |
 | [E2 Git publishing](E2-git-publishing/design.md) | Personal access tokens, publish ledger, `stories:sync`, in-place updates, CLI, GitHub Action | In review |
 | E3 Tenancy and data | PostgreSQL repositories, workspaces, members and invites, row-level security, audit log | Planned |
-| E4 SaaS web app | React SPA, BFF session, onboarding, connections, composer, calendar (mockups first) | Planned |
+| [E4 SaaS web app](E4-web-app/design.md) | React SPA, BFF session, onboarding, connections, composer, calendar | Mockups for approval |
 | E5 Billing | Pluggable `BillingProvider`, plans and entitlements, metering, webhooks | Planned |
 | E6 Admin portal | Operator API and UI behind Keycloak `inkcast-admin`: users, queues, audit, overrides | Planned |
 | E7 Reliability | Alert catalogue, channel health, capability manifest, contract tests, outbound webhooks | Planned |
