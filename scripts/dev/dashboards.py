@@ -188,6 +188,11 @@ def screenshot(grafana: str, titles: list[str], shot: pathlib.Path) -> list[str]
         agent = (f"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
                  f"Chrome/{browser.version} Safari/537.36")
         page = browser.new_page(viewport={"width": 1600, "height": 1000}, color_scheme="light", user_agent=agent)
+        seen: list[str] = []                                                # why a page didn't render, if it didn't
+        page.on("pageerror", lambda e: seen.append(f"page error: {e}"))
+        page.on("console", lambda m: seen.append(f"console {m.type}: {m.text[:300]}") if m.type == "error" else None)
+        page.on("requestfailed", lambda r: seen.append(f"request failed: {r.url} ({r.failure})"))
+        page.on("response", lambda r: seen.append(f"HTTP {r.status}: {r.url}") if r.status >= 400 else None)
         page.goto(f"{grafana}/d/{DASHBOARD_UID}/?orgId=1&from=now-30m&to=now&theme=light&kiosk",
                   wait_until="domcontentloaded", timeout=90_000)
         try:
@@ -199,7 +204,11 @@ def screenshot(grafana: str, titles: list[str], shot: pathlib.Path) -> list[str]
             problems.append("screenshot: the dashboard's panels never appeared in the browser")
         if page.get_by_text("failed to load its application files").count():
             problems.append("screenshot: Grafana showed 'failed to load its application files'")
+        page.mouse.move(0, 0)                                               # no hover tooltip in the picture
         page.screenshot(path=str(shot), full_page=True)
+        if problems:                                                        # say why, once, in the summary
+            problems.extend(f"screenshot: {x}" for x in dict.fromkeys(seen))
+            (shot.parent / "page.html").write_text(page.content())
         browser.close()
     return problems
 
