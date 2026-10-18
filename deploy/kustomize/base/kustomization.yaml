@@ -26,5 +26,5 @@ configMapGenerator:
       - INKCAST_FORWARDED_ALLOW_IPS=*
 images:
   - name: inkcast
-    newName: ghcr.io/OWNER/inkcast
+    newName: ghcr.io/inkcasthq/inkcast
     newTag: 0.1.0   # CI rewrites this to an immutable digest (image@sha256:...)

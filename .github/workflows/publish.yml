@@ -130,7 +130,7 @@ jobs:
           mkdir -p dist
           for o in openshift kubernetes; do
             d=$(mktemp -d); cp -r deploy "$d/"
-            printf '\nimages:\n  - name: ghcr.io/OWNER/inkcast\n    newName: %s\n    digest: %s\n' "$IMAGE" "$DIGEST" \
+            printf '\nimages:\n  - name: ghcr.io/inkcasthq/inkcast\n    newName: %s\n    digest: %s\n' "$IMAGE" "$DIGEST" \
               >> "$d/deploy/kustomize/overlays/$o/kustomization.yaml"
             kubectl kustomize "$d/deploy/kustomize/overlays/$o" > "dist/inkcast-${GITHUB_REF_NAME}-$o.yaml"
           done

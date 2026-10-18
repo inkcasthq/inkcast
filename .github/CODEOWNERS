@@ -1,5 +1,5 @@
 # Required reviewers (enable "Require review from Code Owners" in branch protection).
-*                                         @OWNER
-/.github/                                 @OWNER
-/deploy/kustomize/environments/production @OWNER
-/src/inkcast/auth/                        @OWNER
+*                                         @ephico2real2
+/.github/                                 @ephico2real2
+/deploy/kustomize/environments/production @ephico2real2
+/src/inkcast/auth/                        @ephico2real2

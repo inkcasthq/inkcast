@@ -6,5 +6,5 @@ kind: Kustomization
 resources:
   - ../../overlays/openshift      # or ../../overlays/kubernetes
 images:
-  - name: ghcr.io/OWNER/inkcast
+  - name: ghcr.io/inkcasthq/inkcast
     digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
