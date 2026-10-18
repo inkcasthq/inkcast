@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 import secrets
 from urllib.parse import urlencode
 
@@ -29,6 +30,8 @@ class Fakes:
         # Keycloak's own login form, when set: username -> (password, user claims). None signs `next_user` in at once.
         self.kc_accounts: dict[str, tuple[str, dict]] | None = None
         self._kc_sessions: dict[str, dict] = {}
+        self._kc_tokens_by_key: dict[str, str] = {}
+        self.kc_mailbox: list[dict] = []                # what Mailpit would hold; served at /mailpit/api/v1
         self._kc_tokens: dict[str, dict] = {}
         self.medium_posts: list[tuple[str, dict]] = []
         self.devto_articles: list[dict] = []
@@ -51,25 +54,94 @@ class Fakes:
         assert "openid" in q["scope"].split()
         if self.kc_accounts is not None:                   # the page a person fills in, with Keycloak's markup
             session = secrets.token_hex(8)
-            self._kc_sessions[session] = dict(q)
-            action = (f"{self.issuer}/login-actions/authenticate?session_code={session}&amp;execution=e1"
-                      f"&amp;client_id={q['client_id']}&amp;tab_id=t1")
-            return HTMLResponse(f'<html><body><form id="kc-form-login" onsubmit="return true;" action="{action}" '
-                                f'method="post"><input name="username"><input name="password" type="password">'
-                                f'</form></body></html>')
+            self._kc_sessions[session] = {"q": dict(q), "user": None, "pending": []}
+            return self._kc_login_page(session)
         code = secrets.token_hex(8)
         self._codes[code] = {"challenge": q["code_challenge"], "redirect_uri": q["redirect_uri"], "user": dict(self.next_user)}
         return RedirectResponse(f"{q['redirect_uri']}?{urlencode({'code': code, 'state': q['state']})}", status_code=302)
 
+    def _kc_login_page(self, session: str, error: str = "") -> HTMLResponse:
+        action = f"{self.issuer}/login-actions/authenticate?session_code={session}&amp;execution=e1&amp;tab_id=t1"
+        register = f"{self.issuer}/login-actions/registration?session_code={session}&amp;tab_id=t1"
+        return HTMLResponse(f'<html><body>{error}<form id="kc-form-login" onsubmit="return true;" action="{action}" '
+                            f'method="post"><input name="username"><input name="password" type="password"></form>'
+                            f'<div id="kc-registration"><a href="{register}">Register</a></div></body></html>')
+
+    def _kc_next(self, session: str):
+        """Keycloak's required actions in order, then back to the client with a code."""
+        state = self._kc_sessions[session]
+        if "VERIFY_EMAIL" in state["pending"]:
+            return HTMLResponse("<html><title>Email verification</title><body>You need to verify your email address "
+                                "to activate your account.</body></html>")
+        if "TERMS_AND_CONDITIONS" in state["pending"]:
+            action = f"{self.issuer}/login-actions/required-action?execution=TERMS_AND_CONDITIONS&amp;session_code={session}"
+            return HTMLResponse(f'<html><body><div id="kc-terms-text">Terms</div><form class="form-actions" '
+                                f'action="{action}" method="POST"><input name="accept" id="kc-accept" type="submit" '
+                                f'value="Accept"><input name="cancel" type="submit" value="Decline"></form></body></html>')
+        q = state["q"]
+        self._kc_sessions.pop(session)
+        code = secrets.token_hex(8)
+        self._codes[code] = {"challenge": q["code_challenge"], "redirect_uri": q["redirect_uri"], "user": dict(state["user"])}
+        return RedirectResponse(f"{q['redirect_uri']}?{urlencode({'code': code, 'state': q['state']})}", status_code=302)
+
     async def kc_authenticate(self, request: Request):
-        q = self._kc_sessions.pop(request.query_params.get("session_code", ""), None)
+        session = request.query_params.get("session_code", "")
         f = await request.form()
         account = (self.kc_accounts or {}).get(str(f.get("username", "")))
-        if not q or not account or account[0] != f.get("password"):
-            return HTMLResponse('<span id="input-error">Invalid username or password.</span>', status_code=200)
-        code = secrets.token_hex(8)
-        self._codes[code] = {"challenge": q["code_challenge"], "redirect_uri": q["redirect_uri"], "user": dict(account[1])}
-        return RedirectResponse(f"{q['redirect_uri']}?{urlencode({'code': code, 'state': q['state']})}", status_code=302)
+        if session not in self._kc_sessions or not account or account[0] != f.get("password"):
+            return self._kc_login_page(session, '<span id="input-error">Invalid username or password.</span>')
+        self._kc_sessions[session]["user"] = account[1]
+        return self._kc_next(session)
+
+    async def kc_registration(self, request: Request):
+        session = request.query_params.get("session_code", "")
+        if session not in self._kc_sessions:
+            return HTMLResponse("expired", status_code=400)
+        if request.method == "GET":
+            action = f"{self.issuer}/login-actions/registration?session_code={session}&amp;execution=r1&amp;tab_id=t1"
+            return HTMLResponse(f'<html><body><form id="kc-register-form" action="{action}" method="post">'
+                                f'<input name="email"><input name="password"></form></body></html>')
+        f = await request.form()
+        email = str(f.get("email", ""))
+        if f.get("password") != f.get("password-confirm") or email in (self.kc_accounts or {}):
+            return HTMLResponse("<span>Invalid</span>", status_code=200)
+        user = {"sub": "kc-" + secrets.token_hex(4), "email": email, "preferred_username": email, "email_verified": False,
+                "name": f"{f.get('firstName')} {f.get('lastName')}", "realm_access": {"roles": ["inkcast-user"]}}
+        self.kc_accounts[email] = (str(f.get("password")), user)            # default role, like the realm
+        self._kc_sessions[session].update(user=user, pending=["VERIFY_EMAIL", "TERMS_AND_CONDITIONS"])
+        key = secrets.token_hex(8)
+        self._kc_tokens_by_key[key] = session
+        self.kc_mailbox.append({"ID": key, "To": email, "Text": f"Verify your email: {self.issuer}/login-actions/"
+                                f"action-token?key={key}&client_id=inkcast&tab_id=t1\n"})
+        return self._kc_next(session)
+
+    async def kc_action_token(self, request: Request):
+        session = self._kc_tokens_by_key.pop(request.query_params.get("key", ""), None)
+        if session not in self._kc_sessions:
+            return HTMLResponse("This link has expired.", status_code=400)
+        state = self._kc_sessions[session]
+        state["user"]["email_verified"] = True
+        state["pending"].remove("VERIFY_EMAIL")
+        return self._kc_next(session)
+
+    async def kc_required_action(self, request: Request):
+        session = request.query_params.get("session_code", "")
+        f = await request.form()
+        if session not in self._kc_sessions or request.query_params.get("execution") != "TERMS_AND_CONDITIONS":
+            return HTMLResponse("expired", status_code=400)
+        if f.get("accept") != "Accept":
+            return HTMLResponse("You need to accept the terms.", status_code=200)
+        self._kc_sessions[session]["pending"].remove("TERMS_AND_CONDITIONS")
+        return self._kc_next(session)
+
+    async def mailpit_search(self, request: Request):
+        to = re.search(r'to:"([^"]+)"', request.query_params.get("query", ""))
+        found = [m for m in self.kc_mailbox if to and m["To"] == to.group(1)]
+        return JSONResponse({"messages": [{"ID": m["ID"]} for m in reversed(found)]})
+
+    async def mailpit_message(self, request: Request):
+        m = next((m for m in self.kc_mailbox if m["ID"] == request.path_params["mid"]), None)
+        return JSONResponse({"Text": m["Text"], "HTML": ""}) if m else JSONResponse({}, status_code=404)
 
     async def oidc_token(self, request: Request):
         f = await request.form()
@@ -179,6 +251,11 @@ class Fakes:
             Route(f"{kc}/.well-known/openid-configuration", self.oidc_config),
             Route(f"{kc}/protocol/openid-connect/auth", self.oidc_auth),
             Route(f"{kc}/login-actions/authenticate", self.kc_authenticate, methods=["POST"]),
+            Route(f"{kc}/login-actions/registration", self.kc_registration, methods=["GET", "POST"]),
+            Route(f"{kc}/login-actions/action-token", self.kc_action_token),
+            Route(f"{kc}/login-actions/required-action", self.kc_required_action, methods=["POST"]),
+            Route("/mailpit/api/v1/search", self.mailpit_search),
+            Route("/mailpit/api/v1/message/{mid}", self.mailpit_message),
             Route(f"{kc}/protocol/openid-connect/token", self.oidc_token, methods=["POST"]),
             Route(f"{kc}/protocol/openid-connect/userinfo", self.oidc_userinfo),
             Route("/medium/v1/me", self.medium_me),

@@ -5,11 +5,11 @@ Keycloak answers "who are you?" for Inkcast. That covers sign-up, social and ent
 | File | What |
 |---|---|
 | `realm-inkcast.json` | **The realm as code.** No secret and no person is in it: the client secret and Inkcast's URL come from `${KC_INKCAST_CLIENT_SECRET}` and `${INKCAST_PUBLIC_URL}`, filled from the environment when Keycloak imports the realm at startup. `tests/test_keycloak_realm.py` keeps it that way |
-| `keycloak.yaml`, `kustomization.yaml` | Development and CI only: one Keycloak in `start-dev` mode (in-memory, HTTP), the realm imported at startup |
+| `keycloak.yaml`, `kustomization.yaml` | Development and CI only: one Keycloak in `start-dev` mode (in-memory, HTTP), the realm imported at startup, and Mailpit catching its emails (verification, password reset) |
 
 ## The realm in short
 
-**Sign-up:** open registration, with the email as the username. Emails must be verified before an account links by email.
+**Sign-up:** open registration, with the email as the username. A newcomer verifies their email (the link Keycloak sends) and accepts the terms (`TERMS_AND_CONDITIONS`, a default required action) before anything reaches Inkcast. Emails must be verified before an account links by email. The realm declares every required action it relies on, because listing them replaces Keycloak's defaults. SMTP settings are placeholders too (`KC_SMTP_*`).
 
 **Account protection:**
 - brute-force protection;

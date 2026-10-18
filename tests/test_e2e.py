@@ -204,9 +204,11 @@ class EndToEnd(Harness):
         self.addCleanup(setattr, self.fakes, "kc_accounts", None)
         script = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "dev" / "oidc_signin.py"
 
-        def drive(user: str, password: str, expect: str) -> subprocess.CompletedProcess:
+        def drive(user: str, password: str, expect: str, register: bool = False) -> subprocess.CompletedProcess:
+            env = {**os.environ, "KC_USER": user, "KC_PASSWORD": password, "KC_EXPECT": expect,
+                   "KC_REGISTER": "1" if register else "", "MAILPIT_URL": f"{self.fakes.base}/mailpit"}
             return subprocess.run([sys.executable, str(script), self.config.public_url], capture_output=True, text=True,
-                                  timeout=60, env={**os.environ, "KC_USER": user, "KC_PASSWORD": password, "KC_EXPECT": expect})
+                                  timeout=90, env=env)
 
         ok = drive("ada@example.com", "right-password-123", "allowed")
         self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
@@ -221,6 +223,17 @@ class EndToEnd(Harness):
         # The driver must not pass on a refusal it didn't expect.
         surprised = drive("no-role@example.com", "right-password-456", "allowed")
         self.assertNotEqual(surprised.returncode, 0)
+        # Self sign-up (E9.F9.2.S1): register on Keycloak's page, verify the emailed link, accept the terms, and
+        # arrive in Inkcast with the default role; a person who never verifies never reaches Inkcast.
+        newcomer = f"new-{self.id().rsplit('.', 2)[-2].lower()}@example.com"
+        joined = drive(newcomer, "a-good-long-password-1", "allowed", register=True)
+        self.assertEqual(joined.returncode, 0, joined.stdout + joined.stderr)
+        self.assertIn("verification email received", joined.stdout)
+        self.assertIn("terms shown; accepting", joined.stdout)
+        self.assertIn("PASS: signed in through Keycloak after signing up", joined.stdout)
+        held = drive(f"unverified-{newcomer}", "a-good-long-password-2", "unverified", register=True)
+        self.assertEqual(held.returncode, 0, held.stdout + held.stderr)
+        self.assertIn("PASS: unverified held back", held.stdout)
 
     def test_full_flow(self):
         browser = Browser()
