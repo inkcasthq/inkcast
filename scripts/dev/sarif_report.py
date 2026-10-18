@@ -55,6 +55,19 @@ def main() -> int:
         print(f"\n[{label}] {result.get('ruleId')}: {rule.get('shortDescription', {}).get('text', '')}")
         print(f"  {uri}:{line}  {line_of(root, uri, line)}")
         print(f"  {result['message']['text']}")
+        for related in result.get("relatedLocations", []):   # the "(1)" in the message: often the source itself
+            r_uri, r_line = where(related)
+            region = related.get("physicalLocation", {}).get("region", {})
+            text = line_of(root, r_uri, r_line)
+            start, end = region.get("startColumn"), region.get("endColumn")
+            exact = ""
+            if start and end and region.get("endLine", r_line) == r_line:
+                try:
+                    exact = (root / r_uri).read_text(encoding="utf-8").splitlines()[r_line - 1][start - 1:end - 1]
+                except (OSError, IndexError, UnicodeDecodeError):
+                    exact = ""
+            print(f"  ({related.get('id')}) {related.get('message', {}).get('text', '')}: {r_uri}:{r_line}"
+                  + (f":{start}  `{exact}`" if exact else f"  {text}"))
         for flow in result.get("codeFlows", [])[:1]:
             for thread in flow.get("threadFlows", [])[:1]:
                 steps = thread.get("locations", [])

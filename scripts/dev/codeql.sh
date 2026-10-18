@@ -59,8 +59,12 @@ echo "== $("$codeql" version --format=terse) ($CODEQL_BUNDLE), config $(basename
 
 rm -rf "$OUT/db"
 mkdir -p "$OUT"
-"$codeql" database create "$OUT/db" --db-cluster --language="$LANGS" --source-root="$ROOT" \
-  --codescanning-config="$CONFIG" --overwrite --quiet
+echo "== Building the databases (log: .codeql/create.log)"
+if ! "$codeql" database create "$OUT/db" --db-cluster --language="$LANGS" --source-root="$ROOT" \
+  --codescanning-config="$CONFIG" --overwrite >"$OUT/create.log" 2>&1; then
+  tail -40 "$OUT/create.log" >&2
+  exit 2
+fi
 
 status=0
 IFS=, read -ra langs <<< "$LANGS"
@@ -69,7 +73,8 @@ for lang in "${langs[@]}"; do
   sarif="$OUT/$lang.sarif"
   echo "== Analysing $lang (codeql/$pack-queries, $pack-security-extended)"
   "$codeql" database analyze "$OUT/db/$pack" "codeql/$pack-queries:codeql-suites/$pack-security-extended.qls" \
-    --format=sarif-latest --output="$sarif" --sarif-add-snippets --quiet
+    --format=sarif-latest --output="$sarif" --sarif-add-snippets --quiet 2>&1 | grep -v '^Picked up JAVA_TOOL_OPTIONS' || true
+  [ -s "$sarif" ] || { echo "no SARIF from the $lang analysis" >&2; exit 2; }
   python3 "$ROOT/scripts/dev/sarif_report.py" "$sarif" "$ROOT" || status=1
 done
 [ "$status" = 0 ] && echo "CodeQL: nothing at CI's failure threshold" || echo "CodeQL: results at CI's failure threshold (above)"
