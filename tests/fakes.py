@@ -10,6 +10,7 @@ import hashlib
 import json
 import re
 import secrets
+import time
 from urllib.parse import urlencode
 
 from starlette.applications import Starlette
@@ -33,6 +34,14 @@ class Fakes:
         self._kc_tokens_by_key: dict[str, str] = {}
         self.kc_mailbox: list[dict] = []                # what Mailpit would hold; served at /mailpit/api/v1
         self._kc_tokens: dict[str, dict] = {}
+        # Keycloak's admin API, as the inkcast-sync service account sees it (E9.F9.5.S2): sub -> {"enabled": bool};
+        # a sub not listed is an enabled person, one in kc_deleted is gone (404). Admin events, newest last.
+        self.kc_sync_client = ("inkcast-sync", "sync-secret")
+        self.kc_people: dict[str, dict] = {}
+        self.kc_deleted: set[str] = set()
+        self.kc_admin_events: list[dict] = []
+        self.kc_admin_calls: list[str] = []
+        self._kc_sync_tokens: set[str] = set()
         self.medium_posts: list[tuple[str, dict]] = []
         self.devto_articles: list[dict] = []
         self.devto_fail_next: int | None = None  # e.g. 429 to simulate rate limiting
@@ -143,8 +152,45 @@ class Fakes:
         m = next((m for m in self.kc_mailbox if m["ID"] == request.path_params["mid"]), None)
         return JSONResponse({"Text": m["Text"], "HTML": ""}) if m else JSONResponse({}, status_code=404)
 
+    def kc_admin_change(self, sub: str, *, enabled: bool | None = None, delete: bool = False) -> None:
+        """What an administrator does in Keycloak's console: the state changes and an admin event is recorded."""
+        if delete:
+            self.kc_deleted.add(sub)
+        else:
+            self.kc_people.setdefault(sub, {})["enabled"] = enabled
+        self.kc_admin_events.append({"time": int(time.time() * 1000), "resourceType": "USER",
+                                     "operationType": "DELETE" if delete else "UPDATE", "resourcePath": f"users/{sub}"})
+
+    def _kc_admin_ok(self, request: Request) -> bool:
+        return request.headers.get("authorization", "").removeprefix("Bearer ") in self._kc_sync_tokens
+
+    async def kc_admin_user(self, request: Request):
+        self.kc_admin_calls.append(request.url.path)
+        if not self._kc_admin_ok(request):
+            return JSONResponse({"error": "HTTP 401 Unauthorized"}, status_code=401)
+        sub = request.path_params["uid"]
+        if sub in self.kc_deleted:
+            return JSONResponse({"error": "User not found"}, status_code=404)
+        return JSONResponse({"id": sub, "enabled": self.kc_people.get(sub, {}).get("enabled", True)})
+
+    async def kc_admin_events_list(self, request: Request):
+        self.kc_admin_calls.append(request.url.path)
+        if not self._kc_admin_ok(request):
+            return JSONResponse({"error": "HTTP 401 Unauthorized"}, status_code=401)
+        q = request.query_params
+        kinds, ops = set(q.getlist("resourceTypes")), set(q.getlist("operationTypes"))
+        found = [e for e in self.kc_admin_events
+                 if (not kinds or e["resourceType"] in kinds) and (not ops or e["operationType"] in ops)]
+        return JSONResponse(list(reversed(found))[: int(q.get("max", "100"))])   # Keycloak: newest first
+
     async def oidc_token(self, request: Request):
         f = await request.form()
+        if f.get("grant_type") == "client_credentials":
+            if (f.get("client_id"), f.get("client_secret")) != self.kc_sync_client:
+                return JSONResponse({"error": "unauthorized_client"}, status_code=401)
+            token = "sync-" + secrets.token_hex(8)
+            self._kc_sync_tokens.add(token)
+            return JSONResponse({"access_token": token, "token_type": "Bearer", "expires_in": 300})
         grant = self._codes.pop(f.get("code", ""), None)
         if not grant or (f.get("client_id"), f.get("client_secret")) != self.oidc_client:
             return JSONResponse({"error": "invalid_grant"}, status_code=400)
@@ -258,6 +304,8 @@ class Fakes:
             Route("/mailpit/api/v1/message/{mid}", self.mailpit_message),
             Route(f"{kc}/protocol/openid-connect/token", self.oidc_token, methods=["POST"]),
             Route(f"{kc}/protocol/openid-connect/userinfo", self.oidc_userinfo),
+            Route("/kc/admin/realms/inkcast/users/{uid}", self.kc_admin_user),
+            Route("/kc/admin/realms/inkcast/admin-events", self.kc_admin_events_list),
             Route("/medium/v1/me", self.medium_me),
             Route("/medium/v1/users/{uid}/publications", self.medium_pubs),
             Route("/medium/v1/publications/{pub}/contributors", self.medium_contributors),

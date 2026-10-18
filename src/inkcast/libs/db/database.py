@@ -17,6 +17,9 @@ from typing import Any, Iterator
 
 class Database:
     SCHEMAS: tuple[str, ...] = ()
+    # Columns added after a table first shipped: (table, column, declaration). CREATE TABLE IF NOT EXISTS never
+    # adds a column to an existing database, so each is added here once, when it is missing (SQLite until E3).
+    COLUMNS: tuple[tuple[str, str, str], ...] = ()
 
     def __init__(self, path: str):
         self._conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None, timeout=30)
@@ -24,6 +27,10 @@ class Database:
         self._lock = threading.RLock()
         self._conn.execute("PRAGMA busy_timeout = 30000")
         self._conn.executescript("PRAGMA journal_mode = WAL;\n" + "\n".join(self.SCHEMAS))
+        for table, column, declaration in self.COLUMNS:
+            have = {r["name"] for r in self._conn.execute(f"PRAGMA table_info({table})")}
+            if column not in have:
+                self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
 
     @contextmanager
     def _tx(self) -> Iterator[sqlite3.Connection]:

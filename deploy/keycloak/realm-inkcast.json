@@ -94,6 +94,39 @@
       "optionalClientScopes": [
         "offline_access"
       ]
+    },
+    {
+      "clientId": "inkcast-sync",
+      "name": "Inkcast user sync (service account)",
+      "description": "Confidential, service account only: Inkcast's IdentityService reads users and admin events to cut off people disabled or deleted here (E9.F9.5.S2). Secret from KC_INKCAST_SYNC_SECRET, never in Git.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${KC_INKCAST_SYNC_SECRET}",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "frontchannelLogout": false,
+      "redirectUris": [],
+      "webOrigins": [],
+      "attributes": {
+        "access.token.lifespan": "300"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "service-account-inkcast-sync",
+      "enabled": true,
+      "serviceAccountClientId": "inkcast-sync",
+      "clientRoles": {
+        "realm-management": [
+          "view-users",
+          "view-events"
+        ]
+      }
     }
   ],
   "requiredActions": [

@@ -34,6 +34,7 @@ from .vault import VaultRepo
 
 class Store(IdentityRepo, VaultRepo, PostsRepo, LedgerRepo, OutboxRepo, KpiRepo):
     SCHEMAS = (identity.SCHEMA, vault.SCHEMA, posts.SCHEMA, ledger.SCHEMA, outbox.SCHEMA, kpi.SCHEMA)
+    COLUMNS = identity.COLUMNS
 
     def __init__(self, path: str, secret_key: "str | SecretValue"):
         super().__init__(path)

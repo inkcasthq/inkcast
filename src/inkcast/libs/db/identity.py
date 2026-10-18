@@ -41,7 +41,17 @@ CREATE TABLE IF NOT EXISTS api_tokens (
   scopes TEXT NOT NULL, created_at REAL NOT NULL, expires_at REAL, last_used_at REAL, revoked_at REAL
 );
 CREATE INDEX IF NOT EXISTS api_tokens_user ON api_tokens(user_id);
+-- Small named values a worker keeps between runs (the Keycloak sync's event cursor).
+CREATE TABLE IF NOT EXISTS sync_state (name TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at REAL NOT NULL);
 """
+# disabled_at: set when the identity provider disabled or deleted the person (E9.F9.5); cleared at their next
+# successful sign-in, which the provider only allows once they are enabled again.
+COLUMNS = (("users", "disabled_at", "REAL"),)
+
+
+# Defence in depth behind disable_user(): a token or code minted in the moment a person was being cut off (a sign-in
+# finishing as Keycloak disabled them) is refused anyway while they stay disabled.
+_NOT_DISABLED = " AND user_id NOT IN (SELECT id FROM users WHERE disabled_at IS NOT NULL)"
 
 
 class IdentityRepo(Database):
@@ -54,14 +64,48 @@ class IdentityRepo(Database):
             row = c.execute("SELECT * FROM users WHERE identity = ?", (identity,)).fetchone()
             if row:
                 c.execute(
-                    "UPDATE users SET display = ?, email = ?, name = ?, last_login_at = ? WHERE id = ?",
+                    "UPDATE users SET display = ?, email = ?, name = ?, last_login_at = ?, disabled_at = NULL WHERE id = ?",
                     (display, email, name, now, row["id"]),
                 )
-                return {**dict(row), "display": display, "email": email, "name": name, "last_login_at": now}
+                return {**dict(row), "display": display, "email": email, "name": name, "last_login_at": now,
+                        "disabled_at": None}
             user = {"id": "usr_" + uuid.uuid4().hex[:16], "identity": identity, "display": display,
-                    "email": email, "name": name, "created_at": now, "last_login_at": now}
-            c.execute("INSERT INTO users VALUES (:id, :identity, :display, :email, :name, :created_at, :last_login_at)", user)
+                    "email": email, "name": name, "created_at": now, "last_login_at": now, "disabled_at": None}
+            c.execute("INSERT INTO users (id, identity, display, email, name, created_at, last_login_at, disabled_at)"
+                      " VALUES (:id, :identity, :display, :email, :name, :created_at, :last_login_at, :disabled_at)", user)
             return user
+
+    def find_user_by_identity(self, identity: str) -> dict[str, Any] | None:
+        row = self._one("SELECT * FROM users WHERE identity = ?", identity)
+        return dict(row) if row else None
+
+    def users_with_identity_prefix(self, prefix: str) -> list[dict[str, Any]]:
+        """Users from one identity provider (e.g. ``oidc:<issuer>#``) who are not disabled."""
+        rows = self._all("SELECT * FROM users WHERE substr(identity, 1, ?) = ? AND disabled_at IS NULL ORDER BY id",
+                         len(prefix), prefix)
+        return [dict(r) for r in rows]
+
+    def disable_user(self, user_id: str) -> dict[str, int]:
+        """The person can no longer use Inkcast: every OAuth token, code and personal access token goes, in one
+        transaction. Counts of what was cut off; zeros when they were already disabled."""
+        now = time.time()
+        with self._tx() as c:
+            if c.execute("UPDATE users SET disabled_at = ? WHERE id = ? AND disabled_at IS NULL",
+                         (now, user_id)).rowcount != 1:
+                return {"oauth_tokens": 0, "personal_access_tokens": 0, "codes": 0}
+            tokens = c.execute("DELETE FROM tokens WHERE user_id = ?", (user_id,)).rowcount
+            codes = c.execute("DELETE FROM auth_codes WHERE user_id = ?", (user_id,)).rowcount
+            pats = c.execute("UPDATE api_tokens SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL",
+                             (now, user_id)).rowcount
+        return {"oauth_tokens": tokens, "personal_access_tokens": pats, "codes": codes}
+
+    def get_sync_state(self, name: str) -> str | None:
+        row = self._one("SELECT value FROM sync_state WHERE name = ?", name)
+        return row["value"] if row else None
+
+    def set_sync_state(self, name: str, value: str) -> None:
+        self._exec("INSERT INTO sync_state VALUES (?, ?, ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value, "
+                   "updated_at = excluded.updated_at", name, value, time.time())
 
     def get_user(self, user_id: str) -> dict[str, Any] | None:
         row = self._one("SELECT * FROM users WHERE id = ?", user_id)
@@ -104,7 +148,7 @@ class IdentityRepo(Database):
         )
 
     def get_code(self, code: str) -> dict[str, Any] | None:
-        row = self._one("SELECT * FROM auth_codes WHERE code_hash = ?", token_hash(code))
+        row = self._one("SELECT * FROM auth_codes WHERE code_hash = ?" + _NOT_DISABLED, token_hash(code))
         return dict(row) if row else None
 
     def consume_code(self, code: str) -> bool:
@@ -121,7 +165,8 @@ class IdentityRepo(Database):
 
     def get_token(self, value: str, kind: str) -> dict[str, Any] | None:
         row = self._one(
-            "SELECT * FROM tokens WHERE token_hash = ? AND kind = ? AND expires_at > ?", token_hash(value), kind, time.time()
+            "SELECT * FROM tokens WHERE token_hash = ? AND kind = ? AND expires_at > ?" + _NOT_DISABLED,
+            token_hash(value), kind, time.time()
         )
         return dict(row) if row else None
 
@@ -163,7 +208,7 @@ class IdentityRepo(Database):
         """The active token row for a presented token (not revoked, not expired); records its use."""
         now = time.time()
         row = self._one("SELECT * FROM api_tokens WHERE token_hash = ? AND revoked_at IS NULL"
-                        " AND (expires_at IS NULL OR expires_at > ?)", token_hash(token), now)
+                        " AND (expires_at IS NULL OR expires_at > ?)" + _NOT_DISABLED, token_hash(token), now)
         if not row:
             return None
         if not row["last_used_at"] or now - row["last_used_at"] > 60:  # don't write on every request

@@ -30,4 +30,5 @@ secretGenerator:
     files:
       - admin-password=.secrets/admin-password
       - inkcast-client-secret=.secrets/inkcast-client-secret
+      - inkcast-sync-secret=.secrets/inkcast-sync-secret   # the inkcast-sync service account (E9.F9.5.S2)
       - smtp-password=.secrets/smtp-password       # unused while KC_SMTP_AUTH=false

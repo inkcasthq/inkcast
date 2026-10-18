@@ -37,6 +37,7 @@ SECRET_SETTINGS: dict[str, str] = {
     "GITHUB_CLIENT_SECRET": "login",
     "INKCAST_PASSWORD": "login",
     "INKCAST_CACHE_PASSWORD": "secret_key",  # read by every product service (rate limits, locks); not by a Gateway
+    "INKCAST_KEYCLOAK_SYNC_SECRET": "login",  # IdentityService's Keycloak service account (E9.F9.5)
 }
 
 
@@ -117,6 +118,13 @@ class Config:
     github_allowed_users: tuple[str, ...] = ()
     github_allowed_orgs: tuple[str, ...] = ()
     password: SecretValue = SecretValue("")  # for login="password"
+    # Keycloak user sync (E9.F9.5): a service account (client credentials, realm-management view-users and
+    # view-events) that IdentityService uses to notice disabled or deleted people and cut off their tokens.
+    # Empty client id = off. The realm's client is inkcast-sync (deploy/keycloak/realm-inkcast.json).
+    keycloak_sync_client_id: str = ""
+    keycloak_sync_secret: SecretValue = SecretValue("")
+    keycloak_sync_interval_seconds: float = 30.0   # how often admin events are read (the "within a minute" goal)
+    keycloak_reconcile_seconds: float = 600.0      # how often every Keycloak-backed user is re-checked (missed events)
 
     access_token_seconds: int = 3600
     refresh_token_seconds: int = 60 * 60 * 24 * 30
@@ -158,7 +166,8 @@ class Config:
     secret_errors: dict[str, str] = field(default_factory=dict, compare=False)
 
     def __post_init__(self) -> None:
-        for name in ("secret_key", "oidc_client_secret", "github_client_secret", "password", "cache_password"):
+        for name in ("secret_key", "oidc_client_secret", "github_client_secret", "password", "cache_password",
+                     "keycloak_sync_secret"):
             value = getattr(self, name)
             if not isinstance(value, SecretValue):
                 value = SecretValue(value)
@@ -234,6 +243,13 @@ class Config:
                 problems.append("INKCAST_PASSWORD must be at least 12 characters for password sign-in.")
         else:
             problems.append("INKCAST_LOGIN must be 'oidc', 'github' or 'password'.")
+        if "login" in needs and self.keycloak_sync_client_id:
+            if self.login != "oidc":
+                problems.append("INKCAST_KEYCLOAK_SYNC_CLIENT_ID needs INKCAST_LOGIN=oidc with a Keycloak OIDC_ISSUER.")
+            if not self.keycloak_sync_secret:
+                problems.append("INKCAST_KEYCLOAK_SYNC_SECRET is required with INKCAST_KEYCLOAK_SYNC_CLIENT_ID.")
+            if "/realms/" not in self.oidc_issuer:
+                problems.append("Keycloak sync needs a Keycloak OIDC_ISSUER (https://<host>/realms/<realm>).")
         if urlparse(self.public_url).scheme != "https" and urlparse(self.public_url).hostname not in {
             "localhost", "127.0.0.1"
         }:
@@ -309,6 +325,12 @@ def load_config(environ: Mapping[str, str] | None = None) -> Config:
         github_allowed_users=env.list("GITHUB_ALLOWED_USERS"),
         github_allowed_orgs=env.list("GITHUB_ALLOWED_ORGS"),
         password=secret("INKCAST_PASSWORD"),
+        keycloak_sync_client_id=env.get("INKCAST_KEYCLOAK_SYNC_CLIENT_ID"),
+        # Asked for only when the sync is configured: no credential is fetched that nothing uses.
+        keycloak_sync_secret=(secret("INKCAST_KEYCLOAK_SYNC_SECRET") if env.get("INKCAST_KEYCLOAK_SYNC_CLIENT_ID")
+                              else SecretValue("")),
+        keycloak_sync_interval_seconds=env.float("INKCAST_KEYCLOAK_SYNC_INTERVAL", "30"),
+        keycloak_reconcile_seconds=env.float("INKCAST_KEYCLOAK_RECONCILE_INTERVAL", "600"),
         extra_allowed_hosts=tuple(h.strip() for h in settings.get("INKCAST_ALLOWED_HOSTS", "").split(",") if h.strip()),
         platform_urls=env.prefixed("INKCAST_API_URL_", str.lower),
         app_name=env.get("INKCAST_APP_NAME", "All"),

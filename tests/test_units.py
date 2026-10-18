@@ -176,6 +176,49 @@ class RaceTests(unittest.TestCase):
         self.assertEqual(asyncio.run(oauth.exchange_refresh_token(client, rt2, [])).scope, "posts:read posts:write")
 
 
+class UserDisableTests(unittest.TestCase):
+    """E9.F9.5.S2: the store side of the Keycloak user sync."""
+
+    def test_an_existing_database_gains_the_disabled_column(self):
+        import os
+        import sqlite3
+        import tempfile
+        path = os.path.join(tempfile.mkdtemp(), "old.db")
+        old = sqlite3.connect(path)                      # a users table from before the column existed
+        old.execute("CREATE TABLE users (id TEXT PRIMARY KEY, identity TEXT UNIQUE NOT NULL, display TEXT NOT NULL,"
+                    " email TEXT, name TEXT, created_at REAL NOT NULL, last_login_at REAL NOT NULL)")
+        old.execute("INSERT INTO users VALUES ('usr_1', 'oidc:x#1', 'ada', NULL, NULL, 1, 1)")
+        old.commit()
+        old.close()
+        store = Store(path, "k" * 40)
+        self.assertIsNone(store.find_user_by_identity("oidc:x#1")["disabled_at"])
+        Store(path, "k" * 40)                            # opening again is a no-op, not an error
+
+    def test_disabling_cuts_off_everything_at_once_and_signing_in_clears_it(self):
+        store = Store(":memory:", "k" * 40)
+        ada = store.upsert_user("oidc:https://kc/realms/i#ada", "ada", None, None)
+        bob = store.upsert_user("oidc:https://kc/realms/i#bob", "bob", None, None)
+        store.save_token("at-ada", "access", "c1", ada["id"], ["posts:read"], None, "f1", 3600)
+        store.save_token("at-bob", "access", "c1", bob["id"], ["posts:read"], None, "f2", 3600)
+        store.save_code("code-ada", "c1", ada["id"], "{}")
+        pat, _ = store.create_api_token(ada["id"], "ci", ["posts:read"], None)
+
+        self.assertEqual(store.disable_user(ada["id"]), {"oauth_tokens": 1, "personal_access_tokens": 1, "codes": 1})
+        self.assertIsNone(store.get_token("at-ada", "access"))
+        self.assertIsNone(store.get_code("code-ada"))
+        self.assertIsNone(store.find_api_token(pat))
+        self.assertIsNotNone(store.get_token("at-bob", "access"), "nobody else touched")
+        self.assertEqual(store.disable_user(ada["id"]), {"oauth_tokens": 0, "personal_access_tokens": 0, "codes": 0})
+        self.assertEqual([u["id"] for u in store.users_with_identity_prefix("oidc:https://kc/realms/i#")], [bob["id"]])
+
+        # A token minted in the moment of the cut-off is refused while the person stays disabled.
+        store.save_token("at-ada-late", "access", "c1", ada["id"], ["posts:read"], None, "f3", 3600)
+        self.assertIsNone(store.get_token("at-ada-late", "access"))
+        store.upsert_user("oidc:https://kc/realms/i#ada", "ada", None, None)   # Keycloak let them sign in again
+        self.assertIsNone(store.find_user_by_identity("oidc:https://kc/realms/i#ada")["disabled_at"])
+        self.assertIsNone(store.find_api_token(pat), "a revoked PAT stays revoked")
+
+
 class OAuthTests(unittest.TestCase):
     def test_refresh_rotation_and_single_use_codes(self):
         cfg = Config(public_url="http://localhost:8787", secret_key="k" * 40, database_path=":memory:",

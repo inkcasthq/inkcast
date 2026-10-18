@@ -19,6 +19,9 @@ What counts as passing:
 - KC_EXPECT=refused: Inkcast must refuse the person (no inkcast-user role) and issue no code.
 - KC_EXPECT=unverified: the person must be held at "verify your email" and never reach Inkcast.
 
+With KC_SAVE_TOKENS=<file> (allowed only) it also makes a personal access token and writes both tokens to the file,
+one per line, for a later check (the user-sync test: disabled in Keycloak, both must stop working).
+
 Prints one line per step and exits non-zero on any surprise. Uses only what the Inkcast image has (Python and
 httpx2), so CI runs it inside the pod.
 """
@@ -201,6 +204,12 @@ def main() -> None:
     if user.split("@")[0] not in " ".join(str(v) for v in me.values()):
         fail(f"/api/v1/me doesn't name {user}: {me}")
     print("8. /api/v1/me:", {k: me[k] for k in me if k in ("display", "email", "name", "id")})
+    if os.environ.get("KC_SAVE_TOKENS"):
+        pat = c.post(f"{base}/api/v1/tokens", headers={"Authorization": f"Bearer {token['access_token']}"},
+                     json={"name": "user-sync check", "scopes": ["posts:read"]}).raise_for_status().json()["token"]
+        with open(os.environ["KC_SAVE_TOKENS"], "w", encoding="utf-8") as out:
+            out.write(f"{token['access_token']}\n{pat}\n")
+        print("9. OAuth token and a personal access token saved for the user-sync check")
     print("PASS: signed in through Keycloak" + (" after signing up" if register else ""))
 
 

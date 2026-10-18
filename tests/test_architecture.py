@@ -86,6 +86,7 @@ class Architecture(unittest.TestCase):
             "inkcast/libs/config.py",               # validate(): lengths only
             "inkcast/services/identity/login.py",   # the HMAC key, the IdP client secrets
             "inkcast/libs/cache/redis.py",          # the AUTH command to Redis/Valkey
+            "inkcast/services/identity/keycloak_sync.py",  # the sync service account's client secret, token request
         }
         found = {}
         for path in (SRC / "inkcast").rglob("*.py"):

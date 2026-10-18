@@ -1,5 +1,6 @@
 # Used only by CI (kind): Inkcast signing people in through a real Keycloak (deploy/keycloak, E9.F9.1). The secret
-# `inkcast-secrets` is made by scripts/dev/keycloak-e2e.sh: a random secret key and the client secret Keycloak got.
+# `inkcast-secrets` is made by scripts/dev/keycloak-e2e.sh: a random secret key and the client secrets Keycloak got
+# (inkcast-identity for sign-in, inkcast-sync for the user sync).
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: inkcast-oidc
@@ -16,6 +17,10 @@ configMapGenerator:
       - OIDC_ISSUER=http://keycloak.keycloak.svc:8080/realms/inkcast
       - OIDC_CLIENT_ID=inkcast-identity
       - OIDC_REQUIRED_ROLE=inkcast-user
+      # E9.F9.5.S2: the user sync, as the realm's inkcast-sync service account, every 5 s (production: 30 s)
+      - INKCAST_KEYCLOAK_SYNC_CLIENT_ID=inkcast-sync
+      - INKCAST_KEYCLOAK_SYNC_SECRET_FILE=/var/run/secrets/inkcast/keycloak-sync-secret
+      - INKCAST_KEYCLOAK_SYNC_INTERVAL=5
 images:
   - name: ghcr.io/inkcasthq/inkcast
     newName: inkcast

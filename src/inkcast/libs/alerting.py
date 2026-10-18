@@ -151,6 +151,13 @@ ALERTS: tuple[Alert, ...] = (
           "The inkcast-backup CronJob has not succeeded since {{ $value | humanizeDuration }} ago. The SQLite file is "
           "the only copy of tokens, credentials, posts and the ledger until a backup succeeds.", "platform",
           for_="15m"),
+    # Only where the sync is on (INKCAST_KEYCLOAK_SYNC_CLIENT_ID): elsewhere the series do not exist.
+    Alert("InkcastIdentitySyncFailing",
+          'sum(increase(inkcast_identity_sync_total{result="error"}[15m])) > 0'
+          ' and sum(increase(inkcast_identity_sync_total{result="ok"}[15m])) == 0',
+          "warning", "The Keycloak user sync has failed for 15 minutes",
+          "Every Keycloak user sync pass for 15 minutes failed, so people disabled or deleted in Keycloak keep their "
+          "Inkcast tokens until it recovers. Sign-in itself is unaffected.", "identity"),
 )
 
 SLOS: tuple[Slo, ...] = (

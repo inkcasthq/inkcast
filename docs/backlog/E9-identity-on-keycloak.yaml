@@ -17,8 +17,8 @@ features:
     - Secrets and URLs through ${...} placeholders filled at import; tests/test_keycloak_realm.py keeps it so
   - id: F9.1.S2
     title: 'kind CI: Keycloak with the realm; end-to-end sign-in against it in single and split mode'
-    status: in-progress
-    change: 'single mode in PR #14; split mode on kind in the PR fixing #17 (mark done when it merges)'
+    status: done
+    change: 'single mode in PR #14; split mode on kind in PR #23 (fixed #17)'
     acceptance:
     - The kind CI job deploys Keycloak with the realm and checks the placeholders were filled
     - A person with inkcast-user signs in through Keycloak's own login page end to end and reaches /api/v1/me
@@ -71,8 +71,19 @@ features:
     change: refined
   - id: F9.5.S2
     title: 'Disabled or deleted user: revoke OAuth tokens and PATs, delete tuples, refuse sign-in (tested with real Keycloak)'
-    status: planned
-    change: refined
+    status: done
+    change: 'built in the user-sync PR (tokens, PATs, codes); tuples are deleted by E3.F3.8 once OpenFGA holds any'
+    acceptance:
+    - 'IdentityService polls Keycloak as the inkcast-sync service account (view-users, view-events only): USER admin
+      events every INKCAST_KEYCLOAK_SYNC_INTERVAL (30 s), and a full reconcile every INKCAST_KEYCLOAK_RECONCILE_INTERVAL
+      (10 min) and at start, so a missed event or an account-console deletion is still caught'
+    - A person disabled or deleted in Keycloak loses every OAuth token, code and personal access token in one
+      transaction; token lookups also refuse anything minted for them in the moment of the cut-off
+    - They sign in again once Keycloak allows it; their old tokens stay dead
+    - 'Events identity.user.disabled and identity.sync.failed; metrics inkcast_identity_sync_total{result} and
+      inkcast_identity_users_disabled_total{reason}; alert InkcastIdentitySyncFailing'
+    - 'kind CI: an administrator disables ada with kcadm; her OAuth token and PAT answer 401 within 60 s; re-enabled,
+      she signs in again'
   - id: F9.5.S3
     title: Scheduled reconcile of Keycloak membership against OpenFGA; a missed event still removes access; drift alert
     status: planned
