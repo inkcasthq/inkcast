@@ -10,6 +10,7 @@ resources:
   - httproute.yaml
 components:
   - ../../components/servicemonitor
+  - ../../components/metrics-access     # the metrics port: Prometheus pods only (#21)
   - ../../components/prometheus-rules   # alerts and SLO burn rates (generated: scripts/gen-alerts.py)
   - ../../components/backup             # daily SQLite backups to their own volume (until PostgreSQL, E3)
   # - ../../components/dashboards       # Grafana sidecar ConfigMap (generated: scripts/gen-dashboards.py)
@@ -43,6 +44,8 @@ patches:
       - op: replace
         path: /spec/ingress/0/from/0/namespaceSelector/matchLabels
         value: {kubernetes.io/metadata.name: gateway-system}
+  - target: {kind: NetworkPolicy, name: inkcast-metrics}
+    patch: |-
       - op: replace
-        path: /spec/ingress/1/from/0/namespaceSelector/matchLabels
+        path: /spec/ingress/0/from/0/namespaceSelector/matchLabels
         value: {kubernetes.io/metadata.name: monitoring}

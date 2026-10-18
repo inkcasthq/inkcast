@@ -9,6 +9,7 @@ resources:
   - ../../base
 components:
   - ../../components/backup   # the restore drill in the kind job uses it
+  - ../../components/metrics-access   # deploy/dev's Prometheus scrapes it (namespace label inkcast.io/monitoring)
 secretGenerator:
   - name: inkcast-secrets
     options: {disableNameSuffixHash: true}

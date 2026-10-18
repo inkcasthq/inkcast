@@ -1,0 +1,7 @@
+# Who may scrape the metrics port (/metrics, the probes, /secrets: names and sources, never values): Prometheus
+# pods in the monitoring namespace, nothing else (#21). Its own component, not part of servicemonitor, so a
+# cluster scraping without the Prometheus Operator (the ci overlay, deploy/dev on kind) admits Prometheus too.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - networkpolicy.yaml
