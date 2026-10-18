@@ -8,8 +8,11 @@ service's base URL (INKCAST_UPSTREAM_<NAME>, which may include a path prefix suc
 from the same table do this job instead; see deploy/kustomize/components/gateway-api.
 
 The Host header is passed through unchanged (services check it against INKCAST_PUBLIC_URL to
-block DNS rebinding) and X-Forwarded-For/-Proto/-Host are set. Responses stream back as-is,
-redirects included. The gateway itself keeps no state and needs no database.
+block DNS rebinding). X-Forwarded-For/-Proto/-Host are set from what *this* process knows (the peer
+address and scheme after uvicorn applied INKCAST_FORWARDED_ALLOW_IPS), never copied from the client,
+so a caller can't spoof its address or scheme to the services. The request id is forwarded, so one
+id follows a request through every service's log. Responses stream back as-is, redirects included.
+The gateway itself keeps no state and needs no database.
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ from starlette.routing import Route
 
 from ...libs.contracts.routes import match
 from ...libs.http.rest import problem
+from ...libs.observability import current_request_id
 from ...libs.runtime import Context
 from ...libs.service import ServiceSpec, full_name
 
@@ -31,7 +35,23 @@ log = logging.getLogger(__name__)
 
 HOP_BY_HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer",
               "transfer-encoding", "upgrade", "content-length"}
-MAX_BODY = 10 * 1024 * 1024
+# Never forwarded from the client: the gateway sets its own, from what it knows.
+NOT_FORWARDED = {"x-forwarded-for", "x-forwarded-proto", "x-forwarded-host", "x-forwarded-port", "forwarded",
+                 "x-real-ip", "x-request-id"}
+TOO_LARGE = "The request body is too large."
+
+
+async def read_body(request: Request, limit: int) -> bytes | None:
+    """The whole body, or None when it exceeds ``limit`` (checked up front and while streaming)."""
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > limit:
+        return None
+    body = bytearray()
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > limit:
+            return None
+    return bytes(body)
 
 
 def _routes(ctx: Context) -> list[Route]:
@@ -48,23 +68,24 @@ def _routes(ctx: Context) -> list[Route]:
         if not base:
             return problem(502, "no_upstream", f"The gateway has no upstream for {service} "
                            f"(set INKCAST_UPSTREAM_{full_name(service).upper().replace('-', '_')}).")
-        body = await request.body()
-        if len(body) > MAX_BODY:
-            return problem(413, "too_large", "The request body is too large.")
-        headers = [(k, v) for k, v in request.headers.items()
-                   if k.lower() not in HOP_BY_HOP and not k.lower().startswith("x-forwarded-")]
-        client_ip = request.client.host if request.client else ""
-        prior = request.headers.get("x-forwarded-for")
-        headers += [("x-forwarded-for", f"{prior}, {client_ip}" if prior else client_ip),
-                    ("x-forwarded-proto", request.headers.get("x-forwarded-proto", request.url.scheme)),
-                    ("x-forwarded-host", request.headers.get("host", ""))]
+        body = await read_body(request, ctx.config.max_body_bytes)
+        if body is None:
+            return problem(413, "too_large", TOO_LARGE)
+        headers = [(k, v) for k, v in request.headers.items() if k.lower() not in HOP_BY_HOP | NOT_FORWARDED]
+        # request.client and request.url.scheme already reflect a trusted upstream proxy (uvicorn's
+        # proxy-headers handling with INKCAST_FORWARDED_ALLOW_IPS); anything else the client sent is dropped.
+        headers += [("x-forwarded-for", request.client.host if request.client else ""),
+                    ("x-forwarded-proto", request.url.scheme),
+                    ("x-forwarded-host", request.headers.get("host", "")),
+                    ("x-request-id", current_request_id())]
         url = base + path + (f"?{request.url.query}" if request.url.query else "")
         try:
             upstream = await client.send(client.build_request(request.method, url, headers=headers, content=body),
                                          stream=True)
         except httpx2.HTTPError as exc:
             ctx.metrics.inc("inkcast_gateway_requests_total", upstream=full_name(service), code="error")
-            log.warning("Gateway: %s unreachable: %s", service, exc)
+            log.warning("Gateway: %s unreachable: %s", service, exc,
+                        extra={"event": "gateway.upstream.unreachable", "upstream": full_name(service)})
             return problem(502, "upstream_unreachable", f"{service} is unreachable.")
         ctx.metrics.inc("inkcast_gateway_requests_total", upstream=full_name(service), code=f"{upstream.status_code // 100}xx")
         out_headers = [(k, v) for k, v in upstream.headers.multi_items() if k.lower() not in HOP_BY_HOP]

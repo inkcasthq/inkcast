@@ -254,3 +254,91 @@ class Prefixes(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HttpMiddleware(unittest.TestCase):
+    def app(self, **kw):
+        cfg = Config(**{"public_url": "http://localhost:8787", "secret_key": "k" * 40, "database_path": ":memory:",
+                        "login": "password", "password": "p" * 12, **kw})
+        specs = resolve("IdentityService,PublishingApi")
+        return TestClient(compose(specs, build(cfg, specs)), base_url="http://localhost:8787")
+
+    def test_request_ids_security_headers_and_body_limits(self):
+        with self.app(max_body_bytes=1000) as c:
+            r = c.get("/livez")
+            self.assertRegex(r.headers["x-request-id"], r"^[0-9a-f]{32}$")
+            self.assertEqual(r.headers["x-content-type-options"], "nosniff")
+            self.assertEqual(r.headers["referrer-policy"], "no-referrer")
+            self.assertNotIn("strict-transport-security", r.headers)
+            self.assertEqual(c.get("/livez", headers={"x-request-id": "gw-0123456789ab"}).headers["x-request-id"], "gw-0123456789ab")
+            bad = c.get("/livez", headers={"x-request-id": "short"}).headers["x-request-id"]      # replaced, not echoed
+            self.assertNotEqual(bad, "short")
+            r = c.post("/api/v1/posts", content=b"x" * 2000, headers={"content-type": "application/json"})
+            self.assertEqual((r.status_code, r.json()["error"]), (413, "too_large"))
+            self.assertEqual(r.headers["content-type"], "application/problem+json")
+            r = c.post("/token", content=iter([b"x" * 600, b"x" * 600]),           # a route that reads the body unauthenticated
+                       headers={"content-type": "application/x-www-form-urlencoded"})
+            self.assertEqual(r.status_code, 413)                                                   # chunked, counted as it streams
+            r = c.post("/api/v1/posts", content=b"{}", headers={"content-type": "application/json"})
+            self.assertEqual(r.status_code, 401)                                                   # small bodies reach the handler
+        with self.app(public_url="https://inkcast.example.com") as c:
+            self.assertIn("max-age=", c.get("/livez").headers["strict-transport-security"])
+
+    def test_requests_are_logged_with_their_id_and_without_the_query_string(self):
+        with self.app() as c, self.assertLogs("inkcast.http", "INFO") as logs:
+            c.get("/api/openapi.json?code=secret-code-value", headers={"x-request-id": "trace-me-000001"})
+        [line] = [line for line in logs.output if "openapi" in line]
+        self.assertIn("GET /api/openapi.json -> 200", line)
+        self.assertNotIn("secret-code-value", line)
+        record = next(r for r in logs.records if "openapi" in r.getMessage())
+        self.assertEqual((record.event, record.status, record.method), ("http.request", 200, "GET"))  # type: ignore[attr-defined]
+
+
+class GatewayProxy(unittest.TestCase):
+    """The built-in Gateway against an upstream that echoes what it received."""
+
+    @classmethod
+    def setUpClass(cls):
+        from starlette.applications import Starlette
+        from starlette.responses import JSONResponse
+        from starlette.routing import Route
+        from test_e2e import free_port, serve
+
+        async def echo(request):
+            return JSONResponse({"headers": dict(request.headers), "path": request.url.path, "query": request.url.query,
+                                 "body": (await request.body()).decode()})
+
+        uport, gport = free_port(), free_port()
+        cls.servers = [serve(Starlette(routes=[Route("/api/{rest:path}", echo, methods=["GET", "POST"])]), uport)]
+        cfg = Config(public_url=f"http://127.0.0.1:{gport}", port=gport, secret_key="", database_path=":memory:",
+                     upstreams={"publishing-api": f"http://127.0.0.1:{uport}"}, max_body_bytes=500)
+        [gw] = resolve("Gateway")
+        cfg.validate(gw.needs)
+        # The client is not a trusted proxy here (as with the launcher's INKCAST_FORWARDED_ALLOW_IPS default,
+        # where only named proxies are), so its X-Forwarded-* must be dropped, not believed.
+        cls.servers.append(serve(compose([gw], build(cfg, [gw])), gport, proxy_headers=False))
+        cls.base = cfg.public_url
+
+    @classmethod
+    def tearDownClass(cls):
+        for s in cls.servers:
+            s.should_exit = True
+
+    def test_client_proxy_headers_are_replaced_and_the_request_id_follows(self):
+        import httpx2
+        r = httpx2.post(f"{self.base}/api/v1/echo?x=1", content=b"hello", headers={
+            "x-forwarded-for": "1.2.3.4", "x-forwarded-proto": "https", "x-forwarded-host": "evil.example", "x-real-ip": "9.9.9.9",
+            "forwarded": "for=1.2.3.4", "x-request-id": "trace-abc-123456", "x-custom": "kept"})
+        self.assertEqual(r.status_code, 200)
+        seen = r.json()
+        self.assertEqual((seen["path"], seen["query"], seen["body"]), ("/api/v1/echo", "x=1", "hello"))
+        h = seen["headers"]
+        self.assertEqual((h["x-forwarded-for"], h["x-forwarded-proto"]), ("127.0.0.1", "http"))  # what the gateway knows
+        self.assertEqual(h["x-forwarded-host"], self.base.removeprefix("http://"))
+        self.assertEqual(h["x-request-id"], "trace-abc-123456")                                    # one id, end to end
+        self.assertEqual(r.headers["x-request-id"], "trace-abc-123456")
+        self.assertEqual(h["x-custom"], "kept")
+        self.assertNotIn("x-real-ip", h)
+        self.assertNotIn("forwarded", h)
+        self.assertEqual(httpx2.post(f"{self.base}/api/v1/echo", content=b"x" * 600).status_code, 413)
+        self.assertEqual(httpx2.get(f"{self.base}/nothing-here").status_code, 404)

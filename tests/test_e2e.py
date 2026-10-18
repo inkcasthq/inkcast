@@ -45,8 +45,8 @@ def free_port() -> int:
         return s.getsockname()[1]
 
 
-def serve(app, port):
-    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+def serve(app, port, **options):
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", **options))
     threading.Thread(target=server.run, daemon=True).start()
     deadline = time.time() + 10
     while not server.started:

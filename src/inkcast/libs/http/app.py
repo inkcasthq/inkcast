@@ -29,6 +29,7 @@ from ... import __version__
 from ..runtime import Context
 from ..secrets import run_checks
 from ..service import ServiceSpec
+from .middleware import RequestContext
 
 
 def _service_app(specs: Iterable[ServiceSpec], ctx: Context) -> Starlette:
@@ -87,7 +88,13 @@ def resolve_prefix(prefix: str, spec: ServiceSpec | None = None) -> str:
     return "/" + prefix.strip("/") if prefix.strip("/") else "/"
 
 
-def compose(specs: Iterable[ServiceSpec], ctx: Context, prefix: str | None = None) -> Starlette:
+def wrap(app, ctx: Context) -> RequestContext:
+    """The outermost layer: request ids, the access log, body limits and security headers (middleware.py)."""
+    return RequestContext(app, max_body=ctx.config.max_body_bytes, hsts=ctx.config.public_url.startswith("https://"))
+
+
+def compose(specs: Iterable[ServiceSpec], ctx: Context, prefix: str | None = None):
+    """The ASGI app for these services at ``prefix``. Every request passes through ``RequestContext`` first."""
     specs = [s for s in specs if s.kind == "http"]
     prefix = ctx.config.path_prefix if prefix is None else prefix
     probes = probe_routes(specs, ctx)
@@ -95,7 +102,7 @@ def compose(specs: Iterable[ServiceSpec], ctx: Context, prefix: str | None = Non
     if prefix != "auto" and resolve_prefix(prefix) == "/":
         app = _service_app(specs, ctx)
         app.router.routes[0:0] = probes  # before any catch-all route (the Gateway has one)
-        return app
+        return wrap(app, ctx)
 
     if prefix == "auto":
         inner = [(resolve_prefix("auto", s), _service_app([s], ctx)) for s in specs]
@@ -109,7 +116,7 @@ def compose(specs: Iterable[ServiceSpec], ctx: Context, prefix: str | None = Non
                 await stack.enter_async_context(sub.router.lifespan_context(sub))
             yield
 
-    return Starlette(routes=[*probes, *(Mount(path, app=sub) for path, sub in inner)], lifespan=lifespan)
+    return wrap(Starlette(routes=[*probes, *(Mount(path, app=sub) for path, sub in inner)], lifespan=lifespan), ctx)
 
 
 def secrets_status(ctx: Context) -> dict:
