@@ -22,7 +22,7 @@ configMapGenerator:
       - INKCAST_LOGIN=password
       - INKCAST_PASSWORD_FILE=/var/run/secrets/inkcast/password
 images:
-  - name: ghcr.io/OWNER/inkcast
+  - name: ghcr.io/inkcasthq/inkcast
     newName: inkcast
     newTag: ci
 patches:
