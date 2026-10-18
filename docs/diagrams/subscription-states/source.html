@@ -1,0 +1,110 @@
+<!-- SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0 -->
+<!-- Copyright 2026 ScalarOps Technologies LLC. Started from the diagram-kit template (MIT-0),
+     https://github.com/ephico2real2/diagram-kit. Inkcast diagrams are light theme only: no dark tokens. -->
+<title>Subscription States</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root {
+  color-scheme: light;
+  --ground: #f5f6f8; --surface: #ffffff; --ink: #18212c; --muted: #58636f; --rule: #d7dce3;
+  --host: #a55a0b; --host-wash: #fbf1e4; --remote: #0e6f68; --remote-wash: #e3f3f1;
+  --gap: #b3261e; --gap-wash: #fbe9e7; --none: #5f6a77; --none-wash: #eef0f3;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+* { box-sizing: border-box; }
+body { background: var(--ground); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.55; margin: 0; }
+.page { max-width: 1060px; margin: 0 auto; padding-inline: 16px; padding-block: 40px 72px; display: grid; gap: 44px; }
+header { display: grid; gap: 10px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font-size: clamp(26px, 4vw, 36px); line-height: 1.15; margin: 0; font-weight: 700; text-wrap: balance; }
+h2 { font-size: 20px; margin: 0 0 6px; font-weight: 600; text-wrap: balance; }
+p { margin: 0; max-width: 72ch; }
+.lede { font-size: 17px; max-width: 70ch; }
+code { font-family: var(--font-mono); font-size: .9em; }
+section { display: grid; gap: 14px; }
+figure { margin: 0; display: grid; gap: 10px; }
+.fig-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 12px; }
+.fig-scroll svg { display: block; width: 100%; min-width: 760px; height: auto; color: var(--ink); }
+figcaption { font-size: 13.5px; color: var(--muted); max-width: 80ch; }
+.tbl { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+th { font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); background: var(--ground); }
+tr:last-child td { border-bottom: 0; }
+a { color: var(--remote); }
+:focus-visible { outline: 2px solid var(--remote); outline-offset: 2px; }
+</style>
+
+<div class="page">
+  <header>
+    <div class="eyebrow">inkcast · design · 2026-10-18</div>
+    <h1>Subscription states</h1>
+    <p class="lede">Five states, and none of them deletes data or stops work that was already accepted. Payment failure degrades slowly and visibly: a banner, then no new schedules, then Free.</p>
+  </header>
+
+  <section>
+    <h2>From trial to Free, and back</h2>
+    <figure>
+      <div class="fig-scroll">
+<svg viewBox="0 0 980 440" role="img" aria-label="Subscription states: trialing to active; active to past due on payment failure; past due back to active when paid or to restricted after 14 days; restricted to canceled; canceled to Free, with data kept 90 days.">
+<defs><marker id="ah5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+<g font-family="IBM Plex Sans, sans-serif" font-size="12.5" fill="currentColor">
+<rect x="20" y="80" width="160" height="62" rx="8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="100" y="98.5" text-anchor="middle" font-weight="600" fill="currentColor" font-family="IBM Plex Mono, monospace">trialing</text>
+<text x="100" y="115.5" text-anchor="middle" fill="currentColor">14 days of Team</text>
+<text x="100" y="132.5" text-anchor="middle" fill="var(--muted)">no card needed</text>
+<path d="M180,111 L206,111" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#ah5)"/>
+<rect x="210" y="80" width="160" height="62" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="290" y="98.5" text-anchor="middle" font-weight="600" fill="var(--remote)" font-family="IBM Plex Mono, monospace">active</text>
+<text x="290" y="115.5" text-anchor="middle" fill="currentColor">the plan&#x27;s features</text>
+<text x="290" y="132.5" text-anchor="middle" fill="var(--muted)">seats and add-ons</text>
+<path d="M370,111 L396,111" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#ah5)"/>
+<rect x="400" y="80" width="160" height="62" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="480" y="98.5" text-anchor="middle" font-weight="600" fill="var(--host)" font-family="IBM Plex Mono, monospace">past_due</text>
+<text x="480" y="115.5" text-anchor="middle" fill="currentColor">works, with a banner</text>
+<text x="480" y="132.5" text-anchor="middle" fill="var(--muted)">for 14 days</text>
+<path d="M560,111 L586,111" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#ah5)"/>
+<rect x="590" y="80" width="160" height="62" rx="8" fill="var(--gap-wash)" stroke="var(--gap)" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="670" y="98.5" text-anchor="middle" font-weight="600" fill="var(--gap)" font-family="IBM Plex Mono, monospace">restricted</text>
+<text x="670" y="115.5" text-anchor="middle" fill="currentColor">no new schedules</text>
+<text x="670" y="132.5" text-anchor="middle" fill="var(--muted)">accepted work sends</text>
+<path d="M750,111 L776,111" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#ah5)"/>
+<rect x="780" y="80" width="160" height="62" rx="8" fill="var(--none-wash)" stroke="var(--none)" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="860" y="98.5" text-anchor="middle" font-weight="600" fill="var(--none)" font-family="IBM Plex Mono, monospace">canceled</text>
+<text x="860" y="115.5" text-anchor="middle" fill="currentColor">drops to Free</text>
+<text x="860" y="132.5" text-anchor="middle" fill="var(--muted)">nothing is deleted</text>
+<text x="195" y="70" text-anchor="middle" fill="var(--muted)">pays</text>
+<text x="385" y="70" text-anchor="middle" fill="var(--muted)">payment fails</text>
+<text x="575" y="70" text-anchor="middle" fill="var(--muted)">14 days unpaid</text>
+<text x="765" y="70" text-anchor="middle" fill="var(--muted)">still unpaid</text>
+<path d="M290,80 L290,40 L860,40 L860,76" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#ah5)"/>
+<text x="575" y="32" text-anchor="middle" fill="var(--muted)">owner cancels · takes effect at period end</text>
+<path d="M480,142 C480,190 300,190 300,146" fill="none" stroke="var(--remote)" stroke-width="1.3" marker-end="url(#ah5)"/>
+<text x="390" y="170" text-anchor="middle" fill="var(--remote)">paid</text>
+<path d="M670,142 C670,250 280,250 280,146" fill="none" stroke="var(--remote)" stroke-width="1.3" marker-end="url(#ah5)"/>
+<text x="475" y="240" text-anchor="middle" fill="var(--remote)">paid · everything restored</text>
+<rect x="330" y="290" width="320" height="56" rx="8" fill="var(--none-wash)" stroke="var(--none)" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="490" y="313.5" text-anchor="middle" font-weight="600" fill="var(--none)">Free plan</text>
+<text x="490" y="331.5" text-anchor="middle" fill="currentColor">data kept 90 days, with an export link</text>
+<path d="M100,142 L100,318 L326,318" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#ah5)"/>
+<text x="110" y="310" text-anchor="start" fill="var(--muted)">trial ends without a card</text>
+<path d="M860,142 L860,318 L654,318" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#ah5)"/>
+<text x="690" y="310" text-anchor="start" fill="var(--muted)">at once</text>
+<text x="20" y="380" text-anchor="start" fill="currentColor">Nothing is deleted, and accepted work is never stopped: restricted only blocks new schedules.</text>
+<text x="20" y="400" text-anchor="start" fill="currentColor">Reactivating from Free within 90 days restores everything. Provider statuses map onto these five states.</text>
+<text x="20" y="426" text-anchor="start" fill="var(--host)" font-weight="600">Every state is proposed (E5.F5.7). Arrows are state changes; the webhook only triggers a re-read.</text>
+</g>
+</svg>
+      </div>
+      <figcaption>A trial ends on active or Free. A failed payment runs past due for 14 days, then restricted, then canceled to Free; paying at any point restores everything. All states are proposed.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>What each state allows</h2>
+<div class="tbl"><table><thead><tr><th>State</th><th>New work</th><th>Accepted work</th><th>Owner sees</th></tr></thead><tbody><tr><td><code>trialing</code></td><td>the Team plan</td><td>sends</td><td>days left; add a card</td></tr><tr><td><code>active</code></td><td>the plan</td><td>sends</td><td>usage and renewal date</td></tr><tr><td><code>past_due</code></td><td>the plan</td><td>sends</td><td>a banner: update the card</td></tr><tr><td><code>restricted</code></td><td>nothing new scheduled</td><td>sends</td><td>a blocking banner with the portal link</td></tr><tr><td><code>canceled</code> → Free</td><td>Free limits</td><td>honoured to period end, then held</td><td>export link; reactivate</td></tr></tbody></table></div>
+  </section>
+</div>

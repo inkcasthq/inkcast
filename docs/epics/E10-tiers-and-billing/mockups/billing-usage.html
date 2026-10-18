@@ -1,0 +1,58 @@
+<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>Billing and usage · Inkcast mockup</title><style>:root{--bg:#f7f5f0;--fg:#1d1b18;--muted:#6b665d;--card:#fff;--line:#e3ded3;--accent:#c2410c;--accent-fg:#fff;--ok:#15803d;--ok-bg:#dcfce7;--warn:#a16207;--warn-bg:#fef9c3;--err:#b91c1c;--err-bg:#fee2e2;--info-bg:#e0f2fe;--info:#075985}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+.app{display:grid;grid-template-columns:220px 1fr;min-height:100vh}.side{background:#fff;border-right:1px solid var(--line);padding:18px 14px}
+.brand{font-weight:700;color:var(--accent);font-size:18px;margin:0 6px 18px}.ws{border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:16px;font-size:13px}
+.nav a{display:flex;gap:10px;align-items:center;padding:8px 10px;border-radius:8px;color:var(--fg);text-decoration:none;margin-bottom:2px}.nav a.on{background:var(--bg);font-weight:600}
+.main{padding:24px 32px;max-width:1180px}h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:0 0 10px}.sub{color:var(--muted);margin:0 0 20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px}.grid{display:grid;gap:16px}.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}
+.btn{display:inline-block;padding:8px 14px;border-radius:8px;border:1px solid var(--line);background:#fff;font-weight:600;font-size:13px}.btn.p{background:var(--accent);border-color:var(--accent);color:#fff}
+.pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600}.ok{background:var(--ok-bg);color:var(--ok)}.warn{background:var(--warn-bg);color:var(--warn)}.err{background:var(--err-bg);color:var(--err)}.info{background:var(--info-bg);color:var(--info)}
+table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line);vertical-align:top}th{font-size:12px;color:var(--muted);font-weight:600;text-transform:none}
+.muted{color:var(--muted)}code{background:var(--bg);padding:1px 6px;border-radius:5px;font-size:12px}.row{display:flex;gap:10px;align-items:center}.sp{justify-content:space-between}
+input,textarea,select{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;font:inherit;background:#fff}label{display:block;font-weight:600;margin:12px 0 6px;font-size:13px}
+.steps{display:flex;gap:8px;margin-bottom:20px}.step{flex:1;border-top:4px solid var(--line);padding-top:8px;font-size:12px;color:var(--muted)}.step.done{border-color:var(--ok);color:var(--fg)}.step.on{border-color:var(--accent);color:var(--fg);font-weight:600}
+.banner{border-radius:10px;padding:10px 14px;margin-bottom:16px}.note{font-size:12px;color:var(--muted);margin-top:6px}
+
+@media (max-width:760px){.app{grid-template-columns:1fr}.side{border-right:0;border-bottom:1px solid var(--line);padding:10px 12px}
+.side .ws,.side .note{display:none}.brand{margin:0 0 8px}.nav{display:flex;gap:4px;overflow-x:auto;white-space:nowrap}.nav a{padding:6px 10px}
+.main{padding:16px}.g2,.g3{grid-template-columns:1fr}.row.sp{flex-wrap:wrap;align-items:flex-start}.steps{flex-wrap:wrap}.step{flex:1 1 40%}
+table{font-size:13px}.card{padding:14px}}
+
+.tiers{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}.tier{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px;display:grid;gap:8px;align-content:start}
+.tier.hi{border:2px solid var(--accent)}.price{font-size:26px;font-weight:700}.price small{font-size:13px;font-weight:400;color:var(--muted)}
+.tier ul{margin:0;padding-left:18px;font-size:13px}.toggle{display:inline-flex;border:1px solid var(--line);border-radius:999px;background:#fff;padding:3px}
+.toggle span{padding:5px 14px;border-radius:999px;font-weight:600;font-size:13px}.toggle .on{background:var(--fg);color:#fff}
+.meter{height:8px;background:var(--bg);border-radius:99px;overflow:hidden;margin:6px 0 2px}.meter i{display:block;height:100%;background:var(--ok)}.meter i.w{background:var(--warn)}.meter i.e{background:var(--err)}
+pre{background:#1d1b18;color:#f7f5f0;border-radius:10px;padding:14px;font-size:12.5px;overflow-x:auto;margin:0;white-space:pre-wrap}
+.strip{display:flex;flex-wrap:wrap;gap:8px}.chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:3px 10px;font-size:12px}
+.top{display:flex;justify-content:space-between;align-items:center;padding:16px 32px;background:#fff;border-bottom:1px solid var(--line)}
+.pub{max-width:1240px;margin:0 auto;padding:28px 32px}.c{text-align:center}.stack{display:grid;gap:16px;align-content:start}
+.modal{background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:0 12px 32px rgba(0,0,0,.08);padding:20px;display:grid;gap:10px}
+.prev{border:1px dashed var(--line);border-radius:10px;padding:10px 12px;background:var(--bg);font-size:13px}
+@media (max-width:760px){.tiers{grid-template-columns:1fr}.top{padding:12px 16px}.top .muted{display:none}.pub{padding:16px}.app>*,.grid>*{min-width:0}.grid[style]{grid-template-columns:1fr!important}.card,.modal{overflow-x:auto}.row{flex-wrap:wrap}}
+</style></head><body><div class=app><aside class=side><div class=brand>Inkcast</div><div class=ws><div class=muted style='font-size:11px'>Organization · workspace</div><b>Acme · Blog</b> ▾</div><nav class=nav><a class="">Compose</a><a class="">Calendar</a><a class="">Posts</a><a class="">Approvals</a><a class="">Git publishing</a><a class="">Connections</a><a class="">Members</a><a class="">Tokens</a><a class="on">Billing</a><a class="">Settings</a></nav><div class=note style='margin-top:24px'>MOCKUP · E5 · not final</div></aside><main class=main>
+<div class="row sp"><div><h1>Billing and usage</h1><p class=sub>Acme · organization. Only owners and billing admins can change the plan.</p></div><span class="btn p">Manage plan</span></div>
+<div class="grid g3">
+ <div class=card><div class="row sp"><h2>Team · annual</h2><span class="pill ok">active</span></div><p style="margin:0"><b>12 billable seats</b> · 5 free seats</p>
+ <p class=muted style="margin:4px 0 12px">Renews 3 Jan 2027 · $2,160/yr · Visa ending 4242</p><div class=row><span class=btn>Change plan</span><span class=btn>Billing portal ↗</span></div>
+ <p class=note>Card details live with the billing provider; Inkcast never sees them.</p></div>
+ <div class=card><h2>This month</h2>
+  <div class="row sp"><span>Channels</span><span>134 / 140</span></div><div class=meter><i class=e style="width:96%"></i></div><p class=note style="margin:0 0 10px">96%: 120 with your seats + 20 from packs</p>
+  <div class="row sp"><span>Stories</span><span>312 / fair use 12,000</span></div><div class=meter><i style="width:3%"></i></div><p class=note style="margin:0 0 10px">resets 1 Nov (UTC)</p>
+  <div class="row sp"><span>AI credits</span><span>2,190 / 2,400</span></div><div class=meter><i class=e style="width:91%"></i></div><p class=note style="margin:0">pooled · then packs, oldest first</p></div>
+ <div class=card><h2>Add-ons</h2><table>
+  <tr><td>Channel pack ×2</td><td class=muted>+20 channels</td><td>$20/mo</td></tr>
+  <tr><td>Credit pack</td><td class=muted>1,000 left · expires Jun 2027</td><td>paid</td></tr>
+  <tr><td>Agency</td><td class=muted>Business and up</td><td><span class=btn>Upgrade</span></td></tr></table></div>
+</div>
+<div class="grid g2" style="margin-top:16px">
+ <div class=card><h2>Seats</h2><table><tr><th>Role</th><th>People</th><th>Billable</th></tr>
+ <tr><td>Owner, admin</td><td>2</td><td><span class="pill warn">yes</span></td></tr><tr><td>Manager, editor, publisher</td><td>10</td><td><span class="pill warn">yes</span></td></tr>
+ <tr><td>Reviewer, viewer, billing admin</td><td>5</td><td><span class="pill ok">free</span></td></tr></table><p class=note>Seats follow roles, so there is nothing to assign by hand. <a>Members →</a></p></div>
+ <div class=card><h2>Invoices</h2><table><tr><th>Date</th><th>Amount</th><th>Status</th><th></th></tr>
+ <tr><td>3 Jan 2026</td><td>$1,980.00</td><td><span class="pill ok">paid</span></td><td><a>PDF ↗</a></td></tr>
+ <tr><td>14 Mar 2026</td><td>$145.48 <span class=muted>(1 seat, prorated)</span></td><td><span class="pill ok">paid</span></td><td><a>PDF ↗</a></td></tr>
+ <tr><td>2 Jul 2026</td><td>$10.00 <span class=muted>(credit pack)</span></td><td><span class="pill ok">paid</span></td><td><a>PDF ↗</a></td></tr></table>
+ <p class=note>Invoices open on the provider's site. Viewers with <code>can_view_billing</code> see this page read-only.</p></div>
+</div>
+</main></div></body></html>

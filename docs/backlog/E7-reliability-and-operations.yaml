@@ -1,20 +1,46 @@
 # Backlog as code. File with: scripts/backlog/file.py inkcasthq/inkcast (see docs/epics/README.md)
 id: E7
-title: Reliability and operations
+title: Reliability, observability and operations
 status: planned
-goal: Alerts, channel health, contract tests, webhooks.
+goal: Alerts and SLOs as code, channel health, contract tests, notifications, dashboards, traces, backups and DR, edge protection,
+  cost, and the metrics and KPI foundations (four layers).
 features:
 - id: F7.1
   title: Alert catalogue
   stories:
   - id: F7.1.S1
-    title: "catalogue \u2192 PrometheusRule and docs: overdue posts, scheduler stalled, unconfirmed rate, reauth needed"
+    title: 'catalogue → PrometheusRule and runbooks: 13 symptom alerts (overdue, stalled, unconfirmed, failure rate, 5xx,
+      gateway, outbox lag, cache, rate limits, restarts, volume), generator with --check, test-linked runbooks'
+    status: in-progress
+    change: 'refined; built in PR #8 (mark done when it merges)'
+  - id: F7.1.S2
+    title: 'Alerts: authz error rate, Keycloak/OpenFGA drift, billing webhook rejections and reconcile drift, licence expiring,
+      seat-sync failures'
     status: planned
+    change: new
+  - id: F7.1.S3
+    title: 'ServiceMonitor relabelings: inkcast.io/service → service label; monitoring ingress by namespace AND pod selector'
+    status: planned
+    change: new
+  - id: F7.1.S4
+    title: 'Log-based alerts from the EVENTS catalogue (Loki ruler): config.unsafe, secrets.fetch.failed, auth.login.refused
+      bursts; generated like the PrometheusRule'
+    status: planned
+    change: new
+  - id: F7.1.S5
+    title: promtool check rules + promtool test rules (one unit test per alert) in CI
+    status: planned
+    change: new
+  - id: F7.1.S6
+    title: Alertmanager routing example (severity → pager/channel, inhibit scheduler-stalled over overdue) in the openshift
+      overlay as an AlertmanagerConfig
+    status: planned
+    change: new
 - id: F7.2
   title: Channel health
   stories:
   - id: F7.2.S1
-    title: "healthy \u2192 degraded \u2192 reauth_required \u2192 revoked"
+    title: healthy → degraded → reauth_required → revoked
     status: planned
   - id: F7.2.S2
     title: Refresh lock and refresh-token merge
@@ -22,6 +48,11 @@ features:
   - id: F7.2.S3
     title: Posts-at-risk warning
     status: planned
+  - id: F7.2.S4
+    title: channel.state domain event + inkcast_channels{state} gauge; InkcastReauthNeeded alert; channel_health KPI (customer)
+      built
+    status: planned
+    change: new
 - id: F7.3
   title: Provider capability manifest and nightly contract tests
   stories:
@@ -32,14 +63,133 @@ features:
     title: Sandbox-account contract tests
     status: planned
 - id: F7.4
-  title: Outbound webhooks
+  title: Outbound notifications
   stories:
   - id: F7.4.S1
-    title: Post lifecycle events with SSRF-safe delivery
+    title: Post lifecycle webhooks (CloudEvents) with SSRF-safe delivery, as an outbox consumer 'webhooks'
     status: planned
+    change: refined
+  - id: F7.4.S2
+    title: 'Notifier seam (libs/notify): email via in-cluster SMTP relay (air-gapped), signed webhook, Slack/Teams webhook
+      URL; Redactor on every body'
+    status: planned
+    change: new
+  - id: F7.4.S3
+    title: 'Customer notifications: failed, unconfirmed, posts at risk (reauth), weekly digest from KPIs'
+    status: planned
+    change: new
 - id: F7.5
   title: Publish now through the queue
   stories:
   - id: F7.5.S1
     title: Enqueue with due=now; API waits briefly for the result
     status: planned
+- id: F7.6
+  title: Backups, DR and multi-region readiness
+  stories:
+  - id: F7.6.S1
+    title: Restore drill job and runbook (with E3 F3.1.S5)
+    status: planned
+    change: new
+  - id: F7.6.S2
+    title: Object storage replication and lifecycle for media (with E8)
+    status: planned
+    change: new
+  - id: F7.6.S3
+    title: 'Active/passive region: CloudNativePG replica cluster, scheduler active in one region, DNS failover; DR drill'
+    status: planned
+    change: new
+- id: F7.7
+  title: Dashboards to the /dashboard standard
+  stories:
+  - id: F7.7.S1
+    title: Platform health Grafana dashboard generated from libs/dashboards.py; sidecar ConfigMap component
+    status: in-progress
+    change: 'new; built in PR #8 (mark done when it merges)'
+  - id: F7.7.S2
+    title: Perses form via perses-dashboard; proven against the data source and in both themes (light captures committed);
+      screenshots to the owner
+    status: planned
+    change: new
+  - id: F7.7.S3
+    title: 'Backing-services board (PostgreSQL, Valkey, OpenFGA, Keycloak: USE) and the SLO board (error ratio 1h/6h/3d vs
+      budget)'
+    status: planned
+    change: new
+  - id: F7.7.S4
+    title: 'Local Grafana stack for testing dashboards: Prometheus and Grafana on Docker Compose and on kind (deploy/dev),
+      provisioned from the generated dashboard and rules, seeded with real traffic, every panel checked'
+    status: in-progress
+    change: 'new; built in PR #8 (mark done when it merges)'
+    acceptance:
+    - scripts/dev/stack.sh compose and scripts/dev/stack.sh kind each start Inkcast, fake DEV and Medium, Prometheus and Grafana
+      with one command
+    - Grafana is provisioned (data source, dashboard) from the generated files, light theme only, anonymous viewer, bound
+      to localhost, no calls home
+    - Prometheus loads the generated alert and SLO rules; the scrape labels (namespace, pod, service) match the cluster's,
+      so the same queries work in both
+    - kind manifests pass Pod Security restricted; the monitoring namespace carries the label the Inkcast NetworkPolicy admits
+    - The seed signs in like an MCP client and makes publishes, scheduled sends, a Git sync and refused requests
+    - 'The check runs every panel''s queries through Grafana: any query error fails; the core panels must have data; a light
+      screenshot and summary are uploaded'
+    - Both paths run in CI (a Compose job and kind steps); secrets are generated per run and never committed
+- id: F7.8
+  title: Traces and the OTLP exporter (replaces issue 27)
+  stories:
+  - id: F7.8.S1
+    title: 'Spans: request (middleware, request_id), platform call, scheduler tick, outbox pass; traceparent to platforms;
+      trace_id in logs'
+    status: planned
+    change: new
+  - id: F7.8.S2
+    title: 'MetricsExporter: OTLP from Metrics.snapshot() and histogram state; keep /metrics'
+    status: planned
+    change: new
+  - id: F7.8.S3
+    title: Collector in the overlays (OpenShift distributed tracing / Tempo); air-gapped images
+    status: planned
+    change: new
+- id: F7.9
+  title: Edge protection
+  stories:
+  - id: F7.9.S1
+    title: OpenShift Route rate-limit annotations and a Gateway API policy example; app limiter stays as backstop
+    status: planned
+    change: new
+- id: F7.10
+  title: Cost
+  stories:
+  - id: F7.10.S1
+    title: OpenCost namespace allocation by service label; infra_cost KPI built
+    status: planned
+    change: new
+- id: F7.11
+  title: Metrics, SLOs and KPIs (shipped foundations)
+  stories:
+  - id: F7.11.S1
+    title: Per-route RED histograms by route template, schedule lag and publish duration histograms, head-of-line lag, cache
+      and rate-limit counters
+    status: in-progress
+    change: 'new; built in PR #8 (mark done when it merges)'
+  - id: F7.11.S2
+    title: Four SLOs with multiwindow burn-rate alerts (api-availability, api-latency, publish-success, schedule-timeliness)
+    status: in-progress
+    change: 'new; built in PR #8 (mark done when it merges)'
+  - id: F7.11.S3
+    title: 'Error-budget policy: freeze risky deploys under 25% budget; reviewed quarterly'
+    status: planned
+    change: new
+  - id: F7.11.S4
+    title: Domain events + transactional outbox + OutboxPoller (at-least-once, idempotent sinks)
+    status: in-progress
+    change: 'new; built in PR #8 (mark done when it merges)'
+  - id: F7.11.S5
+    title: KPI catalogue as code, RollupEngine, KpiStore (SQLite), InsightsService with /api/v1/insights (insights:read);
+      e2e in both modes
+    status: in-progress
+    change: 'new; built in PR #8 (mark done when it merges)'
+  - id: F7.11.S6
+    title: 'KpiStore on ClickHouse behind the same seam, when hourly rows per scope outgrow SQL (trigger: p95 insights read
+      > 500 ms)'
+    status: planned
+    change: new

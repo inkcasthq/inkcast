@@ -1,6 +1,6 @@
 # ADR-0006: Identity on Keycloak, authorization in Inkcast
 
-**Status:** accepted, 2026-10-18 · **Epic:** E9
+**Status:** accepted, 2026-10-18; amended 2026-10-18 (authorization moves to OpenFGA, [ADR-0007](0007-openfga-authorization.md)) · **Epic:** E9
 
 ## Context
 The SaaS needs several things from identity:
@@ -35,6 +35,16 @@ Option 3.
 - personal access tokens and their scopes.
 
 Users are keyed `oidc:<issuer>#<sub>` and created on first login. Workspaces, workspace roles, plans and data live in Inkcast (E3, E5). Keycloak admin events (user disabled or deleted) are consumed so access is revoked everywhere.
+
+## Amendment: three owners
+
+| Concern | Owner |
+|---|---|
+| Authentication (who are you?) | **Keycloak**: login, MFA, OIDC tokens, Organizations |
+| Authorization on resources (can you do this to *this* thing?) | **OpenFGA** ([ADR-0007](0007-openfga-authorization.md), [design](../authorization.md)) |
+| Business state | **Inkcast DB**: approval status, plan and entitlements, quotas |
+
+The realm roles `inkcast-user` and `inkcast-admin` stay. They are platform-level only: "may use Inkcast at all" and "is a ScalarOps operator". Tenant roles (owner, admin, manager, editor, reviewer, publisher, billing admin, client reviewer) are OpenFGA relations, never realm roles or token claims. Inkcast IdentityService still owns MCP OAuth, consent and personal access tokens. A token's scopes can only narrow what OpenFGA allows.
 
 ## Consequences
 - **Running Keycloak:** Keycloak is a required backing service for the SaaS. CI runs a real Keycloak with the exported realm.

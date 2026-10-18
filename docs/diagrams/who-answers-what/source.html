@@ -1,0 +1,98 @@
+<!-- SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0 -->
+<!-- Copyright 2026 ScalarOps Technologies LLC. Started from the diagram-kit template (MIT-0),
+     https://github.com/ephico2real2/diagram-kit. Inkcast diagrams are light theme only: no dark tokens. -->
+<title>Who Answers What</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root {
+  color-scheme: light;
+  --ground: #f5f6f8; --surface: #ffffff; --ink: #18212c; --muted: #58636f; --rule: #d7dce3;
+  --host: #a55a0b; --host-wash: #fbf1e4; --remote: #0e6f68; --remote-wash: #e3f3f1;
+  --gap: #b3261e; --gap-wash: #fbe9e7; --none: #5f6a77; --none-wash: #eef0f3;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+* { box-sizing: border-box; }
+body { background: var(--ground); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.55; margin: 0; }
+.page { max-width: 1060px; margin: 0 auto; padding-inline: 16px; padding-block: 40px 72px; display: grid; gap: 44px; }
+header { display: grid; gap: 10px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font-size: clamp(26px, 4vw, 36px); line-height: 1.15; margin: 0; font-weight: 700; text-wrap: balance; }
+h2 { font-size: 20px; margin: 0 0 6px; font-weight: 600; text-wrap: balance; }
+p { margin: 0; max-width: 72ch; }
+.lede { font-size: 17px; max-width: 70ch; }
+code { font-family: var(--font-mono); font-size: .9em; }
+section { display: grid; gap: 14px; }
+figure { margin: 0; display: grid; gap: 10px; }
+.fig-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 12px; }
+.fig-scroll svg { display: block; width: 100%; min-width: 760px; height: auto; color: var(--ink); }
+figcaption { font-size: 13.5px; color: var(--muted); max-width: 80ch; }
+.tbl { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+th { font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); background: var(--ground); }
+tr:last-child td { border-bottom: 0; }
+a { color: var(--remote); }
+:focus-visible { outline: 2px solid var(--remote); outline-offset: 2px; }
+</style>
+
+<div class="page">
+  <header>
+    <div class="eyebrow">inkcast · design · 2026-10-18</div>
+    <h1>Who answers which question</h1>
+    <p class="lede">Three systems, three questions, no overlap. Keycloak says who you are, OpenFGA says whether you may act on this object, and the Inkcast database says whether the thing is allowed right now. Keeping them apart is what lets a junior change one without breaking the other two.</p>
+  </header>
+
+  <section>
+    <h2>One request, three owners</h2>
+    <figure>
+      <div class="fig-scroll">
+<svg viewBox="0 0 980 420" role="img" aria-label="Keycloak answers who you are; OpenFGA answers whether you may do this to this object; the Inkcast database holds business state such as approval status, plan and quotas.">
+<defs><marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+<g font-family="IBM Plex Sans, sans-serif" font-size="12.5" fill="currentColor">
+<rect x="340" y="14" width="300" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+<text x="490" y="37.5" text-anchor="middle" font-weight="600" fill="currentColor">Client</text>
+<text x="490" y="55.5" text-anchor="middle" fill="currentColor">web · mobile · MCP · CI · jobs</text>
+<path d="M490,70 L490,106" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#ah1)"/>
+<text x="498" y="93" text-anchor="start" fill="var(--muted)">bearer token (OAuth or personal access token)</text>
+<rect x="30" y="110" width="920" height="62" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+<text x="490" y="128.5" text-anchor="middle" font-weight="600" fill="currentColor">Inkcast service · one path: authz.require()</text>
+<text x="490" y="145.5" text-anchor="middle" fill="currentColor">① verify token   ② scope   ③ OpenFGA   ④ business state   ⑤ plan</text>
+<text x="490" y="162.5" text-anchor="middle" fill="var(--muted)">the same order for web, the public API, MCP tools and background jobs</text>
+<path d="M165,172 L165,236" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#ah1)"/>
+<text x="173" y="208" text-anchor="start" fill="var(--muted)">who is this? (JWKS)</text>
+<path d="M490,172 L490,236" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#ah1)"/>
+<text x="498" y="208" text-anchor="start" fill="var(--muted)">Check(user, relation, object)</text>
+<path d="M815,172 L815,236" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#ah1)"/>
+<text x="823" y="208" text-anchor="start" fill="var(--muted)">read state, scoped</text>
+<rect x="30" y="240" width="270" height="70" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="165" y="262.5" text-anchor="middle" font-weight="600" fill="var(--host)">Keycloak · who are you?</text>
+<text x="165" y="279.5" text-anchor="middle" fill="currentColor">login, MFA, tokens, Organizations</text>
+<text x="165" y="296.5" text-anchor="middle" fill="var(--muted)">E9 · proposed</text>
+<rect x="355" y="240" width="270" height="70" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="490" y="262.5" text-anchor="middle" font-weight="600" fill="var(--host)">OpenFGA · may you do this?</text>
+<text x="490" y="279.5" text-anchor="middle" fill="currentColor">relations on org, workspace, post</text>
+<text x="490" y="296.5" text-anchor="middle" fill="var(--muted)">E3 · proposed · error → 503</text>
+<rect x="680" y="240" width="270" height="70" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5"/>
+<text x="815" y="262.5" text-anchor="middle" font-weight="600" fill="var(--remote)">Inkcast DB · allowed right now?</text>
+<text x="815" y="279.5" text-anchor="middle" fill="currentColor">approval, paused channel, plan, quota</text>
+<text x="815" y="296.5" text-anchor="middle" fill="var(--muted)">SQLite today · Postgres in E3</text>
+<path d="M165,310 L165,330 L490,330 L490,314" fill="none" stroke="var(--muted)" stroke-width="1.3" stroke-dasharray="6 5" marker-end="url(#ah1)"/>
+<text x="180" y="348" text-anchor="start" fill="var(--muted)">membership sync → tuples · E9.F9.5 · proposed</text>
+<text x="30" y="384" text-anchor="start" fill="currentColor">Tokens carry identity and coarse scopes only: never plans, quotas or roles on resources.</text>
+<text x="30" y="404" text-anchor="start" fill="var(--host)" font-weight="600">Dashed = proposed: Keycloak (E9), OpenFGA (E3) and the sync. Solid = shipped. A dashed arrow is a relationship.</text>
+</g>
+</svg>
+      </div>
+      <figcaption>Keycloak answers who you are, OpenFGA whether you may act on this object, and the Inkcast database whether it is allowed now. The database is shipped (SQLite); Keycloak, OpenFGA and the sync are proposed.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Row by row</h2>
+<div class="tbl"><table><thead><tr><th>Question</th><th>Owner</th><th>Examples</th><th>Never</th></tr></thead><tbody><tr><td>Who are you?</td><td><strong>Keycloak</strong></td><td>login, MFA, OIDC tokens, Organizations (tenants)</td><td>resource permissions in a JWT</td></tr><tr><td>May you do this to <em>this</em> object?</td><td><strong>OpenFGA</strong></td><td>edit a post, approve, publish to a channel, manage billing</td><td>business state as tuples</td></tr><tr><td>Is it allowed right now?</td><td><strong>Inkcast DB</strong></td><td>post approved, channel paused, plan, entitlements, quota</td><td>a second policy engine</td></tr></tbody></table></div>
+    <p>Design: <a href="../../authorization.md">docs/authorization.md</a> · ADR-0006, ADR-0007, ADR-0008.</p>
+  </section>
+</div>

@@ -1,0 +1,124 @@
+<!-- SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0 -->
+<!-- Copyright 2026 ScalarOps Technologies LLC. Started from the diagram-kit template (MIT-0),
+     https://github.com/ephico2real2/diagram-kit. Inkcast diagrams are light theme only: no dark tokens. -->
+<title>One Check Path</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root {
+  color-scheme: light;
+  --ground: #f5f6f8; --surface: #ffffff; --ink: #18212c; --muted: #58636f; --rule: #d7dce3;
+  --host: #a55a0b; --host-wash: #fbf1e4; --remote: #0e6f68; --remote-wash: #e3f3f1;
+  --gap: #b3261e; --gap-wash: #fbe9e7; --none: #5f6a77; --none-wash: #eef0f3;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+* { box-sizing: border-box; }
+body { background: var(--ground); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.55; margin: 0; }
+.page { max-width: 1060px; margin: 0 auto; padding-inline: 16px; padding-block: 40px 72px; display: grid; gap: 44px; }
+header { display: grid; gap: 10px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font-size: clamp(26px, 4vw, 36px); line-height: 1.15; margin: 0; font-weight: 700; text-wrap: balance; }
+h2 { font-size: 20px; margin: 0 0 6px; font-weight: 600; text-wrap: balance; }
+p { margin: 0; max-width: 72ch; }
+.lede { font-size: 17px; max-width: 70ch; }
+code { font-family: var(--font-mono); font-size: .9em; }
+section { display: grid; gap: 14px; }
+figure { margin: 0; display: grid; gap: 10px; }
+.fig-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 12px; }
+.fig-scroll svg { display: block; width: 100%; min-width: 760px; height: auto; color: var(--ink); }
+figcaption { font-size: 13.5px; color: var(--muted); max-width: 80ch; }
+.tbl { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+th { font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); background: var(--ground); }
+tr:last-child td { border-bottom: 0; }
+a { color: var(--remote); }
+:focus-visible { outline: 2px solid var(--remote); outline-offset: 2px; }
+</style>
+
+<div class="page">
+  <header>
+    <div class="eyebrow">inkcast · design · 2026-10-18</div>
+    <h1>One check path for every request</h1>
+    <p class="lede">Web, the public API, MCP tools, the scheduler and Git sync all pass the same five gates in the same order. Each gate has one owner and one refusal code, so an error tells the caller exactly what to fix.</p>
+  </header>
+
+  <section>
+    <h2>Five gates, first refusal wins</h2>
+    <figure>
+      <div class="fig-scroll">
+<svg viewBox="0 0 980 345" role="img" aria-label="One check path: token, scope, OpenFGA, business state, plan; refusals are 401, 403, 403 or 503, 409 and 402.">
+<defs><marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+<g font-family="IBM Plex Sans, sans-serif" font-size="12.5" fill="currentColor">
+<text x="20" y="36" text-anchor="start" fill="var(--muted)">every client and job, in this order; the first refusal wins</text>
+<rect x="20" y="56" width="150" height="72" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5"/>
+<text x="95" y="79.5" text-anchor="middle" font-weight="600" fill="var(--remote)">① token</text>
+<text x="95" y="96.5" text-anchor="middle" fill="currentColor">OAuth or PAT valid</text>
+<text x="95" y="113.5" text-anchor="middle" fill="var(--muted)">shipped · E2</text>
+<path d="M170,92 L184,92" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#ah2)"/>
+<path d="M95,128 L95,182" fill="none" stroke="var(--gap)" stroke-width="1.3" marker-end="url(#ah2)"/>
+<text x="102" y="160" text-anchor="start" fill="var(--gap)">no</text>
+<rect x="20" y="186" width="150" height="56" rx="8" fill="var(--gap-wash)" stroke="var(--gap)" stroke-width="1.5"/>
+<text x="95" y="209.5" text-anchor="middle" font-weight="600" fill="var(--gap)">401</text>
+<text x="95" y="227.5" text-anchor="middle" fill="currentColor">invalid_token</text>
+<rect x="188" y="56" width="150" height="72" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5"/>
+<text x="263" y="79.5" text-anchor="middle" font-weight="600" fill="var(--remote)">② scope</text>
+<text x="263" y="96.5" text-anchor="middle" fill="currentColor">scope on the token</text>
+<text x="263" y="113.5" text-anchor="middle" fill="var(--muted)">shipped · E2</text>
+<path d="M338,92 L352,92" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#ah2)"/>
+<path d="M263,128 L263,182" fill="none" stroke="var(--gap)" stroke-width="1.3" marker-end="url(#ah2)"/>
+<text x="270" y="160" text-anchor="start" fill="var(--gap)">no</text>
+<rect x="188" y="186" width="150" height="56" rx="8" fill="var(--gap-wash)" stroke="var(--gap)" stroke-width="1.5"/>
+<text x="263" y="209.5" text-anchor="middle" font-weight="600" fill="var(--gap)">403</text>
+<text x="263" y="227.5" text-anchor="middle" fill="currentColor">insufficient_scope</text>
+<rect x="356" y="56" width="150" height="72" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="431" y="79.5" text-anchor="middle" font-weight="600" fill="var(--host)">③ OpenFGA</text>
+<text x="431" y="96.5" text-anchor="middle" fill="currentColor">relation on object</text>
+<text x="431" y="113.5" text-anchor="middle" fill="var(--muted)">proposed · E3</text>
+<path d="M506,92 L520,92" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#ah2)"/>
+<path d="M431,128 L431,182" fill="none" stroke="var(--gap)" stroke-width="1.3" marker-end="url(#ah2)"/>
+<text x="438" y="160" text-anchor="start" fill="var(--gap)">no</text>
+<rect x="356" y="186" width="150" height="56" rx="8" fill="var(--gap-wash)" stroke="var(--gap)" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="431" y="209.5" text-anchor="middle" font-weight="600" fill="var(--gap)">403 forbidden</text>
+<text x="431" y="227.5" text-anchor="middle" fill="currentColor">503 if it errors</text>
+<rect x="524" y="56" width="150" height="72" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="599" y="79.5" text-anchor="middle" font-weight="600" fill="var(--host)">④ business state</text>
+<text x="599" y="96.5" text-anchor="middle" fill="currentColor">approved? paused?</text>
+<text x="599" y="113.5" text-anchor="middle" fill="var(--muted)">proposed · E3, E4</text>
+<path d="M674,92 L688,92" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#ah2)"/>
+<path d="M599,128 L599,182" fill="none" stroke="var(--gap)" stroke-width="1.3" marker-end="url(#ah2)"/>
+<text x="606" y="160" text-anchor="start" fill="var(--gap)">no</text>
+<rect x="524" y="186" width="150" height="56" rx="8" fill="var(--gap-wash)" stroke="var(--gap)" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="599" y="209.5" text-anchor="middle" font-weight="600" fill="var(--gap)">409</text>
+<text x="599" y="227.5" text-anchor="middle" fill="currentColor">state_conflict</text>
+<rect x="692" y="56" width="150" height="72" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="767" y="79.5" text-anchor="middle" font-weight="600" fill="var(--host)">⑤ plan</text>
+<text x="767" y="96.5" text-anchor="middle" fill="currentColor">entitlement, quota</text>
+<text x="767" y="113.5" text-anchor="middle" fill="var(--muted)">proposed · E5</text>
+<path d="M767,128 L767,182" fill="none" stroke="var(--gap)" stroke-width="1.3" marker-end="url(#ah2)"/>
+<text x="774" y="160" text-anchor="start" fill="var(--gap)">no</text>
+<rect x="692" y="186" width="150" height="56" rx="8" fill="var(--gap-wash)" stroke="var(--gap)" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="767" y="209.5" text-anchor="middle" font-weight="600" fill="var(--gap)">402</text>
+<text x="767" y="227.5" text-anchor="middle" fill="currentColor">plan_required</text>
+<path d="M842,92 L856,92" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#ah2)"/>
+<rect x="860" y="56" width="100" height="72" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5"/>
+<text x="910" y="79.5" text-anchor="middle" font-weight="600" fill="var(--remote)">200</text>
+<text x="910" y="96.5" text-anchor="middle" fill="currentColor">act and log</text>
+<text x="910" y="113.5" text-anchor="middle" fill="var(--muted)">audited</text>
+<text x="20" y="282" text-anchor="start" fill="currentColor">Authorization first, so a caller without access learns nothing about state or plan.</text>
+<text x="20" y="302" text-anchor="start" fill="currentColor">Plan last, so only someone who could otherwise act sees an upgrade prompt (402 with upgrade_url or who to ask).</text>
+<text x="20" y="330" text-anchor="start" fill="var(--host)" font-weight="600">Dashed = proposed: OpenFGA (E3), state checks (E3, E4), plan (E5). The scheduler and Git sync repeat ③ at send time.</text>
+</g>
+</svg>
+      </div>
+      <figcaption>Every request passes token, scope, OpenFGA, business state and plan in that order. Token and scope are shipped (E2); the other three gates are proposed. An OpenFGA error fails closed with 503.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Refusals</h2>
+<div class="tbl"><table><thead><tr><th>Gate</th><th>Code</th><th>Problem type</th><th>Who fixes it</th></tr></thead><tbody><tr><td>① token</td><td>401</td><td><code>invalid_token</code></td><td>sign in again or create a new token</td></tr><tr><td>② scope</td><td>403</td><td><code>insufficient_scope</code></td><td>a token with the right scope</td></tr><tr><td>③ OpenFGA</td><td>403 / 503</td><td><code>forbidden</code> / <code>authz_unavailable</code></td><td>a manager grants access / retry; nothing changed</td></tr><tr><td>④ business state</td><td>409</td><td><code>state_conflict</code>, <code>channel_paused</code></td><td>approve the post, resume the channel</td></tr><tr><td>⑤ plan</td><td>402</td><td><code>plan_required</code>, <code>quota_exceeded</code></td><td>the owner upgrades (<code>upgrade_url</code>), or a member asks them</td></tr></tbody></table></div>
+  </section>
+</div>

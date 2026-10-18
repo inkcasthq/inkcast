@@ -1,0 +1,72 @@
+model
+  schema 1.1
+
+# Inkcast authorization model (OpenFGA). Design and rules: docs/authorization.md.
+# Relationships only; business state (approval status, plan, quotas, channel paused) lives in the DB.
+# Every change is a new model version, tested by model.fga.yaml (fga model test) in CI.
+
+type user
+
+type organization
+  relations
+    define owner: [user]
+    define admin: [user] or owner
+    define member: [user] or admin
+    define billing_admin: [user]
+    define can_manage_billing: owner or billing_admin
+    define can_view_billing: can_manage_billing or admin
+    define can_manage_members: admin
+    define can_manage_security: admin
+    define can_view_audit: admin
+    define can_create_workspace: admin
+    define can_manage_custom_roles: admin
+
+# Enterprise custom roles: a role is data (role:x#assignee granted through role_* relations on a workspace or
+# channel), never a model change. A role belongs to one organization (org) and only works inside it.
+type role
+  relations
+    define org: [organization]
+    define assignee: [user, organization#member]
+
+type workspace
+  relations
+    define org: [organization]
+    define org_member: member from org
+    # Custom-role grants are their own relations and count only for members of THIS workspace's organization,
+    # so a role from another organization written here by mistake grants nothing. (The API also refuses to write
+    # a role grant whose role.org isn't the workspace's org: E3.F3.8.S2.)
+    define role_manager: [role#assignee]
+    define role_editor: [role#assignee]
+    define role_reviewer: [role#assignee]
+    define role_viewer: [role#assignee]
+    define manager: [user] or (role_manager and org_member) or admin from org
+    define editor: [user, organization#member] or (role_editor and org_member) or manager
+    define reviewer: [user] or (role_reviewer and org_member) or manager
+    define viewer: [user] or (role_viewer and org_member) or editor or reviewer
+    # Agency clients: sees and decides only posts in the client-review stage (stage is DB state). Not a viewer.
+    define client_reviewer: [user]
+    define can_manage_members: manager
+    define can_manage_channels: manager
+    define can_create_post: editor
+    define can_create_token: viewer
+    define can_manage_workspace_tokens: manager
+    define can_view_usage: manager or can_view_billing from org
+
+type channel
+  relations
+    define workspace: [workspace]
+    # As on the workspace: a custom-role grant counts only for members of the channel's own organization.
+    define role_publisher: [role#assignee]
+    define publisher: [user] or (role_publisher and org_member from workspace) or manager from workspace
+    # Publishing needs the grant AND current access to the workspace (a direct grant to an outsider is not enough).
+    define can_publish: publisher and viewer from workspace
+
+type post
+  relations
+    define workspace: [workspace]
+    define author: [user]
+    # An author keeps edit rights only while they still have access to the workspace.
+    define can_edit: editor from workspace or (author and viewer from workspace)
+    define can_approve: reviewer from workspace
+    define can_view: can_edit or viewer from workspace
+    define can_client_review: client_reviewer from workspace

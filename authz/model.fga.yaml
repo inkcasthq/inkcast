@@ -1,0 +1,181 @@
+# Model tests: run with `fga model test --tests authz/model.fga.yaml` (CI job "authz").
+# The owner's five scenarios first, then isolation, tier and agency cases.
+name: inkcast-authz
+model_file: ./model.fga
+
+tuples:
+  # Acme: alice owns it, bob is a plain member, dave reviews the blog, frank pays the bills.
+  - {user: "user:alice", relation: owner, object: "organization:acme"}
+  - {user: "user:bob", relation: member, object: "organization:acme"}
+  - {user: "user:dave", relation: reviewer, object: "workspace:acme-blog"}
+  - {user: "user:frank", relation: billing_admin, object: "organization:acme"}
+  - {user: "user:joe", relation: admin, object: "organization:acme"}
+  - {user: "organization:acme", relation: org, object: "workspace:acme-blog"}
+  - {user: "workspace:acme-blog", relation: workspace, object: "channel:acme-x"}
+  - {user: "workspace:acme-blog", relation: workspace, object: "post:post-1"}
+  # Agency X: carol is staff; the whole agency team edits Acme's blog (one tuple).
+  - {user: "user:carol", relation: member, object: "organization:agency-x"}
+  - {user: "organization:agency-x#member", relation: editor, object: "workspace:acme-blog"}
+  # Agency Y has staff but no grant.
+  - {user: "user:yuri", relation: member, object: "organization:agency-y"}
+  # erin wrote post-1 but has since been removed from the workspace (only her author tuple remains).
+  - {user: "user:erin", relation: author, object: "post:post-1"}
+  # mallory was granted publisher on the channel directly but has no workspace access.
+  - {user: "user:mallory", relation: publisher, object: "channel:acme-x"}
+  # gina is an Acme client reviewer.
+  - {user: "user:gina", relation: client_reviewer, object: "workspace:acme-blog"}
+  # Globex: another tenant with its own workspace and post.
+  - {user: "user:hank", relation: owner, object: "organization:globex"}
+  - {user: "organization:globex", relation: org, object: "workspace:globex-news"}
+  - {user: "workspace:globex-news", relation: workspace, object: "post:post-9"}
+  # Enterprise custom role "copy-editor" in Acme, assigned to ivan (Acme staff), granted editor on the blog.
+  - {user: "user:ivan", relation: member, object: "organization:acme"}
+  - {user: "organization:acme", relation: org, object: "role:acme-copy-editor"}
+  - {user: "user:ivan", relation: assignee, object: "role:acme-copy-editor"}
+  - {user: "role:acme-copy-editor#assignee", relation: role_editor, object: "workspace:acme-blog"}
+  # Globex's custom role, wrongly granted on Acme's workspace and channel (a bad write the API should refuse).
+  - {user: "user:quinn", relation: member, object: "organization:globex"}
+  - {user: "organization:globex", relation: org, object: "role:globex-ghost"}
+  - {user: "user:quinn", relation: assignee, object: "role:globex-ghost"}
+  - {user: "organization:globex#member", relation: assignee, object: "role:globex-ghost"}
+  - {user: "role:globex-ghost#assignee", relation: role_manager, object: "workspace:acme-blog"}
+  - {user: "role:globex-ghost#assignee", relation: role_editor, object: "workspace:acme-blog"}
+  - {user: "role:globex-ghost#assignee", relation: role_viewer, object: "workspace:acme-blog"}
+  - {user: "role:globex-ghost#assignee", relation: role_publisher, object: "channel:acme-x"}
+
+tests:
+  # ---- the owner's scenarios ----------------------------------------------------------------
+  - name: org owner can edit and publish
+    check:
+      - user: "user:alice"
+        object: "channel:acme-x"
+        assertions: {can_publish: true}
+      - user: "user:alice"
+        object: "post:post-1"
+        assertions: {can_edit: true, can_approve: true}
+
+  - name: plain org member has no workspace access
+    check:
+      - user: "user:bob"
+        object: "post:post-1"
+        assertions: {can_view: false, can_edit: false}
+
+  - name: agency editor can edit but not publish
+    check:
+      - user: "user:carol"
+        object: "post:post-1"
+        assertions: {can_edit: true}
+      - user: "user:carol"
+        object: "channel:acme-x"
+        assertions: {can_publish: false}
+
+  - name: reviewer can approve but not edit
+    check:
+      - user: "user:dave"
+        object: "post:post-1"
+        assertions: {can_approve: true, can_edit: false, can_view: true}
+
+  - name: list posts a user can view
+    list_objects:
+      - user: "user:carol"
+        type: post
+        assertions:
+          can_view: ["post:post-1"]
+
+  # ---- isolation ------------------------------------------------------------------------------
+  - name: a removed author can no longer edit or view their old post
+    check:
+      - user: "user:erin"
+        object: "post:post-1"
+        assertions: {can_edit: false, can_view: false}
+
+  - name: a direct publisher grant without workspace access cannot publish
+    check:
+      - user: "user:mallory"
+        object: "channel:acme-x"
+        assertions: {can_publish: false}
+
+  - name: an agency without a grant sees nothing
+    check:
+      - user: "user:yuri"
+        object: "post:post-1"
+        assertions: {can_view: false, can_edit: false}
+
+  - name: tenants never list each other's posts
+    list_objects:
+      - user: "user:hank"
+        type: post
+        assertions:
+          can_view: ["post:post-9"]
+      - user: "user:alice"
+        type: post
+        assertions:
+          can_view: ["post:post-1"]
+
+  # ---- tiers and teams ------------------------------------------------------------------------
+  - name: billing admin manages billing but cannot touch content or members
+    check:
+      - user: "user:frank"
+        object: "organization:acme"
+        assertions: {can_manage_billing: true, can_view_billing: true, can_manage_members: false}
+      - user: "user:frank"
+        object: "post:post-1"
+        assertions: {can_view: false}
+      - user: "user:frank"
+        object: "workspace:acme-blog"
+        assertions: {can_view_usage: true}
+
+  - name: owner manages billing and members; admins see billing but do not manage it
+    check:
+      - user: "user:alice"
+        object: "organization:acme"
+        assertions: {can_manage_billing: true, can_manage_members: true, can_view_audit: true}
+      - user: "user:joe"
+        object: "organization:acme"
+        assertions: {can_view_billing: true, can_manage_billing: false, can_manage_members: true}
+
+  - name: only managers manage workspace members and channels
+    check:
+      - user: "user:alice"
+        object: "workspace:acme-blog"
+        assertions: {can_manage_members: true, can_manage_channels: true}
+      - user: "user:carol"
+        object: "workspace:acme-blog"
+        assertions: {can_manage_members: false, can_create_post: true}
+      - user: "user:dave"
+        object: "workspace:acme-blog"
+        assertions: {can_create_post: false, can_create_token: true}
+
+  - name: client reviewer decides client-stage posts but is not a viewer
+    check:
+      - user: "user:gina"
+        object: "post:post-1"
+        assertions: {can_client_review: true, can_view: false, can_edit: false, can_approve: false}
+
+  - name: a custom role grants exactly what it is given
+    check:
+      - user: "user:ivan"
+        object: "post:post-1"
+        assertions: {can_edit: true, can_approve: false}
+      - user: "user:ivan"
+        object: "channel:acme-x"
+        assertions: {can_publish: false}
+
+  - name: a custom role from another organization grants nothing, even when wrongly written
+    check:
+      - user: "user:quinn"
+        object: "workspace:acme-blog"
+        assertions: {manager: false, editor: false, viewer: false, can_manage_members: false, can_create_post: false}
+      - user: "user:quinn"
+        object: "post:post-1"
+        assertions: {can_edit: false, can_view: false}
+      - user: "user:quinn"
+        object: "channel:acme-x"
+        assertions: {publisher: false, can_publish: false}
+      - user: "user:hank"
+        object: "workspace:acme-blog"
+        assertions: {editor: false, viewer: false}
+    list_objects:
+      - user: "user:quinn"
+        type: post
+        assertions: {can_view: []}
