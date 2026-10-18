@@ -63,15 +63,24 @@ def build_routes(service: InkcastService, sync: GitSync, authed: Authed, public_
         req = SyncRequest.model_validate(body)
         key = request.headers.get("idempotency-key", "").strip()[:200]
         fingerprint = hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
-        if key and not req.dry_run:
-            seen = sync.store.idempotent_response(who.user_id, key)
-            if seen:
-                if seen[0] != fingerprint:
-                    raise ApiError(422, "idempotency_key_reused", "This Idempotency-Key was used for a different request.")
-                return JSONResponse(json.loads(seen[1]), headers={"Cache-Control": "no-store", "Idempotent-Replayed": "true"})
-        result = await sync.sync(who.user_id, req)
-        if key and not req.dry_run:
-            sync.store.save_idempotent_response(who.user_id, key, fingerprint, json.dumps(dump(result)))
+        if not key or req.dry_run:
+            return await sync.sync(who.user_id, req)
+        # Reserve the key before running, so two identical requests can't both run and race to save a response.
+        held = sync.store.reserve_idempotency_key(who.user_id, key, fingerprint)
+        if held:
+            request_hash, response = held
+            if request_hash != fingerprint:
+                raise ApiError(422, "idempotency_key_reused", "This Idempotency-Key was used for a different request.")
+            if not response:
+                raise ApiError(409, "idempotency_key_in_use", "A request with this Idempotency-Key is still running. "
+                               "Retry in a few seconds to get its result.")
+            return JSONResponse(json.loads(response), headers={"Cache-Control": "no-store", "Idempotent-Replayed": "true"})
+        try:
+            result = await sync.sync(who.user_id, req)
+        except BaseException:
+            sync.store.release_idempotency_key(who.user_id, key)
+            raise
+        sync.store.complete_idempotency_key(who.user_id, key, json.dumps(dump(result)))
         return result
 
     async def ledger(request: Request, who: Principal):

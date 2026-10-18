@@ -4,7 +4,9 @@ Runs against the single-process server and again against split services behind t
 
 import asyncio
 import contextlib
+import hashlib
 import io
+import json
 import os
 import pathlib
 import re
@@ -135,6 +137,31 @@ class GitPublishing(Harness):
         self.assertEqual(replay.headers.get("idempotent-replayed"), "true")
         other = self.call("POST", "/api/v1/stories:sync", json={**body, "ref": "x"}, headers={"Idempotency-Key": "k1"})
         self.assertEqual(other.status_code, 422)
+
+    def test_idempotency_key_is_reserved_before_the_sync_runs(self):
+        """Two identical requests at once: the second must not run the sync too, or save a different answer."""
+        body = {"source": self.id(), "files": [{"path": "r.md", "markdown": story("Reserved", platforms="[devto]")}]}
+        store = self.app.store
+        user_id = store._one("SELECT user_id FROM api_tokens WHERE id = ?", self.pat["id"])["user_id"]
+        before = len(self.fakes.devto_articles)
+        # The first request holds the key and is still running.
+        self.assertIsNone(store.reserve_idempotency_key(user_id, "k-race", "someone-else-running"))
+        busy = self.call("POST", "/api/v1/stories:sync", json=body, headers={"Idempotency-Key": "k-race"})
+        self.assertEqual(busy.status_code, 422)                       # a different request under the same key
+        store.release_idempotency_key(user_id, "k-race")
+        # Now the real first request: reserve it as the server would, and a twin arrives meanwhile.
+        fingerprint = hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
+        self.assertIsNone(store.reserve_idempotency_key(user_id, "k-race", fingerprint))
+        twin = self.call("POST", "/api/v1/stories:sync", json=body, headers={"Idempotency-Key": "k-race"})
+        self.assertEqual((twin.status_code, twin.json()["error"]), (409, "idempotency_key_in_use"))
+        self.assertEqual(len(self.fakes.devto_articles), before)      # the twin ran nothing
+        store.release_idempotency_key(user_id, "k-race")              # the first one failed: the key is free again
+        first = self.call("POST", "/api/v1/stories:sync", json=body, headers={"Idempotency-Key": "k-race"})
+        replay = self.call("POST", "/api/v1/stories:sync", json=body, headers={"Idempotency-Key": "k-race"})
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(first.json(), replay.json())                 # "create", never the twin's "skipped"
+        self.assertEqual(first.json()["results"][0]["action"], "create")
+        self.assertEqual(len(self.fakes.devto_articles), before + 1)
 
     def test_unconfirmed_publish_is_checked_before_anything_is_retried(self):
         before = len(self.fakes.devto_articles)
