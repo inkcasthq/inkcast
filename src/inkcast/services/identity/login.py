@@ -28,8 +28,8 @@ import httpx2
 from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
 
-from ..config import Config
-from . import pages
+from ...libs.config import Config
+from ...libs.http import pages
 
 
 class LoginError(Exception):

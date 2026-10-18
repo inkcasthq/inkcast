@@ -136,12 +136,31 @@ jobs:
           curl -sf localhost:8787/api | grep -q swagger-ui-bundle.js
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:8787/mcp -H 'Accept: application/json, text/event-stream' -d '{}')" = 401
           curl -sf localhost:8787/.well-known/oauth-authorization-server | grep -q registration_endpoint
+      - name: Deploy the split services (one Deployment per INKCAST_APP_NAME, built-in Gateway in front)
+        run: |
+          kubectl apply -k deploy/kustomize/overlays/ci-split
+          for d in $(kubectl -n inkcast-split get deploy -o name); do
+            kubectl -n inkcast-split rollout status "$d" --timeout=180s
+          done
+      - name: Smoke test the split services through the Gateway
+        run: |
+          set -euo pipefail
+          kubectl -n inkcast-split port-forward svc/inkcast 8788:8787 >/dev/null 2>&1 &
+          for i in $(seq 1 30); do curl -sf localhost:8788/livez && break; sleep 1; done
+          curl -sf localhost:8788/api/openapi.json | python3 -c 'import json,sys; assert "/api/v1/stories:sync" in json.load(sys.stdin)["paths"]'
+          curl -sf localhost:8788/.well-known/oauth-authorization-server | grep -q registration_endpoint
+          curl -sf localhost:8788/.well-known/oauth-protected-resource/mcp | grep -q authorization_servers
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:8788/mcp -H 'Accept: application/json, text/event-stream' -d '{}')" = 401
+          test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8788/connect/expired)" = 400
+          test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8788/api/v1/tokens)" = 401
       - name: Diagnostics
         if: failure()
         run: |
-          kubectl -n inkcast get all,events
-          kubectl -n inkcast describe pod
-          kubectl -n inkcast logs deploy/inkcast --tail=200
+          for ns in inkcast inkcast-split; do
+            kubectl -n $ns get all,events || true
+            kubectl -n $ns describe pod || true
+            for d in $(kubectl -n $ns get deploy -o name); do kubectl -n $ns logs "$d" --tail=100 || true; done
+          done
 
   codeql:
     if: (vars.CODE_SECURITY == 'true' || github.event.repository.visibility == 'public')   # needs GitHub Code Security on private repos

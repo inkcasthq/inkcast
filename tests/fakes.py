@@ -30,6 +30,7 @@ class Fakes:
         self.medium_posts: list[tuple[str, dict]] = []
         self.devto_articles: list[dict] = []
         self.devto_fail_next: int | None = None  # e.g. 429 to simulate rate limiting
+        self.devto_updates: list[tuple[int, dict]] = []  # (article id, article) for every PUT
 
     # ---- Keycloak-style OIDC ------------------------------------------------
 
@@ -133,6 +134,24 @@ class Fakes:
         return JSONResponse({"id": 1000 + n, "url": f"https://dev.to/ada/article-{n}", "published": article["published"]},
                             status_code=201)
 
+    async def devto_update(self, request: Request):
+        if not self._devto_ok(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        n = int(request.path_params["aid"]) - 1000
+        if not 1 <= n <= len(self.devto_articles):
+            return JSONResponse({"error": "not found", "status": 404}, status_code=404)
+        article = (await request.json())["article"]
+        self.devto_articles[n - 1] = article
+        self.devto_updates.append((1000 + n, article))
+        return JSONResponse({"id": 1000 + n, "url": f"https://dev.to/ada/article-{n}", "published": article["published"]})
+
+    async def devto_mine(self, request: Request):
+        if not self._devto_ok(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        return JSONResponse([{"id": 1000 + i, "title": a["title"], "canonical_url": a.get("canonical_url"),
+                              "url": f"https://dev.to/ada/article-{i}", "published": a["published"]}
+                             for i, a in enumerate(self.devto_articles, 1)])
+
     def app(self) -> Starlette:
         kc = "/kc/realms/inkcast"
         return Starlette(routes=[
@@ -148,4 +167,6 @@ class Fakes:
             Route("/devto/api/users/me", self.devto_me),
             Route("/devto/api/organizations/{org}", self.devto_org),
             Route("/devto/api/articles", self.devto_create, methods=["POST"]),
+            Route("/devto/api/articles/me/all", self.devto_mine),
+            Route("/devto/api/articles/{aid:int}", self.devto_update, methods=["PUT"]),
         ])

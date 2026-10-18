@@ -1,0 +1,41 @@
+# Used only by CI (kind): the CI overlay, but with one Deployment per service (split-services) and the
+# built-in Gateway in front. Proves the services start on their own from the one image, pass Pod
+# Security "restricted", and serve the public paths through the Gateway.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: inkcast-split
+resources:
+  - namespace.yaml
+  - ../../base
+components:
+  - ../../components/split-services
+secretGenerator:
+  - name: inkcast-secrets
+    options: {disableNameSuffixHash: true}
+    literals:
+      - secret-key=ci-only-not-a-secret-ci-only-not-a-secret-0123456789
+      - oidc-client-secret=unused
+      - password=ci-only-password-123
+configMapGenerator:
+  - name: inkcast-config
+    behavior: merge
+    literals:
+      - INKCAST_PUBLIC_URL=http://localhost:8787
+      - INKCAST_LOGIN=password
+      - INKCAST_PASSWORD_FILE=/var/run/secrets/inkcast/password
+images:
+  - name: ghcr.io/inkcasthq/inkcast
+    newName: inkcast
+    newTag: ci
+patches:
+  - target: {kind: Deployment}
+    patch: |-
+      - op: add
+        path: /spec/template/spec/securityContext/runAsUser
+        value: 1001
+      - op: add
+        path: /spec/template/spec/securityContext/fsGroup
+        value: 1001
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never
