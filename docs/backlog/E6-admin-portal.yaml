@@ -31,6 +31,11 @@ features:
   - id: F6.3.S2
     title: Scheduler heartbeat and channel health overview
     status: planned
+  - id: F6.3.S3
+    title: Unconfirmed-post resolution UI (record as published / re-queue), audited; backs the InkcastUnconfirmedPublishes
+      runbook
+    status: planned
+    change: new
 - id: F6.4
   title: Audit and overrides
   stories:
@@ -42,11 +47,33 @@ features:
       no impersonation)
     status: planned
     change: refined
+    acceptance:
+    - Feature flags are rows read through libs/entitlements snapshots (never env in production), toggled here and audited
   - id: F6.4.S3
     title: Read-only view of a user's effective access (OpenFGA expand)
     status: planned
     change: new
   - id: F6.4.S4
     title: Licence register view (issued self-host licences, metadata only)
+    status: planned
+    change: new
+- id: F6.5
+  title: Owner and operator KPIs
+  stories:
+  - id: F6.5.S1
+    title: 'Operator API /admin/v1/insights (inkcast-admin): platform-scope rollups (publish success, unconfirmed rate per
+      platform), active_publishers, outbox and consumer lag'
+    status: planned
+    change: new
+  - id: F6.5.S2
+    title: 'Growth: signups and activation_rate from user.created (E9) joined with post.published'
+    status: planned
+    change: new
+  - id: F6.5.S3
+    title: 'Revenue: mrr, arr, churn, NRR, ARPA from SubscriptionService daily snapshots (E5); credits_spent'
+    status: planned
+    change: new
+  - id: F6.5.S4
+    title: 'Mockup then build: the owner''s business board (light theme), reading /admin/v1/insights'
     status: planned
     change: new

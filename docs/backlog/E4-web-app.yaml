@@ -95,3 +95,29 @@ features:
     title: 'Build: reviewers approve (can_approve); approval status in the DB; plan-gated depth (E5)'
     status: planned
     change: new
+  - id: F4.9.S3
+    title: post.approval_requested / post.approved events; approval_cycle_seconds and member_approval_latency KPIs built
+    status: planned
+    change: new
+- id: F4.10
+  title: Insights pages (customer and team KPIs)
+  stories:
+  - id: F4.10.S1
+    title: 'Mockup: workspace insights (posts by status stacked, success and on-time rates with their parts, Git sync table,
+      usage vs plan); light theme'
+    status: planned
+    change: new
+  - id: F4.10.S2
+    title: Build on /api/v1/insights with ?scope=workspace:<id>; charts follow the chart grammar (counts from zero, rates
+      show parts, colour carries one thing)
+    status: planned
+    change: new
+  - id: F4.10.S3
+    title: 'Mockup + build: team view (per-member throughput, reviewer load, approval cycle time) shown only with can_view_usage;
+      viewers see totals; former members labelled'
+    status: planned
+    change: new
+  - id: F4.10.S4
+    title: 'Engagement from platform APIs (with E8): engagement.sampled events → KPI'
+    status: planned
+    change: new
