@@ -16,13 +16,14 @@ from pydantic.json_schema import models_json_schema
 from ... import __version__
 from ..auth import SCOPE, SCOPES
 from .models import (
-    ConnectLink, DestinationInfo, ErrorBody, LedgerEntry, Me, PlatformInfo, PostInfo, PublishRequest, PublishResponse,
-    SyncRequest, SyncResponse, TokenCreate, TokenCreated, TokenInfo,
+    ConnectLink, DestinationInfo, ErrorBody, InsightsSummary, KpiPoint, KpiSeries, LedgerEntry, Me, PlatformInfo, PostInfo,
+    PublishRequest, PublishResponse, RateSummary, SyncRequest, SyncResponse, TokenCreate, TokenCreated, TokenInfo,
 )
 
 REQUEST_MODELS = (PublishRequest, SyncRequest, TokenCreate)
 MODELS = (ErrorBody, Me, PlatformInfo, ConnectLink, DestinationInfo, PublishRequest, PublishResponse, PostInfo,
-          TokenCreate, TokenInfo, TokenCreated, SyncRequest, SyncResponse, LedgerEntry)
+          TokenCreate, TokenInfo, TokenCreated, SyncRequest, SyncResponse, LedgerEntry, RateSummary, InsightsSummary,
+          KpiPoint, KpiSeries)
 
 _ERR = {"application/problem+json": {"schema": {"$ref": "#/components/schemas/ErrorBody"}}}
 _ERRORS = {401: "Missing, invalid or expired token", 403: "The token lacks the scope this needs", 404: "Not found",
@@ -76,7 +77,7 @@ def openapi_document(public_url: str) -> dict[str, Any]:
         ref_template="#/components/schemas/{model}",
     )
     pid = _path_param("platform_id", "Platform id, e.g. `devto`.")
-    pub, idn = "PublishingApi", "IdentityService"
+    pub, idn, ins = "PublishingApi", "IdentityService", "InsightsService"
     return {
         "openapi": "3.1.0",
         "info": {
@@ -97,7 +98,7 @@ def openapi_document(public_url: str) -> dict[str, Any]:
         "servers": [{"url": public_url}],
         "security": [{"bearerAuth": [SCOPE]}],
         "tags": [{"name": "Account"}, {"name": "Tokens"}, {"name": "Platforms"}, {"name": "Posts"},
-                 {"name": "Git publishing"}],
+                 {"name": "Git publishing"}, {"name": "Insights"}],
         "paths": {
             "/api/v1/me": {"get": _op("getMe", "The signed-in user", "Account", _resp("Me", "The user"),
                                       scope=None, service=pub)},
@@ -160,6 +161,22 @@ def openapi_document(public_url: str) -> dict[str, Any]:
                 _resp("LedgerEntry", "Ledger entries", array=True), scope="posts:read", service=pub,
                 params=[{"name": "source", "in": "query", "required": False, "schema": {"type": "string"},
                          "description": "Only this repository, e.g. `github.com/acme/blog`."}])},
+            "/api/v1/insights/summary": {"get": _op(
+                "insightsSummary", "Your publishing numbers for a period", "Insights",
+                _resp("InsightsSummary", "Posts by status and platform, success and on-time rates, Git sync outcomes"),
+                scope="insights:read", service=ins,
+                params=[_query_int("days", 30, 366, "The period, ending today (UTC).")],
+                description="Live counts come from the posts and ledger tables; rates come from KPI rollups updated "
+                            "a few seconds after each event.")},
+            "/api/v1/insights/kpis": {"get": _op(
+                "insightsKpis", "Time series of your KPIs", "Insights", _resp("KpiSeries", "One series per KPI", array=True),
+                scope="insights:read", service=ins, errors=(422,),
+                params=[{"name": "names", "in": "query", "required": True, "schema": {"type": "string"},
+                         "description": "Comma-separated KPI names, e.g. `posts_published,posts_failed,sync_results`."},
+                        {"name": "grain", "in": "query", "required": False, "schema": {"type": "string", "enum": ["hour", "day"],
+                                                                                        "default": "day"},
+                         "description": "`hour` covers at most 31 days."},
+                        _query_int("days", 30, 366, "The period, ending today (UTC).")])},
         },
         "components": {
             "schemas": defs["$defs"],

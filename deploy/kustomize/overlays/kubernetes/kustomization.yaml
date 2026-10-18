@@ -10,6 +10,8 @@ resources:
   - httproute.yaml
 components:
   - ../../components/servicemonitor
+  - ../../components/prometheus-rules   # alerts and SLO burn rates (generated: scripts/gen-alerts.py)
+  # - ../../components/dashboards       # Grafana sidecar ConfigMap (generated: scripts/gen-dashboards.py)
   # - ../../components/egress-cilium    # FQDN allow-list for outbound calls (Cilium)
   # - ../../components/external-secrets
 patches:

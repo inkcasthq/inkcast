@@ -12,9 +12,11 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from typing import Any
+from typing import Any, Iterable
 
+from ..events import DomainEvent
 from .database import Database
+from .outbox import insert_events
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS posts (
@@ -36,28 +38,42 @@ class PostsRepo(Database):
                     run_at: float, payload: dict[str, Any]) -> str:
         post_id = "pst_" + uuid.uuid4().hex[:12]
         now = time.time()
-        self._exec(
-            "INSERT INTO posts (id, group_id, user_id, platform, title, status, run_at, payload, created_at, updated_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            post_id, group_id, user_id, platform, title, status, run_at, json.dumps(payload), now, now,
-        )
+        # A scheduled post is a fact worth an event the moment it exists; a "publishing" one gets its event
+        # from the send that follows.
+        events = [DomainEvent("post.scheduled", user_id=user_id, subject=post_id,
+                              attrs={"platform": platform, "run_at": run_at})] if status == "scheduled" else []
+        with self._tx() as c:
+            c.execute(
+                "INSERT INTO posts (id, group_id, user_id, platform, title, status, run_at, payload, created_at, updated_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (post_id, group_id, user_id, platform, title, status, run_at, json.dumps(payload), now, now),
+            )
+            insert_events(c, events)
         return post_id
 
-    def update_post(self, post_id: str, **fields: Any) -> None:
+    def update_post(self, post_id: str, events: Iterable[DomainEvent] | None = None, **fields: Any) -> None:
+        """Change fields; ``events`` are written in the same transaction (the outbox)."""
         fields["updated_at"] = time.time()
         cols = ", ".join(f"{k} = ?" for k in fields)
-        self._exec(f"UPDATE posts SET {cols} WHERE id = ?", *fields.values(), post_id)
+        with self._tx() as c:
+            c.execute(f"UPDATE posts SET {cols} WHERE id = ?", (*fields.values(), post_id))
+            insert_events(c, events)
 
-    def cancel_if_scheduled(self, post_id: str, user_id: str) -> bool:
+    def cancel_if_scheduled(self, post_id: str, user_id: str, events: Iterable[DomainEvent] | None = None) -> bool:
         """Move one of the user's posts from 'scheduled' to 'cancelled' in a single conditional statement.
 
         False when the post isn't 'scheduled' any more: the scheduler claimed it a moment ago, or it was already
         cancelled. Checking the status and then updating it separately would let a claim slip in between, and the
-        post would go out after the cancel reported success."""
-        return self._exec(
-            "UPDATE posts SET status = 'cancelled', updated_at = ? WHERE id = ? AND user_id = ? AND status = 'scheduled'",
-            time.time(), post_id, user_id,
-        ) == 1
+        post would go out after the cancel reported success. ``events`` are written only when the cancel happened,
+        in the same transaction (the outbox)."""
+        with self._tx() as c:
+            changed = c.execute(
+                "UPDATE posts SET status = 'cancelled', updated_at = ? WHERE id = ? AND user_id = ? AND status = 'scheduled'",
+                (time.time(), post_id, user_id),
+            ).rowcount == 1
+            if changed:
+                insert_events(c, events)
+        return changed
 
     def get_post(self, post_id: str) -> dict[str, Any] | None:
         row = self._one("SELECT * FROM posts WHERE id = ?", post_id)
@@ -94,10 +110,25 @@ class PostsRepo(Database):
         row = self._one("SELECT COUNT(*) AS n FROM posts WHERE status = 'scheduled' AND run_at <= ?", now)
         return int(row["n"]) if row else 0
 
+    def oldest_due_age(self, now: float) -> float:
+        """Seconds the oldest due, still-scheduled post has waited; 0.0 when nothing is due."""
+        row = self._one("SELECT MIN(run_at) AS oldest FROM posts WHERE status = 'scheduled' AND run_at <= ?", now)
+        return max(0.0, now - float(row["oldest"])) if row and row["oldest"] is not None else 0.0
+
     def overdue_count(self, now: float, grace: float) -> int:
         """Scheduled posts more than ``grace`` seconds past due: the scheduler is behind or stopped."""
         row = self._one("SELECT COUNT(*) AS n FROM posts WHERE status = 'scheduled' AND run_at <= ?", now - grace)
         return int(row["n"]) if row else 0
+
+    def post_status_counts(self, user_id: str, since: float) -> dict[str, dict[str, int]]:
+        """status -> platform -> count, for one user's posts that changed since ``since`` (so a post scheduled
+        far ahead counts as scheduled now, and last month's published posts stay out)."""
+        rows = self._all("SELECT status, platform, COUNT(*) AS n FROM posts WHERE user_id = ? AND updated_at >= ?"
+                         " GROUP BY status, platform ORDER BY status, platform", user_id, since)
+        out: dict[str, dict[str, int]] = {}
+        for r in rows:
+            out.setdefault(r["status"], {})[r["platform"]] = int(r["n"])
+        return out
 
     def list_posts(self, user_id: str, start: float, end: float) -> list[dict[str, Any]]:
         rows = self._all(

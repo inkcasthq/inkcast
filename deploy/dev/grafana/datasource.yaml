@@ -1,0 +1,12 @@
+# Grafana provisioning: the Prometheus data source the dashboard queries (it asks for {"type": "prometheus"}).
+# PROMETHEUS_URL is set by Compose (http://prometheus:9090) and by the kind Deployment (in-cluster Service).
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: $PROMETHEUS_URL
+    isDefault: true
+    editable: false
+    jsonData: {timeInterval: 5s}

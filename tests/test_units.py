@@ -345,6 +345,25 @@ class PipelineRecoveryTests(unittest.TestCase):
         self.assertEqual(self.store.post_counts().get("recovering"), None)
         self.assertEqual(self.store.claim_stuck(time.time()), [])              # a fresh 'publishing' row is left alone
 
+    def test_queue_lag_is_measured_at_claim_time_and_as_the_oldest_due_age(self):
+        from inkcast.libs.observability import Metrics
+        from inkcast.libs.runtime import build_metrics
+        from inkcast.libs.config import Config
+        cfg = Config(public_url="http://localhost:8787", secret_key="k" * 40, database_path=":memory:")
+        self.publisher.metrics = build_metrics(self.store, {"fake": self.fake}, cfg)
+        self.assertIsInstance(self.publisher.metrics, Metrics)
+        now = time.time()
+        self.store.create_post(group_id="g", user_id="usr", platform="fake", title="late", status="scheduled",
+                               run_at=now - 90, payload={"platform": "fake", "title": "late", "payload": {}, "preview": {}})
+        self.assertGreaterEqual(self.store.oldest_due_age(now), 90)           # head-of-line lag before the tick
+        self.asyncio.run(self.publisher.run_due(now))
+        text = self.publisher.metrics.render()
+        self.assertIn('inkcast_publish_lag_seconds_bucket{platform="fake",le="120"} 1', text)   # 90 s late
+        self.assertIn('inkcast_publish_lag_seconds_bucket{platform="fake",le="60"} 0', text)
+        self.assertIn('inkcast_publish_duration_seconds_count{platform="fake"} 1', text)
+        self.assertEqual(self.store.oldest_due_age(time.time()), 0.0)        # the queue is empty again
+        self.assertIn("inkcast_posts_oldest_due_age_seconds 0.0", text)
+
 
 class TokenVerifierTests(unittest.TestCase):
     def test_one_lookup_per_verification_and_pats_get_the_gate_scope(self):

@@ -23,6 +23,8 @@ Every contributor signs the [Inkcast Contributor License Agreement](legal/CLA-IN
    PYTHONPATH=src:tests python -m unittest discover -s tests
    ruff check src tests scripts
    python scripts/gen-manifests.py --check   # split-service manifests match the code
+   python scripts/gen-alerts.py --check      # PrometheusRule matches the alert catalogue (libs/alerting.py)
+   python scripts/gen-dashboards.py --check  # the Grafana dashboard matches libs/dashboards.py
    scripts/vendor-assets.sh            # vendored API-docs bundles still match their lock
    ```
 4. **Add tests.** New platform plug-ins come with a fake of the platform's API (see `tests/fakes.py`) and a guide-compliant `prepare()`. Read [docs/writing-a-platform-plugin.md](docs/writing-a-platform-plugin.md).

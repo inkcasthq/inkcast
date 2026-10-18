@@ -36,6 +36,7 @@ SECRET_SETTINGS: dict[str, str] = {
     "OIDC_CLIENT_SECRET": "login",
     "GITHUB_CLIENT_SECRET": "login",
     "INKCAST_PASSWORD": "login",
+    "INKCAST_CACHE_PASSWORD": "secret_key",  # read by every product service (rate limits, locks); not by a Gateway
 }
 
 
@@ -120,6 +121,7 @@ class Config:
     access_token_seconds: int = 3600
     refresh_token_seconds: int = 60 * 60 * 24 * 30
     scheduler_interval_seconds: float = 20.0
+    insights_interval_seconds: float = 10.0  # how often InsightsService folds new domain events into KPI rollups
     log_format: str = "text"  # "json" in containers
     log_level: str = "INFO"
     metrics_port: int = 9090  # Prometheus /metrics on its own port; 0 disables
@@ -128,6 +130,10 @@ class Config:
     # Writes per minute per client address on the endpoints anyone can call without a token (client
     # registration, the token page, the password form, the connect page). 0 disables the limit.
     rate_limit_per_minute: int = 60
+    # Shared cache and coordination (libs/cache): empty = in-process; redis://host:6379/0 or rediss:// for
+    # Redis/Valkey shared by every replica. The password never goes in the URL: INKCAST_CACHE_PASSWORD(_FILE).
+    cache_url: str = ""
+    cache_password: SecretValue = SecretValue("")
     extra_allowed_hosts: tuple[str, ...] = ()
     # Per-platform API base URL overrides, e.g. {"devto": "https://community.example.com/api"}
     platform_urls: dict[str, str] = field(default_factory=dict)
@@ -152,7 +158,7 @@ class Config:
     secret_errors: dict[str, str] = field(default_factory=dict, compare=False)
 
     def __post_init__(self) -> None:
-        for name in ("secret_key", "oidc_client_secret", "github_client_secret", "password"):
+        for name in ("secret_key", "oidc_client_secret", "github_client_secret", "password", "cache_password"):
             value = getattr(self, name)
             if not isinstance(value, SecretValue):
                 value = SecretValue(value)
@@ -194,6 +200,12 @@ class Config:
             for name, url in sorted(self.upstreams.items()):
                 if urlparse(url).scheme not in ("http", "https"):
                     problems.append(f"INKCAST_UPSTREAM_{name.upper().replace('-', '_')} must be an http(s) URL.")
+        if self.cache_url:
+            from .cache import parse_cache_url
+            try:
+                parse_cache_url(self.cache_url)
+            except ValueError as exc:
+                problems.append(str(exc))
         if "secret_key" in needs and len(self.secret_key.reveal()) < 32:
             problems.append(
                 "INKCAST_SECRET_KEY must be at least 32 characters; generate one with "
@@ -273,6 +285,7 @@ def load_config(environ: Mapping[str, str] | None = None) -> Config:
             return SecretValue("")
 
     port = env.int("PORT", env.get("INKCAST_PORT", "8787"))
+    cache_url = env.get("INKCAST_CACHE_URL").rstrip("/")
     return Config(
         public_url=env.get("INKCAST_PUBLIC_URL", f"http://localhost:{port}").rstrip("/"),
         secret_key=secret("INKCAST_SECRET_KEY"),
@@ -303,12 +316,16 @@ def load_config(environ: Mapping[str, str] | None = None) -> Config:
         upstreams=env.prefixed("INKCAST_UPSTREAM_", lambda k: k.lower().replace("_", "-")),
         overdue_grace_seconds=env.float("INKCAST_OVERDUE_GRACE", "600"),
         scheduler_interval_seconds=env.float("INKCAST_SCHEDULER_INTERVAL", "20"),
+        insights_interval_seconds=env.float("INKCAST_INSIGHTS_INTERVAL", "10"),
         log_format=env.get("INKCAST_LOG_FORMAT", "text").lower(),
         log_level=env.get("INKCAST_LOG_LEVEL", "INFO"),
         metrics_port=env.int("INKCAST_METRICS_PORT", "9090"),
         shutdown_grace_seconds=env.float("INKCAST_SHUTDOWN_GRACE", "25"),
         max_body_bytes=env.int("INKCAST_MAX_BODY_BYTES", str(10 * 1024 * 1024)),
         rate_limit_per_minute=env.int("INKCAST_RATE_LIMIT_PER_MINUTE", "60"),
+        cache_url=cache_url,
+        # Asked for only when a shared cache is configured: no credential is fetched that nothing uses.
+        cache_password=secret("INKCAST_CACHE_PASSWORD") if cache_url else SecretValue(""),
         reveal_secrets=env.bool("INKCAST_LOG_REVEAL_SECRETS"),
         secrets=provider,
         secret_errors=secret_errors,

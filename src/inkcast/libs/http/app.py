@@ -90,7 +90,8 @@ def resolve_prefix(prefix: str, spec: ServiceSpec | None = None) -> str:
 
 def wrap(app, ctx: Context) -> RequestContext:
     """The outermost layer: request ids, the access log, body limits and security headers (middleware.py)."""
-    return RequestContext(app, max_body=ctx.config.max_body_bytes, hsts=ctx.config.public_url.startswith("https://"))
+    return RequestContext(app, max_body=ctx.config.max_body_bytes, hsts=ctx.config.public_url.startswith("https://"),
+                          metrics=ctx.metrics)
 
 
 def compose(specs: Iterable[ServiceSpec], ctx: Context, prefix: str | None = None):

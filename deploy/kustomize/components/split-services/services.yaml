@@ -52,3 +52,21 @@ spec:
   - name: http
     port: 8787
     targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inkcast-insights-service
+  labels:
+    app.kubernetes.io/name: inkcast
+    app.kubernetes.io/part-of: inkcast
+    inkcast.io/service: insights-service
+spec:
+  selector:
+    app.kubernetes.io/name: inkcast
+    app.kubernetes.io/part-of: inkcast
+    inkcast.io/service: insights-service
+  ports:
+  - name: http
+    port: 8787
+    targetPort: http

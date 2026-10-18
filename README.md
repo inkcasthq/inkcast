@@ -198,10 +198,12 @@ All settings are environment variables; see [.env.example](.env.example). Each s
 | `INKCAST_PATH_PREFIX` | `/` | `/`, `auto` (each service under `/<full-name>`, e.g. `/publishing-api`), or a path |
 | `INKCAST_UPSTREAM_<SERVICE>` | | Gateway only: e.g. `INKCAST_UPSTREAM_PUBLISHING_API=http://inkcast-publishing-api:8787` |
 | `INKCAST_OVERDUE_GRACE` | `600` | seconds past due before a scheduled post counts as overdue (metric and alert) |
+| `INKCAST_INSIGHTS_INTERVAL` | `10` | seconds between InsightsService passes that fold new events into KPI rollups |
 | `INKCAST_ENV` | `production` in the image | `production`/`staging` make the startup security checks strict; `ci`/`development` relax them. `inkcast checks` prints the table |
 | `INKCAST_SECRETS_SOURCE` | `env` | where secrets come from: `env` (`NAME` or `NAME_FILE`), `dir` (a mounted Secret directory, `INKCAST_SECRETS_DIR`), `agent` (the AWS Secrets Manager agent), `aws`, `chain`. See [docs/reference/secrets.md](docs/reference/secrets.md) |
 | `INKCAST_MAX_BODY_BYTES` | 10 MB | larger requests get 413 before any handler runs |
 | `INKCAST_RATE_LIMIT_PER_MINUTE` | `60` | per-client limit on unauthenticated writes (`/register`, `/tokens/new`, sign-in, connect); `0` turns it off |
+| `INKCAST_CACHE_URL` | | `redis://host:6379/0` or `rediss://…` (Redis or Valkey) to share rate limits, locks and idempotency markers across replicas; empty keeps them in-process. The password goes in `INKCAST_CACHE_PASSWORD` or `INKCAST_CACHE_PASSWORD_FILE`, never in the URL |
 
 ## Development
 

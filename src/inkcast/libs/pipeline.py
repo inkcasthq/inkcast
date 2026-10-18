@@ -20,6 +20,7 @@ from typing import Any
 from .platforms import Account, Platform, PlatformError, Prepared
 from .db import Store
 from .content.story import Story
+from .events import DomainEvent
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +51,15 @@ class Publisher:
     def _count(self, platform: str, status: str) -> None:
         if self.metrics:
             self.metrics.inc("inkcast_publish_total", platform=platform, status=status)
+
+    def _observe(self, name: str, value: float, **labels: str) -> None:
+        if self.metrics:
+            self.metrics.observe(name, value, **labels)
+
+    @staticmethod
+    def _event(type: str, post_id: str, user_id: str, platform: str, **attrs: Any) -> list[DomainEvent]:
+        """The domain event written with a post's status change (libs/events; the outbox)."""
+        return [DomainEvent(type, user_id=user_id, subject=post_id, attrs={"platform": platform, **attrs})]
 
     def prepare(self, story: Story, platform_ids: list[str]) -> tuple[list[Prepared], list[Outcome]]:
         """Render for each platform; validation problems become 'failed' outcomes, nothing is sent."""
@@ -97,42 +107,53 @@ class Publisher:
         return sorted(outcomes, key=lambda o: order.get(o.platform, 99))
 
     async def _send(self, post_id: str, user_id: str, platform: Platform, prepared: Prepared, attempts: int,
-                    scheduled: bool = False) -> Outcome:
+                    scheduled: bool = False, lag: float | None = None) -> Outcome:
         connected = self.store.get_credentials(user_id, platform.id)
         if not connected:
-            self.store.update_post(post_id, status="failed", error=f"{platform.name} was disconnected.")
+            self.store.update_post(post_id, status="failed", error=f"{platform.name} was disconnected.",
+                                   events=self._event("post.failed", post_id, user_id, platform.id, reason="disconnected"))
             return Outcome(platform.id, "failed", post_id=post_id, message=f"{platform.name} was disconnected.")
         creds, account_data = connected
         account = Account.from_dict(account_data)
+        started = time.perf_counter()
         try:
             destination = (
                 await platform.resolve_destination(creds, account, prepared.destination) if prepared.destination else None
             )
             result = await platform.publish(creds, account, prepared, destination)
         except PlatformError as exc:
+            self._observe("inkcast_publish_duration_seconds", time.perf_counter() - started, platform=platform.id)
             if exc.uncertain:
-                self.store.update_post(post_id, status="unconfirmed", error=str(exc))
+                self.store.update_post(post_id, status="unconfirmed", error=str(exc),
+                                       events=self._event("post.unconfirmed", post_id, user_id, platform.id))
                 self._count(platform.id, "unconfirmed")
                 log.warning("Post %s on %s is unconfirmed: %s", post_id, platform.id, exc,
                             extra={"event": "publish.unconfirmed", "post_id": post_id, "platform": platform.id})
                 return Outcome(platform.id, "unconfirmed", post_id=post_id, message=str(exc))
             if scheduled and exc.retryable and attempts < MAX_ATTEMPTS:
                 delay = RETRY_DELAYS[min(attempts - 1, len(RETRY_DELAYS) - 1)]
-                self.store.update_post(post_id, status="scheduled", run_at=time.time() + delay, error=f"retrying: {exc}")
+                self.store.update_post(post_id, status="scheduled", run_at=time.time() + delay, error=f"retrying: {exc}",
+                                       events=self._event("post.scheduled", post_id, user_id, platform.id, retry=attempts))
                 self._count(platform.id, "retry")
                 return Outcome(platform.id, "scheduled", post_id=post_id, message=f"Will retry: {exc}")
-            self.store.update_post(post_id, status="failed", error=str(exc))
+            self.store.update_post(post_id, status="failed", error=str(exc),
+                                   events=self._event("post.failed", post_id, user_id, platform.id, reason="platform"))
             self._count(platform.id, "failed")
             return Outcome(platform.id, "failed", post_id=post_id, message=str(exc))
         except Exception as exc:  # a plug-in bug must not kill the scheduler
             log.exception("Platform %s crashed publishing %s", platform.id, post_id)
-            self.store.update_post(post_id, status="failed", error=f"internal error: {exc}")
+            self.store.update_post(post_id, status="failed", error=f"internal error: {exc}",
+                                   events=self._event("post.failed", post_id, user_id, platform.id, reason="internal"))
             self._count(platform.id, "failed")
             return Outcome(platform.id, "failed", post_id=post_id, message=f"Internal error in the {platform.name} plug-in.")
 
+        self._observe("inkcast_publish_duration_seconds", time.perf_counter() - started, platform=platform.id)
         status = result.status if result.status in ("draft", "unlisted") else "published"
         self.store.update_post(post_id, status=status, result_url=result.url, remote_id=result.remote_id,
-                               error="; ".join(result.notes) or None)
+                               error="; ".join(result.notes) or None,
+                               events=self._event("post.published", post_id, user_id, platform.id, status=status,
+                                                  scheduled=scheduled, attempts=attempts,
+                                                  lag_seconds=round(lag, 3) if lag is not None else None))
         self._count(platform.id, status)
         return Outcome(platform.id, status, post_id=post_id, url=result.url, notes=result.notes, prepared=prepared,
                        remote_id=result.remote_id)
@@ -189,21 +210,27 @@ class Publisher:
         Only a post the platform says is *missing* goes back in the queue."""
         post_id, platform = row["id"], self.platforms.get(row["platform"])
         if platform is None:
-            self.store.update_post(post_id, status="failed", error=f"Platform plug-in {row['platform']!r} is not installed.")
+            self.store.update_post(post_id, status="failed", error=f"Platform plug-in {row['platform']!r} is not installed.",
+                                   events=self._event("post.failed", post_id, row["user_id"], row["platform"], reason="plugin"))
             return Outcome(row["platform"], "failed", post_id=post_id)
         prepared = Prepared.from_dict(json.loads(row["payload"]))
         found = await self.confirm(row["user_id"], platform, prepared)
+
+        def recovered(status: str) -> list[DomainEvent]:
+            return self._event("post.recovered", post_id, row["user_id"], platform.id, status=status)
+
         if found is None:
             message = (f"Inkcast restarted while this post was being sent to {platform.name}, which can't be checked "
                        f"automatically. Check {platform.name} before publishing it again.")
-            self.store.update_post(post_id, status="unconfirmed", error=message)
+            self.store.update_post(post_id, status="unconfirmed", error=message, events=recovered("unconfirmed"))
             outcome = Outcome(platform.id, "unconfirmed", post_id=post_id, message=message)
         elif found.status == "missing":
-            self.store.update_post(post_id, status="scheduled", run_at=time.time(),
+            self.store.update_post(post_id, status="scheduled", run_at=time.time(), events=recovered("scheduled"),
                                    error=f"Interrupted before {platform.name} received it; sending again.")
             outcome = Outcome(platform.id, "scheduled", post_id=post_id, message="Interrupted; sending again.")
         else:
-            self.store.update_post(post_id, status=found.status, result_url=found.url, remote_id=found.remote_id, error=None)
+            self.store.update_post(post_id, status=found.status, result_url=found.url, remote_id=found.remote_id, error=None,
+                                   events=recovered(found.status))
             outcome = Outcome(platform.id, found.status, post_id=post_id, url=found.url, remote_id=found.remote_id)
         self._count(platform.id, "recovered")
         log.warning("Post %s on %s was interrupted mid-send; now %s", post_id, platform.id, outcome.status,
@@ -214,12 +241,16 @@ class Publisher:
         now = now or time.time()
         outcomes = [await self.recover(row) for row in self.store.claim_stuck(older_than=now - STUCK_AFTER)]
         for row in self.store.claim_due_posts(now):
+            lag = max(0.0, now - float(row["run_at"]))
+            self._observe("inkcast_publish_lag_seconds", lag, platform=row["platform"])
             platform = self.platforms.get(row["platform"])
             if platform is None:
-                self.store.update_post(row["id"], status="failed", error=f"Platform plug-in {row['platform']!r} is not installed.")
+                self.store.update_post(row["id"], status="failed", error=f"Platform plug-in {row['platform']!r} is not installed.",
+                                       events=self._event("post.failed", row["id"], row["user_id"], row["platform"], reason="plugin"))
                 continue
             prepared = Prepared.from_dict(json.loads(row["payload"]))
-            outcomes.append(await self._send(row["id"], row["user_id"], platform, prepared, row["attempts"], scheduled=True))
+            outcomes.append(await self._send(row["id"], row["user_id"], platform, prepared, row["attempts"], scheduled=True,
+                                             lag=lag))
         return outcomes
 
     async def run_forever(self, interval: float, stop: asyncio.Event, housekeeping: Any = None,
@@ -253,7 +284,8 @@ class Publisher:
         if not row or row["user_id"] != user_id:
             raise PlatformError(f"No post {post_id!r}.")
         # One conditional update, so a scheduler claim can't land between a status check and the write.
-        if not self.store.cancel_if_scheduled(post_id, user_id):
+        if not self.store.cancel_if_scheduled(
+                post_id, user_id, events=self._event("post.cancelled", post_id, user_id, row["platform"])):
             status = (self.store.get_post(post_id) or row)["status"]
             raise PlatformError(
                 f"Post {post_id} is {status}; only scheduled posts can be cancelled. Published stories have to "

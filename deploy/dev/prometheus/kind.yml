@@ -1,0 +1,28 @@
+# Prometheus for deploy/dev on kind: find the Inkcast pods in the single-process (inkcast) and split
+# (inkcast-split) namespaces and scrape their `metrics` port; namespace, pod and service labels come from
+# the pod, as the ServiceMonitor relabelling does in a cluster with the Prometheus Operator.
+global:
+  scrape_interval: 5s
+  evaluation_interval: 15s
+rule_files:
+  - /etc/prometheus/rules.yaml
+scrape_configs:
+  - job_name: inkcast-metrics
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces: {names: [inkcast, inkcast-split]}
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component, __meta_kubernetes_pod_container_port_name]
+        regex: server;metrics
+        action: keep
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: namespace
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
+      - source_labels: [__meta_kubernetes_pod_label_inkcast_io_service]
+        regex: (.+)
+        target_label: service
+      - source_labels: [__meta_kubernetes_pod_label_inkcast_io_service]
+        regex: ""
+        replacement: all
+        target_label: service

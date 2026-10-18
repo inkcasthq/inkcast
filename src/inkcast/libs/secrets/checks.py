@@ -130,7 +130,7 @@ def _check_log_format(ctx: _Ctx) -> Check:
 
 
 def _secret_files(ctx: _Ctx) -> list[str]:
-    names = ("INKCAST_SECRET_KEY", "OIDC_CLIENT_SECRET", "GITHUB_CLIENT_SECRET", "INKCAST_PASSWORD")
+    names = ("INKCAST_SECRET_KEY", "OIDC_CLIENT_SECRET", "GITHUB_CLIENT_SECRET", "INKCAST_PASSWORD", "INKCAST_CACHE_PASSWORD")
     paths: list[str] = []
     for name in names:
         path = ctx.environ.get(f"{name}_FILE", "").strip()

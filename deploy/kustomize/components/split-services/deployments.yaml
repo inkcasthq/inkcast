@@ -443,6 +443,118 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+  name: inkcast-insights-service
+  labels:
+    app.kubernetes.io/name: inkcast
+    app.kubernetes.io/part-of: inkcast
+    app.kubernetes.io/component: server
+    inkcast.io/service: insights-service
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: inkcast
+      app.kubernetes.io/part-of: inkcast
+      app.kubernetes.io/component: server
+      inkcast.io/service: insights-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: inkcast
+        app.kubernetes.io/part-of: inkcast
+        app.kubernetes.io/component: server
+        inkcast.io/service: insights-service
+    spec:
+      serviceAccountName: inkcast
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 40
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: inkcast
+        image: inkcast
+        args:
+        - run
+        - InsightsService
+        ports:
+        - name: http
+          containerPort: 8787
+        - name: metrics
+          containerPort: 9090
+        envFrom:
+        - configMapRef:
+            name: inkcast-config
+        env:
+        - name: INKCAST_APP_NAME
+          value: InsightsService
+        - name: INKCAST_SECRET_KEY_FILE
+          value: /var/run/secrets/inkcast/secret-key
+        startupProbe:
+          httpGet:
+            path: /livez
+            port: metrics
+          periodSeconds: 2
+          failureThreshold: 30
+        livenessProbe:
+          httpGet:
+            path: /livez
+            port: metrics
+          periodSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: metrics
+          periodSeconds: 10
+          failureThreshold: 3
+        resources:
+          requests:
+            cpu: 25m
+            memory: 96Mi
+          limits:
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: data
+          mountPath: /data
+        - name: secrets
+          mountPath: /var/run/secrets/inkcast
+          readOnly: true
+      volumes:
+      - name: tmp
+        emptyDir:
+          sizeLimit: 64Mi
+      - name: data
+        persistentVolumeClaim:
+          claimName: inkcast-data
+      - name: secrets
+        secret:
+          secretName: inkcast-secrets
+          defaultMode: 288
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                inkcast.io/service: publishing-api
+            topologyKey: kubernetes.io/hostname
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
   name: inkcast-gateway
   labels:
     app.kubernetes.io/name: inkcast
@@ -499,6 +611,8 @@ spec:
           value: http://inkcast-publishing-api:8787
         - name: INKCAST_UPSTREAM_CONNECTOR_SERVICE
           value: http://inkcast-connector-service:8787
+        - name: INKCAST_UPSTREAM_INSIGHTS_SERVICE
+          value: http://inkcast-insights-service:8787
         startupProbe:
           httpGet:
             path: /livez

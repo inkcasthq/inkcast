@@ -34,17 +34,18 @@ from .libs.runtime import Context, build_context
 from .libs.secrets import problems, run_checks
 from .libs.secrets.checks import render
 from .libs.service import ServiceSpec, is_camel
-from .services import connectors, gateway, identity, publishing, scheduler
+from .services import connectors, gateway, identity, insights, publishing, scheduler
 
 log = logging.getLogger("inkcast")
 
 EX_CONFIG = 78
 BUILTIN: dict[str, ServiceSpec] = {s.name: s for s in (
-    identity.SERVICE, publishing.SERVICE, connectors.SERVICE, scheduler.SERVICE, gateway.SERVICE)}
+    identity.SERVICE, publishing.SERVICE, connectors.SERVICE, scheduler.SERVICE, insights.SERVICE, gateway.SERVICE)}
 # "All" is every built-in service that serves the product itself (not the Gateway: in a single
 # process there is nothing to route to).
-ALL = ("IdentityService", "PublishingApi", "ConnectorService", "SchedulerWorker")
-LEGACY_MODES = {"all": "All", "web": "IdentityService,PublishingApi,ConnectorService", "worker": "SchedulerWorker"}
+ALL = ("IdentityService", "PublishingApi", "ConnectorService", "SchedulerWorker", "InsightsService")
+LEGACY_MODES = {"all": "All", "web": "IdentityService,PublishingApi,ConnectorService,InsightsService",
+                "worker": "SchedulerWorker"}
 
 
 def registry() -> dict[str, ServiceSpec]:

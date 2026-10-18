@@ -28,6 +28,9 @@ ROUTES: dict[str, tuple[str, ...]] = {
     "ConnectorService": (
         "/connect/",
     ),
+    "InsightsService": (
+        "/api/v1/insights",  # longer than PublishingApi's /api, so it wins (longest prefix first)
+    ),
 }
 
 
