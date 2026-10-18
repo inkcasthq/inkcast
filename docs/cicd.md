@@ -61,6 +61,22 @@ tag vX.Y.Z ────► publish.yml (same) ► release: GitHub Release + mani
 - **Changelog:** generated from merged PRs in the GitHub Release.
 - **Rendered manifests:** both overlays, pinned to the digest, attached to every release. Self-hosting customers can `kubectl apply -f` them.
 
+## Plan: private repository on GitHub Team
+
+| Feature | On Team (private repo) | Used here |
+|---|---|---|
+| Branch protection / rulesets, CODEOWNERS review | ✅ | Yes: the production gate is a CODEOWNER-approved PR |
+| Environments, environment secrets, deployment branches | ✅ | Yes |
+| Environment **required reviewers** / wait timers | ❌ (public repos or Enterprise) | No |
+| Code scanning (CodeQL, SARIF upload) | Only with **GitHub Code Security** add-on | Switch: `vars.CODE_SECURITY=true` |
+| Artifact attestations (GitHub provenance store) | ❌ (Enterprise Cloud) | Switch: `vars.GITHUB_ATTESTATIONS=true` |
+| cosign keyless signature + SBOM attestation | ✅ (Sigstore public good) | Always |
+| Dependabot, GHCR, Actions | ✅ (minutes included per plan) | Always |
+
+Without the add-ons, the Grype scan still **fails the build** on fixable high or critical findings, and its SARIF is kept as a run artifact. Images are still signed with an SBOM attestation, and promotion and the Kyverno policy verify the signature.
+
+Keyless signing writes the repository and workflow path, not code, to the public Rekor log. If that is unacceptable for a private repo, switch to a KMS-held cosign key.
+
 ## Repository settings (do these once)
 
 **Branch protection on `main`:**
@@ -72,17 +88,18 @@ tag vX.Y.Z ────► publish.yml (same) ► release: GitHub Release + mani
   - `manifests`
   - `image`
   - `kind`
-  - `codeql`
+  - `codeql`, only if Code Security is on
 - Linear history; no force pushes.
 
 **Environments:**
 
-- `staging` — no reviewers.
-- `production` — required reviewers, and deployments limited to `main` and tags.
+- `staging` — no extra rules.
+- `production` — deployments limited to `main` and tags. Approval is the CODEOWNER-reviewed promotion PR.
 
 **Variables and secrets:**
 
 - `vars.REGISTRY` (default `ghcr.io`) and `vars.REGISTRY_USER`.
+- `vars.CODE_SECURITY` and `vars.GITHUB_ATTESTATIONS` — leave unset on Team.
 - `secrets.REGISTRY_TOKEN`, only if not using GHCR with `GITHUB_TOKEN`.
 
 **Security:** Dependabot alerts and security updates on; code scanning on; secret scanning with push protection on.

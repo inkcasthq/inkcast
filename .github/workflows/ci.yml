@@ -2,6 +2,11 @@
 # (vulnerability data changes without the code changing), and as the gate inside publish.yml
 # for every push to main and every release tag (so main is never checked twice).
 #
+# PLAN SWITCHES (repository variables; the repo is private on GitHub Team):
+#   CODE_SECURITY=true   only if GitHub Code Security is enabled. Without it, code scanning
+#                        (CodeQL, SARIF upload) is unavailable on private repos; the Grype gate
+#                        still fails the build and its SARIF is kept as an artifact instead.
+#
 # ACTION PINS: every action is referenced by the full commit of a released version, with the
 # version as a comment. Tags like @v4 are mutable. Dependabot (.github/dependabot.yml) moves the
 # SHA and the comment together. To bump by hand:
@@ -91,10 +96,16 @@ jobs:
           severity-cutoff: high
           only-fixed: true
       - uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
-        if: always() && steps.scan.outputs.sarif != ''
+        if: always() && steps.scan.outputs.sarif != '' && vars.CODE_SECURITY == 'true'
         with:
           sarif_file: ${{ steps.scan.outputs.sarif }}
           category: image
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always() && steps.scan.outputs.sarif != ''
+        with:
+          name: image-scan-${{ github.sha }}
+          path: ${{ steps.scan.outputs.sarif }}
+          retention-days: 30
 
   kind:
     # Deploys the real image with the real manifests: proves they apply under Pod Security
@@ -132,6 +143,7 @@ jobs:
           kubectl -n inkcast logs deploy/inkcast --tail=200
 
   codeql:
+    if: vars.CODE_SECURITY == 'true'   # needs GitHub Code Security on private repos
     runs-on: ubuntu-latest
     permissions:
       contents: read
