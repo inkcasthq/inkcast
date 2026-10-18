@@ -108,11 +108,15 @@ def seed(args: argparse.Namespace) -> int:
             r = c.post(f"{base}/api/v1/posts", headers=h, json={"markdown": story(f"Seed {run} now {i}")})
             published += sum(x["status"] == "published" for x in r.raise_for_status().json()["results"])
             c.post(f"{base}/api/v1/preview", headers=h, json={"markdown": story(f"Seed {run} preview {i}")})
-        when = (datetime.now(timezone.utc) + timedelta(seconds=args.schedule_in)).replace(microsecond=0).isoformat()
+        # Two batches, 20 s apart: rate() sees no increase in a series' first sample, so if every scheduled send
+        # landed in one scrape (when the lag histogram first appears) the schedule-lag panels would stay empty.
+        first = (datetime.now(timezone.utc) + timedelta(seconds=args.schedule_in)).replace(microsecond=0)
+        when = first.isoformat()
         scheduled = []
         for i in range(2):
+            at = (first + timedelta(seconds=20 * i)).isoformat()
             r = c.post(f"{base}/api/v1/posts", headers=h, json={"markdown": story(f"Seed {run} later {i}"),
-                                                                 "publish_at": when}).raise_for_status()
+                                                                 "publish_at": at}).raise_for_status()
             scheduled += [x["post_id"] for x in r.json()["results"] if x.get("post_id")]
         files = [{"path": f"posts/seed-{run}-{i}.md", "markdown": story(f"Seed {run} git {i}", "[devto]")} for i in range(2)]
         c.post(f"{base}/api/v1/stories:sync", headers=h, json={"source": "github.com/acme/blog", "files": files})
@@ -120,7 +124,7 @@ def seed(args: argparse.Namespace) -> int:
                    c.post(f"{base}/api/v1/posts", headers=h, json={"markdown": story("Nowhere", "[myspace]")}).status_code,
                    c.get(f"{base}/api/v1/tokens").status_code]
         print(f"seeded: {published} published now, {len(scheduled)} scheduled for {when}, 2 synced, refused {refused}")
-        deadline = time.time() + args.schedule_in + 120
+        deadline = time.time() + args.schedule_in + 140
         while scheduled and time.time() < deadline:                         # schedule lag needs real sends
             posts = c.get(f"{base}/api/v1/posts?days_back=1&days_ahead=1", headers=h).raise_for_status().json()
             status = {p["id"]: p["status"] for p in posts}
