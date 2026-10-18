@@ -182,9 +182,28 @@ class Workflows(unittest.TestCase):
         root = pathlib.Path(__file__).resolve().parents[1] / ".github" / "workflows"
         holders = [p.name for p in root.glob("*.yml") if "github/codeql-action/init" in p.read_text()]
         self.assertEqual(holders, ["codeql.yml"])
+        self.assertIn("config-file: ./.github/codeql/codeql-config.yml", (root / "codeql.yml").read_text())
         triggers = yaml.safe_load((root / "codeql.yml").read_text())[True]   # YAML reads the key `on` as True
         self.assertIn("pull_request", triggers)
         self.assertEqual(triggers["push"]["branches"], ["main"])
+
+    def test_the_local_codeql_run_is_the_one_ci_runs(self):
+        """Issue #28: scripts/dev/codeql.sh pins the CodeQL bundle of the github/codeql-action version codeql.yml
+        pins, and both read .github/codeql/codeql-config.yml. Bump the action, bump the script (its comment says how)."""
+        import pathlib
+        import re
+        root = pathlib.Path(__file__).resolve().parents[1]
+        workflow = (root / ".github" / "workflows" / "codeql.yml").read_text()
+        script = (root / "scripts" / "dev" / "codeql.sh").read_text()
+        pinned = set(re.findall(r"github/codeql-action/\w+@([0-9a-f]{40})", workflow))
+        self.assertEqual(len(pinned), 1, f"init and analyze pin one action commit: {pinned}")
+        self.assertEqual(re.search(r"^CODEQL_ACTION_SHA=([0-9a-f]{40})", script, re.M).group(1), pinned.pop(),
+                         "codeql.yml moved to another action version: update CODEQL_BUNDLE and its SHA-256 too")
+        self.assertRegex(script, r"(?m)^CODEQL_BUNDLE=codeql-bundle-v\d+\.\d+\.\d+$")
+        for platform in ("linux64", "osx64"):
+            self.assertRegex(script, rf"(?m)^SHA256_{platform}=[0-9a-f]{{64}}$")
+        self.assertIn(".github/codeql/codeql-config.yml", script)
+        self.assertIn("security-extended", (root / ".github" / "codeql" / "codeql-config.yml").read_text())
 
     def test_the_image_runs_a_python_the_tests_run_on(self):
         """Issue #24: the Dockerfile's Python, every stage, is in the CI test matrix; the matrix starts at the

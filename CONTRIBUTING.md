@@ -26,7 +26,11 @@ Every contributor signs the [Inkcast Contributor License Agreement](legal/CLA-IN
    python scripts/gen-alerts.py --check      # PrometheusRule matches the alert catalogue (libs/alerting.py)
    python scripts/gen-dashboards.py --check  # the Grafana dashboard matches libs/dashboards.py
    scripts/vendor-assets.sh            # vendored API-docs bundles still match their lock
+   scripts/dev/codeql.sh               # CodeQL as CI runs it, each result with its source-to-sink path
    ```
+   The CodeQL run downloads the bundle CI uses once (about 700 MB, SHA-256 checked) and takes a few minutes. Run it
+   before pushing anything that touches secrets, tokens, logging, files or HTTP: a result there fails the pull
+   request's CodeQL check.
 4. **Add tests.** New platform plug-ins come with a fake of the platform's API (see `tests/fakes.py`) and a guide-compliant `prepare()`. Read [docs/writing-a-platform-plugin.md](docs/writing-a-platform-plugin.md).
 5. **Write clear commits** that say why, not only what.
 

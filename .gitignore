@@ -11,3 +11,6 @@ dist/
 deploy/dev/.secrets/
 deploy/dev/.captures/
 deploy/keycloak/.secrets/
+
+# Local CodeQL run (scripts/dev/codeql.sh): databases and SARIF
+.codeql/
