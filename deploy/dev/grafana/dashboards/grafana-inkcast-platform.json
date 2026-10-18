@@ -103,10 +103,10 @@
         {
           "refId": "A",
           "expr": "max by (pod, version, platforms) (inkcast_build_info{namespace=\"$namespace\"})",
-          "legendFormat": "{{pod}}",
-          "range": true,
+          "legendFormat": "__auto",
           "format": "table",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ],
       "fieldConfig": {
@@ -121,7 +121,18 @@
           "id": "organize",
           "options": {
             "excludeByName": {
-              "Time": true
+              "Time": true,
+              "Value": true
+            },
+            "indexByName": {
+              "pod": 0,
+              "version": 1,
+              "platforms": 2
+            },
+            "renameByName": {
+              "pod": "Pod",
+              "version": "Version",
+              "platforms": "Plug-ins"
             }
           }
         }
