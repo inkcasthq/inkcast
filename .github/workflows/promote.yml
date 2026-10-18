@@ -1,7 +1,8 @@
 # Continuous delivery by GitOps: this workflow never touches a cluster. It verifies an image's
 # signature and provenance, then opens a pull request that pins the digest in
-# deploy/kustomize/environments/<env>. Argo CD / Flux applies the merge. Production requires an
-# approved review on that PR (CODEOWNERS + branch protection) and the `production` environment.
+# deploy/kustomize/environments/<env>. Argo CD / Flux applies the merge. The production gate is the
+# PR itself: CODEOWNERS owns environments/production and branch protection requires their review.
+# (Environment "required reviewers" need Enterprise for private repos, so they are not relied on.)
 name: promote
 
 on:
@@ -58,7 +59,9 @@ jobs:
           cosign verify --certificate-oidc-issuer https://token.actions.githubusercontent.com \
             --certificate-identity-regexp "^$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/\.github/workflows/publish\.yml@refs/(heads/main|tags/v.*)$" \
             "$REF" > /dev/null
-          gh attestation verify "oci://$REF" --repo "$GITHUB_REPOSITORY" > /dev/null
+          if [ "${{ vars.GITHUB_ATTESTATIONS }}" = "true" ]; then
+            gh attestation verify "oci://$REF" --repo "$GITHUB_REPOSITORY" > /dev/null
+          fi
       - name: Open the promotion pull request
         env:
           GH_TOKEN: ${{ github.token }}
