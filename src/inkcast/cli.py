@@ -27,6 +27,7 @@ import pathlib
 import subprocess
 import sys
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx2
 
@@ -133,6 +134,11 @@ def sync_main(argv: list[str]) -> int:
         return 2
     if not token.startswith("ink_pat_"):
         print(f"inkcast sync: {args.token_env} doesn't look like a personal access token (ink_pat_...).", file=sys.stderr)
+        return 2
+    url_host = urlparse(args.url).hostname or ""
+    if not args.url.startswith("https://") and url_host not in ("localhost", "127.0.0.1", "::1"):
+        print(f"inkcast sync: refusing to send the token over plain http to {url_host}; use an https INKCAST_URL.",
+              file=sys.stderr)
         return 2
     paths = collect(args.paths)
     if not paths:

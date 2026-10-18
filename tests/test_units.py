@@ -259,3 +259,37 @@ class PipelineRecoveryTests(unittest.TestCase):
         self.assertEqual(self.store.get_post(errored)["status"], "unconfirmed")
         self.assertEqual(self.store.post_counts().get("recovering"), None)
         self.assertEqual(self.store.claim_stuck(time.time()), [])              # a fresh 'publishing' row is left alone
+
+
+class TokenVerifierTests(unittest.TestCase):
+    def test_one_lookup_per_verification_and_pats_get_the_gate_scope(self):
+        from inkcast.libs.auth import SCOPE, TokenVerifier
+        store = Store(":memory:", "k" * 40)
+        user = store.upsert_user("local:owner", "owner", None, None)
+        pat, _ = store.create_api_token(user["id"], "ci", ["stories:sync"], None)
+        reads = []
+        original = store.find_api_token
+        store.find_api_token = lambda token: (reads.append(1), original(token))[1]
+        v = TokenVerifier(store)
+        access = v.access_token(pat)
+        self.assertEqual((access.subject, access.scopes, len(reads)), (user["id"], [SCOPE, "stories:sync"], 1))
+        self.assertEqual(v.principal(pat).scopes, frozenset({"stories:sync"}))
+        self.assertIsNone(v.access_token("ink_pat_nope_nope"))
+        self.assertIsNone(v.access_token(""))
+
+
+class CliSafetyTests(unittest.TestCase):
+    def test_token_is_never_sent_over_plain_http_to_a_remote_host(self):
+        import contextlib
+        import io
+        import os
+        from inkcast.cli import sync_main
+        os.environ["INKCAST_TOKEN_TEST"] = "ink_pat_x_y"
+        try:
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                code = sync_main(["--url", "http://inkcast.example.com", "--token-env", "INKCAST_TOKEN_TEST", "nothing/*.md"])
+        finally:
+            del os.environ["INKCAST_TOKEN_TEST"]
+        self.assertEqual(code, 2)
+        self.assertIn("plain http", err.getvalue())

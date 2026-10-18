@@ -11,6 +11,7 @@ Routes
 
 from __future__ import annotations
 
+import hmac
 import time
 from datetime import datetime, timezone
 
@@ -41,6 +42,11 @@ def _iso(ts: float | None) -> str | None:
 def _info(row: dict) -> TokenInfo:
     return TokenInfo(id=row["id"], name=row["name"], scopes=row["scopes"].split(), created_at=_iso(row["created_at"]),
                      expires_at=_iso(row["expires_at"]), last_used_at=_iso(row["last_used_at"]))
+
+
+def _csrf_ok(data, pending: dict) -> bool:
+    """The consent form's CSRF token, compared in constant time (never with ``!=``)."""
+    return hmac.compare_digest(str(data.get("csrf", "")).encode(), str(pending["csrf"]).encode())
 
 
 def _check_scopes(scopes: list[str]) -> list[str]:
@@ -106,7 +112,7 @@ def _routes(ctx: Context) -> list[Route]:
         if request.method == "GET":
             client_name, host = oauth.describe_pending(pending)
             return pages.consent(pending["id"], pending["csrf"], client_name, host, user.get("display", "?"))
-        if data.get("csrf") != pending["csrf"]:
+        if not _csrf_ok(data, pending):
             return pages.message("Request rejected", "The form was invalid. Start again from your MCP client.", error=True, status=400)
         target = oauth.approve(pending) if data.get("decision") == "approve" else oauth.deny(pending)
         return RedirectResponse(target, status_code=303)
@@ -133,7 +139,7 @@ def _routes(ctx: Context) -> list[Route]:
         if request.method == "GET":
             return pages.token_confirm(pending["id"], pending["csrf"], req.name, req.scopes, req.expires_in_days,
                                        user.get("display", "?"))
-        if data.get("csrf") != pending["csrf"]:
+        if not _csrf_ok(data, pending):
             return pages.message("Request rejected", "The form was invalid. Start again.", error=True, status=400)
         store.delete_pending(pending["id"])
         if data.get("decision") != "approve":

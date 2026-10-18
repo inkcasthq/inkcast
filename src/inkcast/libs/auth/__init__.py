@@ -52,7 +52,9 @@ class TokenVerifier:
     def __init__(self, store: IdentityRepo):
         self.store = store
 
-    def principal(self, token: str) -> Principal | None:
+    def lookup(self, token: str) -> tuple[Principal, dict] | None:
+        """One store read: (principal, its token row), or None for anything that is not a live token.
+        Lookups are by SHA-256 hash, so comparing a presented token is a key match, not a timing side channel."""
         if not token:
             return None
         if token.startswith(PAT_PREFIX):
@@ -60,26 +62,29 @@ class TokenVerifier:
             if not row or not self.store.get_user(row["user_id"]):
                 return None
             return Principal(row["user_id"], frozenset(row["scopes"].split()) & SCOPES.keys(), "pat",
-                             client_id=f"pat:{row['id']}", token_id=row["id"])
+                             client_id=f"pat:{row['id']}", token_id=row["id"]), row
         row = self.store.get_token(token, "access")
         if not row or not self.store.get_user(row["user_id"]):
             return None
         granted = set(row["scopes"].split())
         scopes = set(SCOPES) if SCOPE in granted else granted & SCOPES.keys()
-        return Principal(row["user_id"], frozenset(scopes), "oauth", client_id=row["client_id"])
+        return Principal(row["user_id"], frozenset(scopes), "oauth", client_id=row["client_id"]), row
+
+    def principal(self, token: str) -> Principal | None:
+        found = self.lookup(token)
+        return found[0] if found else None
 
     def access_token(self, token: str) -> AccessToken | None:
         """The MCP SDK's view of a token. PATs get the ``inkcast`` gate scope so ``/mcp`` admits them;
         what each tool may do is still decided by the principal's own scopes."""
-        p = self.principal(token)
-        if p is None:
+        found = self.lookup(token)
+        if found is None:
             return None
+        p, row = found
         if p.kind == "pat":
-            row = self.store.find_api_token(token) or {}
             expires = row.get("expires_at")
             return AccessToken(token=token, client_id=p.client_id, scopes=[SCOPE, *sorted(p.scopes)],
                                expires_at=int(expires) if expires else None, subject=p.user_id)
-        row = self.store.get_token(token, "access") or {}
         return AccessToken(token=token, client_id=p.client_id, scopes=row.get("scopes", "").split(),
                            expires_at=int(row.get("expires_at", time.time())), resource=row.get("resource"),
                            subject=p.user_id)
