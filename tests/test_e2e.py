@@ -186,6 +186,42 @@ class EndToEnd(Harness):
         self.assertIn("registration_endpoint", asm)
         self.assertEqual(asm["code_challenge_methods_supported"], ["S256"])
 
+    def test_the_keycloak_sign_in_driver(self):
+        """scripts/dev/oidc_signin.py, which CI runs against a real Keycloak (E9.F9.1), here against the fake identity
+        provider showing Keycloak's login form: a person with inkcast-user signs in, one without is refused by
+        Inkcast, and a wrong password stops at Keycloak. Runs in single and split mode."""
+        import pathlib
+        import subprocess
+        import sys
+        person = {"email_verified": True, "name": "Ada Example"}
+        self.fakes.kc_accounts = {
+            "ada@example.com": ("right-password-123", {**person, "sub": "kc-ada", "preferred_username": "ada@example.com",
+                                                       "email": "ada@example.com", "realm_access": {"roles": ["inkcast-user"]}}),
+            "no-role@example.com": ("right-password-456", {**person, "sub": "kc-norole", "email": "no-role@example.com",
+                                                           "preferred_username": "no-role@example.com",
+                                                           "realm_access": {"roles": []}}),
+        }
+        self.addCleanup(setattr, self.fakes, "kc_accounts", None)
+        script = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "dev" / "oidc_signin.py"
+
+        def drive(user: str, password: str, expect: str) -> subprocess.CompletedProcess:
+            return subprocess.run([sys.executable, str(script), self.config.public_url], capture_output=True, text=True,
+                                  timeout=60, env={**os.environ, "KC_USER": user, "KC_PASSWORD": password, "KC_EXPECT": expect})
+
+        ok = drive("ada@example.com", "right-password-123", "allowed")
+        self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
+        self.assertIn("PASS: signed in through Keycloak", ok.stdout)
+        self.assertIn("ada@example.com", ok.stdout)
+        refused = drive("no-role@example.com", "right-password-456", "refused")
+        self.assertEqual(refused.returncode, 0, refused.stdout + refused.stderr)
+        self.assertIn("PASS: refused as expected", refused.stdout)
+        wrong = drive("ada@example.com", "not-the-password", "allowed")
+        self.assertNotEqual(wrong.returncode, 0)
+        self.assertIn("Keycloak did not sign the user in", wrong.stderr)
+        # The driver must not pass on a refusal it didn't expect.
+        surprised = drive("no-role@example.com", "right-password-456", "allowed")
+        self.assertNotEqual(surprised.returncode, 0)
+
     def test_full_flow(self):
         browser = Browser()
         connect_results = {}
