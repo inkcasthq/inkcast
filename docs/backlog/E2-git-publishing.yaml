@@ -1,0 +1,75 @@
+# Backlog as code. File with: scripts/backlog/file.py inkcasthq/inkcast (see docs/epics/README.md)
+id: E2
+title: Git publishing
+status: done
+goal: Publish and update markdown from a repository without duplicates.
+features:
+- id: F2.1
+  title: Personal access tokens
+  stories:
+  - id: F2.1.S1
+    title: Format, hash-only storage, scopes, expiry
+    status: done
+  - id: F2.1.S2
+    title: Create/list/revoke (REST, OAuth only); /tokens/new browser flow; MCP link
+    status: done
+  - id: F2.1.S3
+    title: Scopes on every REST route and MCP tool
+    status: done
+- id: F2.2
+  title: Publish ledger
+  stories:
+  - id: F2.2.S1
+    title: Ledger table
+    status: done
+  - id: F2.2.S2
+    title: POST /api/v1/stories:sync with claims and Idempotency-Key
+    status: done
+  - id: F2.2.S3
+    title: GET /api/v1/ledger
+    status: done
+- id: F2.3
+  title: Updates in place
+  stories:
+  - id: F2.3.S1
+    title: Platform capabilities, update(), find_existing()
+    status: done
+  - id: F2.3.S2
+    title: DEV update and lookup
+    status: done
+  - id: F2.3.S3
+    title: Medium stale reporting
+    status: done
+- id: F2.4
+  title: Preview and dry run
+  stories:
+  - id: F2.4.S1
+    title: POST /api/v1/preview
+    status: done
+  - id: F2.4.S2
+    title: Dry-run sync
+    status: done
+- id: F2.5
+  title: CLI and GitHub Action
+  stories:
+  - id: F2.5.S1
+    title: inkcast sync
+    status: done
+  - id: F2.5.S2
+    title: Composite action
+    status: done
+  - id: F2.5.S3
+    title: PR preview comment
+    status: done
+  - id: F2.5.S4
+    title: Example workflow and guide
+    status: done
+- id: F2.6
+  title: Pipeline hardening
+  stories:
+  - id: F2.6.S1
+    title: Check unconfirmed publishes before retrying
+    status: done
+  - id: F2.6.S2
+    title: Rename unknown to unconfirmed
+    status: done

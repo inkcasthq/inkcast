@@ -1,0 +1,88 @@
+# Inkcast — publish markdown from this repository to Medium, DEV and more, without duplicates.
+#
+#   - uses: inkcasthq/inkcast/action@<commit-sha>   # pin by commit, like every action
+#     with:
+#       url: https://inkcast.example.com
+#       token: ${{ secrets.INKCAST_TOKEN }}          # personal access token, scope stories:sync
+#       paths: posts/**/*.md
+#
+# New files are published (or scheduled, if their front matter has publish_at), changed files are
+# updated in place where the platform allows it, unchanged files are skipped. On pull requests it
+# runs as a dry run and can comment the preview on the PR. See docs/git-publishing.md.
+name: Inkcast publish
+description: Publish and update markdown stories on Medium, DEV and other platforms via Inkcast.
+author: ScalarOps Technologies LLC
+branding: {icon: feather, color: orange}
+
+inputs:
+  url:
+    description: Your Inkcast server, e.g. https://inkcast.example.com
+    required: true
+  token:
+    description: An Inkcast personal access token with the stories:sync scope (store it as a secret).
+    required: true
+  paths:
+    description: Space-separated files or globs to sync.
+    default: "posts/**/*.md"
+  platforms:
+    description: Comma-separated platform ids overriding each file's front matter (optional).
+    default: ""
+  dry-run:
+    description: "'true', 'false', or 'auto' (dry run on pull requests, real sync otherwise)."
+    default: auto
+  comment:
+    description: On pull requests, comment the dry-run preview (needs `pull-requests: write`).
+    default: "false"
+  fail-on-stale:
+    description: Fail when a changed file couldn't be updated because the platform can't edit posts.
+    default: "false"
+  python-version:
+    default: "3.12"
+
+outputs:
+  results:
+    description: JSON array of per-file, per-platform results.
+    value: ${{ steps.sync.outputs.results }}
+  urls:
+    description: Space-separated URLs of the posts.
+    value: ${{ steps.sync.outputs.urls }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      with: {python-version: "${{ inputs.python-version }}"}
+    - name: Install the Inkcast client (from this action's own commit)
+      shell: bash
+      run: python -m pip install --quiet --disable-pip-version-check "${{ github.action_path }}/.."
+    - id: sync
+      name: Sync
+      shell: bash
+      env:
+        INKCAST_URL: ${{ inputs.url }}
+        INKCAST_TOKEN: ${{ inputs.token }}
+        PATHS: ${{ inputs.paths }}
+        PLATFORMS: ${{ inputs.platforms }}
+        DRY_RUN: ${{ inputs.dry-run }}
+        FAIL_ON_STALE: ${{ inputs.fail-on-stale }}
+        EVENT: ${{ github.event_name }}
+      run: |
+        set -euo pipefail
+        args=()
+        if [ "$DRY_RUN" = "true" ] || { [ "$DRY_RUN" = "auto" ] && [ "$EVENT" = "pull_request" ]; }; then
+          args+=(--dry-run)
+        fi
+        [ -n "$PLATFORMS" ] && args+=(--platforms "$PLATFORMS")
+        [ "$FAIL_ON_STALE" = "true" ] && args+=(--fail-on-stale)
+        read -r -a globs <<< "$PATHS"
+        inkcast sync "${args[@]}" "${globs[@]}" | tee "$RUNNER_TEMP/inkcast-sync.txt"
+    - name: Comment the preview on the pull request
+      if: always() && github.event_name == 'pull_request' && inputs.comment == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR: ${{ github.event.pull_request.number }}
+      run: |
+        { echo "### Inkcast preview"; echo; echo '```'; cat "$RUNNER_TEMP/inkcast-sync.txt" 2>/dev/null || true; echo '```'; } > "$RUNNER_TEMP/comment.md"
+        gh pr comment "$PR" --body-file "$RUNNER_TEMP/comment.md" --edit-last 2>/dev/null \
+          || gh pr comment "$PR" --body-file "$RUNNER_TEMP/comment.md"

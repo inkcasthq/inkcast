@@ -1,0 +1,27 @@
+# .github/workflows/publish.yml in YOUR blog repository.
+# 1. Create a token: ask Claude Code "create an Inkcast token for my blog CI" (or POST /api/v1/tokens).
+# 2. Add it as the repository secret INKCAST_TOKEN, and your server URL as the variable INKCAST_URL.
+name: publish
+on:
+  push:
+    branches: [main]
+    paths: ["posts/**"]
+  pull_request:
+    paths: ["posts/**"]
+permissions:
+  contents: read
+  pull-requests: write          # only for the preview comment on pull requests
+concurrency:
+  group: inkcast-publish        # one sync at a time per repository
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: inkcasthq/inkcast/action@main   # pin to a commit SHA in real use
+        with:
+          url: ${{ vars.INKCAST_URL }}
+          token: ${{ secrets.INKCAST_TOKEN }}
+          paths: "posts/**/*.md"
+          comment: "true"

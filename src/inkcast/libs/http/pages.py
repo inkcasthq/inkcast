@@ -78,3 +78,29 @@ def connect_form(ticket: str, platform_name: str, help_text: str, fields: Iterab
 <form method=post action="/connect/{escape(ticket)}">{''.join(inputs)}
 <div class=row><button class=primary type=submit>Connect</button></div></form>
 <p class=muted>Credentials are encrypted on the Inkcast server and are never shown to the AI assistant.</p>""")
+
+
+def token_confirm(pending_id: str, csrf: str, name: str, scopes: list[str], days: int | None,
+                  user_display: str) -> HTMLResponse:
+    items = "".join(f"<li><code>{escape(s)}</code></li>" for s in scopes)
+    expiry = f"in {days} days" if days else "never (revoke it when you no longer need it)"
+    return _page("Create a token", f"""
+<h1>Create a personal access token?</h1>
+<p>Signed in as <strong>{escape(user_display)}</strong>.</p>
+<p>Name: <strong>{escape(name)}</strong><br>Expires: {escape(expiry)}</p>
+<p>It will be able to:</p><ul>{items}</ul>
+<p class=muted>Use it in CI (for example the Inkcast GitHub Action) as a secret named <code>INKCAST_TOKEN</code>.
+Only create it if you asked for it just now.</p>
+<form method=post action=/auth/consent>
+<input type=hidden name=pending value="{escape(pending_id)}"><input type=hidden name=csrf value="{escape(csrf)}">
+<div class=row><button name=decision value=deny>Cancel</button><button class=primary name=decision value=approve>Create token</button></div>
+</form>""")
+
+
+def token_created(token: str, name: str) -> HTMLResponse:
+    return _page("Token created", f"""
+<h1>Token created</h1>
+<p>Copy <strong>{escape(name)}</strong> now; it won't be shown again.</p>
+<p><code id=token style="word-break:break-all;display:block;padding:10px">{escape(token)}</code></p>
+<p class=muted>In GitHub: Settings → Secrets and variables → Actions → New repository secret, name
+<code>INKCAST_TOKEN</code>. Don't paste it into a chat with an AI assistant.</p>""")

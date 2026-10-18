@@ -26,6 +26,8 @@ Inkcast is an MCP server that lets Claude Code, or any MCP client, publish, cros
 | **Explicit consent** | Every MCP client that registers itself is shown a consent page before it gets a token. Codes are single-use; refresh tokens rotate. |
 | **Platform-correct output** | Each plug-in knows its platform's rules. Medium needs the title and subtitle inside the body and uses only 3 tags. DEV wants lowercase alphanumeric tags and no title in the body. Writers in a Medium publication can only create drafts. |
 | **Own scheduler** | Scheduled posts live in Inkcast's database and go out on time. Rate limits and server errors are retried automatically. |
+| **Git-native** | Push markdown to a repository and the [GitHub Action](docs/git-publishing.md) publishes new stories and updates changed ones in place. It never posts the same file twice. |
+| **One codebase, many services** | One image runs any service, selected by `INKCAST_APP_NAME` (`IdentityService`, `PublishingApi`, `ConnectorService`, `SchedulerWorker`, `Gateway`), or all of them at once. Shared libraries and service boundaries are enforced by tests. See [architecture](docs/architecture.md). |
 
 More detail on the design is in [docs/architecture.md](docs/architecture.md).
 
@@ -49,10 +51,25 @@ More detail on the design is in [docs/architecture.md](docs/architecture.md).
 | `inkcast_publish` | Publishes now, schedules, or creates drafts on one or more platforms. Supports `dry_run`. |
 | `inkcast_posts` | Lists your scheduled, published, draft, failed and cancelled posts. |
 | `inkcast_cancel` | Cancels a scheduled post. |
+| `inkcast_sync` | Syncs files from a repository: publishes new ones, updates changed ones in place, skips the rest. |
+| `inkcast_create_token` | Gives you a link to create a personal access token for CI. You see the token; the AI never does. |
+
+## Publish from Git
+
+```yaml
+# .github/workflows/publish.yml in your blog repository
+- uses: inkcasthq/inkcast/action@<commit-sha>
+  with:
+    url: ${{ vars.INKCAST_URL }}
+    token: ${{ secrets.INKCAST_TOKEN }}   # personal access token, scope stories:sync
+    paths: "posts/**/*.md"
+```
+
+On pull requests it runs a dry run and can comment the preview. On `main` it publishes. The full guide, the CLI for other CI systems (`inkcast sync`), and what each result means are in [docs/git-publishing.md](docs/git-publishing.md).
 
 ## REST API and docs
 
-Every tool is also a REST endpoint under `/api/v1`, with a Bearer token carrying the `inkcast` scope.
+Every tool is also a REST endpoint under `/api/v1`. Authenticate with a Bearer token: an OAuth access token (scope `inkcast`), or a personal access token with narrower scopes.
 
 | URL | What |
 |---|---|
@@ -173,7 +190,18 @@ Some behaviour to know:
 
 ## Configuration
 
-All settings are environment variables; see [.env.example](.env.example).
+All settings are environment variables; see [.env.example](.env.example). Each service checks only the settings it needs, and refuses to start with exit code 78 and a list of what to fix.
+
+| Variable | Default | |
+|---|---|---|
+| `INKCAST_APP_NAME` | `All` | which service(s) this process runs, CamelCase and comma-separated (`inkcast services` lists them) |
+| `INKCAST_PATH_PREFIX` | `/` | `/`, `auto` (each service under `/<full-name>`, e.g. `/publishing-api`), or a path |
+| `INKCAST_UPSTREAM_<SERVICE>` | | Gateway only: e.g. `INKCAST_UPSTREAM_PUBLISHING_API=http://inkcast-publishing-api:8787` |
+| `INKCAST_OVERDUE_GRACE` | `600` | seconds past due before a scheduled post counts as overdue (metric and alert) |
+| `INKCAST_ENV` | `production` in the image | `production`/`staging` make the startup security checks strict; `ci`/`development` relax them. `inkcast checks` prints the table |
+| `INKCAST_SECRETS_SOURCE` | `env` | where secrets come from: `env` (`NAME` or `NAME_FILE`), `dir` (a mounted Secret directory, `INKCAST_SECRETS_DIR`), `agent` (the AWS Secrets Manager agent), `aws`, `chain`. See [docs/reference/secrets.md](docs/reference/secrets.md) |
+| `INKCAST_MAX_BODY_BYTES` | 10 MB | larger requests get 413 before any handler runs |
+| `INKCAST_RATE_LIMIT_PER_MINUTE` | `60` | per-client limit on unauthenticated writes (`/register`, `/tokens/new`, sign-in, connect); `0` turns it off |
 
 ## Development
 
@@ -188,7 +216,7 @@ CI runs on every pull request ([docs/cicd.md](docs/cicd.md)):
 - the test suite on Python 3.11–3.13;
 - rendering of every manifest overlay;
 - an image build and vulnerability scan;
-- a **kind** deployment of the real image under Pod Security `restricted`;
+- a **kind** deployment of the real image under Pod Security `restricted`, both as one pod and as split services behind the Gateway;
 - CodeQL.
 
 Merges to main publish a signed image (cosign keyless), with an SBOM and SLSA provenance, and open a staging promotion PR.
@@ -201,10 +229,14 @@ The end-to-end test starts fake versions of a Keycloak-style identity provider, 
 4. Runs the scheduler, including a rate-limit retry, a Medium-writer draft and a DEV organization post.
 5. Lists and cancels posts.
 
+The whole end-to-end suite runs twice: once in a single process, and once with every service in its own server behind the built-in Gateway.
+
 Other tests cover:
 
 - the REST API, OpenAPI document and docs pages, including a real-browser render under the CSP;
 - duplicate-safe publishing (an ambiguous 5xx is never retried);
+- Git publishing: personal access tokens and scopes, the ledger (create → unchanged → update or stale), idempotency, re-scheduling, the CLI and the browser token flow;
+- architecture rules (no service imports another), the config gate, log redaction and secrets handling;
 - probes and metrics;
 - the vendored-asset lock.
 
@@ -212,7 +244,7 @@ Real Keycloak, Medium and DEV have not been exercised by the test suite yet. Try
 
 ## Status
 
-Early: v0.1, single node, SQLite. The path to the hosted SaaS — Postgres, workspaces, an admin portal on Keycloak, API tokens on sign-up, a mobile app — is in [docs/product-spec.md](docs/product-spec.md) and [docs/issues/](docs/issues/).
+Early: v0.2 in progress. Services from one codebase, Git publishing, and SQLite (one node). The path to the hosted SaaS — Postgres, workspaces, an admin portal on Keycloak, API tokens on sign-up, a mobile app — is in [docs/product-spec.md](docs/product-spec.md) and [docs/issues/](docs/issues/).
 
 ## Documentation
 

@@ -14,8 +14,9 @@ LABEL org.opencontainers.image.title="inkcast" \
       org.opencontainers.image.source="https://github.com/inkcasthq/inkcast" \
       org.opencontainers.image.licenses="LicenseRef-PolyForm-Shield-1.0.0" \
       org.opencontainers.image.vendor="ScalarOps Technologies LLC"
+# INKCAST_ENV=production: the posture checks are strict by default; a lab overlay sets ci/development.
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 \
-    HOST=0.0.0.0 PORT=8787 INKCAST_METRICS_PORT=9090 INKCAST_LOG_FORMAT=json \
+    HOST=0.0.0.0 PORT=8787 INKCAST_METRICS_PORT=9090 INKCAST_LOG_FORMAT=json INKCAST_ENV=production \
     INKCAST_DATABASE=/data/inkcast.db HOME=/tmp
 COPY --from=build /dist/*.whl /tmp/
 COPY LICENSE NOTICE /licenses/

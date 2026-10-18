@@ -45,8 +45,8 @@ def free_port() -> int:
         return s.getsockname()[1]
 
 
-def serve(app, port):
-    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+def serve(app, port, **options):
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", **options))
     threading.Thread(target=server.run, daemon=True).start()
     deadline = time.time() + 10
     while not server.started:
@@ -90,7 +90,9 @@ class Browser:
         return AuthorizationCodeResult(code=self.result["code"], state=self.result["state"])
 
 
-class EndToEnd(unittest.TestCase):
+class Harness(unittest.TestCase):
+    """The running stack (fake IdP + platforms, Inkcast at public_url) and client helpers; no tests."""
+
     @classmethod
     def setUpClass(cls):
         fport, iport = free_port(), free_port()
@@ -147,6 +149,13 @@ class EndToEnd(unittest.TestCase):
             again = await c.get(link)
         return done.text, again.status_code
 
+    def access_token(self) -> str:
+        storage = Memory()
+        asyncio.run(self.run_tools(self.oauth_client(Browser(), storage), [("inkcast_platforms", {})]))
+        return storage.tokens.access_token
+
+
+class EndToEnd(Harness):
     def test_discovery_points_clients_at_inkcast(self):
         async def run():
             async with httpx2.AsyncClient() as c:
@@ -260,11 +269,6 @@ class EndToEnd(unittest.TestCase):
         self.assertTrue(out3[1].startswith("ERROR"))
         self.assertIn("[cancelled]", out3[2])
 
-    def access_token(self) -> str:
-        storage = Memory()
-        asyncio.run(self.run_tools(self.oauth_client(Browser(), storage), [("inkcast_platforms", {})]))
-        return storage.tokens.access_token
-
     def test_rest_api(self):
         token = self.access_token()
         base = self.config.public_url
@@ -335,7 +339,8 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(set(spec["paths"]), {
             "/api/v1/me", "/api/v1/platforms", "/api/v1/platforms/{platform_id}/connect-link",
             "/api/v1/platforms/{platform_id}/connection", "/api/v1/platforms/{platform_id}/destinations",
-            "/api/v1/posts", "/api/v1/posts/{post_id}/cancel"})
+            "/api/v1/posts", "/api/v1/posts/{post_id}/cancel", "/api/v1/preview", "/api/v1/stories:sync",
+            "/api/v1/ledger", "/api/v1/tokens", "/api/v1/tokens/{token_id}"})
         refs = set(re.findall(r'"#/components/schemas/(\w+)"', __import__("json").dumps(spec)))
         self.assertTrue(refs <= set(spec["components"]["schemas"]), refs - set(spec["components"]["schemas"]))
         for path, page in pages.items():
@@ -404,10 +409,10 @@ class EndToEnd(unittest.TestCase):
         before = len(self.fakes.devto_articles)
         out = asyncio.run(self.run_tools(self.oauth_client(browser), [
             ("inkcast_connect", {"platform_id": "devto"}), connect, ("inkcast_publish", {"markdown": story})]))
-        self.assertIn("devto: UNKNOWN", out[-1])
+        self.assertIn("devto: UNCONFIRMED", out[-1])
         self.assertIn("may or may not have been published", out[-1])
         self.assertEqual(len(self.fakes.devto_articles), before)
-        self.assertGreaterEqual(self.app.store.post_counts().get("unknown", 0), 1)
+        self.assertGreaterEqual(self.app.store.post_counts().get("unconfirmed", 0), 1)
 
     def test_denied_consent_returns_access_denied(self):
         browser = Browser(approve=False)

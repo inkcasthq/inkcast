@@ -1,0 +1,30 @@
+<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>Tokens · Inkcast mockup</title><style>:root{--bg:#f7f5f0;--fg:#1d1b18;--muted:#6b665d;--card:#fff;--line:#e3ded3;--accent:#c2410c;--accent-fg:#fff;--ok:#15803d;--ok-bg:#dcfce7;--warn:#a16207;--warn-bg:#fef9c3;--err:#b91c1c;--err-bg:#fee2e2;--info-bg:#e0f2fe;--info:#075985}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+.app{display:grid;grid-template-columns:220px 1fr;min-height:100vh}.side{background:#fff;border-right:1px solid var(--line);padding:18px 14px}
+.brand{font-weight:700;color:var(--accent);font-size:18px;margin:0 6px 18px}.ws{border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:16px;font-size:13px}
+.nav a{display:flex;gap:10px;align-items:center;padding:8px 10px;border-radius:8px;color:var(--fg);text-decoration:none;margin-bottom:2px}.nav a.on{background:var(--bg);font-weight:600}
+.main{padding:24px 32px;max-width:1180px}h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:0 0 10px}.sub{color:var(--muted);margin:0 0 20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px}.grid{display:grid;gap:16px}.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}
+.btn{display:inline-block;padding:8px 14px;border-radius:8px;border:1px solid var(--line);background:#fff;font-weight:600;font-size:13px}.btn.p{background:var(--accent);border-color:var(--accent);color:#fff}
+.pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600}.ok{background:var(--ok-bg);color:var(--ok)}.warn{background:var(--warn-bg);color:var(--warn)}.err{background:var(--err-bg);color:var(--err)}.info{background:var(--info-bg);color:var(--info)}
+table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line);vertical-align:top}th{font-size:12px;color:var(--muted);font-weight:600;text-transform:none}
+.muted{color:var(--muted)}code{background:var(--bg);padding:1px 6px;border-radius:5px;font-size:12px}.row{display:flex;gap:10px;align-items:center}.sp{justify-content:space-between}
+input,textarea,select{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;font:inherit;background:#fff}label{display:block;font-weight:600;margin:12px 0 6px;font-size:13px}
+.steps{display:flex;gap:8px;margin-bottom:20px}.step{flex:1;border-top:4px solid var(--line);padding-top:8px;font-size:12px;color:var(--muted)}.step.done{border-color:var(--ok);color:var(--fg)}.step.on{border-color:var(--accent);color:var(--fg);font-weight:600}
+.banner{border-radius:10px;padding:10px 14px;margin-bottom:16px}.note{font-size:12px;color:var(--muted);margin-top:6px}
+
+@media (max-width:760px){.app{grid-template-columns:1fr}.side{border-right:0;border-bottom:1px solid var(--line);padding:10px 12px}
+.side .ws,.side .note{display:none}.brand{margin:0 0 8px}.nav{display:flex;gap:4px;overflow-x:auto;white-space:nowrap}.nav a{padding:6px 10px}
+.main{padding:16px}.g2,.g3{grid-template-columns:1fr}.row.sp{flex-wrap:wrap;align-items:flex-start}.steps{flex-wrap:wrap}.step{flex:1 1 40%}
+table{font-size:13px}.card{padding:14px}}
+</style></head><body><div class=app><aside class=side><div class=brand>Inkcast</div><div class=ws><div class=muted style='font-size:11px'>Workspace</div><b>Ada's writing</b> ▾</div><nav class=nav><a class="">Compose</a><a class="">Calendar</a><a class="">Posts</a><a class="">Git publishing</a><a class="">Connections</a><a class="on">Tokens</a><a class="">Billing</a><a class="">Settings</a></nav><div class=note style='margin-top:24px'>MOCKUP · E4 · not final</div></aside><main class=main>
+<h1>Personal access tokens</h1><p class=sub>For CI and scripts. A token is shown once; Inkcast stores only its hash.</p>
+<div class="grid g2"><div class=card><h2>Create a token</h2><label>Name</label><input value="blog repo CI"><label>Scopes</label>
+<div><label style="font-weight:400"><input type=checkbox checked style="width:auto"> stories:sync: sync files from a repository</label>
+<label style="font-weight:400"><input type=checkbox style="width:auto"> posts:read: list posts, previews, ledger</label>
+<label style="font-weight:400"><input type=checkbox style="width:auto"> posts:write: publish, schedule, cancel</label></div>
+<label>Expires</label><select><option>in 90 days</option></select><p><span class="btn p">Create token</span></p><p class=note>Tokens can't create other tokens. Never paste one into an AI chat.</p></div>
+<div class=card><h2>Active tokens</h2><table><tr><th>Name</th><th>Scopes</th><th>Last used</th><th></th></tr>
+<tr><td><b>blog repo CI</b><div class=note><code>ink_pat_1a2b3c4d5e6f_…</code></div></td><td>stories:sync</td><td class=muted>4 min ago</td><td><span class=btn>Revoke</span></td></tr>
+<tr><td><b>laptop</b><div class=note>expires in 12 days</div></td><td>posts:read</td><td class=muted>never</td><td><span class=btn>Revoke</span></td></tr></table></div></div>
+</main></div></body></html>

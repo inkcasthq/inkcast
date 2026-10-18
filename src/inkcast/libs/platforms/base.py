@@ -12,7 +12,10 @@ A platform plug-in is a class with:
 * ``publish``: send a prepared payload
 
 Optional: ``destinations`` / ``resolve_destination`` for publications,
-organizations, blogs; ``not_connected_help`` for a manual fallback.
+organizations, blogs; ``not_connected_help`` for a manual fallback;
+``update`` (declare ``"update"`` in ``capabilities``) to edit a published post in
+place, which Git publishing uses when a file changes; ``find_existing`` so an
+uncertain publish can be checked before anyone retries it.
 
 Third-party plug-ins register through the ``inkcast.platforms`` entry point
 group; see docs/writing-a-platform-plugin.md.
@@ -94,7 +97,7 @@ class PlatformError(Exception):
     made, rate-limited), so the scheduler may safely try again.
     ``uncertain``: a publishing request may or may not have taken effect (timeout
     after sending, 5xx). Retrying could post twice, so the post is marked
-    ``unknown`` for a human to check instead.
+    ``unconfirmed`` for a human to check instead.
     """
 
     def __init__(self, message: str, *, retryable: bool = False, uncertain: bool = False):
@@ -111,6 +114,9 @@ class Platform(ABC):
     connect_help: ClassVar[str] = ""
     # What a destination is called on this platform ("publication", "organization", ...), or None.
     destination_label: ClassVar[str | None] = None
+    # What else the platform API allows: "update" (edit a published post in place),
+    # "find" (look up a post this payload created, to confirm an uncertain publish).
+    capabilities: ClassVar[frozenset[str]] = frozenset()
 
     def __init__(self, http: httpx2.AsyncClient, api_url: str | None = None):
         self.http = http
@@ -146,6 +152,15 @@ class Platform(ABC):
                 return d
         listed = ", ".join(f"{d.name} ({d.id})" for d in options) or "none"
         raise PlatformError(f"No {self.destination_label or 'destination'} matching {wanted!r} on {self.name}. Options: {listed}.")
+
+    async def update(self, creds: dict[str, str], account: Account, remote_id: str, prepared: Prepared,
+                     destination: Destination | None) -> PublishResult:
+        """Replace the content of a post published earlier. Only called when "update" is in ``capabilities``."""
+        raise PlatformError(f"{self.name} doesn't let Inkcast edit published posts.")
+
+    async def find_existing(self, creds: dict[str, str], account: Account, prepared: Prepared) -> PublishResult | None:
+        """The post this payload already created, or None. Only called when "find" is in ``capabilities``."""
+        return None
 
     def not_connected_help(self, fields: dict[str, Any]) -> str | None:
         """Guidance when the person has no credentials for this platform (e.g. a manual import path)."""

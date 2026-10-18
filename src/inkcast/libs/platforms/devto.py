@@ -41,6 +41,7 @@ class DevtoPlatform(Platform):
         )
     ]
     connect_help = "Paste a DEV API key. It lets Inkcast create articles as you."
+    capabilities = frozenset({"update", "find"})
 
     @staticmethod
     def _headers(creds: dict[str, str]) -> dict[str, str]:
@@ -133,12 +134,39 @@ class DevtoPlatform(Platform):
         return Prepared(platform=self.id, title=title, payload={"article": article}, preview=preview,
                         destination=destination, warnings=warnings)
 
-    async def publish(self, creds: dict[str, str], account: Account, prepared: Prepared,
-                      destination: Destination | None) -> PublishResult:
+    @staticmethod
+    def _payload(prepared: Prepared, destination: Destination | None) -> dict[str, Any]:
         payload = {"article": dict(prepared.payload["article"])}
         if destination:
             payload["article"]["organization_id"] = int(destination.id)
-        data = await self.request("POST", "/articles", headers=self._headers(creds), json=payload) or {}
+        return payload
+
+    @staticmethod
+    def _result(data: dict[str, Any], payload: dict[str, Any]) -> PublishResult:
         published = data.get("published", payload["article"]["published"])
         return PublishResult(url=data.get("url"), remote_id=str(data["id"]) if data.get("id") else None,
                              status="published" if published else "draft")
+
+    async def publish(self, creds: dict[str, str], account: Account, prepared: Prepared,
+                      destination: Destination | None) -> PublishResult:
+        payload = self._payload(prepared, destination)
+        data = await self.request("POST", "/articles", headers=self._headers(creds), json=payload) or {}
+        return self._result(data, payload)
+
+    async def update(self, creds: dict[str, str], account: Account, remote_id: str, prepared: Prepared,
+                     destination: Destination | None) -> PublishResult:
+        payload = self._payload(prepared, destination)
+        if not str(remote_id).isdigit():
+            raise PlatformError(f"DEV article id {remote_id!r} isn't valid.")
+        data = await self.request("PUT", f"/articles/{remote_id}", headers=self._headers(creds), json=payload) or {}
+        return self._result(data, payload)
+
+    async def find_existing(self, creds: dict[str, str], account: Account, prepared: Prepared) -> PublishResult | None:
+        article = prepared.payload["article"]
+        mine = await self.request("GET", "/articles/me/all", headers=self._headers(creds), params={"per_page": 100}) or []
+        for a in mine if isinstance(mine, list) else []:
+            same_canonical = article.get("canonical_url") and a.get("canonical_url") == article["canonical_url"]
+            if same_canonical or a.get("title") == article["title"]:
+                return PublishResult(url=a.get("url"), remote_id=str(a.get("id")),
+                                     status="published" if a.get("published") else "draft")
+        return None

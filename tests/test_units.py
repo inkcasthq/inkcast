@@ -1,4 +1,5 @@
 import asyncio
+import time
 import unittest
 from datetime import datetime, timezone
 
@@ -185,3 +186,110 @@ class GitHubIdentityTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PipelineRecoveryTests(unittest.TestCase):
+    """A post left 'publishing' by a restart is confirmed with the platform or handed to a person, never re-sent blindly."""
+
+    def setUp(self):
+        import asyncio
+        import httpx2
+        from inkcast.libs.db import Store
+        from inkcast.libs.pipeline import STUCK_AFTER, Publisher
+        from inkcast.libs.platforms import Account, Platform, PlatformError, Prepared, PublishResult
+
+        class Fake(Platform):
+            id, name, default_api_url, credential_fields = "fake", "Fake", "https://fake.invalid", []
+            capabilities = frozenset({"find"})
+            found = None  # what find_existing answers; "error" raises
+            sent: list = []
+
+            async def verify(self, creds):
+                return Account(id="1", name="fake")
+
+            def prepare(self, fields, body):
+                return Prepared(platform="fake", title=fields["title"], payload={"body": body}, preview={})
+
+            async def publish(self, creds, account, prepared, destination):
+                self.sent.append(prepared.title)
+                return PublishResult(url="https://fake/new", remote_id="new", status="published")
+
+            async def find_existing(self, creds, account, prepared):
+                if self.found == "error":
+                    raise PlatformError("down")
+                return self.found
+
+        self.asyncio, self.STUCK_AFTER, self.PublishResult = asyncio, STUCK_AFTER, PublishResult
+        self.store = Store(":memory:", "k" * 40)
+        self.store.upsert_user("u", "u", None, None)
+        self.fake = Fake(httpx2.AsyncClient())
+        self.store.save_credentials("usr", "fake", {"k": "v"}, {"id": "1", "name": "fake"})
+        self.publisher = Publisher(self.store, {"fake": self.fake})
+
+    def stuck(self, title="Interrupted"):
+        pid = self.store.create_post(group_id="g", user_id="usr", platform="fake", title=title, status="publishing",
+                                     run_at=0, payload={"platform": "fake", "title": title, "payload": {}, "preview": {}})
+        self.store.update_post(pid)
+        self.store._exec("UPDATE posts SET updated_at = ? WHERE id = ?", time.time() - self.STUCK_AFTER - 1, pid)
+        return pid
+
+    def test_confirmed_rescheduled_or_unconfirmed_never_a_blind_retry(self):
+        found, missing, unknown, errored = self.stuck(), self.stuck(), self.stuck(), self.stuck()
+        self.fake.found = self.PublishResult(url="https://fake/it", remote_id="42", status="published")
+        self.asyncio.run(self.publisher.run_due())                       # all four are claimed and resolved together
+        self.assertEqual(self.store.get_post(found)["status"], "published")   # it had gone out: recorded, not re-sent
+        self.assertEqual(self.store.get_post(found)["result_url"], "https://fake/it")
+        self.assertEqual(self.fake.sent, [])                                  # nothing was sent during recovery
+
+        for pid, answer in ((missing, None), (unknown, "skip"), (errored, "error")):
+            self.store.update_post(pid, status="publishing")
+            self.store._exec("UPDATE posts SET updated_at = ? WHERE id = ?", time.time() - self.STUCK_AFTER - 1, pid)
+            if answer == "skip":
+                self.fake.capabilities = frozenset()    # a platform that can't be asked (Medium)
+            else:
+                self.fake.capabilities = frozenset({"find"})
+                self.fake.found = answer
+            with self.assertLogs("inkcast.libs.pipeline", "WARNING") as logs:
+                self.asyncio.run(self.publisher.run_due())
+            self.assertIn("interrupted mid-send", logs.output[0])
+        self.assertEqual(self.store.get_post(missing)["status"], "published")  # missing → re-queued → sent once now
+        self.assertEqual(self.fake.sent, ["Interrupted"])
+        self.assertEqual(self.store.get_post(unknown)["status"], "unconfirmed")
+        self.assertIn("Check Fake before publishing it again", self.store.get_post(unknown)["error"])
+        self.assertEqual(self.store.get_post(errored)["status"], "unconfirmed")
+        self.assertEqual(self.store.post_counts().get("recovering"), None)
+        self.assertEqual(self.store.claim_stuck(time.time()), [])              # a fresh 'publishing' row is left alone
+
+
+class TokenVerifierTests(unittest.TestCase):
+    def test_one_lookup_per_verification_and_pats_get_the_gate_scope(self):
+        from inkcast.libs.auth import SCOPE, TokenVerifier
+        store = Store(":memory:", "k" * 40)
+        user = store.upsert_user("local:owner", "owner", None, None)
+        pat, _ = store.create_api_token(user["id"], "ci", ["stories:sync"], None)
+        reads = []
+        original = store.find_api_token
+        store.find_api_token = lambda token: (reads.append(1), original(token))[1]
+        v = TokenVerifier(store)
+        access = v.access_token(pat)
+        self.assertEqual((access.subject, access.scopes, len(reads)), (user["id"], [SCOPE, "stories:sync"], 1))
+        self.assertEqual(v.principal(pat).scopes, frozenset({"stories:sync"}))
+        self.assertIsNone(v.access_token("ink_pat_nope_nope"))
+        self.assertIsNone(v.access_token(""))
+
+
+class CliSafetyTests(unittest.TestCase):
+    def test_token_is_never_sent_over_plain_http_to_a_remote_host(self):
+        import contextlib
+        import io
+        import os
+        from inkcast.cli import sync_main
+        os.environ["INKCAST_TOKEN_TEST"] = "ink_pat_x_y"
+        try:
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                code = sync_main(["--url", "http://inkcast.example.com", "--token-env", "INKCAST_TOKEN_TEST", "nothing/*.md"])
+        finally:
+            del os.environ["INKCAST_TOKEN_TEST"]
+        self.assertEqual(code, 2)
+        self.assertIn("plain http", err.getvalue())
