@@ -1,0 +1,34 @@
+# kubectl create namespace inkcast   (or keep namespace.yaml below)
+# kubectl -n inkcast create secret generic inkcast-secrets --from-literal=secret-key=... --from-literal=oidc-client-secret=...
+# kubectl apply -k deploy/kustomize/overlays/kubernetes
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: inkcast
+resources:
+  - namespace.yaml
+  - ../../base
+  - httproute.yaml
+components:
+  - ../../components/servicemonitor
+  # - ../../components/egress-cilium    # FQDN allow-list for outbound calls (Cilium)
+  # - ../../components/external-secrets
+patches:
+  - target: {kind: Deployment, name: inkcast}
+    patch: |-
+      - op: add
+        path: /spec/template/spec/securityContext/runAsUser
+        value: 1001
+      - op: add
+        path: /spec/template/spec/securityContext/runAsGroup
+        value: 1001
+      - op: add
+        path: /spec/template/spec/securityContext/fsGroup
+        value: 1001
+  - target: {kind: NetworkPolicy, name: inkcast}
+    patch: |-
+      - op: replace
+        path: /spec/ingress/0/from/0/namespaceSelector/matchLabels
+        value: {kubernetes.io/metadata.name: gateway-system}
+      - op: replace
+        path: /spec/ingress/1/from/0/namespaceSelector/matchLabels
+        value: {kubernetes.io/metadata.name: monitoring}

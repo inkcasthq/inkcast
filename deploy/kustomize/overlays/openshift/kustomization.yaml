@@ -1,0 +1,23 @@
+# oc new-project inkcast
+# oc create secret generic inkcast-secrets --from-literal=secret-key="$(openssl rand -base64 48)" --from-literal=oidc-client-secret=...
+# oc apply -k deploy/kustomize/overlays/openshift
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: inkcast
+resources:
+  - ../../base
+  - route.yaml
+components:
+  - ../../components/servicemonitor     # needs user-workload monitoring enabled
+  # - ../../components/egress-openshift # allow-list outbound hosts (OVN-Kubernetes EgressFirewall)
+  # - ../../components/external-secrets # if secrets come from Vault / a cloud secret manager
+patches:
+  # No runAsUser/fsGroup: the restricted-v2 SCC assigns them per namespace.
+  - target: {kind: NetworkPolicy, name: inkcast}
+    patch: |-
+      - op: replace
+        path: /spec/ingress/0/from/0/namespaceSelector/matchLabels
+        value: {policy-group.network.openshift.io/ingress: ""}
+      - op: replace
+        path: /spec/ingress/1/from/0/namespaceSelector/matchLabels
+        value: {network.openshift.io/policy-group: monitoring}

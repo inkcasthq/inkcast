@@ -1,0 +1,38 @@
+# Admission-time supply-chain check (Kyverno): only run Inkcast images that were signed by this
+# repository's publish workflow (keyless, GitHub OIDC) and carry an SPDX SBOM attestation.
+# Adjust OWNER/REPO and the registry. Validate against your Kyverno version before enforcing:
+# start with validationFailureAction: Audit.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: verify-inkcast-image
+spec:
+  validationFailureAction: Audit
+  webhookTimeoutSeconds: 30
+  rules:
+    - name: signed-by-publish-workflow
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: [inkcast]
+      verifyImages:
+        - imageReferences: ["ghcr.io/OWNER/inkcast*"]
+          mutateDigest: true
+          verifyDigest: true
+          attestors:
+            - entries:
+                - keyless:
+                    issuer: https://token.actions.githubusercontent.com
+                    subject: https://github.com/OWNER/inkcast/.github/workflows/publish.yml@refs/*
+                    rekor:
+                      url: https://rekor.sigstore.dev
+          attestations:
+            - type: https://spdx.dev/Document
+              attestors:
+                - entries:
+                    - keyless:
+                        issuer: https://token.actions.githubusercontent.com
+                        subject: https://github.com/OWNER/inkcast/.github/workflows/publish.yml@refs/*
+                        rekor:
+                          url: https://rekor.sigstore.dev

@@ -1,0 +1,10 @@
+# GitOps entry point for staging (Argo CD / Flux watch this directory).
+# The image is pinned BY DIGEST; .github/workflows/promote.yml updates it in a pull request
+# only after verifying the image's cosign signature and SLSA provenance.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../overlays/openshift      # or ../../overlays/kubernetes
+images:
+  - name: ghcr.io/OWNER/inkcast
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000

@@ -1,0 +1,33 @@
+# Default-deny for the Inkcast pods, then only what they need.
+# Overlays set which namespaces count as "ingress" and "monitoring".
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: inkcast
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: server
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              inkcast.io/ingress: "true"        # patched per platform in the overlays
+      ports:
+        - {port: 8787, protocol: TCP}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              inkcast.io/monitoring: "true"     # patched per platform in the overlays
+      ports:
+        - {port: 9090, protocol: TCP}
+  egress:
+    - ports:                                     # DNS
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+        - {port: 5353, protocol: UDP}           # OpenShift DNS
+        - {port: 5353, protocol: TCP}
+    - ports:                                     # platform APIs and the identity provider (HTTPS only)
+        - {port: 443, protocol: TCP}
+      # Tighten to named hosts with the egress-cilium or egress-openshift component.

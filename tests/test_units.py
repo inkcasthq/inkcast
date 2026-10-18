@@ -130,6 +130,25 @@ class OAuthTests(unittest.TestCase):
         asyncio.run(run())
 
 
+class ConfigTests(unittest.TestCase):
+    def test_secrets_from_files(self):
+        import os
+        import tempfile
+        from inkcast.config import load_config
+        with tempfile.NamedTemporaryFile("w", delete=False) as f:
+            f.write("s" * 40 + "\n")
+        env = {"INKCAST_SECRET_KEY_FILE": f.name, "INKCAST_LOGIN": "password", "INKCAST_PASSWORD": "p" * 12}
+        old = {k: os.environ.get(k) for k in env}
+        os.environ.update(env)
+        try:
+            cfg = load_config()
+            self.assertEqual(cfg.secret_key, "s" * 40)
+            cfg.validate()
+        finally:
+            for k, v in old.items():
+                os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+
+
 class GitHubIdentityTests(unittest.TestCase):
     def _finish(self, orgs, allowed_orgs=(), allowed_users=()):
         from starlette.requests import Request

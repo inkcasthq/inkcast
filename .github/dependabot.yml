@@ -1,0 +1,17 @@
+# Weekly, grouped updates. Actions are SHA-pinned with the version in a comment; Dependabot moves both.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: {interval: weekly, day: monday}
+    groups: {actions: {patterns: ["*"]}}
+    labels: [dependencies, github-actions]
+  - package-ecosystem: pip
+    directory: /
+    schedule: {interval: weekly, day: monday}
+    groups: {python: {patterns: ["*"]}}
+    labels: [dependencies, python]
+  - package-ecosystem: docker
+    directory: /
+    schedule: {interval: weekly, day: monday}
+    labels: [dependencies, docker]

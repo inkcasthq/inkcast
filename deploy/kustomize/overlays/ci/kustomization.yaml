@@ -1,0 +1,39 @@
+# Used only by CI (kind): the Kubernetes overlay minus anything needing extra CRDs (Gateway API,
+# Prometheus Operator), password sign-in, and a throwaway secret. Proves the manifests apply,
+# pass Pod Security "restricted", start, and answer their probes.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: inkcast
+resources:
+  - ../kubernetes/namespace.yaml
+  - ../../base
+secretGenerator:
+  - name: inkcast-secrets
+    options: {disableNameSuffixHash: true}
+    literals:
+      - secret-key=ci-only-not-a-secret-ci-only-not-a-secret-0123456789
+      - oidc-client-secret=unused
+      - password=ci-only-password-123
+configMapGenerator:
+  - name: inkcast-config
+    behavior: merge
+    literals:
+      - INKCAST_PUBLIC_URL=http://localhost:8787
+      - INKCAST_LOGIN=password
+      - INKCAST_PASSWORD_FILE=/var/run/secrets/inkcast/password
+images:
+  - name: ghcr.io/OWNER/inkcast
+    newName: inkcast
+    newTag: ci
+patches:
+  - target: {kind: Deployment, name: inkcast}
+    patch: |-
+      - op: add
+        path: /spec/template/spec/securityContext/runAsUser
+        value: 1001
+      - op: add
+        path: /spec/template/spec/securityContext/fsGroup
+        value: 1001
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never

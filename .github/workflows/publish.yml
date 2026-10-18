@@ -1,0 +1,137 @@
+# Builds the image ONCE, pushes it, and proves where it came from:
+#   build  -> push to the registry; everything downstream refers to the DIGEST, never a tag
+#   sbom   -> SPDX SBOM of that digest (Syft), kept as an artifact
+#   attest -> cosign keyless signature (GitHub OIDC, no stored keys), SBOM attestation,
+#             SLSA build provenance in GitHub's attestation store, then READ EACH ONE BACK
+#   release (tags only) -> GitHub Release with the manifests rendered against the digest
+#
+# Only `attest` can mint an OIDC token, and only `build` can write packages: least privilege
+# per job. The ci.yml gate runs first, so nothing unchecked is ever published.
+name: publish
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ${{ vars.REGISTRY || 'ghcr.io' }}
+  IMAGE: ${{ vars.REGISTRY || 'ghcr.io' }}/${{ github.repository }}
+
+jobs:
+  gate:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+      security-events: write
+
+  build:
+    needs: [gate]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Log in to the registry
+        run: echo "${{ secrets.REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}" | docker login "$REGISTRY" -u "${{ vars.REGISTRY_USER || github.actor }}" --password-stdin
+      - name: Build and push (immutable tags only)
+        id: push
+        run: |
+          set -euo pipefail
+          tags=(-t "$IMAGE:sha-${GITHUB_SHA::12}")
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then tags+=(-t "$IMAGE:${GITHUB_REF_NAME#v}"); fi
+          docker buildx build --push --provenance=false --sbom=false \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --metadata-file meta.json "${tags[@]}" .
+          digest=$(python3 -c 'import json; print(json.load(open("meta.json"))["containerimage.digest"])')
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "### Pushed \`$IMAGE@$digest\`" >> "$GITHUB_STEP_SUMMARY"
+
+  sbom:
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - run: echo "${{ secrets.REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}" | docker login "$REGISTRY" -u "${{ vars.REGISTRY_USER || github.actor }}" --password-stdin
+      - uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          image: ${{ env.IMAGE }}@${{ needs.build.outputs.digest }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+          artifact-name: sbom-${{ github.sha }}.spdx.json
+
+  attest:
+    needs: [build, sbom]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write       # keyless signing
+      attestations: write   # GitHub attestation store
+    env:
+      REF: ${{ needs.build.outputs.digest }}
+    steps:
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: sbom-${{ github.sha }}.spdx.json
+      - run: echo "${{ secrets.REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}" | docker login "$REGISTRY" -u "${{ vars.REGISTRY_USER || github.actor }}" --password-stdin
+      - name: Sign the digest and attach the SBOM
+        run: |
+          set -euo pipefail
+          cosign sign --yes "$IMAGE@$REF"
+          cosign attest --yes --type spdxjson --predicate sbom-${{ github.sha }}.spdx.json "$IMAGE@$REF"
+      - name: SLSA build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ needs.build.outputs.digest }}
+          push-to-registry: true
+      - name: Read every proof back (a signature nobody verified is not a control)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ID="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/.github/workflows/publish.yml@$GITHUB_REF"
+          ISSUER=https://token.actions.githubusercontent.com
+          cosign verify --certificate-identity "$ID" --certificate-oidc-issuer "$ISSUER" "$IMAGE@$REF" > /dev/null
+          cosign verify-attestation --type spdxjson --certificate-identity "$ID" --certificate-oidc-issuer "$ISSUER" "$IMAGE@$REF" > /dev/null
+          gh attestation verify "oci://$IMAGE@$REF" --repo "$GITHUB_REPOSITORY" > /dev/null
+          echo "Signature, SBOM attestation and provenance verified for $IMAGE@$REF" >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, attest]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Render manifests pinned to the released digest and publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIGEST: ${{ needs.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for o in openshift kubernetes; do
+            d=$(mktemp -d); cp -r deploy "$d/"
+            printf '\nimages:\n  - name: ghcr.io/OWNER/inkcast\n    newName: %s\n    digest: %s\n' "$IMAGE" "$DIGEST" \
+              >> "$d/deploy/kustomize/overlays/$o/kustomization.yaml"
+            kubectl kustomize "$d/deploy/kustomize/overlays/$o" > "dist/inkcast-${GITHUB_REF_NAME}-$o.yaml"
+          done
+          gh release create "$GITHUB_REF_NAME" dist/* --generate-notes --verify-tag

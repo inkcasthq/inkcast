@@ -25,7 +25,11 @@
 | `story.py` | Platform-neutral story: front matter, per-platform overrides, image URL fixing, schedule validation. Pure: no I/O. |
 | `publisher.py` | Fan-out to platforms, immediate sends, scheduled sends with retry (`60s`, `5m`, `30m`), cancel. |
 | `storage.py` | Users, OAuth state, encrypted credentials, posts. |
-| `server.py` | MCP tools, browser routes, app assembly, scheduler task. |
+| `service.py` | Use cases (platforms, connect, publish, posts, cancel), shared by the MCP tools and the REST API. |
+| `models.py` | Request/response models. They are the single source for the tool schemas and the OpenAPI document. |
+| `api.py` | REST API `/api/v1`, OpenAPI 3.1 at `/api/openapi.json`, Swagger UI at `/api` and ReDoc at `/api/redoc`, rendered from vendored, hash-locked bundles. |
+| `observability.py` | JSON logs, Prometheus metrics. |
+| `server.py` | MCP tools (thin renderings of the service), browser routes, probes, run modes (`all`/`web`/`worker`), coordinated shutdown. |
 
 ## Sign-in flow (what Claude Code does on `/mcp` → Authenticate)
 
@@ -57,9 +61,85 @@
 - DNS-rebinding protection checks `Host` headers on `/mcp`. `INKCAST_PUBLIC_URL` must be `https` unless it is localhost.
 - Pages send a strict Content-Security-Policy, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer` and `Cache-Control: no-store`.
 
+## Cloud-native design
+
+### Twelve-factor mapping
+
+| Factor | How Inkcast does it |
+|---|---|
+| Config | Environment only. Secrets via `*_FILE`, so Kubernetes/OpenShift Secrets mount as files, never env vars. |
+| Backing services | IdP, platform APIs and storage are attached resources, swappable by configuration (platform API URLs too). |
+| Build, release, run | One image per commit, released by digest, configured per environment by Kustomize. |
+| Processes | Stateless web tier (OAuth state, tokens and posts live in the store). SQLite in v0.1 pins one replica; Postgres lifts it. |
+| Port binding | `:8787` app, `:9090` metrics + probes. |
+| Concurrency | `inkcast web` scales horizontally; `inkcast worker` runs the scheduler. Claiming is atomic, so several workers are safe. |
+| Disposability | SIGTERM stops intake, lets in-flight requests finish (25 s grace) and **finishes the current scheduler tick**, so no post is half-sent. |
+| Logs | JSON to stdout, no files. OAuth codes never logged (HTTP client and access logs held at WARNING). |
+| Admin processes | `inkcast` CLI modes; key rotation and migrations come later as one-off Jobs. |
+
+### Runtime contract
+
+| Probe | Path (metrics port) | Meaning |
+|---|---|---|
+| startup / liveness | `/livez` | Process is serving |
+| readiness | `/readyz` | Storage answers; the scheduler (if this process runs it) ticked recently |
+| metrics | `/metrics` | Prometheus text format, on a port that is never routed publicly |
+
+**Metrics:**
+
+- `inkcast_build_info`
+- `inkcast_publish_total{platform,status}`
+- `inkcast_scheduler_ticks_total`
+- `inkcast_posts{status}`
+- `inkcast_posts_due` (queue depth, ready for a KEDA scaler)
+
+**Pod security:**
+
+- the container runs as an arbitrary non-root UID in group 0 (OpenShift `restricted-v2`, Kubernetes PSS `restricted`);
+- read-only root filesystem; all capabilities dropped; seccomp `RuntimeDefault`;
+- no service-account token.
+
+**Duplicate-safe publishing:**
+
+- Connection errors and 429s are retried.
+- A timeout *after* a publish request was sent, or a 5xx on it, marks the post `unknown` for a human to check. Retrying could post twice.
+
+### CNCF building blocks
+
+Maturity as listed on cncf.io/projects (checked 2026-10-18); re-check before relying on it.
+
+| Concern | Choice | CNCF status | Where |
+|---|---|---|---|
+| Orchestration | Kubernetes / OpenShift | Graduated | `deploy/kustomize` (overlays: openshift, kubernetes) |
+| Packaging | Kustomize now; Helm chart planned | Helm: Graduated | issue 26 |
+| GitOps | Argo CD or Flux | Graduated | `deploy/kustomize/environments`, issue 29 |
+| Identity | Keycloak | Incubating | sign-in, admin portal |
+| Ingress | OpenShift Route / Gateway API HTTPRoute | Gateway API is a Kubernetes SIG project | overlays |
+| TLS | cert-manager | Graduated | Gateway certificates |
+| Secrets | External Secrets Operator | Sandbox (2022) | `components/external-secrets` |
+| Policy | Kyverno (image signature + SBOM verification) | Graduated | `deploy/policies` |
+| Network | NetworkPolicy default-deny; Cilium FQDN egress or OVN EgressFirewall | Cilium: Graduated | base + `components/egress-*` |
+| Metrics | Prometheus (ServiceMonitor) | Graduated | `components/servicemonitor` |
+| Traces | OpenTelemetry | Graduated | issue 27 |
+| Logs | stdout JSON → Fluent Bit / Fluentd | Fluentd: Graduated | platform logging |
+| Autoscaling | KEDA on `inkcast_posts_due` / media queue | Graduated | social epic, issue 17 |
+| Database | PostgreSQL via CloudNativePG | Sandbox (2025) | issue 10 |
+| Object storage | Rook-Ceph RGW (on-prem) or cloud S3 | Rook: Graduated | social epic, issue 17 |
+| Events | CloudEvents for webhooks in and out | Graduated | social epic, issue 19 |
+| Supply chain | in-toto/SLSA provenance, Sigstore cosign, SPDX SBOM | in-toto: Graduated (Sigstore is OpenSSF) | `.github/workflows/publish.yml` |
+| Runtime security | Falco | Graduated | optional, cluster-level |
+
+### Deployment topologies
+
+| Stage | Topology |
+|---|---|
+| v0.1 | One pod (`inkcast all`), SQLite on an RWO PVC, `Recreate` strategy |
+| Phase 1 | `inkcast web` Deployment (≥ 2 replicas, RollingUpdate, PodDisruptionBudget, topology spread) + `inkcast worker` Deployment + CloudNativePG cluster |
+| Phase 2 | Media workers scaled by KEDA, object storage, CloudEvents webhooks (social epic) |
+
 ## Known limits of v0.1
 
 - **Storage:** single node, SQLite.
-- **Scheduler:** one in-process loop. Claiming is atomic, so a second worker is safe, but there is no leader election.
+- **Scheduler:** with SQLite, run `inkcast all` as a single pod. With Postgres (issue 10), `web` and `worker` split.
 - **Platforms:** Medium cannot edit or delete via its API, and DEV unpublishing needs the platform UI. Inkcast cancels only what hasn't been sent.
 - **Images:** they must be public URLs. Uploading to Medium's image endpoint is planned.
