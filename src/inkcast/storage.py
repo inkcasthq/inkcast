@@ -288,6 +288,18 @@ class Store:
             "UPDATE posts SET status = 'scheduled' WHERE status = 'publishing' AND updated_at < ?", older_than
         )
 
+    def ping(self) -> bool:
+        self._one("SELECT 1")
+        return True
+
+    def post_counts(self) -> dict[str, int]:
+        rows = self._all("SELECT status, COUNT(*) AS n FROM posts GROUP BY status")
+        return {r["status"]: r["n"] for r in rows}
+
+    def due_count(self, now: float) -> int:
+        row = self._one("SELECT COUNT(*) AS n FROM posts WHERE status = 'scheduled' AND run_at <= ?", now)
+        return int(row["n"]) if row else 0
+
     def list_posts(self, user_id: str, start: float, end: float) -> list[dict[str, Any]]:
         rows = self._all(
             "SELECT * FROM posts WHERE user_id = ? AND run_at BETWEEN ? AND ? ORDER BY run_at", user_id, start, end

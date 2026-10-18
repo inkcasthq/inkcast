@@ -112,13 +112,13 @@ class EndToEnd(unittest.TestCase):
         for s in cls.servers:
             s.should_exit = True
 
-    def oauth_client(self, browser: Browser) -> OAuthClientProvider:
+    def oauth_client(self, browser: Browser, storage: "Memory | None" = None) -> OAuthClientProvider:
         return OAuthClientProvider(
             server_url=self.config.mcp_url,
             client_metadata=OAuthClientMetadata(client_name="Claude Code", redirect_uris=["http://localhost:53682/callback"],
                                                 grant_types=["authorization_code", "refresh_token"],
                                                 response_types=["code"], token_endpoint_auth_method="none"),
-            storage=Memory(), redirect_handler=browser, callback_handler=browser.callback,
+            storage=storage or Memory(), redirect_handler=browser, callback_handler=browser.callback,
         )
 
     async def run_tools(self, auth, steps):
@@ -259,6 +259,155 @@ class EndToEnd(unittest.TestCase):
         self.assertIn("Cancelled", out3[0])
         self.assertTrue(out3[1].startswith("ERROR"))
         self.assertIn("[cancelled]", out3[2])
+
+    def access_token(self) -> str:
+        storage = Memory()
+        asyncio.run(self.run_tools(self.oauth_client(Browser(), storage), [("inkcast_platforms", {})]))
+        return storage.tokens.access_token
+
+    def test_rest_api(self):
+        token = self.access_token()
+        base = self.config.public_url
+
+        async def run():
+            h = {"Authorization": f"Bearer {token}"}
+            async with httpx2.AsyncClient(timeout=30) as c:
+                anon = await c.get(f"{base}/api/v1/platforms")
+                bad = await c.get(f"{base}/api/v1/platforms", headers={"Authorization": "Bearer nope"})
+                me = (await c.get(f"{base}/api/v1/me", headers=h)).json()
+                plats = (await c.get(f"{base}/api/v1/platforms", headers=h)).json()
+                link = (await c.post(f"{base}/api/v1/platforms/devto/connect-link", headers=h)).json()
+                await c.post(link["url"], data={"api_key": "devto-key"})
+                preview = await c.post(f"{base}/api/v1/posts", headers=h, json={"markdown": STORY, "dry_run": True})
+                invalid = await c.post(f"{base}/api/v1/posts", headers=h, json={"markdown": "x", "platforms": ["devto"]})
+                notjson = await c.post(f"{base}/api/v1/posts", headers=h, content=b"{")
+                sched = await c.post(f"{base}/api/v1/posts", headers=h, json={
+                    "markdown": STORY, "platforms": ["devto"],
+                    "publish_at": (datetime.now(timezone.utc) + timedelta(days=3)).isoformat()})
+                pid = sched.json()["results"][0]["post_id"]
+                listed = (await c.get(f"{base}/api/v1/posts?days_ahead=30", headers=h)).json()
+                bad_q = await c.get(f"{base}/api/v1/posts?days_ahead=9999", headers=h)
+                cancelled = await c.post(f"{base}/api/v1/posts/{pid}/cancel", headers=h)
+                again = await c.post(f"{base}/api/v1/posts/{pid}/cancel", headers=h)
+                missing = await c.post(f"{base}/api/v1/posts/pst_nope/cancel", headers=h)
+                unknown_platform = await c.post(f"{base}/api/v1/platforms/myspace/connect-link", headers=h)
+            return locals()
+        r = asyncio.run(run())
+        self.assertEqual(r["anon"].status_code, 401)
+        self.assertIn("resource_metadata=", r["anon"].headers["www-authenticate"])
+        self.assertEqual(r["bad"].status_code, 401)
+        self.assertEqual(r["me"]["display"], "ada")
+        self.assertEqual({p["id"] for p in r["plats"]}, {"medium", "devto"})
+        self.assertTrue(r["link"]["url"].startswith(f"{base}/connect/"))
+        prev = r["preview"].json()
+        self.assertTrue(prev["dry_run"])
+        self.assertEqual([x["status"] for x in prev["results"]], ["preview", "preview"])
+        self.assertEqual(r["invalid"].status_code, 422)
+        self.assertEqual(r["invalid"].json()["error"], "invalid_story")
+        self.assertEqual(r["notjson"].status_code, 422)
+        self.assertEqual(r["sched"].json()["results"][0]["status"], "scheduled")
+        self.assertIn(r["pid"], {p["id"] for p in r["listed"]})
+        self.assertEqual(r["bad_q"].status_code, 422)
+        self.assertEqual(r["cancelled"].json()["status"], "cancelled")
+        self.assertEqual(r["again"].status_code, 409)
+        self.assertEqual(r["missing"].status_code, 404)
+        self.assertEqual(r["unknown_platform"].status_code, 404)
+        self.assertEqual(r["sched"].headers["cache-control"], "no-store")
+
+    def test_openapi_and_docs_pages(self):
+        base = self.config.public_url
+
+        async def run():
+            async with httpx2.AsyncClient() as c:
+                spec = (await c.get(f"{base}/api/openapi.json")).json()
+                pages = {p: await c.get(f"{base}{p}") for p in ("/api", "/api/docs", "/api/redoc")}
+                assets = {}
+                for p in pages.values():
+                    for src in re.findall(r"(?:src|href)='(/api/static/[^']+)'", p.text):
+                        assets[src] = await c.get(f"{base}{src}")
+                etag = next(iter(assets.values())).headers["etag"]
+                not_modified = await c.get(f"{base}{next(iter(assets))}", headers={"If-None-Match": etag})
+                outside = await c.get(f"{base}/api/static/ASSETS.lock")
+                traversal = await c.get(f"{base}/api/static/..%2F..%2Fserver.py")
+            return spec, pages, assets, not_modified, outside, traversal
+        spec, pages, assets, not_modified, outside, traversal = asyncio.run(run())
+        self.assertEqual(spec["openapi"], "3.1.0")
+        self.assertEqual(set(spec["paths"]), {
+            "/api/v1/me", "/api/v1/platforms", "/api/v1/platforms/{platform_id}/connect-link",
+            "/api/v1/platforms/{platform_id}/connection", "/api/v1/platforms/{platform_id}/destinations",
+            "/api/v1/posts", "/api/v1/posts/{post_id}/cancel"})
+        refs = set(re.findall(r'"#/components/schemas/(\w+)"', __import__("json").dumps(spec)))
+        self.assertTrue(refs <= set(spec["components"]["schemas"]), refs - set(spec["components"]["schemas"]))
+        for path, page in pages.items():
+            self.assertEqual(page.status_code, 200, path)
+            csp = page.headers["content-security-policy"]
+            self.assertIn("script-src 'self';", csp)
+            self.assertNotIn("<script>", page.text)            # no inline scripts
+            self.assertNotRegex(page.text, r"https?://")        # nothing from a CDN
+        self.assertEqual(len(assets), 4)                        # swagger css+js+init, redoc js
+        for src, resp in assets.items():
+            self.assertEqual(resp.status_code, 200, src)
+            self.assertIn("immutable", resp.headers["cache-control"])
+        self.assertEqual(not_modified.status_code, 304)
+        self.assertEqual(outside.status_code, 404)
+        self.assertEqual(traversal.status_code, 404)
+
+    def test_docs_render_in_a_real_browser(self):
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            self.skipTest("playwright not installed")
+        shots = os.environ.get("INKCAST_CAPTURE_DIR")
+        errors = []
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page(viewport={"width": 1280, "height": 900})
+            page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+            page.goto(f"{self.config.public_url}/api")
+            page.wait_for_selector(".swagger-ui .info .title", timeout=15000)
+            self.assertIn("Inkcast API", page.inner_text(".swagger-ui .info .title"))
+            page.wait_for_selector(".opblock-summary-path[data-path=\"/api/v1/posts\"]", timeout=15000)
+            if shots:
+                page.screenshot(path=os.path.join(shots, "swagger-ui.png"), full_page=False)
+            page.goto(f"{self.config.public_url}/api/redoc")
+            page.wait_for_selector("h1:has-text('Inkcast API')", timeout=20000)
+            page.locator("h2", has_text="Publish, schedule, draft or preview a story").first.wait_for(timeout=20000)
+            if shots:
+                page.screenshot(path=os.path.join(shots, "redoc.png"), full_page=False)
+            browser.close()
+        # The only thing the CSP should ever block is ReDoc's "by Redocly" footer logo, which
+        # ReDoc hard-codes to its CDN. Blocking it is the point: the page makes no outside calls.
+        csp_errors = [e for e in errors if "Content Security Policy" in e and "cdn.redoc.ly" not in e]
+        self.assertEqual(csp_errors, [])
+
+    def test_probes_and_metrics(self):
+        async def run():
+            async with httpx2.AsyncClient() as c:
+                return ((await c.get(f"{self.config.public_url}/livez")).status_code,
+                        (await c.get(f"{self.config.public_url}/readyz")).json())
+        live, ready = asyncio.run(run())
+        self.assertEqual(live, 200)
+        self.assertTrue(ready["ok"])
+        text = self.app.metrics.render()
+        self.assertIn("# TYPE inkcast_publish_total counter", text)
+        self.assertIn('inkcast_build_info{platforms="devto,medium",version="0.1.0"} 1', text)
+        self.assertIn("inkcast_posts_due", text)
+
+    def test_ambiguous_publish_failure_is_never_retried(self):
+        browser = Browser()
+        story = STORY.replace("platforms: [medium, devto]", "platforms: [devto]")
+
+        async def connect(out):
+            await self.fill_connect_page(out[-1], {"api_key": "devto-key"})
+
+        self.fakes.devto_fail_next = 502
+        before = len(self.fakes.devto_articles)
+        out = asyncio.run(self.run_tools(self.oauth_client(browser), [
+            ("inkcast_connect", {"platform_id": "devto"}), connect, ("inkcast_publish", {"markdown": story})]))
+        self.assertIn("devto: UNKNOWN", out[-1])
+        self.assertIn("may or may not have been published", out[-1])
+        self.assertEqual(len(self.fakes.devto_articles), before)
+        self.assertGreaterEqual(self.app.store.post_counts().get("unknown", 0), 1)
 
     def test_denied_consent_returns_access_denied(self):
         browser = Browser(approve=False)

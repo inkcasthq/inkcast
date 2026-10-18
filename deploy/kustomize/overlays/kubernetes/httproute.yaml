@@ -1,0 +1,17 @@
+# Gateway API. TLS terminates at the Gateway (certificate from cert-manager).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: inkcast
+spec:
+  parentRefs:
+    - name: public
+      namespace: gateway-system
+      sectionName: https
+  hostnames: [inkcast.example.com]
+  rules:
+    - matches:
+        - path: {type: PathPrefix, value: /}
+      backendRefs:
+        - name: inkcast
+          port: 8787

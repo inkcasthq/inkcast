@@ -33,6 +33,7 @@ More detail on the design is in [docs/architecture.md](docs/architecture.md).
 |---|---|---|---|
 | Medium | ✅ built in | Integration token | Medium stopped issuing new tokens on 1 Jan 2025; tokens created earlier still work. Without one, Inkcast gives you Medium's *Import a story* steps instead. That import also sets the canonical link. |
 | DEV (dev.to) | ✅ built in | API key | Works with any Forem community via `INKCAST_API_URL_DEVTO`. |
+| X, Instagram, TikTok | 🧭 designed | OAuth per platform | Needs per-platform OAuth, a media pipeline, async publishing and platform review gates. See [the social epic](docs/design/social-platforms-epic.md). |
 | Hashnode, WordPress, Ghost, … | 📋 planned | | See [docs/issues/](docs/issues/). |
 
 ## Tools
@@ -46,6 +47,25 @@ More detail on the design is in [docs/architecture.md](docs/architecture.md).
 | `inkcast_publish` | Publishes now, schedules, or creates drafts on one or more platforms. Supports `dry_run`. |
 | `inkcast_posts` | Lists your scheduled, published, draft, failed and cancelled posts. |
 | `inkcast_cancel` | Cancels a scheduled post. |
+
+## REST API and docs
+
+Every tool is also a REST endpoint under `/api/v1`, with a Bearer token carrying the `inkcast` scope.
+
+| URL | What |
+|---|---|
+| `/api` (or `/api/docs`) | Swagger UI |
+| `/api/redoc` | ReDoc reference |
+| `/api/openapi.json` | OpenAPI 3.1 document |
+
+Both doc pages render from **vendored, hash-locked bundles** in `src/inkcast/static/vendor`:
+
+- **Pinned versions:** Swagger UI 5.32.11 and ReDoc 2.5.3, pinned in `ASSETS.lock`.
+- **No CDN:** nothing is fetched at run or build time, so the pages work on air-gapped clusters.
+- **Strict CSP:** the pages carry a strict Content-Security-Policy with no inline scripts.
+- **Long-lived caching:** assets are served with an ETag and a one-year `immutable` cache under a content-hash URL.
+
+`scripts/vendor-assets.sh` verifies the bundles offline and upgrades them from npm, checking npm's published integrity digest, never a CDN.
 
 ## Quick start (local, single user)
 
@@ -83,15 +103,32 @@ Claude reads the file and passes its text to Inkcast. Inkcast never touches your
 3. **Realm roles → Create** `inkcast-user`. Assign it to the people who may use Inkcast. For open SaaS sign-up, add it to the realm's **default roles**.
 4. Optional social login: **Identity providers → Google / GitHub / Microsoft…**. Keycloak's *first broker login* flow links a social account to an existing user with the same verified email. Inkcast always sees one stable user ID per person.
 
-### 2. Run Inkcast
+### 2. Run Inkcast on OpenShift or Kubernetes
 
 ```bash
-cp .env.example .env    # fill in INKCAST_PUBLIC_URL, INKCAST_SECRET_KEY, OIDC_*
-docker build -t inkcast .
-docker run -d --name inkcast --env-file .env -v inkcast-data:/data -p 8787:8787 inkcast
+oc new-project inkcast
+oc create secret generic inkcast-secrets \
+  --from-literal=secret-key="$(openssl rand -base64 48)" --from-literal=oidc-client-secret=…
+# edit deploy/kustomize/base/kustomization.yaml (public URL, OIDC issuer, image) and the Route host, then:
+oc apply -k deploy/kustomize/overlays/openshift          # or: kubectl apply -k deploy/kustomize/overlays/kubernetes
 ```
 
-Put it behind HTTPS (any reverse proxy or ingress). Then everyone adds it with:
+**What the manifests set up:**
+
+- **Pod security:** restricted, i.e. arbitrary non-root UID, read-only root filesystem, no capabilities.
+- **Network:** default-deny NetworkPolicy, plus optional FQDN egress allow-lists (Cilium, or OVN EgressFirewall).
+- **Probes and metrics:** `/livez` and `/readyz` probes, with Prometheus metrics on a separate, unrouted port.
+- **Exposure:** an edge-TLS Route with HSTS on OpenShift, or a Gateway API HTTPRoute on Kubernetes.
+
+Optional components add a ServiceMonitor, an ExternalSecret and a Kyverno image-signature policy. The cloud-native design is in [docs/architecture.md](docs/architecture.md); the build and deploy pipeline is in [docs/cicd.md](docs/cicd.md).
+
+**Without Kubernetes:**
+
+```bash
+docker run -d --env-file .env -v inkcast-data:/data -p 8787:8787 ghcr.io/OWNER/inkcast:0.1.0
+```
+
+Put it behind HTTPS. Then everyone adds it with:
 
 ```bash
 claude mcp add --transport http inkcast https://inkcast.example.com/mcp
@@ -139,9 +176,20 @@ All settings are environment variables; see [.env.example](.env.example).
 ## Development
 
 ```bash
-pip install -e .
+pip install -e . 'playwright==1.56.0' && python -m playwright install chromium
 PYTHONPATH=src:tests python -m unittest discover -s tests -v
 ```
+
+CI runs on every pull request ([docs/cicd.md](docs/cicd.md)):
+
+- lint and the vendored-asset lock;
+- the test suite on Python 3.11–3.13;
+- rendering of every manifest overlay;
+- an image build and vulnerability scan;
+- a **kind** deployment of the real image under Pod Security `restricted`;
+- CodeQL.
+
+Merges to main publish a signed image (cosign keyless), with an SBOM and SLSA provenance, and open a staging promotion PR.
 
 The end-to-end test starts fake versions of a Keycloak-style identity provider, the Medium API and the DEV API. An unmodified MCP SDK client then:
 
@@ -150,6 +198,13 @@ The end-to-end test starts fake versions of a Keycloak-style identity provider, 
 3. Cross-posts and schedules stories.
 4. Runs the scheduler, including a rate-limit retry, a Medium-writer draft and a DEV organization post.
 5. Lists and cancels posts.
+
+Other tests cover:
+
+- the REST API, OpenAPI document and docs pages, including a real-browser render under the CSP;
+- duplicate-safe publishing (an ambiguous 5xx is never retried);
+- probes and metrics;
+- the vendored-asset lock.
 
 Real Keycloak, Medium and DEV have not been exercised by the test suite yet. Try a `dry_run` and a draft first.
 

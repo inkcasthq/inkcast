@@ -12,6 +12,14 @@ class ConfigError(RuntimeError):
 
 
 def _env(name: str, default: str = "") -> str:
+    """Read NAME, or the file named by NAME_FILE (how Kubernetes/OpenShift Secrets are best mounted)."""
+    path = os.environ.get(f"{name}_FILE", "").strip()
+    if path:
+        try:
+            with open(path, encoding="utf-8") as f:
+                return f.read().strip() or default
+        except OSError as exc:
+            raise ConfigError(f"{name}_FILE points to {path!r}, which can't be read: {exc}") from exc
     return os.environ.get(name, "").strip() or default
 
 
@@ -55,6 +63,10 @@ class Config:
     access_token_seconds: int = 3600
     refresh_token_seconds: int = 60 * 60 * 24 * 30
     scheduler_interval_seconds: float = 20.0
+    log_format: str = "text"  # "json" in containers
+    log_level: str = "INFO"
+    metrics_port: int = 9090  # Prometheus /metrics on its own port; 0 disables
+    shutdown_grace_seconds: float = 25.0
     extra_allowed_hosts: tuple[str, ...] = ()
     # Per-platform API base URL overrides, e.g. {"devto": "https://community.example.com/api"}
     platform_urls: dict[str, str] = field(default_factory=dict)
@@ -136,4 +148,9 @@ def load_config() -> Config:
         password=_env("INKCAST_PASSWORD"),
         extra_allowed_hosts=tuple(h.strip() for h in os.environ.get("INKCAST_ALLOWED_HOSTS", "").split(",") if h.strip()),
         platform_urls=platform_urls,
+        scheduler_interval_seconds=float(_env("INKCAST_SCHEDULER_INTERVAL", "20")),
+        log_format=_env("INKCAST_LOG_FORMAT", "text").lower(),
+        log_level=_env("INKCAST_LOG_LEVEL", "INFO"),
+        metrics_port=int(_env("INKCAST_METRICS_PORT", "9090")),
+        shutdown_grace_seconds=float(_env("INKCAST_SHUTDOWN_GRACE", "25")),
     )

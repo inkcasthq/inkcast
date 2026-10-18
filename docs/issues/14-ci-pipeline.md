@@ -1,9 +1,5 @@
-# CI: tests, security scans and page captures
+# CI/CD follow-ups
 
 labels: ci
 
-GitHub Actions: unit + end-to-end tests, SAST (bandit/semgrep), dependency audit, container image scan.
-
-- Playwright screenshots of the sign-in, consent and connect pages pushed to a `ci-captures` branch (same pattern as the existing kind + Playwright PoC CI)
-
-**Done when:** PRs are blocked on failing tests or high-severity findings.
+The day-1 pipeline exists (docs/cicd.md). Follow-ups: push Playwright captures to a `ci-captures` branch on main (same pattern as the kind + Playwright PoC CI); kubeconform schema validation of rendered manifests; SAST beyond CodeQL (semgrep); branch protection and required checks configured as code; image-scan exceptions file with expiry dates.
