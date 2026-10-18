@@ -174,7 +174,8 @@ def openapi_document(public_url: str) -> dict[str, Any]:
                 params=[{"name": "names", "in": "query", "required": True, "schema": {"type": "string"},
                          "description": "Comma-separated KPI names, e.g. `posts_published,posts_failed,sync_results`."},
                         {"name": "grain", "in": "query", "required": False, "schema": {"type": "string", "enum": ["hour", "day"],
-                                                                                        "default": "day"}},
+                                                                                        "default": "day"},
+                         "description": "`hour` covers at most 31 days."},
                         _query_int("days", 30, 366, "The period, ending today (UTC).")])},
         },
         "components": {

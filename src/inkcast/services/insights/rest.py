@@ -25,6 +25,7 @@ from ...libs.http.rest import ApiError, Authed, query_int
 from ...libs.kpi import BY_NAME, GRAIN_SECONDS, bucket_start, visible_to_customers
 
 MAX_DAYS = 366
+MAX_HOURLY_DAYS = 31  # hourly series beyond a month are thousands of points per KPI: use grain=day
 
 
 class InsightsReader:
@@ -72,6 +73,8 @@ class InsightsReader:
     def series(self, user_id: str, names: list[str], grain: str, days: int) -> list[KpiSeries]:
         if grain not in GRAIN_SECONDS:
             raise ApiError(422, "invalid_request", "grain must be hour or day.")
+        if grain == "hour" and days > MAX_HOURLY_DAYS:
+            raise ApiError(422, "invalid_request", f"grain=hour covers at most {MAX_HOURLY_DAYS} days; use grain=day.")
         allowed = {k.name: k for k in visible_to_customers() if k.layer == "customer" and k.aggregation == "sum"}
         unknown = [n for n in names if n not in allowed]
         if unknown:

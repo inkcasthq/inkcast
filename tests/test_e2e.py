@@ -364,6 +364,8 @@ class EndToEnd(Harness):
                                      headers=h)
                 unknown = await c.get(f"{base}/api/v1/insights/kpis?names=mrr", headers=h)
                 bad_grain = await c.get(f"{base}/api/v1/insights/kpis?names=posts_published&grain=week", headers=h)
+                long_hourly = await c.get(f"{base}/api/v1/insights/kpis?names=posts_published&grain=hour&days=60",
+                                          headers=h)
                 no_scope = await c.get(f"{base}/api/v1/insights/summary", headers={"Authorization": f"Bearer {pat['token']}"})
                 anon = await c.get(f"{base}/api/v1/insights/summary")
             return locals()
@@ -395,6 +397,7 @@ class EndToEnd(Harness):
         self.assertEqual(total(r["series"], "sync_results", action="create") - total(r["start_series"], "sync_results", action="create"), 1)
         self.assertEqual(r["unknown"].status_code, 422)                    # owner-only KPIs are not served here
         self.assertEqual(r["bad_grain"].status_code, 422)
+        self.assertEqual(r["long_hourly"].status_code, 422)               # hourly is capped at 31 days
         self.assertEqual((r["no_scope"].status_code, r["no_scope"].json()["error"]), (403, "insufficient_scope"))
         self.assertEqual(r["anon"].status_code, 401)
         # another person sees nothing of it
