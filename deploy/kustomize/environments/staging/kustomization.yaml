@@ -7,4 +7,4 @@ resources:
   - ../../overlays/openshift      # or ../../overlays/kubernetes
 images:
   - name: ghcr.io/inkcasthq/inkcast
-    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    digest: sha256:9f07b6a1bbf1eb224e8db3e29638e276440b7829b9939af7fa17c5b2ba516f6e
