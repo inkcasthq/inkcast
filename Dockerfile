@@ -1,14 +1,14 @@
 # syntax=docker/dockerfile:1
 # Build: docker build -t inkcast .   (CI pins the base images by digest; see .github/workflows/ci.yml)
 
-FROM python:3.12-slim AS build
+FROM python:3.14-slim AS build
 WORKDIR /src
 RUN pip install --no-cache-dir build
 COPY pyproject.toml README.md LICENSE NOTICE ./
 COPY src ./src
 RUN python -m build --wheel --outdir /dist
 
-FROM python:3.12-slim
+FROM python:3.14-slim
 LABEL org.opencontainers.image.title="inkcast" \
       org.opencontainers.image.description="Publish and schedule writing across platforms from any MCP client" \
       org.opencontainers.image.source="https://github.com/inkcasthq/inkcast" \
