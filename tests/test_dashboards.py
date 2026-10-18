@@ -8,10 +8,11 @@ import subprocess
 import sys
 import unittest
 
-from inkcast.libs.dashboards import BLUE, GREEN, IDENTITY, ORANGE, PANEL_KINDS, RATE, RED, YELLOW, platform_dashboard
+from inkcast.libs.dashboards import (BLUE, GREEN, IDENTITY, NEUTRAL, ORANGE, PANEL_KINDS, RATE, RED, YELLOW,
+                                     platform_dashboard)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-PALETTE = {*IDENTITY, GREEN, ORANGE}
+PALETTE = {*IDENTITY, GREEN, ORANGE, NEUTRAL}
 
 
 class Dashboard(unittest.TestCase):
@@ -37,6 +38,19 @@ class Dashboard(unittest.TestCase):
                     if "rate(" in t["expr"] or "increase(" in t["expr"]:
                         self.assertIn(f"[{RATE}]", t["expr"])
                         self.assertIn(RATE, p["description"], "the rate window is stated")
+
+    def test_no_data_is_never_painted_healthy_or_broken(self):
+        """A threshold's base step is the colour of "No data": neutral, never green or red (group-sync-dashboard)."""
+        stats = [p for p in self.panels if p["type"] == "stat"]
+        self.assertGreaterEqual(len(stats), 4, "the check must cover the stat panels, not silently nothing")
+        for p in stats:
+            with self.subTest(panel=p["title"]):
+                steps = p["fieldConfig"]["defaults"]["thresholds"]["steps"]
+                self.assertEqual(steps[0], {"color": NEUTRAL, "value": None})
+                self.assertEqual(steps[1]["value"], 0, "a real value starts at 0 with its own colour")
+                self.assertEqual([s["value"] for s in steps[1:]], sorted(s["value"] for s in steps[1:]))
+        pods = next(p for p in stats if p["title"] == "Pods scraped")["fieldConfig"]["defaults"]["thresholds"]["steps"]
+        self.assertEqual([(s["value"], s["color"]) for s in pods[1:]], [(0, RED), (0.5, GREEN)], "0 pods is red, 1+ green")
 
     def test_tables_are_instant_with_named_columns(self):
         """A range query in a table gives one series per row, and Grafana shows a series picker, not a table."""

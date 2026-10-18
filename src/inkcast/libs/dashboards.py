@@ -16,6 +16,9 @@ from typing import Any
 
 # Section 4 of the standard: identity colours in order, then the two state colours.
 BLUE, RED, YELLOW, PURPLE, GREEN, ORANGE = "#4e79a7", "#e15759", "#edc948", "#b07aa1", "#59a14f", "#f28e2b"
+# The palette's grey, for "No data" only: a threshold's base step is what Grafana paints when there is no value, so
+# it is never green (an empty panel would look healthy) or red (it would look broken). From group-sync-dashboard.
+NEUTRAL = "#bab0ac"
 IDENTITY = (BLUE, RED, YELLOW, PURPLE)
 STYLES = ("solid", "dash", "dot")  # first line solid, second dashed, third dotted
 RATE = "5m"
@@ -54,8 +57,11 @@ def timeseries(title: str, description: str, queries: list[tuple[str, str]], uni
 
 
 def stat(title: str, description: str, expr: str, unit: str = "short", *, thresholds: list[tuple[float, str]] | None = None,
-         legend: str = "") -> dict[str, Any]:
-    steps = [{"color": GREEN, "value": None}] + [{"color": c, "value": v} for v, c in (thresholds or [])]
+         legend: str = "", at_zero: str = GREEN) -> dict[str, Any]:
+    """A number. Its colour: NEUTRAL with no value, ``at_zero`` from 0 (every value here is 0 or more), then each of
+    ``thresholds`` (value, colour) upwards."""
+    steps = ([{"color": NEUTRAL, "value": None}, {"color": at_zero, "value": 0}]
+             + [{"color": c, "value": v} for v, c in (thresholds or [])])
     return {
         "type": "stat", "title": title, "description": description,
         "targets": [_query("A", expr, legend or "__auto")],
@@ -109,9 +115,10 @@ def platform_dashboard() -> dict[str, Any]:
     s = f"{ns}, job=~\".*inkcast.*\""
     panels = [
         row("Is Inkcast up?"),
-        stat("Pods scraped", "up for every Inkcast target in the namespace (last value). Green when all answer; red when any "
-             "target is down. Empty means nothing is scraped: check the ServiceMonitor.",
-             f'sum(up{{{s}}})', thresholds=[(0.5, GREEN)]),
+        stat("Pods scraped", "up for every Inkcast target in the namespace (last value): how many answer. Green from 1; "
+             "red at 0, when none does (InkcastTargetDown pages). Grey 'No data' means nothing is scraped at all: check "
+             "the ServiceMonitor.",
+             f'sum(up{{{s}}})', at_zero=RED, thresholds=[(0.5, GREEN)]),
         table("Version and plug-ins", "inkcast_build_info: the version and the platform plug-ins each pod runs (facts, so a "
               "table). Every row should match after a rollout.", f'max by (pod, version, platforms) (inkcast_build_info{{{ns}}})',
               {"pod": "Pod", "version": "Version", "platforms": "Plug-ins"}),
