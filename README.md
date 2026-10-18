@@ -202,6 +202,7 @@ All settings are environment variables; see [.env.example](.env.example). Each s
 | `INKCAST_SECRETS_SOURCE` | `env` | where secrets come from: `env` (`NAME` or `NAME_FILE`), `dir` (a mounted Secret directory, `INKCAST_SECRETS_DIR`), `agent` (the AWS Secrets Manager agent), `aws`, `chain`. See [docs/reference/secrets.md](docs/reference/secrets.md) |
 | `INKCAST_MAX_BODY_BYTES` | 10 MB | larger requests get 413 before any handler runs |
 | `INKCAST_RATE_LIMIT_PER_MINUTE` | `60` | per-client limit on unauthenticated writes (`/register`, `/tokens/new`, sign-in, connect); `0` turns it off |
+| `INKCAST_CACHE_URL` | | `redis://host:6379/0` or `rediss://…` (Redis or Valkey) to share rate limits, locks and idempotency markers across replicas; empty keeps them in-process. The password goes in `INKCAST_CACHE_PASSWORD` or `INKCAST_CACHE_PASSWORD_FILE`, never in the URL |
 
 ## Development
 

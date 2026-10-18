@@ -61,6 +61,7 @@ EVENTS: dict[str, tuple[str, str]] = {
     "publish.unconfirmed": ("warning", "A platform may or may not have published a post; it is never retried automatically."),
     "publish.recovered": ("warning", "A post left 'publishing' by a restart was resolved: confirmed, rescheduled or unconfirmed."),
     "auth.login.refused": ("warning", "A sign-in was refused by the allow-list, role or password check."),
+    "cache.backend.unavailable": ("warning", "Redis/Valkey did not answer; rate limits are per replica until it is back."),
 }
 
 # Bearer secrets Inkcast mints or handles, and the usual ways secrets appear in text.

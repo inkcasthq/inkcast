@@ -14,6 +14,7 @@ import httpx2
 
 from .. import __version__
 from .auth import TokenVerifier
+from .cache import CacheBackend, build_cache
 from .config import Config
 from .db import Store
 from .http.ratelimit import RateLimiter
@@ -34,6 +35,7 @@ class Context:
     services: tuple[str, ...] = ()  # CamelCase names running in this process
     extras: dict = field(default_factory=dict)  # per-service objects (e.g. the MCP server)
     limiter: RateLimiter = field(default_factory=RateLimiter)  # for the endpoints anyone can call (libs/http/ratelimit)
+    cache: CacheBackend | None = None  # libs/cache: in-process, or Redis/Valkey shared by every replica
 
     @property
     def runs_scheduler(self) -> bool:
@@ -53,7 +55,9 @@ def build_metrics(store: Store | None, registry: dict[str, Platform], config: Co
     m.histogram("inkcast_publish_duration_seconds", "Time one platform publish call took, by platform.")
     m.histogram("inkcast_publish_lag_seconds",
                 "How late a scheduled post was claimed after its run_at (schedule lag), by platform.", LAG_BUCKETS)
-    m.counter("inkcast_ratelimit_total", "Rate-limit decisions on unauthenticated writes, by limit name and decision.")
+    m.counter("inkcast_ratelimit_total", "Rate-limit decisions on unauthenticated writes, by limit and decision.")
+    m.counter("inkcast_cache_requests_total", "Cache reads by backend and result (hit or miss): the hit ratio.")
+    m.counter("inkcast_cache_errors_total", "Cache backend failures by backend (a request fell back or failed).")
     if store is None:
         return m
     m.gauge("inkcast_posts", "Posts by status.", lambda: {(("status", k),): v for k, v in store.post_counts().items()})
@@ -75,5 +79,6 @@ def build_context(config: Config, transport: httpx2.AsyncBaseTransport | None = 
     metrics = build_metrics(store, registry, config)
     publisher = Publisher(store, registry, metrics) if store else None
     verifier = TokenVerifier(store) if store else None
+    cache = build_cache(config.cache_url, config.cache_password, metrics)
     return Context(config, store, http, registry, metrics, publisher, verifier, services=services,
-                   limiter=RateLimiter(config.rate_limit_per_minute))
+                   limiter=RateLimiter(config.rate_limit_per_minute, backend=cache, metrics=metrics), cache=cache)

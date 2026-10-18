@@ -4,9 +4,12 @@
 registration, the token-request page, the password form and the connect page. They write rows or
 compare passwords, so an unbounded caller could fill the database or guess.
 
-Token bucket per (limit name, client address), in process memory. That is the right size for a
-single node and a first line of defence behind an ingress; with several replicas each one enforces
-its own share, so for real abuse pressure add the limit at the edge (Gateway API / the ingress) too.
+Token bucket per (limit name, client address). In process memory by default: the right size for a
+single node and a first line of defence behind an ingress. Given a *distributed* ``CacheBackend``
+(``INKCAST_CACHE_URL``, libs/cache), every replica shares one bucket per client, taken atomically in
+Redis/Valkey. If that backend fails the limiter falls back to its in-process bucket for that request and
+counts the failure (``inkcast_cache_errors_total``): a cache outage never turns into an API outage. For
+real abuse pressure add the limit at the edge (Gateway API / the ingress) too.
 
     Route("/register", limited(endpoint, limiter, "register"), methods=["POST"])
 
@@ -18,26 +21,57 @@ and answers ``429 application/problem+json`` with ``Retry-After`` when the bucke
 from __future__ import annotations
 
 import inspect
+import logging
 import threading
 import time
 from typing import Any, Callable
 
 from starlette.routing import request_response
 
+from ..cache import CacheBackend
 from .rest import problem
+
+log = logging.getLogger(__name__)
 
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
 class RateLimiter:
-    """``per_minute`` requests per client, with a burst of the same size. ``per_minute=0`` disables it."""
+    """``per_minute`` requests per client, with a burst of the same size. ``per_minute=0`` disables it.
 
-    def __init__(self, per_minute: int = 60, clock: Callable[[], float] = time.monotonic, max_clients: int = 10_000):
+    ``allow`` is the in-process bucket (synchronous). ``check`` is what the endpoint wrapper awaits: it uses
+    the shared ``backend`` when that one is distributed, else ``allow``."""
+
+    def __init__(self, per_minute: int = 60, clock: Callable[[], float] = time.monotonic, max_clients: int = 10_000,
+                 backend: CacheBackend | None = None, metrics: Any = None):
         self.per_minute = per_minute
         self._clock = clock
         self._max_clients = max_clients
         self._buckets: dict[tuple[str, str], tuple[float, float]] = {}  # (name, client) -> (tokens, updated_at)
         self._lock = threading.Lock()
+        self.backend = backend if backend is not None and backend.distributed else None
+        self.metrics = metrics
+        self._warned = False
+
+    async def check(self, name: str, client: str) -> float:
+        """0.0 when the request may proceed, else the seconds to wait; shared across replicas when possible."""
+        if self.per_minute <= 0:
+            return 0.0
+        wait = None
+        if self.backend is not None:
+            try:
+                wait = await self.backend.token_bucket(f"rl:{name}:{client}", float(self.per_minute),
+                                                      self.per_minute / 60.0)
+            except Exception as exc:  # the cache is down: this replica enforces its own share
+                if not self._warned:
+                    self._warned = True
+                    log.warning("Rate limits fall back to in-process buckets: %s", exc,
+                                extra={"event": "cache.backend.unavailable", "backend": self.backend.name})
+        if wait is None:
+            wait = self.allow(name, client)
+        if self.metrics is not None:
+            self.metrics.inc("inkcast_ratelimit_total", limit=name, decision="limited" if wait else "allowed")
+        return wait
 
     def allow(self, name: str, client: str) -> float:
         """0.0 when the request may proceed, else the seconds to wait."""
@@ -81,7 +115,7 @@ class _Guarded:
     async def __call__(self, scope: dict[str, Any], receive: Callable, send: Callable) -> None:
         if scope["type"] == "http" and scope.get("method") in self.methods:
             client = (scope.get("client") or ("", 0))[0]
-            wait = self.limiter.allow(self.name, client)
+            wait = await self.limiter.check(self.name, client)
             if wait:
                 response = problem(429, "rate_limited", "Too many requests; try again shortly.",
                                    headers={"Retry-After": str(max(1, int(wait + 0.999)))})
