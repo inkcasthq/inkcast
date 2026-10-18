@@ -1,0 +1,79 @@
+# Continuous delivery by GitOps: this workflow never touches a cluster. It verifies an image's
+# signature and provenance, then opens a pull request that pins the digest in
+# deploy/kustomize/environments/<env>. Argo CD / Flux applies the merge. Production requires an
+# approved review on that PR (CODEOWNERS + branch protection) and the `production` environment.
+name: promote
+
+on:
+  workflow_run:
+    workflows: [publish]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: staging or production
+        required: true
+        type: choice
+        options: [staging, production]
+      digest:
+        description: "sha256:… to promote (default: the image built from the latest main commit)"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  promote:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'staging' }}
+    permissions:
+      contents: write
+      pull-requests: write
+      packages: read
+    env:
+      ENVIRONMENT: ${{ inputs.environment || 'staging' }}
+      IMAGE: ${{ vars.REGISTRY || 'ghcr.io' }}/${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Resolve the digest
+        id: d
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}" | docker login "${IMAGE%%/*}" -u "${{ vars.REGISTRY_USER || github.actor }}" --password-stdin
+          digest="${{ inputs.digest }}"
+          if [ -z "$digest" ]; then
+            sha="${{ github.event.workflow_run.head_sha || github.sha }}"
+            digest=$(docker buildx imagetools inspect "$IMAGE:sha-${sha::12}" --format '{{json .Manifest}}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["digest"])')
+          fi
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      - name: Refuse anything not signed by publish.yml on main or a release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          REF="$IMAGE@${{ steps.d.outputs.digest }}"
+          cosign verify --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-identity-regexp "^$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/\.github/workflows/publish\.yml@refs/(heads/main|tags/v.*)$" \
+            "$REF" > /dev/null
+          gh attestation verify "oci://$REF" --repo "$GITHUB_REPOSITORY" > /dev/null
+      - name: Open the promotion pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIGEST: ${{ steps.d.outputs.digest }}
+        run: |
+          set -euo pipefail
+          f="deploy/kustomize/environments/$ENVIRONMENT/kustomization.yaml"
+          sed -i -E "s|^(\s*digest:\s*).*|\1$DIGEST|" "$f"
+          git diff --quiet && { echo "Already at $DIGEST"; exit 0; }
+          branch="promote/$ENVIRONMENT-${DIGEST:7:12}"
+          git config user.name "inkcast-release-bot"
+          git config user.email "inkcast-release-bot@users.noreply.github.com"
+          git switch -c "$branch"
+          git commit -am "deploy($ENVIRONMENT): $IMAGE@$DIGEST"
+          git push origin "$branch"
+          gh pr create --title "deploy($ENVIRONMENT): ${DIGEST:0:19}" \
+            --body "Promotes \`$IMAGE@$DIGEST\` to **$ENVIRONMENT**. Signature (publish.yml) and SLSA provenance verified by this workflow." \
+            --label deploy

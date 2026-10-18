@@ -37,9 +37,15 @@ class Outcome:
 
 
 class Publisher:
-    def __init__(self, store: Store, platforms: dict[str, Platform]):
+    def __init__(self, store: Store, platforms: dict[str, Platform], metrics: Any = None):
         self.store = store
         self.platforms = platforms
+        self.metrics = metrics
+        self.last_tick: float = 0.0  # for readiness: is the scheduler loop alive?
+
+    def _count(self, platform: str, status: str) -> None:
+        if self.metrics:
+            self.metrics.inc("inkcast_publish_total", platform=platform, status=status)
 
     def prepare(self, story: Story, platform_ids: list[str]) -> tuple[list[Prepared], list[Outcome]]:
         """Render for each platform; validation problems become 'failed' outcomes, nothing is sent."""
@@ -100,20 +106,28 @@ class Publisher:
             )
             result = await platform.publish(creds, account, prepared, destination)
         except PlatformError as exc:
+            if exc.uncertain:
+                self.store.update_post(post_id, status="unknown", error=str(exc))
+                self._count(platform.id, "unknown")
+                return Outcome(platform.id, "unknown", post_id=post_id, message=str(exc))
             if scheduled and exc.retryable and attempts < MAX_ATTEMPTS:
                 delay = RETRY_DELAYS[min(attempts - 1, len(RETRY_DELAYS) - 1)]
                 self.store.update_post(post_id, status="scheduled", run_at=time.time() + delay, error=f"retrying: {exc}")
+                self._count(platform.id, "retry")
                 return Outcome(platform.id, "scheduled", post_id=post_id, message=f"Will retry: {exc}")
             self.store.update_post(post_id, status="failed", error=str(exc))
+            self._count(platform.id, "failed")
             return Outcome(platform.id, "failed", post_id=post_id, message=str(exc))
         except Exception as exc:  # a plug-in bug must not kill the scheduler
             log.exception("Platform %s crashed publishing %s", platform.id, post_id)
             self.store.update_post(post_id, status="failed", error=f"internal error: {exc}")
+            self._count(platform.id, "failed")
             return Outcome(platform.id, "failed", post_id=post_id, message=f"Internal error in the {platform.name} plug-in.")
 
         status = result.status if result.status in ("draft", "unlisted") else "published"
         self.store.update_post(post_id, status=status, result_url=result.url, remote_id=result.remote_id,
                                error="; ".join(result.notes) or None)
+        self._count(platform.id, status)
         return Outcome(platform.id, status, post_id=post_id, url=result.url, notes=result.notes, prepared=prepared)
 
     async def run_due(self, now: float | None = None) -> list[Outcome]:
@@ -129,19 +143,28 @@ class Publisher:
             outcomes.append(await self._send(row["id"], row["user_id"], platform, prepared, row["attempts"], scheduled=True))
         return outcomes
 
-    async def run_forever(self, interval: float, housekeeping: Any = None) -> None:
+    async def run_forever(self, interval: float, stop: asyncio.Event, housekeeping: Any = None) -> None:
+        """Tick until ``stop`` is set. A tick in progress always finishes (no half-sent posts on SIGTERM)."""
         log.info("Scheduler running every %.0fs", interval)
         ticks = 0
-        while True:
+        while not stop.is_set():
             try:
                 for o in await self.run_due():
-                    log.info("Scheduled post %s on %s: %s %s", o.post_id, o.platform, o.status, o.url or o.message or "")
+                    log.info("Scheduled post %s on %s: %s %s", o.post_id, o.platform, o.status, o.url or o.message or "",
+                             extra={"post_id": o.post_id, "platform": o.platform, "status": o.status})
                 ticks += 1
+                self.last_tick = time.time()
+                if self.metrics:
+                    self.metrics.inc("inkcast_scheduler_ticks_total")
                 if housekeeping and ticks % 90 == 0:
                     housekeeping()
             except Exception:
                 log.exception("Scheduler tick failed")
-            await asyncio.sleep(interval)
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=interval)
+            except asyncio.TimeoutError:
+                pass
+        log.info("Scheduler stopped")
 
     def cancel(self, user_id: str, post_id: str) -> str:
         row = self.store.get_post(post_id)

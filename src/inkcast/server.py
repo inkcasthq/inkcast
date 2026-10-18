@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from typing import Annotated, Literal
+from typing import Annotated
 
 import httpx2
 from pydantic import Field
@@ -25,10 +25,13 @@ from .auth import pages
 from .auth.identity import IdentityProvider, LoginError, make_identity_provider
 from .auth.provider import SCOPE, InkcastOAuthProvider
 from .config import Config, load_config
-from .platforms import Account, Platform, PlatformError, load_platforms
-from .publisher import Outcome, Publisher
+from .api import build_routes
+from .models import PublishRequest, PublishResponse
+from .observability import Metrics, setup_logging
+from .platforms import Platform, PlatformError, load_platforms
+from .publisher import Publisher
+from .service import InkcastService, ServiceError
 from .storage import Store
-from .story import StoryError, parse_story
 
 log = logging.getLogger("inkcast")
 
@@ -56,6 +59,9 @@ class App:
     oauth: InkcastOAuthProvider
     identity: IdentityProvider
     mcp: MCPServer
+    metrics: Metrics
+    runs_scheduler: bool = False
+    service: "InkcastService | None" = None
 
 
 def _user_id() -> str:
@@ -65,29 +71,52 @@ def _user_id() -> str:
     return access.subject
 
 
-def _fmt_outcome(o: Outcome, publish_at: datetime | None) -> str:
-    name = o.platform
-    if o.status == "scheduled" and publish_at:
-        line = f"- {name}: scheduled for {publish_at.isoformat()} (post `{o.post_id}`)"
-    elif o.status in ("published", "draft", "unlisted"):
-        line = f"- {name}: {o.status}" + (f" → {o.url}" if o.url else "") + f" (post `{o.post_id}`)"
-    elif o.status == "skipped":
-        line = f"- {name}: skipped — {o.message}"
-    else:
-        line = f"- {name}: FAILED — {o.message}"
-    for note in o.notes:
-        line += f"\n  note: {note}"
-    if o.prepared:
-        for w in o.prepared.warnings:
-            line += f"\n  warning: {w}"
-    return line
+def render_publish(resp: PublishResponse, registry: dict) -> str:
+    head = [("DRY RUN — nothing was sent." if resp.dry_run else "")]
+    head.append(f"“{resp.title}”" + (f" — {resp.subtitle}" if resp.subtitle else ""))
+    head += [f"warning: {w}" for w in resp.warnings]
+    lines = [h for h in head if h]
+    for r in resp.results:
+        name = registry[r.platform].name if r.platform in registry else r.platform
+        if r.status == "preview":
+            block = [f"[{name}]" + ("" if r.connected else " — NOT CONNECTED")]
+            block += [f"  {k}: {v}" for k, v in (r.preview or {}).items()]
+            if r.message:
+                block.append(f"  {r.message}")
+        elif r.status == "scheduled":
+            block = [f"- {r.platform}: scheduled for {resp.publish_at} (post `{r.post_id}`)"]
+        elif r.status in ("published", "draft", "unlisted"):
+            block = [f"- {r.platform}: {r.status}" + (f" → {r.url}" if r.url else "") + f" (post `{r.post_id}`)"]
+        elif r.status == "unknown":
+            block = [f"- {r.platform}: UNKNOWN — {r.message} (post `{r.post_id}`)"]
+        elif r.status == "skipped":
+            block = [f"- {r.platform}: skipped — {r.message}"]
+        else:
+            block = [f"- {r.platform}: FAILED — {r.message}"]
+        block += [f"  note: {n}" for n in r.notes]
+        block += [f"  warning: {w}" for w in r.warnings]
+        lines.append("\n".join(block))
+    return "\n".join(lines)
+
+
+def _metrics(store: Store, registry: dict) -> Metrics:
+    m = Metrics()
+    m.gauge("inkcast_build_info", "Inkcast version and installed platform plug-ins.",
+            lambda: {(("platforms", ",".join(registry)), ("version", __version__)): 1})
+    m.counter("inkcast_publish_total", "Publish attempts by platform and outcome.")
+    m.counter("inkcast_scheduler_ticks_total", "Completed scheduler ticks.")
+    m.gauge("inkcast_posts", "Posts by status.", lambda: {(("status", k),): v for k, v in store.post_counts().items()})
+    m.gauge("inkcast_posts_due", "Scheduled posts that are due now (queue depth).",
+            lambda: {(): store.due_count(time.time())})
+    return m
 
 
 def build(config: Config, transport: httpx2.AsyncBaseTransport | None = None) -> App:
     store = Store(config.database_path, config.secret_key)
-    http = httpx2.AsyncClient(timeout=30.0, transport=transport, follow_redirects=False)
+    http = httpx2.AsyncClient(timeout=httpx2.Timeout(30.0, connect=10.0), transport=transport, follow_redirects=False)
     registry = load_platforms(http, config.platform_urls)
-    publisher = Publisher(store, registry)
+    metrics = _metrics(store, registry)
+    publisher = Publisher(store, registry, metrics)
     oauth = InkcastOAuthProvider(config, store)
     identity = make_identity_provider(config, http)
 
@@ -106,59 +135,56 @@ def build(config: Config, transport: httpx2.AsyncBaseTransport | None = None) ->
             validate_token_resource=False,
         ),
     )
-    app = App(config, store, http, registry, publisher, oauth, identity, mcp)
+    app = App(config, store, http, registry, publisher, oauth, identity, mcp, metrics)
 
-    def platform(pid: str) -> Platform:
-        p = registry.get(pid.strip().lower())
-        if not p:
-            raise ToolError(f"Unknown platform {pid!r}. Available: {', '.join(registry)}.")
-        return p
+    service = InkcastService(store, registry, publisher, config.public_url)
+    app.service = service
 
-    # ---- tools ----------------------------------------------------------
+    async def call(fn, *args):
+        """Run a service call for the signed-in user; turn service errors into tool errors."""
+        try:
+            result = fn(_user_id(), *args)
+            return await result if asyncio.iscoroutine(result) else result
+        except ServiceError as exc:
+            raise ToolError(exc.message) from exc
+
+    # ---- MCP tools: thin text renderings of the service (same use cases as /api/v1) ----
 
     @mcp.tool(title="List platforms", annotations=ToolAnnotations(read_only_hint=True))
     async def inkcast_platforms() -> str:
         """List the publishing platforms Inkcast supports and which ones you have connected."""
-        connected = store.connected_accounts(_user_id())
         lines = []
-        for pid, p in registry.items():
-            acct = connected.get(pid)
-            state = f"connected as {acct.get('handle') or acct.get('name')}" if acct else "not connected"
+        for p in await call(service.list_platforms):
+            state = f"connected as {p.account.handle or p.account.name}" if p.account else "not connected"
             dest = f"; supports {p.destination_label}s" if p.destination_label else ""
-            lines.append(f"- `{pid}` — {p.name}: {state}{dest}")
+            lines.append(f"- `{p.id}` — {p.name}: {state}{dest}")
         return "Platforms:\n" + "\n".join(lines)
 
     @mcp.tool(title="Connect a platform", annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False))
     async def inkcast_connect(platform_id: Annotated[str, Field(description="Platform id from inkcast_platforms, e.g. 'devto'.")]) -> str:
         """Get a one-time link where the person enters this platform's credentials (never paste keys into chat)."""
-        p = platform(platform_id)
-        ticket = store.create_ticket(_user_id(), p.id)
-        return (f"Open this link to connect {p.name} (valid 15 minutes, one use):\n{config.public_url}/connect/{ticket}\n\n"
-                f"{p.connect_help}")
+        link = await call(service.connect_link, platform_id)
+        name = registry[link.platform].name
+        return (f"Open this link to connect {name} (valid {link.expires_in // 60} minutes, one use):\n{link.url}\n\n"
+                f"{link.help}")
 
     @mcp.tool(title="Disconnect a platform", annotations=ToolAnnotations(destructive_hint=True, idempotent_hint=True))
     async def inkcast_disconnect(platform_id: Annotated[str, Field(description="Platform id to disconnect.")]) -> str:
         """Delete the stored credentials for a platform. Scheduled posts to it will fail until it is reconnected."""
-        p = platform(platform_id)
-        removed = store.delete_credentials(_user_id(), p.id)
-        return f"Disconnected {p.name}." if removed else f"{p.name} wasn't connected."
+        removed = await call(service.disconnect, platform_id)
+        name = registry[platform_id.strip().lower()].name
+        return f"Disconnected {name}." if removed else f"{name} wasn't connected."
 
     @mcp.tool(title="List destinations", annotations=ToolAnnotations(read_only_hint=True, open_world_hint=True))
     async def inkcast_destinations(platform_id: Annotated[str, Field(description="Platform id, e.g. 'medium'.")]) -> str:
         """List where you can post on a platform besides your own profile (Medium publications, DEV organizations...)."""
-        p = platform(platform_id)
-        if not p.destination_label:
+        p = registry.get(platform_id.strip().lower())
+        dests = await call(service.destinations, platform_id)
+        if p and not p.destination_label:
             return f"{p.name} has no destinations besides your own profile."
-        connected = store.get_credentials(_user_id(), p.id)
-        if not connected:
-            raise ToolError(f"{p.name} isn't connected; call inkcast_connect first.")
-        creds, acct = connected
-        try:
-            dests = await p.destinations(creds, Account.from_dict(acct))
-        except PlatformError as exc:
-            raise ToolError(str(exc)) from exc
         if not dests:
-            return (f"{p.name} can't list {p.destination_label}s; pass the {p.destination_label}'s name or id as the "
+            label = p.destination_label if p else "destination"
+            return (f"{p.name if p else platform_id} can't list {label}s; pass the {label}'s name or id as the "
                     f"destination and Inkcast will look it up when publishing.")
         return f"{p.name} {p.destination_label}s:\n" + "\n".join(
             f"- {d.name} (`{d.id}`)" + (f" — {d.url}" if d.url else "") for d in dests)
@@ -182,41 +208,10 @@ def build(config: Config, transport: httpx2.AsyncBaseTransport | None = None) ->
         dry_run: Annotated[bool, Field(description="Validate and preview each platform's version; nothing is sent or saved.")] = False,
     ) -> str:
         """Publish, schedule or draft one markdown story to one or more platforms. Use dry_run=true first to preview."""
-        user = _user_id()
-        try:
-            story = parse_story(
-                markdown, known_platforms=registry.keys(), title=title, subtitle=subtitle, tags=tags,
-                canonical_url=canonical_url, cover_image=cover_image, platforms=platforms, destinations=destinations,
-                publish_at=publish_at, draft=draft, image_base_url=image_base_url,
-            )
-        except StoryError as exc:
-            raise ToolError(str(exc)) from exc
-        targets = story.platforms or [pid for pid in store.connected_accounts(user) if pid in registry]
-        if not targets:
-            raise ToolError("Say which platforms to post to (e.g. platforms=['devto']) or connect one with inkcast_connect.")
-
-        when = story.publish_at
-        head = [f"“{story.title}”" + (f" — {story.subtitle}" if story.subtitle else "")]
-        head += [f"warning: {w}" for w in story.warnings]
-
-        if dry_run:
-            ready, problems = publisher.prepare(story, targets)
-            connected = store.connected_accounts(user)
-            blocks = ["DRY RUN — nothing was sent.", *head,
-                      f"Publishes: {'at ' + when.isoformat() if when else ('as drafts' if draft else 'immediately')}"]
-            for prep in ready:
-                p = registry[prep.platform]
-                block = [f"\n[{p.name}]" + ("" if prep.platform in connected else " — NOT CONNECTED")]
-                block += [f"  {k}: {v}" for k, v in prep.preview.items()]
-                block += [f"  warning: {w}" for w in prep.warnings]
-                if prep.platform not in connected and (help_text := p.not_connected_help(story.for_platform(p.id))):
-                    block.append(f"  {help_text}")
-                blocks.append("\n".join(block))
-            blocks += [f"\n[{registry[o.platform].name}] FAILED — {o.message}" for o in problems]
-            return "\n".join(blocks)
-
-        outcomes = await publisher.publish(user, story, targets)
-        return "\n".join(head + [_fmt_outcome(o, when) for o in outcomes])
+        req = PublishRequest(markdown=markdown, platforms=platforms, title=title, subtitle=subtitle, tags=tags,
+                             canonical_url=canonical_url, cover_image=cover_image, destinations=destinations,
+                             publish_at=publish_at, draft=draft, image_base_url=image_base_url, dry_run=dry_run)
+        return render_publish(await call(service.publish, req), registry)
 
     @mcp.tool(title="List posts", annotations=ToolAnnotations(read_only_hint=True))
     async def inkcast_posts(
@@ -224,29 +219,28 @@ def build(config: Config, transport: httpx2.AsyncBaseTransport | None = None) ->
         days_ahead: Annotated[int, Field(ge=0, le=730, description="Include posts scheduled up to this many days ahead.")] = 90,
     ) -> str:
         """List your scheduled, published, draft, failed and cancelled posts."""
-        now = datetime.now(timezone.utc)
-        rows = store.list_posts(_user_id(), (now - timedelta(days=days_back)).timestamp(), (now + timedelta(days=days_ahead)).timestamp())
-        if not rows:
+        posts = await call(service.list_posts, days_back, days_ahead)
+        if not posts:
             return "No posts in that window."
         lines = []
-        for r in rows:
-            when = datetime.fromtimestamp(r["run_at"], timezone.utc).isoformat(timespec="minutes")
-            line = f"- [{r['status']}] {when} {r['platform']}: {r['title']} (post `{r['id']}`)"
-            if r["result_url"]:
-                line += f" → {r['result_url']}"
-            if r["error"]:
-                line += f"\n  {r['error']}"
+        for p in posts:
+            line = f"- [{p.status}] {p.run_at[:16]} {p.platform}: {p.title} (post `{p.id}`)"
+            if p.url:
+                line += f" → {p.url}"
+            if p.error:
+                line += f"\n  {p.error}"
             lines.append(line)
         return "Posts:\n" + "\n".join(lines)
 
     @mcp.tool(title="Cancel a scheduled post", annotations=ToolAnnotations(destructive_hint=True, idempotent_hint=True))
     async def inkcast_cancel(post_id: Annotated[str, Field(description="Post id from inkcast_posts or inkcast_publish.")]) -> str:
         """Cancel a scheduled post before it goes out."""
-        try:
-            title = publisher.cancel(_user_id(), post_id)
-        except PlatformError as exc:
-            raise ToolError(str(exc)) from exc
-        return f"Cancelled “{title}” (post `{post_id}`)."
+        post = await call(service.cancel, post_id)
+        return f"Cancelled “{post.title}” (post `{post.id}`)."
+
+    # ---- REST API, OpenAPI, Swagger UI and ReDoc ---------------------------
+    for route in build_routes(service, oauth.load_access_token, config.public_url):
+        mcp.custom_route(route.path, methods=sorted(route.methods - {"HEAD"}))(route.endpoint)
 
     # ---- browser routes: sign-in, consent, connect ----------------------
 
@@ -310,11 +304,34 @@ def build(config: Config, transport: httpx2.AsyncBaseTransport | None = None) ->
         who = account.handle or account.name
         return pages.message(f"{p.name} connected", f"Connected as {who}. You can close this tab and go back to Claude.")
 
-    @mcp.custom_route("/healthz", methods=["GET"])
-    async def healthz(_: Request) -> Response:
-        return JSONResponse({"ok": True, "version": __version__, "platforms": list(registry)})
+    for path, handler in health_routes(app).items():
+        mcp.custom_route(path, methods=["GET"])(handler)
 
     return app
+
+
+def health_routes(app: "App") -> dict:
+    """Kubernetes-style probes. /livez: the process serves requests. /readyz: storage answers and,
+    when this process runs the scheduler, its loop ticked recently."""
+
+    async def livez(_: Request) -> Response:
+        return JSONResponse({"ok": True})
+
+    async def readyz(_: Request) -> Response:
+        problems = []
+        try:
+            app.store.ping()
+        except Exception as exc:  # pragma: no cover - depends on storage failure
+            problems.append(f"storage: {exc}")
+        if app.runs_scheduler and app.publisher.last_tick and \
+                time.time() - app.publisher.last_tick > max(120, 6 * app.config.scheduler_interval_seconds):
+            problems.append("scheduler: no tick recently")
+        body = {"ok": not problems, "version": __version__, "platforms": list(app.platforms)}
+        if problems:
+            body["problems"] = problems
+        return JSONResponse(body, status_code=200 if not problems else 503)
+
+    return {"/livez": livez, "/readyz": readyz, "/healthz": readyz}
 
 
 def asgi_app(app: App):
@@ -329,28 +346,84 @@ def asgi_app(app: App):
     )
 
 
-def main() -> None:
-    import uvicorn
+def metrics_app(app: App):
+    """Prometheus /metrics plus probes, on a separate port that is never exposed publicly."""
+    from starlette.routing import Route
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    m = app.metrics
+    starlette_app = m.asgi()
+    for path, handler in health_routes(app).items():
+        starlette_app.router.routes.append(Route(path, handler))
+    return starlette_app
+
+
+class _Server:
+    """uvicorn without its own signal handling: Inkcast coordinates shutdown of all its parts."""
+
+    def __init__(self, asgi, host: str, port: int, grace: float, forwarded: str):
+        import uvicorn
+
+        class Quiet(uvicorn.Server):
+            def capture_signals(self):  # noqa: D401 - signals are handled by main()
+                import contextlib
+                return contextlib.nullcontext()
+
+        self.server = Quiet(uvicorn.Config(asgi, host=host, port=port, proxy_headers=True,
+                                           forwarded_allow_ips=forwarded, timeout_graceful_shutdown=int(grace),
+                                           log_config=None))
+
+    async def serve(self) -> None:
+        await self.server.serve()
+
+    def stop(self) -> None:
+        self.server.should_exit = True
+
+
+def main(argv: list[str] | None = None) -> None:
+    import argparse
+    import os
+    import signal
+
+    parser = argparse.ArgumentParser(prog="inkcast", description="Inkcast MCP server")
+    parser.add_argument("mode", nargs="?", default="all", choices=["all", "web", "worker"],
+                        help="all = web + scheduler (single node); web = HTTP only; worker = scheduler only")
+    args = parser.parse_args(argv)
+
     config = load_config()
+    setup_logging(config.log_format, config.log_level)
     config.validate()
     app = build(config)
-    log.info("Inkcast %s — MCP endpoint %s (sign-in: %s)", __version__, config.mcp_url, config.login)
-    log.info("Platforms: %s", ", ".join(app.platforms))
-    log.info("Add to Claude Code: claude mcp add --transport http inkcast %s", config.mcp_url)
+    app.runs_scheduler = args.mode in ("all", "worker")
+    forwarded = os.environ.get("INKCAST_FORWARDED_ALLOW_IPS", "127.0.0.1")
+    log.info("Inkcast %s starting in %s mode; MCP endpoint %s; sign-in: %s; platforms: %s",
+             __version__, args.mode, config.mcp_url, config.login, ", ".join(app.platforms))
 
-    server = uvicorn.Server(uvicorn.Config(asgi_app(app), host=config.host, port=config.port,
-                                           proxy_headers=True, forwarded_allow_ips="*"))
+    servers: list[_Server] = []
+    if args.mode in ("all", "web"):
+        servers.append(_Server(asgi_app(app), config.host, config.port, config.shutdown_grace_seconds, forwarded))
+    if config.metrics_port:
+        servers.append(_Server(metrics_app(app), config.host, config.metrics_port, 5, "127.0.0.1"))
 
     async def run() -> None:
-        scheduler = asyncio.create_task(
-            app.publisher.run_forever(config.scheduler_interval_seconds, housekeeping=app.oauth.housekeeping)
-        )
-        try:
-            await server.serve()
-        finally:
-            scheduler.cancel()
+        stop = asyncio.Event()
+        loop = asyncio.get_running_loop()
+
+        def on_signal(signame: str) -> None:
+            log.info("%s received: finishing in-flight work, then exiting", signame)
+            stop.set()
+            for srv in servers:
+                srv.stop()
+
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, on_signal, sig.name)
+
+        tasks = [asyncio.create_task(srv.serve()) for srv in servers]
+        if app.runs_scheduler:
+            tasks.append(asyncio.create_task(app.publisher.run_forever(
+                config.scheduler_interval_seconds, stop, housekeeping=app.oauth.housekeeping)))
+        await asyncio.gather(*tasks)
+        await app.http.aclose()
+        log.info("Inkcast stopped")
 
     asyncio.run(run())
 

@@ -1,0 +1,11 @@
+# v0.1 stores data in SQLite on this volume: single replica, ReadWriteOnce.
+# Phase 1 moves to PostgreSQL (CloudNativePG) and drops this PVC.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: inkcast-data
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi

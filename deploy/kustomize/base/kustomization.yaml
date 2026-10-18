@@ -1,0 +1,30 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+labels:
+  - pairs:
+      app.kubernetes.io/name: inkcast
+      app.kubernetes.io/part-of: inkcast
+    includeSelectors: true
+resources:
+  - serviceaccount.yaml
+  - pvc.yaml
+  - deployment.yaml
+  - service.yaml
+  - networkpolicy.yaml
+configMapGenerator:
+  # Non-secret settings. Secrets come from the `inkcast-secrets` Secret, mounted as files.
+  - name: inkcast-config
+    options: {disableNameSuffixHash: true}
+    literals:
+      - INKCAST_PUBLIC_URL=https://inkcast.example.com
+      - INKCAST_LOGIN=oidc
+      - OIDC_ISSUER=https://sso.example.com/realms/inkcast
+      - OIDC_CLIENT_ID=inkcast
+      - OIDC_REQUIRED_ROLE=inkcast-user
+      - INKCAST_LOG_FORMAT=json
+      - INKCAST_LOG_LEVEL=INFO
+      - INKCAST_FORWARDED_ALLOW_IPS=*
+images:
+  - name: inkcast
+    newName: ghcr.io/OWNER/inkcast
+    newTag: 0.1.0   # CI rewrites this to an immutable digest (image@sha256:...)

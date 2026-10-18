@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: inkcast
+spec:
+  selector:
+    app.kubernetes.io/component: server
+  ports:
+    - {name: http, port: 8787, targetPort: http}
+---
+# Metrics live on their own Service so they are never routed publicly.
+apiVersion: v1
+kind: Service
+metadata:
+  name: inkcast-metrics
+  labels:
+    app.kubernetes.io/component: metrics
+spec:
+  selector:
+    app.kubernetes.io/component: server
+  ports:
+    - {name: metrics, port: 9090, targetPort: metrics}

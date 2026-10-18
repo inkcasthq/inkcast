@@ -26,3 +26,12 @@ inkcast = "inkcast.server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/inkcast"]
+
+[tool.ruff]
+line-length = 130
+target-version = "py311"
+extend-exclude = ["src/inkcast/static"]
+
+[tool.ruff.lint]
+# Correctness first (pyflakes + syntax). Widen deliberately, one rule family per PR.
+select = ["F", "E9"]

@@ -1,0 +1,16 @@
+# OVN-Kubernetes EgressFirewall: applies to the whole namespace (one per namespace, named "default").
+# Keep Inkcast in its own namespace. Add a dnsName per platform plug-in you enable.
+apiVersion: k8s.ovn.org/v1
+kind: EgressFirewall
+metadata:
+  name: default
+spec:
+  egress:
+    - type: Allow
+      to: {dnsName: sso.example.com}        # identity provider (Keycloak)
+    - type: Allow
+      to: {dnsName: api.medium.com}
+    - type: Allow
+      to: {dnsName: dev.to}
+    - type: Deny
+      to: {cidrSelector: 0.0.0.0/0}

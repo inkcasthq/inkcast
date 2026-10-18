@@ -1,10 +1,5 @@
-# Platforms: short-form announcements (Bluesky, Mastodon, LinkedIn, X)
+# Platforms: short-form announcements (Bluesky, Mastodon, LinkedIn)
 
 labels: platform
 
-After a story is published, optionally post a short announcement with the story URL.
-
-- new plug-in kind "announce" that runs after the long-form posts in the same group succeed (needs URLs)
-- Bluesky (app password), Mastodon (OAuth per instance) first; LinkedIn and X need approved developer apps and paid/partner API access — investigate cost and approval before building
-
-**Done when:** dependency ordering in the publisher + one working announce plug-in.
+X, Instagram and TikTok are designed in the social epic (docs/design/social-platforms-epic.md, issues 15–25). This issue covers the remaining short-form targets once the epic's interface v2 (issue 15) lands: Bluesky (app password), Mastodon (OAuth per instance), LinkedIn (needs an approved developer app; investigate access and cost first).

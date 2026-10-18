@@ -88,13 +88,17 @@ class PublishResult:
 class PlatformError(Exception):
     """A failure worded for the person reading Claude's reply.
 
-    ``retryable`` marks transient failures (rate limits, 5xx, network) that the
-    scheduler may retry; everything else fails the post immediately.
+    ``retryable``: the request certainly did not take effect (connection never
+    made, rate-limited), so the scheduler may safely try again.
+    ``uncertain``: a publishing request may or may not have taken effect (timeout
+    after sending, 5xx). Retrying could post twice, so the post is marked
+    ``unknown`` for a human to check instead.
     """
 
-    def __init__(self, message: str, *, retryable: bool = False):
+    def __init__(self, message: str, *, retryable: bool = False, uncertain: bool = False):
         super().__init__(message)
-        self.retryable = retryable
+        self.retryable = retryable and not uncertain
+        self.uncertain = uncertain
 
 
 class Platform(ABC):
@@ -147,14 +151,28 @@ class Platform(ABC):
 
     # ---- helpers for plug-ins -------------------------------------------
 
-    async def request(self, method: str, path: str, *, headers: dict[str, str], **kwargs: Any) -> Any:
+    async def request(self, method: str, path: str, *, headers: dict[str, str], mutating: bool | None = None,
+                      **kwargs: Any) -> Any:
+        """Call the platform API. ``mutating`` (default: any non-GET) makes ambiguous failures
+        ``uncertain`` instead of ``retryable``, so a story is never published twice."""
+        mutating = method.upper() != "GET" if mutating is None else mutating
         try:
             response = await self.http.request(method, f"{self.api_url}{path}", headers=headers, **kwargs)
+        except (httpx2.ConnectError, httpx2.ConnectTimeout, httpx2.PoolTimeout) as exc:
+            raise PlatformError(f"Could not reach {self.name}: {exc}", retryable=True) from exc
         except httpx2.HTTPError as exc:
+            if mutating:
+                raise PlatformError(
+                    f"The connection to {self.name} failed after the request was sent ({exc}); it may or may not "
+                    f"have been published. Check {self.name} before trying again.", uncertain=True) from exc
             raise PlatformError(f"Could not reach {self.name}: {exc}", retryable=True) from exc
         if response.status_code == 429:
             raise PlatformError(f"{self.name} rate limit hit; try again shortly.", retryable=True)
         if response.status_code >= 500:
+            if mutating:
+                raise PlatformError(
+                    f"{self.name} returned a server error ({response.status_code}) while publishing; it may or may "
+                    f"not have been published. Check {self.name} before trying again.", uncertain=True)
             raise PlatformError(f"{self.name} had a server error ({response.status_code}).", retryable=True)
         if response.status_code >= 400:
             raise PlatformError(self.describe_error(response))
