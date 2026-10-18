@@ -1,0 +1,117 @@
+{
+  "ok": true,
+  "panels": [
+    {
+      "panel": "Pods scraped",
+      "type": "stat",
+      "required": true,
+      "data": true,
+      "errors": []
+    },
+    {
+      "panel": "Version and plug-ins",
+      "type": "table",
+      "required": true,
+      "data": true,
+      "errors": []
+    },
+    {
+      "panel": "Posts due and overdue (count)",
+      "type": "timeseries",
+      "required": false,
+      "data": true,
+      "errors": []
+    },
+    {
+      "panel": "Scheduler ticks (per second)",
+      "type": "timeseries",
+      "required": true,
+      "data": true,
+      "errors": []
+    },
+    {
+      "panel": "Schedule lag p95 (seconds)",
+      "type": "timeseries",
+      "required": true,
+      "data": true,
+      "errors": []
+    },
+    {
+      "panel": "Oldest due post age (seconds)",
+      "type": "timeseries",
+      "required": false,
+      "data": true,
+      "errors": []
+    },
+    {
+      "panel": "Publish outcomes (per second, stacked)",
+      "type": "timeseries",
+      "required": true,
+      "data": true,
+      "errors": []
+    },
+    {
+      "panel": "Publish call p95 (seconds)",
+      "type": "timeseries",
+      "required": true,
+      "data": true,
+      "errors": []
+    },
+    {
+      "panel": "Publish success SLO: error ratio over 1 h",
+      "type": "stat",
+      "required": false,
+      "data": true,
+      "errors": []
+    },
+    {
+      "panel": "Schedule timeliness SLO: error ratio over 1 h",
+      "type": "stat",
+      "required": false,
+      "data": false,
+      "errors": []
+    },
+    {
+      "panel": "Requests by status class (per second, stacked)",
+      "type": "timeseries",
+      "required": true,
+      "data": true,
+      "errors": []
+    },
+    {
+      "panel": "Request p95 by route (seconds)",
+      "type": "timeseries",
+      "required": false,
+      "data": false,
+      "errors": []
+    },
+    {
+      "panel": "API availability SLO: error ratio over 1 h",
+      "type": "stat",
+      "required": false,
+      "data": true,
+      "errors": []
+    },
+    {
+      "panel": "Rate-limited writes (per second)",
+      "type": "timeseries",
+      "required": false,
+      "data": false,
+      "errors": []
+    },
+    {
+      "panel": "Outbox lag (seconds)",
+      "type": "timeseries",
+      "required": false,
+      "data": true,
+      "errors": []
+    },
+    {
+      "panel": "Cache hit ratio (share)",
+      "type": "timeseries",
+      "required": false,
+      "data": false,
+      "errors": []
+    }
+  ]
+}
