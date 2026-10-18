@@ -65,13 +65,20 @@ def stat(title: str, description: str, expr: str, unit: str = "short", *, thresh
     }
 
 
-def table(title: str, description: str, expr: str, legend: str) -> dict[str, Any]:
+def table(title: str, description: str, expr: str, columns: dict[str, str]) -> dict[str, Any]:
+    """Facts as rows: an instant query (a range query gives one series per row and Grafana shows a series picker,
+    not a table), one row per series, the labels in `columns` (label -> header) in that order, Time and Value
+    hidden."""
     return {
         "type": "table", "title": title, "description": description,
-        "targets": [{**_query("A", expr, legend), "format": "table", "instant": True}],
+        "targets": [{"refId": "A", "expr": expr, "legendFormat": "__auto", "format": "table", "instant": True,
+                     "range": False}],
         "fieldConfig": {"defaults": {}, "overrides": []},
         "options": {"showHeader": True},
-        "transformations": [{"id": "organize", "options": {"excludeByName": {"Time": True}}}],
+        "transformations": [{"id": "organize", "options": {
+            "excludeByName": {"Time": True, "Value": True},
+            "indexByName": {label: i for i, label in enumerate(columns)},
+            "renameByName": dict(columns)}}],
     }
 
 
@@ -107,7 +114,7 @@ def platform_dashboard() -> dict[str, Any]:
              f'sum(up{{{s}}})', thresholds=[(0.5, GREEN)]),
         table("Version and plug-ins", "inkcast_build_info: the version and the platform plug-ins each pod runs (facts, so a "
               "table). Every row should match after a rollout.", f'max by (pod, version, platforms) (inkcast_build_info{{{ns}}})',
-              "{{pod}}"),
+              {"pod": "Pod", "version": "Version", "platforms": "Plug-ins"}),
         row("Is the queue moving?"),
         timeseries("Posts due and overdue (count)", "inkcast_posts_due (blue): scheduled posts due now. inkcast_posts_overdue "
                    "(red, dashed): due for longer than INKCAST_OVERDUE_GRACE. Gauges, as they are. Normal: due near 0 between "

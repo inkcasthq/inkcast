@@ -3,6 +3,7 @@ shade, one fixed palette colour per query, stated rate windows, only panel kinds
 
 import json
 import pathlib
+import re
 import subprocess
 import sys
 import unittest
@@ -36,6 +37,38 @@ class Dashboard(unittest.TestCase):
                     if "rate(" in t["expr"] or "increase(" in t["expr"]:
                         self.assertIn(f"[{RATE}]", t["expr"])
                         self.assertIn(RATE, p["description"], "the rate window is stated")
+
+    def test_tables_are_instant_with_named_columns(self):
+        """A range query in a table gives one series per row, and Grafana shows a series picker, not a table."""
+        for p in [p for p in self.panels if p["type"] == "table"]:
+            with self.subTest(panel=p["title"]):
+                for t in p["targets"]:
+                    self.assertEqual((t["format"], t["instant"], t["range"]), ("table", True, False))
+                organize = next(x["options"] for x in p["transformations"] if x["id"] == "organize")
+                self.assertTrue(organize["excludeByName"]["Time"] and organize["excludeByName"]["Value"])
+                self.assertTrue(organize["renameByName"], "every column has a header a person reads")
+
+    def test_every_query_names_a_metric_inkcast_emits_or_a_recording_rule(self):
+        """A panel over a metric nobody emits is a permanent 'No data' (borrowed from group-sync-dashboard)."""
+        from inkcast.libs.alerting import prometheus_rule
+        from inkcast.libs.config import Config
+        from inkcast.libs.db import Store
+        from inkcast.libs.runtime import build_metrics
+        store = Store(":memory:", "k" * 40)
+        self.addCleanup(store.close)
+        registered = set(build_metrics(store, {}, Config(public_url="http://localhost:8787", secret_key="k" * 40,
+                                                         database_path=":memory:"))._help)
+        recorded = {r["record"] for g in prometheus_rule()["spec"]["groups"] for r in g["rules"] if "record" in r}
+        checked = 0
+        for p in self.panels:
+            for t in p["targets"]:
+                for name in re.findall(r"\b(inkcast_[a-z0-9_:]+|up)\b(?=\s*[{\[\s)]|$)", t["expr"]):
+                    with self.subTest(panel=p["title"], metric=name):
+                        base = re.sub(r"_(bucket|count|sum)$", "", name)
+                        self.assertTrue(name == "up" or base in registered or name in recorded,
+                                        f"{name} is neither a registered metric nor a recording rule")
+                        checked += 1
+        self.assertGreater(checked, 20, "the check must cover the dashboard, not silently nothing")
 
     def test_timeseries_follow_the_line_colour_and_legend_rules(self):
         for p in (p for p in self.panels if p["type"] == "timeseries"):
