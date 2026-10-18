@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Shield-1.0.0
+# Copyright 2026 ScalarOps Technologies LLC
 """The plug-in interface every publishing platform implements.
 
 A platform plug-in is a class with:

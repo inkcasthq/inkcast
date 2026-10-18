@@ -61,7 +61,9 @@ tag vX.Y.Z ────► publish.yml (same) ► release: GitHub Release + mani
 - **Changelog:** generated from merged PRs in the GitHub Release.
 - **Rendered manifests:** both overlays, pinned to the digest, attached to every release. Self-hosting customers can `kubectl apply -f` them.
 
-## Plan: private repository on GitHub Team
+## Plan: GitHub Team (public or private repository)
+
+On a **public** repository, code scanning, artifact attestations and environment protection rules are free, and the workflows switch them on automatically (`github.event.repository.visibility == 'public'`). The table below applies while the repository is **private**.
 
 | Feature | On Team (private repo) | Used here |
 |---|---|---|

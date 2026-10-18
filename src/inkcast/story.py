@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Shield-1.0.0
+# Copyright 2026 ScalarOps Technologies LLC
 """A platform-neutral story parsed from markdown with optional YAML front matter.
 
 The story body never contains the title or subtitle: each platform plug-in
