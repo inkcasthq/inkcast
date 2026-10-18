@@ -1,5 +1,7 @@
 # Default-deny for the Inkcast pods, then only what they need.
-# Overlays set which namespaces count as "ingress" and "monitoring".
+# Overlays set which namespaces count as "ingress". The metrics port is admitted by its own policy in the
+# servicemonitor component (inkcast-metrics), to Prometheus pods only: not here, because the base's label transform
+# (includeSelectors) would rewrite a pod selector in this file to app.kubernetes.io/name=inkcast (#21).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -16,12 +18,6 @@ spec:
               inkcast.io/ingress: "true"        # patched per platform in the overlays
       ports:
         - {port: 8787, protocol: TCP}
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              inkcast.io/monitoring: "true"     # patched per platform in the overlays
-      ports:
-        - {port: 9090, protocol: TCP}
   egress:
     - ports:                                     # DNS
         - {port: 53, protocol: UDP}

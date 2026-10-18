@@ -16,10 +16,10 @@ SLO burn-rate alerts carry `slo`, `burn_rate`, `long_window` and `short_window` 
 
 ## InkcastTargetDown
 
-**Meaning:** Prometheus cannot scrape a pod's metrics port. The pod is down, not ready, or the NetworkPolicy no longer admits the monitoring namespace.
+**Meaning:** Prometheus cannot scrape a pod's metrics port. The pod is down, not ready, or the `inkcast-metrics` NetworkPolicy no longer admits Prometheus (its namespace label, or its pods' `app.kubernetes.io/name: prometheus` label).
 
 1. `oc get pods -l app.kubernetes.io/part-of=inkcast`; a pod not `Running`/`Ready` is the cause.
-2. If pods look fine: `oc get networkpolicy inkcast -o yaml` and check the monitoring namespace selector; `oc get servicemonitor inkcast` must name port `metrics`.
+2. If pods look fine: `oc get networkpolicy inkcast-metrics -o yaml` and check both selectors against the Prometheus pods (`oc get pods -n openshift-user-workload-monitoring --show-labels`); `oc get servicemonitor inkcast` must name port `metrics`.
 3. Exit code 78 in the previous container log is a configuration problem: the `config.unsafe` log line lists it.
 
 ## InkcastSchedulerStalled

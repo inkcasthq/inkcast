@@ -1,0 +1,21 @@
+# The metrics port (/metrics, the probes, /secrets: names and sources, never values) is for Prometheus only:
+# its namespace AND its pods, one `from` element so both must match (#21). Overlays set the namespace label.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: inkcast-metrics
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: server
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              inkcast.io/monitoring: "true"     # patched per platform in the overlays
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus   # OpenShift user-workload monitoring, kube-prometheus, deploy/dev
+      ports:
+        - {port: 9090, protocol: TCP}

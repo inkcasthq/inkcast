@@ -10,3 +10,13 @@ spec:
     - port: metrics
       path: /metrics
       interval: 30s
+      # Name the Inkcast service on every series (the pod's inkcast.io/service label, "all" for a single
+      # process), so split-mode panels and alerts can tell services apart; replaces the Service's own name (#21).
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_label_inkcast_io_service]
+          regex: (.+)
+          targetLabel: service
+        - sourceLabels: [__meta_kubernetes_pod_label_inkcast_io_service]
+          regex: ""
+          replacement: all
+          targetLabel: service

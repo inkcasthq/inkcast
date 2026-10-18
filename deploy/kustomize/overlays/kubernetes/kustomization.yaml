@@ -43,6 +43,8 @@ patches:
       - op: replace
         path: /spec/ingress/0/from/0/namespaceSelector/matchLabels
         value: {kubernetes.io/metadata.name: gateway-system}
+  - target: {kind: NetworkPolicy, name: inkcast-metrics}
+    patch: |-
       - op: replace
-        path: /spec/ingress/1/from/0/namespaceSelector/matchLabels
+        path: /spec/ingress/0/from/0/namespaceSelector/matchLabels
         value: {kubernetes.io/metadata.name: monitoring}
