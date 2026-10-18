@@ -35,3 +35,7 @@ Contact **[LICENSING CONTACT — set before the repository goes public]** and sa
 - which edition you're interested in;
 - your use case;
 - the approximate number of client brands, seats or volume.
+
+---
+<!-- inkcast-nav -->
+[Docs](../docs/README.md) · [Licensing](../LICENSING.md) · [Legal](../legal/README.md) · [Contributing](../CONTRIBUTING.md) · [Security](../SECURITY.md) · [Inkcast README](../README.md)

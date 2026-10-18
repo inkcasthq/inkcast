@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: PolyForm-Shield-1.0.0
+# SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 # Copyright 2026 ScalarOps Technologies LLC
 """SQLite persistence: users, OAuth state, encrypted platform credentials, posts.
 

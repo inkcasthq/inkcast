@@ -125,3 +125,7 @@ These workflows were written alongside the code and checked for YAML validity. T
 - that `kind` and `kubectl` are on the runner image, as they are on current `ubuntu-latest`.
 
 Follow-ups are in [issues/14](issues/14-ci-pipeline.md), [26](issues/26-helm-chart.md), [28](issues/28-hashed-dependency-lock.md), [29](issues/29-gitops-bootstrap.md) and [30](issues/30-admission-policies.md).
+
+---
+<!-- inkcast-nav -->
+[Docs](../docs/README.md) · [Licensing](../LICENSING.md) · [Legal](../legal/README.md) · [Contributing](../CONTRIBUTING.md) · [Security](../SECURITY.md) · [Inkcast README](../README.md)

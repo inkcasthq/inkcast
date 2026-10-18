@@ -23,3 +23,7 @@ If any condition stops being met, this permission ends for that client, and cont
 ## 2. No other permissions
 
 Nothing here grants rights in ScalarOps' trademarks (see [TRADEMARKS.md](../TRADEMARKS.md)), or any right the License or this document does not state.
+
+---
+<!-- inkcast-nav -->
+[Docs](../docs/README.md) · [Licensing](../LICENSING.md) · [Legal](../legal/README.md) · [Contributing](../CONTRIBUTING.md) · [Security](../SECURITY.md) · [Inkcast README](../README.md)

@@ -84,3 +84,7 @@ Pick an overlay in [`deploy/kustomize`](../deploy/kustomize) and follow the READ
 - the Route or HTTPRoute host.
 
 Then everyone adds it with `claude mcp add --transport http inkcast https://<host>/mcp`.
+
+---
+<!-- inkcast-nav -->
+[Docs](../docs/README.md) · [Licensing](../LICENSING.md) · [Legal](../legal/README.md) · [Contributing](../CONTRIBUTING.md) · [Security](../SECURITY.md) · [Inkcast README](../README.md)

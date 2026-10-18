@@ -200,3 +200,7 @@ The default X template puts the canonical link in the post because that's the po
 - **TikTok:** will auditors accept *scheduled* (deferred) publishing with consent captured at schedule time? Ask in the audit submission.
 - **Instagram:** can one Meta app later move from Instagram Login to Facebook Login (needed for delete), or does that mean a second app and a second review?
 - **X:** does the self-reply ("summoned") restriction allow threads to one's own posts? Do refresh tokens rotate? Which per-post price is current?
+
+---
+<!-- inkcast-nav -->
+[Docs](../../docs/README.md) · [Licensing](../../LICENSING.md) · [Legal](../../legal/README.md) · [Contributing](../../CONTRIBUTING.md) · [Security](../../SECURITY.md) · [Inkcast README](../../README.md)

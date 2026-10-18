@@ -2,6 +2,8 @@
 
 **Write once in markdown. Publish everywhere — from your AI assistant.**
 
+**[Docs](docs/README.md)** · [Start here: bootstrap](docs/bootstrap.md) · [API reference](docs/README.md#engineering) · [Licensing](LICENSING.md) · [Commercial licences](legal/COMMERCIAL-LICENSE.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
+
 Inkcast is an MCP server that lets Claude Code, or any MCP client, publish, cross-post and schedule your writing on Medium, DEV and more. You manage it all from the terminal, with a canonical link back to your own blog on every copy.
 
 ```text

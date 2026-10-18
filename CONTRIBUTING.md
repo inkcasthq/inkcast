@@ -39,3 +39,7 @@ Don't open a public issue. See [SECURITY.md](SECURITY.md).
 ## Conduct
 
 Be respectful and constructive. We follow the [Contributor Covenant 2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct/); report concerns to the licensing contact in [LICENSING.md](LICENSING.md).
+
+---
+<!-- inkcast-nav -->
+[Docs](docs/README.md) · [Licensing](LICENSING.md) · [Legal](legal/README.md) · [Security](SECURITY.md) · [Inkcast README](README.md)
