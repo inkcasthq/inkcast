@@ -1,6 +1,7 @@
 """Shared libraries: secrets handling, log redaction, the config gate, service naming, prefixes."""
 
 import io
+import json
 import logging
 import os
 import subprocess
@@ -14,8 +15,8 @@ from starlette.testclient import TestClient
 from inkcast.launcher import EX_CONFIG, build, resolve
 from inkcast.libs.config import Config, ConfigError, load_config
 from inkcast.libs.http.app import compose
-from inkcast.libs.observability import JsonFormatter, Redactor, redact
-from inkcast.libs.secrets import SecretsProvider, SecretValue
+from inkcast.libs.observability import EVENTS, JsonFormatter, Redactor, TextFormatter, redact, request_id_var
+from inkcast.libs.secrets import REDACTOR, SecretsProvider, SecretValue
 
 
 class Secrets(unittest.TestCase):
@@ -69,18 +70,55 @@ class Logging(unittest.TestCase):
         self.assertIn("ink_pat_1a2b3c4d5e6f_***", out)   # the id part stays, so you can tell which token
         self.assertIn("state=x", out)
 
-    def test_json_logs_carry_the_service_and_are_redacted(self):
+    def capture(self, formatter):
         stream = io.StringIO()
         handler = logging.StreamHandler(stream)
-        handler.setFormatter(JsonFormatter("PublishingApi"))
+        handler.setFormatter(formatter)
         handler.addFilter(Redactor())
-        log = logging.getLogger("inkcast.test.redaction")
+        log = logging.getLogger(f"inkcast.test.redaction.{id(formatter)}")
         log.addHandler(handler)
         log.propagate = False
+        return log, stream
+
+    def test_json_logs_carry_the_service_and_are_redacted(self):
+        log, stream = self.capture(JsonFormatter("PublishingApi"))
         log.warning("token was %s", "ic_rt_SECRETSECRETSECRET")
         line = stream.getvalue()
         self.assertIn('"service": "PublishingApi"', line)
         self.assertNotIn("SECRETSECRETSECRET", line)
+
+    def test_registered_values_are_masked_in_fields_messages_and_tracebacks_in_both_formats(self):
+        REDACTOR.register("kc-secret-value-0042")
+        for formatter in (JsonFormatter("IdentityService"), TextFormatter("%(levelname)s %(message)s")):
+            log, stream = self.capture(formatter)
+            token = request_id_var.set("req-abcdef123456")
+            try:
+                try:
+                    raise RuntimeError("POST https://sso/token failed: client_secret=kc-secret-value-0042 rejected")
+                except RuntimeError:
+                    log.exception("login failed for %s", "kc-secret-value-0042",
+                                  extra={"event": "auth.login.refused", "attempt": 3, "note": "x kc-secret-value-0042 y"})
+            finally:
+                request_id_var.reset(token)
+            out = stream.getvalue()
+            self.assertNotIn("kc-secret-value-0042", out)
+            self.assertIn("[REDACTED]", out)
+            self.assertIn("req-abcdef123456", out)
+            self.assertIn("auth.login.refused", out)
+            self.assertIn("RuntimeError", out)  # the traceback is still there, scrubbed
+        line = json.loads(out.strip()) if out.startswith("{") else None
+        if line:
+            self.assertEqual((line["event"], line["attempt"], line["request_id"]), ("auth.login.refused", 3, "req-abcdef123456"))
+
+    def test_every_event_name_is_catalogued_and_used(self):
+        import pathlib
+        import re
+        src = pathlib.Path(__file__).resolve().parents[1] / "src" / "inkcast"
+        used = set()
+        for path in src.rglob("*.py"):
+            used |= set(re.findall(r"""["']event["']\s*:\s*["']([a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+)["']""", path.read_text()))
+        self.assertEqual(used - set(EVENTS), set(), "events logged but not in observability.EVENTS")
+        self.assertEqual(set(EVENTS) - used, set(), "events catalogued but never logged")
 
 
 class ConfigGate(unittest.TestCase):
@@ -172,6 +210,7 @@ class ConfigGate(unittest.TestCase):
         self.assertEqual(r.returncode, EX_CONFIG)
         self.assertIn("INKCAST_SECRET_KEY must be at least 32", r.stderr)
         self.assertIn("OIDC_ISSUER", r.stderr)
+        self.assertIn('"event": "config.unsafe"', r.stdout)
         r = subprocess.run([sys.executable, "-m", "inkcast", "run", "publishingApi"], env=env, capture_output=True,
                            text=True, timeout=60)
         self.assertEqual(r.returncode, EX_CONFIG)

@@ -112,6 +112,8 @@ class Publisher:
             if exc.uncertain:
                 self.store.update_post(post_id, status="unconfirmed", error=str(exc))
                 self._count(platform.id, "unconfirmed")
+                log.warning("Post %s on %s is unconfirmed: %s", post_id, platform.id, exc,
+                            extra={"event": "publish.unconfirmed", "post_id": post_id, "platform": platform.id})
                 return Outcome(platform.id, "unconfirmed", post_id=post_id, message=str(exc))
             if scheduled and exc.retryable and attempts < MAX_ATTEMPTS:
                 delay = RETRY_DELAYS[min(attempts - 1, len(RETRY_DELAYS) - 1)]
@@ -212,7 +214,7 @@ class Publisher:
                 if housekeeping and ticks % 90 == 0:
                     housekeeping()
             except Exception:
-                log.exception("Scheduler tick failed")
+                log.exception("Scheduler tick failed", extra={"event": "scheduler.tick.failed"})
             try:
                 await asyncio.wait_for(stop.wait(), timeout=interval)
             except asyncio.TimeoutError:
