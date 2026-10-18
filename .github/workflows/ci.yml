@@ -33,7 +33,7 @@ env:
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -44,7 +44,7 @@ jobs:
         run: bash scripts/vendor-assets.sh
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -71,7 +71,7 @@ jobs:
 
   authz:
     # The OpenFGA authorization model (authz/): valid, its tests pass, and the compiled JSON is current.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       FGA_VERSION: "0.8.2"
       FGA_SHA256: e48c4a73cf68031fe9fc0827f1462a9b2d6981e3d2e9b82f1e1c2e120c293443
@@ -90,7 +90,7 @@ jobs:
           scripts/ci-run.sh "authz/model.json is stale (run: fga model transform --file authz/model.fga --output-format json | python3 -m json.tool > authz/model.json)" diff -u authz/model.json "$RUNNER_TEMP/model.json"
 
   manifests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Render every overlay and environment (kubectl's built-in kustomize)
@@ -105,7 +105,7 @@ jobs:
             --entrypoint promtool quay.io/prometheus/prometheus:v3.5.0 check rules /w/rules.yaml
 
   image:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       security-events: write   # upload the scan to code scanning
@@ -135,7 +135,7 @@ jobs:
   kind:
     # Deploys the real image with the real manifests: proves they apply under Pod Security
     # "restricted", start as a non-root arbitrary user on a read-only root filesystem, and serve.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [manifests]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -205,7 +205,7 @@ jobs:
   dashboards:
     # The local observability stack under Docker Compose (deploy/dev): Inkcast + fake platforms + Prometheus +
     # Grafana; seeds real traffic, runs every panel's queries through Grafana, screenshots the dashboard.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [manifests]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -232,7 +232,7 @@ jobs:
 
   codeql:
     if: (vars.CODE_SECURITY == 'true' || github.event.repository.visibility == 'public')   # needs GitHub Code Security on private repos
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       security-events: write
