@@ -26,9 +26,30 @@ Copyright 2026 ScalarOps Technologies LLC. Inkcast is a product of ScalarOps Tec
 
 A fork stays under these same terms. Changing the name doesn't change the licence.
 
-## Gray areas: ask us
+## Consultants and integrators
 
-Consultancies deploying Inkcast for a client's internal use, agencies publishing for their clients, and embedding Inkcast in a larger product can be fine or can compete, depending on the details. Ask before you build on it. If it's fine, we'll say so in writing; if not, a commercial licence usually is the answer.
+**Additional permission.** ScalarOps Technologies LLC grants this permission on top of the PolyForm Shield License:
+
+> You may install, configure, customise, operate and support Inkcast **for a client**, and charge for those services, as long as **all** of the following hold:
+>
+> - the deployment is used only for that client's own internal purposes;
+> - the client is the party using the software;
+> - the deployment keeps the `Required Notice` and does not present Inkcast as your own product.
+
+| A consultant **may** | A consultant **may not** |
+|---|---|
+| Set up and run Inkcast for one client's own internal use, and bill for the work | **Rebrand or white-label** Inkcast, or present it as their own product |
+| Build that client custom plug-ins and integrations | Run **one deployment for several clients**, or host it as a service for clients |
+| Train and support the client's team | Package Inkcast's features into **their own product or SaaS** offered to others |
+
+## Companies
+
+- **Allowed:** a company using Inkcast to publish and schedule **its own** content, public posts included, at any scale.
+- **Not allowed:** a company **packaging Inkcast's features for its customers**, for example inside its own SaaS or platform, or publishing on behalf of clients through a client-facing product built on Inkcast. That competes with Inkcast and needs a commercial licence.
+
+## Still unsure? Ask
+
+Embedding parts of Inkcast in a larger product, and other cases not covered above, depend on the details. Ask before you build. If it's fine, we'll say so in writing; if not, a commercial licence is the answer.
 
 ## Commercial licences
 
