@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Shield-1.0.0
+# Copyright 2026 ScalarOps Technologies LLC
 """Inkcast: publish and schedule writing across platforms from Claude Code (or any MCP client)."""
 
 from __future__ import annotations

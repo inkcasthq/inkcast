@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Shield-1.0.0
+# Copyright 2026 ScalarOps Technologies LLC
 """DEV (dev.to) and other Forem communities, through the Forem API v1.
 
 Rules encoded here:

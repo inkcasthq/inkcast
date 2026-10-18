@@ -101,7 +101,7 @@ jobs:
           cosign sign --yes "$IMAGE@$REF"
           cosign attest --yes --type spdxjson --predicate sbom-${{ github.sha }}.spdx.json "$IMAGE@$REF"
       - name: SLSA build provenance (GitHub attestation store)
-        if: vars.GITHUB_ATTESTATIONS == 'true'
+        if: (vars.GITHUB_ATTESTATIONS == 'true' || github.event.repository.visibility == 'public')
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ env.IMAGE }}
@@ -116,7 +116,7 @@ jobs:
           ISSUER=https://token.actions.githubusercontent.com
           cosign verify --certificate-identity "$ID" --certificate-oidc-issuer "$ISSUER" "$IMAGE@$REF" > /dev/null
           cosign verify-attestation --type spdxjson --certificate-identity "$ID" --certificate-oidc-issuer "$ISSUER" "$IMAGE@$REF" > /dev/null
-          if [ "${{ vars.GITHUB_ATTESTATIONS }}" = "true" ]; then
+          if [ "${{ vars.GITHUB_ATTESTATIONS == 'true' || github.event.repository.visibility == 'public' }}" = "true" ]; then
             gh attestation verify "oci://$IMAGE@$REF" --repo "$GITHUB_REPOSITORY" > /dev/null
             echo "Signature, SBOM attestation and provenance verified for $IMAGE@$REF" >> "$GITHUB_STEP_SUMMARY"
           else

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Shield-1.0.0
+# Copyright 2026 ScalarOps Technologies LLC
 """Who is signing in. Pluggable, like platforms:
 
 * OIDCIdentity   — any OpenID Connect provider. Point it at a Keycloak realm and

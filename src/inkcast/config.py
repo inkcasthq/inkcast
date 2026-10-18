@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Shield-1.0.0
+# Copyright 2026 ScalarOps Technologies LLC
 """Runtime configuration, read from environment variables (all prefixed INKCAST_ or GITHUB_)."""
 
 from __future__ import annotations

@@ -211,3 +211,14 @@ Real Keycloak, Medium and DEV have not been exercised by the test suite yet. Try
 ## Status
 
 Early: v0.1, single node, SQLite. The path to the hosted SaaS — Postgres, workspaces, an admin portal on Keycloak, API tokens on sign-up, a mobile app — is in [docs/product-spec.md](docs/product-spec.md) and [docs/issues/](docs/issues/).
+
+## License
+
+Inkcast is **source-available** under the [PolyForm Shield License 1.0.0](LICENSE).
+
+- **Free for any non-competing use,** including inside companies: self-host it, modify it, share it.
+- **Not allowed:** offering it, or a rebranded or repackaged version, as a competing product or hosted service.
+
+[LICENSING.md](LICENSING.md) explains what is and isn't allowed, and how to get a commercial licence. Contributions require the [CLA](legal/CLA-INDIVIDUAL.md); see [CONTRIBUTING.md](CONTRIBUTING.md). "Inkcast" is a trademark of ScalarOps Technologies LLC; see [TRADEMARKS.md](TRADEMARKS.md).
+
+Copyright 2026 ScalarOps Technologies LLC.

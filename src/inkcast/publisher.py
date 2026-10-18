@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Shield-1.0.0
+# Copyright 2026 ScalarOps Technologies LLC
 """Cross-posting and scheduling.
 
 A publish request becomes one post row per platform (sharing a group id).

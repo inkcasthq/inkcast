@@ -1,0 +1,30 @@
+Inkcast
+Required Notice: Copyright 2026 ScalarOps Technologies LLC (https://github.com/inkcasthq/inkcast)
+
+Inkcast's own code is licensed under the PolyForm Shield License 1.0.0 (see LICENSE).
+It includes and depends on third-party software under the licences below. Those
+licences, not PolyForm Shield, govern that software.
+
+Bundled in this repository (src/inkcast/static/vendor; versions and SHA-256 in ASSETS.lock)
+  swagger-ui-dist 5.32.11     Apache-2.0    https://github.com/swagger-api/swagger-ui
+  redoc 2.5.3                 MIT           https://github.com/Redocly/redoc
+                              (its bundled dependencies: see redoc.standalone.js.LICENSE.txt in the npm package)
+
+Runtime dependencies (installed by pip, not bundled in source; versions as of this release)
+  mcp, mcp-types              MIT
+  pydantic, pydantic-core     MIT
+  PyYAML                      MIT
+  anyio, h11, jsonschema,
+  PyJWT, typing-inspection    MIT
+  httpx2, httpcore2           BSD-3-Clause
+  starlette, sse-starlette    BSD-3-Clause
+  uvicorn, click, idna        BSD-3-Clause
+  cryptography                Apache-2.0 OR BSD-3-Clause
+  python-multipart            Apache-2.0
+  opentelemetry-api           Apache-2.0
+  typing-extensions           PSF-2.0
+  certifi                     MPL-2.0
+
+The container image additionally contains the Python base image's software
+(Debian packages and CPython) under their respective licences; see the image SBOM
+attached to each release.
