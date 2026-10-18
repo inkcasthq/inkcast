@@ -109,11 +109,13 @@ features:
     - CI fails when model.json is stale
   - id: F3.5.S2
     title: 'authz/model.fga.yaml: the owner''s five scenarios plus removed author, outside publisher, agency without grant,
-      tenant list isolation, billing admin, client reviewer, custom role'
+      tenant list isolation, billing admin, client reviewer, custom role, cross-organization custom role'
     status: done
     change: new
     acceptance:
-    - fga model test passes in CI (14 tests, 39 checks, 3 list-objects)
+    - fga model test passes in CI (15 tests, 50 checks, 4 list-objects)
+    - A custom role from another organization grants nothing even when a tuple is wrongly written (role_* relations
+      require membership of the target's organization)
   - id: F3.5.S3
     title: 'Model versions: inkcast authz apply-model writes a version; INKCAST_FGA_MODEL_ID pinned per deploy'
     status: planned
@@ -183,8 +185,17 @@ features:
       audited'
     status: planned
     change: new
+    acceptance:
+    - 'Every tuple-writing API checks organization alignment before writing: a role grant needs role.org == the
+      workspace''s org (for a channel, its workspace''s org); a workspace, channel or post tuple needs its parent in
+      the same organization; agency grants are the only cross-organization writes, and only through the agency
+      grant API'
+    - A misaligned write is refused with 422 `cross_organization_grant` and audited; nothing reaches OpenFGA
+    - 'Negative tests at the API level: Globex''s role on Acme''s workspace and channel; an Acme workspace tuple
+      pointing at a Globex organization'
   - id: F3.8.S3
-    title: Reconciler compares DB-owned relationships with tuples, fixes drift, reports a metric
+    title: Reconciler compares DB-owned relationships with tuples, fixes drift (including misaligned role grants),
+      reports a metric
     status: planned
     change: new
 - id: F3.9

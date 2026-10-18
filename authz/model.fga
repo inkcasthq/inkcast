@@ -21,7 +21,8 @@ type organization
     define can_create_workspace: admin
     define can_manage_custom_roles: admin
 
-# Enterprise custom roles: a role is data (role:x#assignee granted on a workspace or channel), never a model change.
+# Enterprise custom roles: a role is data (role:x#assignee granted through role_* relations on a workspace or
+# channel), never a model change. A role belongs to one organization (org) and only works inside it.
 type role
   relations
     define org: [organization]
@@ -30,10 +31,18 @@ type role
 type workspace
   relations
     define org: [organization]
-    define manager: [user, role#assignee] or admin from org
-    define editor: [user, organization#member, role#assignee] or manager
-    define reviewer: [user, role#assignee] or manager
-    define viewer: [user, role#assignee] or editor or reviewer
+    define org_member: member from org
+    # Custom-role grants are their own relations and count only for members of THIS workspace's organization,
+    # so a role from another organization written here by mistake grants nothing. (The API also refuses to write
+    # a role grant whose role.org isn't the workspace's org: E3.F3.8.S2.)
+    define role_manager: [role#assignee]
+    define role_editor: [role#assignee]
+    define role_reviewer: [role#assignee]
+    define role_viewer: [role#assignee]
+    define manager: [user] or (role_manager and org_member) or admin from org
+    define editor: [user, organization#member] or (role_editor and org_member) or manager
+    define reviewer: [user] or (role_reviewer and org_member) or manager
+    define viewer: [user] or (role_viewer and org_member) or editor or reviewer
     # Agency clients: sees and decides only posts in the client-review stage (stage is DB state). Not a viewer.
     define client_reviewer: [user]
     define can_manage_members: manager
@@ -46,7 +55,9 @@ type workspace
 type channel
   relations
     define workspace: [workspace]
-    define publisher: [user, role#assignee] or manager from workspace
+    # As on the workspace: a custom-role grant counts only for members of the channel's own organization.
+    define role_publisher: [role#assignee]
+    define publisher: [user] or (role_publisher and org_member from workspace) or manager from workspace
     # Publishing needs the grant AND current access to the workspace (a direct grant to an outsider is not enough).
     define can_publish: publisher and viewer from workspace
 

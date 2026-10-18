@@ -28,10 +28,20 @@ tuples:
   - {user: "user:hank", relation: owner, object: "organization:globex"}
   - {user: "organization:globex", relation: org, object: "workspace:globex-news"}
   - {user: "workspace:globex-news", relation: workspace, object: "post:post-9"}
-  # Enterprise custom role "copy-editor" in Acme, assigned to ivan, granted editor on the blog.
+  # Enterprise custom role "copy-editor" in Acme, assigned to ivan (Acme staff), granted editor on the blog.
+  - {user: "user:ivan", relation: member, object: "organization:acme"}
   - {user: "organization:acme", relation: org, object: "role:acme-copy-editor"}
   - {user: "user:ivan", relation: assignee, object: "role:acme-copy-editor"}
-  - {user: "role:acme-copy-editor#assignee", relation: editor, object: "workspace:acme-blog"}
+  - {user: "role:acme-copy-editor#assignee", relation: role_editor, object: "workspace:acme-blog"}
+  # Globex's custom role, wrongly granted on Acme's workspace and channel (a bad write the API should refuse).
+  - {user: "user:quinn", relation: member, object: "organization:globex"}
+  - {user: "organization:globex", relation: org, object: "role:globex-ghost"}
+  - {user: "user:quinn", relation: assignee, object: "role:globex-ghost"}
+  - {user: "organization:globex#member", relation: assignee, object: "role:globex-ghost"}
+  - {user: "role:globex-ghost#assignee", relation: role_manager, object: "workspace:acme-blog"}
+  - {user: "role:globex-ghost#assignee", relation: role_editor, object: "workspace:acme-blog"}
+  - {user: "role:globex-ghost#assignee", relation: role_viewer, object: "workspace:acme-blog"}
+  - {user: "role:globex-ghost#assignee", relation: role_publisher, object: "channel:acme-x"}
 
 tests:
   # ---- the owner's scenarios ----------------------------------------------------------------
@@ -150,3 +160,22 @@ tests:
       - user: "user:ivan"
         object: "channel:acme-x"
         assertions: {can_publish: false}
+
+  - name: a custom role from another organization grants nothing, even when wrongly written
+    check:
+      - user: "user:quinn"
+        object: "workspace:acme-blog"
+        assertions: {manager: false, editor: false, viewer: false, can_manage_members: false, can_create_post: false}
+      - user: "user:quinn"
+        object: "post:post-1"
+        assertions: {can_edit: false, can_view: false}
+      - user: "user:quinn"
+        object: "channel:acme-x"
+        assertions: {publisher: false, can_publish: false}
+      - user: "user:hank"
+        object: "workspace:acme-blog"
+        assertions: {editor: false, viewer: false}
+    list_objects:
+      - user: "user:quinn"
+        type: post
+        assertions: {can_view: []}

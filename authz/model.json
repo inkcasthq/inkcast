@@ -196,10 +196,6 @@
                             {
                                 "relation": "member",
                                 "type": "organization"
-                            },
-                            {
-                                "relation": "assignee",
-                                "type": "role"
                             }
                         ]
                     },
@@ -207,10 +203,6 @@
                         "directly_related_user_types": [
                             {
                                 "type": "user"
-                            },
-                            {
-                                "relation": "assignee",
-                                "type": "role"
                             }
                         ]
                     },
@@ -221,11 +213,40 @@
                             }
                         ]
                     },
+                    "org_member": {},
                     "reviewer": {
                         "directly_related_user_types": [
                             {
                                 "type": "user"
-                            },
+                            }
+                        ]
+                    },
+                    "role_editor": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "assignee",
+                                "type": "role"
+                            }
+                        ]
+                    },
+                    "role_manager": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "assignee",
+                                "type": "role"
+                            }
+                        ]
+                    },
+                    "role_reviewer": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "assignee",
+                                "type": "role"
+                            }
+                        ]
+                    },
+                    "role_viewer": {
+                        "directly_related_user_types": [
                             {
                                 "relation": "assignee",
                                 "type": "role"
@@ -236,10 +257,6 @@
                         "directly_related_user_types": [
                             {
                                 "type": "user"
-                            },
-                            {
-                                "relation": "assignee",
-                                "type": "role"
                             }
                         ]
                     }
@@ -302,6 +319,22 @@
                                 "this": {}
                             },
                             {
+                                "intersection": {
+                                    "child": [
+                                        {
+                                            "computedUserset": {
+                                                "relation": "role_editor"
+                                            }
+                                        },
+                                        {
+                                            "computedUserset": {
+                                                "relation": "org_member"
+                                            }
+                                        }
+                                    ]
+                                }
+                            },
+                            {
                                 "computedUserset": {
                                     "relation": "manager"
                                 }
@@ -314,6 +347,22 @@
                         "child": [
                             {
                                 "this": {}
+                            },
+                            {
+                                "intersection": {
+                                    "child": [
+                                        {
+                                            "computedUserset": {
+                                                "relation": "role_manager"
+                                            }
+                                        },
+                                        {
+                                            "computedUserset": {
+                                                "relation": "org_member"
+                                            }
+                                        }
+                                    ]
+                                }
                             },
                             {
                                 "tupleToUserset": {
@@ -331,11 +380,37 @@
                 "org": {
                     "this": {}
                 },
+                "org_member": {
+                    "tupleToUserset": {
+                        "computedUserset": {
+                            "relation": "member"
+                        },
+                        "tupleset": {
+                            "relation": "org"
+                        }
+                    }
+                },
                 "reviewer": {
                     "union": {
                         "child": [
                             {
                                 "this": {}
+                            },
+                            {
+                                "intersection": {
+                                    "child": [
+                                        {
+                                            "computedUserset": {
+                                                "relation": "role_reviewer"
+                                            }
+                                        },
+                                        {
+                                            "computedUserset": {
+                                                "relation": "org_member"
+                                            }
+                                        }
+                                    ]
+                                }
                             },
                             {
                                 "computedUserset": {
@@ -345,11 +420,39 @@
                         ]
                     }
                 },
+                "role_editor": {
+                    "this": {}
+                },
+                "role_manager": {
+                    "this": {}
+                },
+                "role_reviewer": {
+                    "this": {}
+                },
+                "role_viewer": {
+                    "this": {}
+                },
                 "viewer": {
                     "union": {
                         "child": [
                             {
                                 "this": {}
+                            },
+                            {
+                                "intersection": {
+                                    "child": [
+                                        {
+                                            "computedUserset": {
+                                                "relation": "role_viewer"
+                                            }
+                                        },
+                                        {
+                                            "computedUserset": {
+                                                "relation": "org_member"
+                                            }
+                                        }
+                                    ]
+                                }
                             },
                             {
                                 "computedUserset": {
@@ -375,7 +478,11 @@
                         "directly_related_user_types": [
                             {
                                 "type": "user"
-                            },
+                            }
+                        ]
+                    },
+                    "role_publisher": {
+                        "directly_related_user_types": [
                             {
                                 "relation": "assignee",
                                 "type": "role"
@@ -420,6 +527,27 @@
                                 "this": {}
                             },
                             {
+                                "intersection": {
+                                    "child": [
+                                        {
+                                            "computedUserset": {
+                                                "relation": "role_publisher"
+                                            }
+                                        },
+                                        {
+                                            "tupleToUserset": {
+                                                "computedUserset": {
+                                                    "relation": "org_member"
+                                                },
+                                                "tupleset": {
+                                                    "relation": "workspace"
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            },
+                            {
                                 "tupleToUserset": {
                                     "computedUserset": {
                                         "relation": "manager"
@@ -431,6 +559,9 @@
                             }
                         ]
                     }
+                },
+                "role_publisher": {
+                    "this": {}
                 },
                 "workspace": {
                     "this": {}

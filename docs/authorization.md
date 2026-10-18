@@ -57,14 +57,15 @@ Plan entitlements are designed in [E10](epics/E10-tiers-and-billing/design.md).
 
 ## 4. Authorization model
 
-The model lives in [`authz/model.fga`](../authz/model.fga), schema 1.1. It is the owner's model with three refinements, all marked in the file:
+The model lives in [`authz/model.fga`](../authz/model.fga), schema 1.1. It is the owner's model with four refinements, all marked in the file:
 
 1. `can_edit` = `editor from workspace or (author and viewer from workspace)`. An author removed from a workspace no longer edits their old posts.
 2. `can_publish` = `publisher and viewer from workspace`. A direct publisher grant to someone outside the workspace isn't enough.
 3. New relations for teams and tiers:
    - **On the organization:** `billing_admin` and `can_manage_billing`, `can_view_billing`, `can_manage_members`, `can_manage_security`, `can_view_audit`, `can_create_workspace`.
    - **On the workspace:** `client_reviewer` (for agencies), and `can_manage_members`, `can_manage_channels`, `can_create_post`, `can_create_token`, `can_view_usage`.
-   - **Custom roles (Enterprise):** a `role` type, used as `role:x#assignee`. Adding a custom role is data, never a model change.
+   - **Custom roles (Enterprise):** a `role` type, granted as `role:x#assignee` through dedicated relations (`role_manager`, `role_editor`, `role_reviewer`, `role_viewer` on a workspace; `role_publisher` on a channel). Adding a custom role is data, never a model change.
+4. **Custom roles stay inside their organization.** A role grant counts only for members of the workspace's (or channel's) own organization (`role_editor and org_member`). A role from another organization, written by mistake, grants nothing. The member API also refuses such a write (E3.F3.8.S2): defence in two layers, because a model alone can't compare `role.org` with `workspace.org`.
 
 | Type | Meaning |
 |---|---|
@@ -110,7 +111,8 @@ Granting an agency access is **one tuple**, and revoking it is deleting that tup
 - a billing admin;
 - managers versus editors versus reviewers;
 - a client reviewer;
-- a custom role.
+- a custom role;
+- a custom role from another organization, wrongly granted (it must grant nothing).
 
 Run the tests locally, and in CI (the `authz` job, which also checks that the compiled `authz/model.json` is current):
 
@@ -189,6 +191,7 @@ This list is also in the [definition of done](definition-of-done.md) and the PR 
 - [ ] A new endpoint or MCP tool calls `require()`, or declares `permission=…`. Public routes say `public=True`.
 - [ ] No permission logic based on JWT roles for resource access.
 - [ ] Model changes include new or updated tests in `authz/model.fga.yaml`, and the compiled `authz/model.json` is regenerated.
+- [ ] Any API that writes tuples checks that both sides belong to the same organization (agency grants excepted, through their own API).
 - [ ] `fga model test` passes in CI.
 - [ ] New publish-capable features check `can_publish` on the channel, at request time **and** at send time.
 - [ ] Plan limits are checked in the DB (`libs/entitlements`), never as tuples.

@@ -40,11 +40,12 @@ Full list: [backlog](../../backlog/E3-tenancy-data-and-authorization.yaml).
 
 ### The model, done in this refinement
 
-`authz/model.fga` and `authz/model.fga.yaml` are committed, and CI runs `fga model test`. Locally the suite reports 14 tests, 39 checks and 3 list-objects checks, all passing.
+`authz/model.fga` and `authz/model.fga.yaml` are committed, and CI runs `fga model test`. Locally the suite reports 15 tests, 50 checks and 4 list-objects checks, all passing.
 
-The owner's model, with two refinements:
+The owner's model, with three refinements:
 - **Removed authors can't edit.** An author keeps edit rights only while they still have workspace access.
 - **Publishing needs workspace access.** A direct publisher grant isn't enough on its own.
+- **Custom roles stay inside their organization** (review, 2026-10-18). Role grants use their own relations (`role_editor` and the like), which count only for members of the target's organization. A role from another organization, wrongly written onto a workspace or channel, grants nothing; a model test proves it. The member API also refuses such writes (F3.8.S2), because OpenFGA can't compare `role.org` with `workspace.org` itself.
 
 It also adds the team and tier relations (billing admin, client reviewer, member management, usage and audit visibility) and Enterprise custom roles.
 
