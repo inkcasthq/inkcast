@@ -157,46 +157,152 @@ def setup_logging(fmt: str, level: str = "INFO", service: str = "inkcast") -> No
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
 
+# ---- route labels for RED metrics ----------------------------------------------------------
+# Prometheus labels must come from a closed set. A request path is not one (ids, tickets, typos), so the
+# access metrics carry the *route template* instead. Every public route is listed here; a path that matches
+# none is labelled "other". tests/test_libs.py checks that every path in the OpenAPI document maps to itself.
+
+_ROUTE_TEMPLATES: tuple[tuple[re.Pattern[str], str], ...] = tuple(
+    (re.compile("^" + re.sub(r"\{[a-z_]+\}", "[^/]+", template) + "$"), template) for template in (
+        "/mcp",
+        "/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp",
+        "/.well-known/oauth-authorization-server",
+        "/authorize", "/token", "/register", "/revoke",
+        "/auth/login", "/auth/callback", "/auth/consent", "/auth/logout",
+        "/tokens/new",
+        "/connect/{ticket}",
+        "/api", "/api/docs", "/api/redoc", "/api/openapi.json", "/api/static/{asset}",
+        "/api/v1/me",
+        "/api/v1/tokens", "/api/v1/tokens/{token_id}",
+        "/api/v1/platforms", "/api/v1/platforms/{platform_id}/connect-link",
+        "/api/v1/platforms/{platform_id}/connection", "/api/v1/platforms/{platform_id}/destinations",
+        "/api/v1/posts", "/api/v1/posts/{post_id}/cancel", "/api/v1/preview",
+        "/api/v1/stories:sync", "/api/v1/ledger",
+        "/api/v1/insights/summary", "/api/v1/insights/kpis",
+        "/livez", "/readyz", "/healthz", "/metrics",
+    )
+)
+_PREFIXES = ("/publishing-api", "/identity-service", "/connector-service", "/insights-service", "/gateway")
+
+
+def route_label(path: str) -> str:
+    """The route template a path belongs to (``/api/v1/posts/{post_id}/cancel``), or ``other``. A service
+    prefix (``INKCAST_PATH_PREFIX=auto``) is stripped first, so the label is the same in every topology."""
+    for prefix in _PREFIXES:
+        if path == prefix or path.startswith(prefix + "/"):
+            path = path[len(prefix):] or "/"
+            break
+    for pattern, template in _ROUTE_TEMPLATES:
+        if pattern.match(path):
+            return template
+    return "other"
+
+
+# Buckets for request durations (seconds): sub-10 ms probes up to the 30 s platform timeout.
+LATENCY_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0)
+# Buckets for schedule lag (seconds): a tick is 20 s, the overdue grace 600 s.
+LAG_BUCKETS = (1.0, 5.0, 10.0, 20.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1800.0, 3600.0)
+
+Labels = tuple[tuple[str, str], ...]
+
+
 class Metrics:
-    """A tiny Prometheus registry: counters and callback gauges, no dependency."""
+    """A tiny Prometheus registry: counters, histograms and callback gauges, no dependency.
+
+    It is the ``MetricsExporter`` seam: the text format is rendered by ``render()``; an OTLP exporter can read
+    the same series through ``snapshot()`` later without touching the call sites.
+    """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._counters: dict[str, dict[tuple[tuple[str, str], ...], float]] = defaultdict(dict)
+        self._counters: dict[str, dict[Labels, float]] = defaultdict(dict)
         self._help: dict[str, tuple[str, str]] = {}
-        self._gauges: dict[str, Callable[[], dict[tuple[tuple[str, str], ...], float]]] = {}
+        self._gauges: dict[str, Callable[[], dict[Labels, float]]] = {}
+        self._buckets: dict[str, tuple[float, ...]] = {}
+        # histogram name -> labels -> (per-bucket counts, sum, count)
+        self._hist: dict[str, dict[Labels, tuple[list[int], float, int]]] = defaultdict(dict)
 
     def counter(self, name: str, help_text: str) -> None:
         self._help[name] = ("counter", help_text)
 
-    def gauge(self, name: str, help_text: str, fn: Callable[[], dict[tuple[tuple[str, str], ...], float]]) -> None:
+    def gauge(self, name: str, help_text: str, fn: Callable[[], dict[Labels, float]]) -> None:
         self._help[name] = ("gauge", help_text)
         self._gauges[name] = fn
+
+    def histogram(self, name: str, help_text: str, buckets: tuple[float, ...] = LATENCY_BUCKETS) -> None:
+        self._help[name] = ("histogram", help_text)
+        self._buckets[name] = tuple(sorted(buckets))
 
     def inc(self, name: str, amount: float = 1, **labels: str) -> None:
         key = tuple(sorted(labels.items()))
         with self._lock:
             self._counters[name][key] = self._counters[name].get(key, 0) + amount
 
+    def observe(self, name: str, value: float, **labels: str) -> None:
+        """Record one observation in a histogram registered with ``histogram()``."""
+        buckets = self._buckets.get(name)
+        if buckets is None:
+            return  # an unregistered histogram is a programming error, but never a failed request
+        key = tuple(sorted(labels.items()))
+        with self._lock:
+            counts, total, n = self._hist[name].get(key) or ([0] * len(buckets), 0.0, 0)
+            for i, bound in enumerate(buckets):
+                if value <= bound:
+                    counts[i] += 1
+            self._hist[name][key] = (counts, total + value, n + 1)
+
+    def snapshot(self) -> dict[str, dict[Labels, float]]:
+        """Counters and gauges as plain numbers (histograms are exposed through ``render``)."""
+        with self._lock:
+            out = {k: dict(v) for k, v in self._counters.items()}
+        for name, fn in self._gauges.items():
+            try:
+                out[name] = fn()
+            except Exception:
+                out[name] = {}
+        return out
+
     def render(self) -> str:
         lines: list[str] = []
         with self._lock:
             counters = {k: dict(v) for k, v in self._counters.items()}
+            hist = {k: {lab: (list(c), s, n) for lab, (c, s, n) in v.items()} for k, v in self._hist.items()}
         for name, (kind, help_text) in sorted(self._help.items()):
             lines += [f"# HELP {name} {help_text}", f"# TYPE {name} {kind}"]
+            if kind == "histogram":
+                lines += self._render_histogram(name, hist.get(name, {}))
+                continue
             try:
                 series = counters.get(name, {}) if kind == "counter" else self._gauges[name]()
             except Exception:  # a broken gauge must not break scraping
                 series = {}
             for labels, value in sorted(series.items()):
-                label_str = ",".join(f'{k}="{_escape(v)}"' for k, v in labels)
-                lines.append(f"{name}{{{label_str}}} {value}" if label_str else f"{name} {value}")
+                lines.append(_sample(name, labels, value))
         return "\n".join(lines) + "\n"
+
+    def _render_histogram(self, name: str, series: dict[Labels, tuple[list[int], float, int]]) -> list[str]:
+        out: list[str] = []
+        for labels, (counts, total, n) in sorted(series.items()):
+            for bound, count in zip(self._buckets[name], counts):
+                out.append(_sample(f"{name}_bucket", (*labels, ("le", _fmt(bound))), count))
+            out.append(_sample(f"{name}_bucket", (*labels, ("le", "+Inf")), n))
+            out.append(_sample(f"{name}_sum", labels, total))
+            out.append(_sample(f"{name}_count", labels, n))
+        return out
 
     def asgi(self) -> Starlette:
         async def metrics(_: Request) -> PlainTextResponse:
             return PlainTextResponse(self.render(), media_type="text/plain; version=0.0.4")
         return Starlette(routes=[Route("/metrics", metrics)])
+
+
+def _fmt(value: float) -> str:
+    return str(int(value)) if float(value).is_integer() else repr(value)
+
+
+def _sample(name: str, labels: Labels, value: float) -> str:
+    label_str = ",".join(f'{k}="{_escape(v)}"' for k, v in labels)
+    return f"{name}{{{label_str}}} {value}" if label_str else f"{name} {value}"
 
 
 def _escape(value: str) -> str:

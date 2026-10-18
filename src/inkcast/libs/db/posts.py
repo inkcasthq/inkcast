@@ -94,6 +94,11 @@ class PostsRepo(Database):
         row = self._one("SELECT COUNT(*) AS n FROM posts WHERE status = 'scheduled' AND run_at <= ?", now)
         return int(row["n"]) if row else 0
 
+    def oldest_due_age(self, now: float) -> float:
+        """Seconds the oldest due, still-scheduled post has waited; 0.0 when nothing is due."""
+        row = self._one("SELECT MIN(run_at) AS oldest FROM posts WHERE status = 'scheduled' AND run_at <= ?", now)
+        return max(0.0, now - float(row["oldest"])) if row and row["oldest"] is not None else 0.0
+
     def overdue_count(self, now: float, grace: float) -> int:
         """Scheduled posts more than ``grace`` seconds past due: the scheduler is behind or stopped."""
         row = self._one("SELECT COUNT(*) AS n FROM posts WHERE status = 'scheduled' AND run_at <= ?", now - grace)

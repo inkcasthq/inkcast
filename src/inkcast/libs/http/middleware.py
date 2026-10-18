@@ -11,6 +11,9 @@
   chunked body is counted as it streams and cut off at the same limit.
 * **Security headers.** ``X-Content-Type-Options: nosniff``, ``Referrer-Policy: no-referrer`` and (behind
   https) ``Strict-Transport-Security`` on every response that does not already set them.
+* **RED metrics.** One observation per request in ``inkcast_http_request_duration_seconds`` (rate, errors and
+  duration), labelled by route *template* (``observability.route_label``), method and status class, never by
+  the raw path, so the label set stays closed. Probes are not observed.
 
 Pure ASGI, no Starlette ``BaseHTTPMiddleware`` (which buffers responses and breaks streaming).
 """
@@ -26,12 +29,13 @@ from typing import Any, Awaitable, Callable
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.exceptions import HTTPException
 
-from ..observability import request_id_var
+from ..observability import Metrics, request_id_var, route_label
 
 log = logging.getLogger("inkcast.http")
 
 _REQUEST_ID = re.compile(r"^[A-Za-z0-9._-]{8,128}$")
 QUIET_PATHS = ("/livez", "/readyz", "/healthz", "/metrics")
+HTTP_DURATION = "inkcast_http_request_duration_seconds"
 DEFAULT_MAX_BODY = 10 * 1024 * 1024
 TOO_LARGE = "The request body is too large."
 
@@ -46,10 +50,12 @@ def accept_request_id(value: str | None) -> str:
 
 
 class RequestContext:
-    def __init__(self, app: Callable[..., Awaitable[None]], *, max_body: int = DEFAULT_MAX_BODY, hsts: bool = False):
+    def __init__(self, app: Callable[..., Awaitable[None]], *, max_body: int = DEFAULT_MAX_BODY, hsts: bool = False,
+                 metrics: Metrics | None = None):
         self.app = app
         self.max_body = max_body
         self.hsts = hsts
+        self.metrics = metrics
 
     async def __call__(self, scope: dict[str, Any], receive: Callable, send: Callable) -> None:
         if scope["type"] != "http":
@@ -98,7 +104,11 @@ class RequestContext:
                 return
             await self.app(scope, receive_capped, send_wrapped)
         finally:
-            ms = round((time.perf_counter() - started) * 1000, 1)
+            elapsed = time.perf_counter() - started
+            ms = round(elapsed * 1000, 1)
+            if self.metrics is not None and path not in QUIET_PATHS:
+                self.metrics.observe(HTTP_DURATION, elapsed, route=route_label(path), method=method,
+                                     code=f"{status // 100}xx" if status else "none")
             level = logging.DEBUG if path in QUIET_PATHS else logging.INFO
             log.log(level, "%s %s -> %s (%sms)", method, path, status or "-", ms,
                     extra={"event": "http.request", "method": method, "path": path, "status": status, "ms": ms,
@@ -114,4 +124,4 @@ class RequestContext:
         await send({"type": "http.response.body", "body": response.body})
 
 
-__all__ = ["DEFAULT_MAX_BODY", "QUIET_PATHS", "RequestContext", "accept_request_id", "new_request_id"]
+__all__ = ["DEFAULT_MAX_BODY", "HTTP_DURATION", "QUIET_PATHS", "RequestContext", "accept_request_id", "new_request_id"]

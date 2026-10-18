@@ -51,6 +51,10 @@ class Publisher:
         if self.metrics:
             self.metrics.inc("inkcast_publish_total", platform=platform, status=status)
 
+    def _observe(self, name: str, value: float, **labels: str) -> None:
+        if self.metrics:
+            self.metrics.observe(name, value, **labels)
+
     def prepare(self, story: Story, platform_ids: list[str]) -> tuple[list[Prepared], list[Outcome]]:
         """Render for each platform; validation problems become 'failed' outcomes, nothing is sent."""
         ready: list[Prepared] = []
@@ -104,12 +108,14 @@ class Publisher:
             return Outcome(platform.id, "failed", post_id=post_id, message=f"{platform.name} was disconnected.")
         creds, account_data = connected
         account = Account.from_dict(account_data)
+        started = time.perf_counter()
         try:
             destination = (
                 await platform.resolve_destination(creds, account, prepared.destination) if prepared.destination else None
             )
             result = await platform.publish(creds, account, prepared, destination)
         except PlatformError as exc:
+            self._observe("inkcast_publish_duration_seconds", time.perf_counter() - started, platform=platform.id)
             if exc.uncertain:
                 self.store.update_post(post_id, status="unconfirmed", error=str(exc))
                 self._count(platform.id, "unconfirmed")
@@ -130,6 +136,7 @@ class Publisher:
             self._count(platform.id, "failed")
             return Outcome(platform.id, "failed", post_id=post_id, message=f"Internal error in the {platform.name} plug-in.")
 
+        self._observe("inkcast_publish_duration_seconds", time.perf_counter() - started, platform=platform.id)
         status = result.status if result.status in ("draft", "unlisted") else "published"
         self.store.update_post(post_id, status=status, result_url=result.url, remote_id=result.remote_id,
                                error="; ".join(result.notes) or None)
@@ -214,6 +221,7 @@ class Publisher:
         now = now or time.time()
         outcomes = [await self.recover(row) for row in self.store.claim_stuck(older_than=now - STUCK_AFTER)]
         for row in self.store.claim_due_posts(now):
+            self._observe("inkcast_publish_lag_seconds", max(0.0, now - float(row["run_at"])), platform=row["platform"])
             platform = self.platforms.get(row["platform"])
             if platform is None:
                 self.store.update_post(row["id"], status="failed", error=f"Platform plug-in {row['platform']!r} is not installed.")

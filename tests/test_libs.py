@@ -376,3 +376,51 @@ class RateLimits(unittest.TestCase):
             self.assertEqual(codes, [400, 400, 429])
             codes = [c.post("/auth/callback", data={"pending": "x", "password": "guess"}).status_code for _ in range(3)]
             self.assertEqual(codes[-1], 429)
+
+
+class MetricsRegistry(unittest.TestCase):
+    """The tiny Prometheus registry: histograms render in the text format; route labels stay a closed set."""
+
+    def test_histogram_renders_cumulative_buckets_sum_and_count(self):
+        from inkcast.libs.observability import Metrics
+        m = Metrics()
+        m.histogram("t_seconds", "test", (0.1, 1.0))
+        m.observe("t_seconds", 0.05, route="/a")
+        m.observe("t_seconds", 0.5, route="/a")
+        m.observe("t_seconds", 7.0, route="/a")
+        m.observe("unregistered", 1.0)                    # ignored, never raises
+        text = m.render()
+        self.assertIn("# TYPE t_seconds histogram", text)
+        self.assertIn('t_seconds_bucket{route="/a",le="0.1"} 1', text)
+        self.assertIn('t_seconds_bucket{route="/a",le="1"} 2', text)
+        self.assertIn('t_seconds_bucket{route="/a",le="+Inf"} 3', text)
+        self.assertIn('t_seconds_sum{route="/a"} 7.55', text)
+        self.assertIn('t_seconds_count{route="/a"} 3', text)
+
+    def test_route_labels_cover_every_public_path_and_nothing_else(self):
+        from inkcast.libs.contracts.openapi import openapi_document
+        from inkcast.libs.observability import route_label
+        for template in openapi_document("http://localhost:8787")["paths"]:
+            sample = template.replace("{platform_id}", "devto").replace("{post_id}", "pst_0123456789ab") \
+                             .replace("{token_id}", "tok_0123456789ab")
+            self.assertEqual(route_label(sample), template)                                 # the contract maps to itself
+            self.assertEqual(route_label("/publishing-api" + sample), template)             # whatever the prefix
+        self.assertEqual(route_label("/connect/tkt_abcdef0123456789"), "/connect/{ticket}")
+        self.assertEqual(route_label("/api/v1/posts/pst_1/cancel/extra"), "other")         # unknown shapes collapse
+        self.assertEqual(route_label("/wp-admin.php"), "other")
+        self.assertEqual(route_label("/api/v1/platforms/" + "x" * 300), "other")
+
+    def test_every_request_is_observed_by_route_template_not_path(self):
+        cfg = Config(public_url="http://localhost:8787", secret_key="k" * 40, database_path=":memory:",
+                     login="password", password="p" * 12)
+        specs = resolve("PublishingApi,ConnectorService")
+        ctx = build(cfg, specs)
+        with TestClient(compose(specs, ctx), base_url="http://localhost:8787") as c:
+            c.get("/api/v1/posts")                          # 401
+            c.get("/connect/tkt_000000000001")              # 400: the ticket is unknown
+            c.get("/livez")                                 # a probe: never observed
+        text = ctx.metrics.render()
+        self.assertIn('inkcast_http_request_duration_seconds_count{code="4xx",method="GET",route="/api/v1/posts"} 1', text)
+        self.assertIn('inkcast_http_request_duration_seconds_count{code="4xx",method="GET",route="/connect/{ticket}"} 1', text)
+        self.assertNotIn("tkt_000000000001", text)
+        self.assertNotIn('route="/livez"', text)

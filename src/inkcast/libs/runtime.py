@@ -17,7 +17,7 @@ from .auth import TokenVerifier
 from .config import Config
 from .db import Store
 from .http.ratelimit import RateLimiter
-from .observability import Metrics
+from .observability import LAG_BUCKETS, Metrics
 from .pipeline import Publisher
 from .platforms import Platform, load_platforms
 
@@ -48,6 +48,12 @@ def build_metrics(store: Store | None, registry: dict[str, Platform], config: Co
     m.counter("inkcast_scheduler_ticks_total", "Completed scheduler ticks.")
     m.counter("inkcast_sync_total", "Git publishing sync results by platform and action.")
     m.counter("inkcast_gateway_requests_total", "Requests proxied by the built-in gateway, by upstream and status class.")
+    m.histogram("inkcast_http_request_duration_seconds",
+                "Request duration by route template, method and status class (RED: rate, errors, duration).")
+    m.histogram("inkcast_publish_duration_seconds", "Time one platform publish call took, by platform.")
+    m.histogram("inkcast_publish_lag_seconds",
+                "How late a scheduled post was claimed after its run_at (schedule lag), by platform.", LAG_BUCKETS)
+    m.counter("inkcast_ratelimit_total", "Rate-limit decisions on unauthenticated writes, by limit name and decision.")
     if store is None:
         return m
     m.gauge("inkcast_posts", "Posts by status.", lambda: {(("status", k),): v for k, v in store.post_counts().items()})
@@ -55,6 +61,9 @@ def build_metrics(store: Store | None, registry: dict[str, Platform], config: Co
             lambda: {(): store.due_count(time.time())})
     m.gauge("inkcast_posts_overdue", "Scheduled posts past due by more than INKCAST_OVERDUE_GRACE (scheduler behind).",
             lambda: {(): store.overdue_count(time.time(), config.overdue_grace_seconds)})
+    m.gauge("inkcast_posts_oldest_due_age_seconds",
+            "Age of the oldest due post still waiting (0 when the queue is empty): the queue's head-of-line lag.",
+            lambda: {(): store.oldest_due_age(time.time())})
     return m
 
 
