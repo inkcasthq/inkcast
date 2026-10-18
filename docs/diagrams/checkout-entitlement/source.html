@@ -1,0 +1,118 @@
+<!-- SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0 -->
+<!-- Copyright 2026 ScalarOps Technologies LLC. Started from the diagram-kit template (MIT-0),
+     https://github.com/ephico2real2/diagram-kit. Inkcast diagrams are light theme only: no dark tokens. -->
+<title>Checkout To Entitlement</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root {
+  color-scheme: light;
+  --ground: #f5f6f8; --surface: #ffffff; --ink: #18212c; --muted: #58636f; --rule: #d7dce3;
+  --host: #a55a0b; --host-wash: #fbf1e4; --remote: #0e6f68; --remote-wash: #e3f3f1;
+  --gap: #b3261e; --gap-wash: #fbe9e7; --none: #5f6a77; --none-wash: #eef0f3;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+* { box-sizing: border-box; }
+body { background: var(--ground); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.55; margin: 0; }
+.page { max-width: 1060px; margin: 0 auto; padding-inline: 16px; padding-block: 40px 72px; display: grid; gap: 44px; }
+header { display: grid; gap: 10px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font-size: clamp(26px, 4vw, 36px); line-height: 1.15; margin: 0; font-weight: 700; text-wrap: balance; }
+h2 { font-size: 20px; margin: 0 0 6px; font-weight: 600; text-wrap: balance; }
+p { margin: 0; max-width: 72ch; }
+.lede { font-size: 17px; max-width: 70ch; }
+code { font-family: var(--font-mono); font-size: .9em; }
+section { display: grid; gap: 14px; }
+figure { margin: 0; display: grid; gap: 10px; }
+.fig-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 12px; }
+.fig-scroll svg { display: block; width: 100%; min-width: 760px; height: auto; color: var(--ink); }
+figcaption { font-size: 13.5px; color: var(--muted); max-width: 80ch; }
+.tbl { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+th { font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); background: var(--ground); }
+tr:last-child td { border-bottom: 0; }
+a { color: var(--remote); }
+:focus-visible { outline: 2px solid var(--remote); outline-offset: 2px; }
+</style>
+
+<div class="page">
+  <header>
+    <div class="eyebrow">inkcast · design · 2026-10-18</div>
+    <h1>From checkout to entitlement</h1>
+    <p class="lede">The owner pays on the provider's hosted page; Inkcast never sees a card. The signed webhook is treated as a hint: a worker re-reads the subscription from the provider's API and changes the snapshot, the subscription and an outbox event in one transaction.</p>
+  </header>
+
+  <section>
+    <h2>Seven steps, two lanes</h2>
+    <figure>
+      <div class="fig-scroll">
+<svg viewBox="0 0 980 540" role="img" aria-label="Checkout to entitlement: hosted checkout, signed webhook into an inbox, a worker re-reads the provider API, then one transaction writes the subscription, a new snapshot and an outbox event.">
+<defs><marker id="ah3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+<g font-family="IBM Plex Sans, sans-serif" font-size="12.5" fill="currentColor">
+<g font-family="IBM Plex Mono, monospace" font-size="13" font-weight="600">
+<rect x="20" y="14" width="450" height="30" rx="6" fill="var(--host-wash)" stroke="var(--host)"/>
+<text x="245" y="34" text-anchor="middle" fill="var(--host)">INKCAST  ·  SubscriptionService</text>
+<rect x="510" y="14" width="450" height="30" rx="6" fill="var(--remote-wash)" stroke="var(--remote)"/>
+<text x="735" y="34" text-anchor="middle" fill="var(--remote)">BILLING PROVIDER  ·  hosted</text>
+</g>
+<line x1="490" y1="14" x2="490" y2="476" stroke="var(--rule)" stroke-width="1.5" stroke-dasharray="6 5"/>
+<rect x="30" y="64" width="420" height="62" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="240" y="82.5" text-anchor="middle" font-weight="600" fill="var(--host)">① checkout link</text>
+<text x="240" y="99.5" text-anchor="middle" fill="currentColor">can_manage_billing, then a hosted checkout session</text>
+<text x="240" y="116.5" text-anchor="middle" fill="var(--muted)">no card data ever touches Inkcast (PCI SAQ A)</text>
+<path d="M450,95 L526,95" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#ah3)"/>
+<text x="462" y="88" text-anchor="start" fill="var(--muted)">redirect</text>
+<rect x="530" y="64" width="420" height="62" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5"/>
+<text x="740" y="82.5" text-anchor="middle" font-weight="600" fill="var(--remote)">② hosted checkout</text>
+<text x="740" y="99.5" text-anchor="middle" fill="currentColor">card, tax and receipt (merchant of record)</text>
+<text x="740" y="116.5" text-anchor="middle" fill="var(--muted)">Paddle is the lean · spike F10.2 decides</text>
+<path d="M745,126 L745,181 L454,181" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#ah3)"/>
+<text x="560" y="174" text-anchor="start" fill="var(--muted)">③ signed webhook</text>
+<rect x="30" y="150" width="420" height="62" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="240" y="168.5" text-anchor="middle" font-weight="600" fill="var(--host)">④ webhook inbox</text>
+<text x="240" y="185.5" text-anchor="middle" fill="currentColor">verify the signature, store raw, answer 200 fast</text>
+<text x="240" y="202.5" text-anchor="middle" fill="var(--muted)">a duplicate event id is dropped</text>
+<path d="M240,212 L240,232" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#ah3)"/>
+<rect x="30" y="236" width="420" height="62" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="240" y="254.5" text-anchor="middle" font-weight="600" fill="var(--host)">⑤ worker re-reads the subscription</text>
+<text x="240" y="271.5" text-anchor="middle" fill="currentColor">the provider API is the truth, not the payload</text>
+<text x="240" y="288.5" text-anchor="middle" fill="var(--muted)">out-of-order events are harmless</text>
+<path d="M450,267 L526,267" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#ah3)"/>
+<text x="472" y="260" text-anchor="start" fill="var(--muted)">GET</text>
+<rect x="530" y="236" width="420" height="62" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5"/>
+<text x="740" y="254.5" text-anchor="middle" font-weight="600" fill="var(--remote)">provider API</text>
+<text x="740" y="271.5" text-anchor="middle" fill="currentColor">subscription, items, seats, status</text>
+<text x="740" y="288.5" text-anchor="middle" fill="var(--muted)">rate-limited calls, retried with backoff</text>
+<path d="M240,298 L240,318" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#ah3)"/>
+<rect x="30" y="322" width="420" height="62" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="240" y="340.5" text-anchor="middle" font-weight="600" fill="var(--host)">⑥ one transaction</text>
+<text x="240" y="357.5" text-anchor="middle" fill="currentColor">subscription + snapshot vN + outbox event</text>
+<text x="240" y="374.5" text-anchor="middle" fill="var(--muted)">entitlements change all at once, or not at all</text>
+<path d="M240,384 L240,404" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#ah3)"/>
+<rect x="30" y="408" width="420" height="62" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="240" y="426.5" text-anchor="middle" font-weight="600" fill="var(--host)">⑦ outbox → consumers</text>
+<text x="240" y="443.5" text-anchor="middle" fill="currentColor">libs/entitlements cache, seats, audit, email</text>
+<text x="240" y="460.5" text-anchor="middle" fill="var(--muted)">services read the snapshot, never the provider</text>
+<rect x="530" y="408" width="420" height="62" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="740" y="426.5" text-anchor="middle" font-weight="600" fill="var(--host)">daily reconcile</text>
+<text x="740" y="443.5" text-anchor="middle" fill="currentColor">every subscription compared with the API</text>
+<text x="740" y="460.5" text-anchor="middle" fill="var(--muted)">drift is fixed and alerted (E7)</text>
+<path d="M740,408 L740,353 L454,353" fill="none" stroke="var(--muted)" stroke-width="1.3" stroke-dasharray="6 5" marker-end="url(#ah3)"/>
+<text x="560" y="346" text-anchor="start" fill="var(--muted)">repairs drift</text>
+<text x="20" y="506" text-anchor="start" fill="currentColor">The webhook is only a notification: Inkcast always re-reads the provider before changing an entitlement.</text>
+<text x="20" y="526" text-anchor="start" fill="var(--host)" font-weight="600">Dashed = proposed (E5.F5.1, F5.4). The provider lane is the vendor&#x27;s hosted product. A dashed arrow is a relationship.</text>
+</g>
+</svg>
+      </div>
+      <figcaption>Checkout and the card stay with the provider. Inkcast verifies and stores the webhook, re-reads the provider API, and changes entitlements in one transaction; a daily reconcile repairs anything missed. All Inkcast steps are proposed.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Failure handling</h2>
+<div class="tbl"><table><thead><tr><th>What goes wrong</th><th>What happens</th></tr></thead><tbody><tr><td>Bad signature</td><td>401, nothing stored, <code>billing.webhook.rejected</code> logged and counted</td></tr><tr><td>Same event twice</td><td>the inbox drops it by provider event id</td></tr><tr><td>Events out of order</td><td>harmless: the worker re-reads the current subscription</td></tr><tr><td>Provider API down</td><td>the inbox row is retried with backoff; entitlements keep the last snapshot</td></tr><tr><td>Missed webhook</td><td>the daily reconcile finds the drift, fixes it and raises an alert</td></tr></tbody></table></div>
+  </section>
+</div>

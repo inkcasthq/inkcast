@@ -9,6 +9,9 @@
 - [Social platforms epic](design/social-platforms-epic.md): X, Instagram, TikTok design and sequencing.
 - [Research: publishing to TikTok, X and Instagram](research/social-platforms-2026-10.md): official-docs findings, as of 2026-10-18.
 
+## Product strategy
+- [Tiers, subscriptions and entitlements (E10)](epics/E10-tiers-and-billing/design.md): Free, Personal, Team, Business, Enterprise; Agency add-on; billing provider bake-off; offline licences.
+
 ## Using Inkcast
 - [Publishing from a Git repository](git-publishing.md): tokens, the GitHub Action, `inkcast sync`, what each result means.
 
@@ -18,6 +21,7 @@
 - [Definition of done](definition-of-done.md): for every story and epic, including design notes, mockups, implementation docs and independent review.
 - [Epics](epics/README.md): design, stories, implementation and review per epic. Backlog as code in [backlog/](backlog/).
 - [Architecture decision records](adr/README.md)
+- [Authorization](authorization.md): Keycloak for who you are, OpenFGA for what you may do, the database for business state; the model in `authz/` with its tests.
 - [Secrets](reference/secrets.md): sources, the provider (TTL, single-flight, stale-on-error), naming, redaction, posture checks.
 - [CI/CD](cicd.md): pipeline, supply chain, environments and promotion, GitHub plan notes.
 - [Writing a platform plug-in](writing-a-platform-plugin.md)

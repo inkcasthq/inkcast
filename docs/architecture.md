@@ -17,10 +17,12 @@ flowchart LR
     SCH[SchedulerWorker<br/>scheduled sends · heartbeats]
   end
   KC[(Keycloak<br/>social login, account linking)]
+  FGA[(OpenFGA · E3<br/>who may do what)]
   DB[(Store<br/>SQLite now · PostgreSQL in E3)]
   PL[Medium · DEV · …]
   CC & GHA & BR & SPA --> GW --> ID & PUB & CON
   ID <--> KC
+  ID & PUB & CON & SCH -.->|authz.require| FGA
   ID & PUB & CON & SCH --> DB
   PUB & SCH --> PL
   CON --> PL
@@ -37,6 +39,12 @@ flowchart LR
 
 - **Prefixes.** `INKCAST_PATH_PREFIX` serves a process at `/` (default), under `/<full-name>` (`auto`), or under any path.
 - **Stable paths.** The public paths above never change with the split. They come from one route table, `libs/contracts/routes.py`, which drives the built-in Gateway, the generated Gateway API HTTPRoutes and each service's spec.
+
+## Who answers what
+
+Keycloak answers who you are. **OpenFGA** answers whether you may do this to this object, with relations written by the Inkcast API and synced from Keycloak Organizations. The **Inkcast database** holds business state: approval status, plan, entitlements and quotas.
+
+Every route, MCP tool and job goes through one `authz.require()`: token scope, then OpenFGA, then business state, then plan. The design is in [authorization.md](authorization.md), and the plan side in [E10](epics/E10-tiers-and-billing/design.md).
 
 ## Layers
 
@@ -146,7 +154,8 @@ Maturity as listed on cncf.io/projects (checked 2026-10-18); re-check before rel
 | Orchestration | Kubernetes / OpenShift | Graduated | `deploy/kustomize` (overlays: openshift, kubernetes) |
 | Packaging | Kustomize now; Helm chart planned | Helm: Graduated | issue 26 |
 | GitOps | Argo CD or Flux | Graduated | `deploy/kustomize/environments`, issue 29 |
-| Identity | Keycloak | Incubating | sign-in, admin portal |
+| Identity | Keycloak | Incubating | sign-in, Organizations (tenants), admin portal |
+| Authorization | OpenFGA | Incubating (since November 2025) | `authz/`, [docs/authorization.md](authorization.md), E3 |
 | Ingress | OpenShift Route / Gateway API HTTPRoute | Gateway API is a Kubernetes SIG project | overlays |
 | TLS | cert-manager | Graduated | Gateway certificates |
 | Secrets | External Secrets Operator | Sandbox (2022) | `components/external-secrets` |

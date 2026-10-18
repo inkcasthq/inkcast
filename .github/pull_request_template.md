@@ -9,6 +9,7 @@
 - [ ] Code follows the [contributor map](../docs/contributor-map.md): shared code in `libs/`, no service imports another service
 - [ ] Tests: unit + end to end; they pass single-process **and** split (`test_split_mode`); a fake for any new external API; a cross-user negative test if data is touched
 - [ ] Security: every route/tool checks a scope; queries are scoped to the caller; no secrets in code, logs, fixtures or tool output
+- [ ] Authorization ([docs/authorization.md](../docs/authorization.md)): a new endpoint or MCP tool uses `require()` or declares `permission=…` (public routes say `public=True`); no resource permissions from JWT roles; publish-capable features check `can_publish` (request and send time); model changes come with `authz/model.fga.yaml` tests and `fga model test` passes; plan limits checked via `libs/entitlements`, never tuples
 - [ ] Contract first: `libs/contracts` models and OpenAPI updated; errors are problem+json; backward compatible
 - [ ] Config from env (`*_FILE` for secrets), checked by `Config.validate`, documented; logs and a metric on new paths
 - [ ] `ruff check src tests scripts` and `python scripts/gen-manifests.py --check` are clean

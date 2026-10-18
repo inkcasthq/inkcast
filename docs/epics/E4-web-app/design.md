@@ -22,6 +22,9 @@ Self-contained HTML (open in a browser) plus PNG. Light theme shown; the design 
 | [Onboarding](mockups/onboarding.html) ![](mockups/onboarding.png) | [Connections](mockups/connections.html) ![](mockups/connections.png) |
 | [Composer](mockups/composer.html) ![](mockups/composer.png) | [Calendar](mockups/calendar.html) ![](mockups/calendar.png) |
 | [Git publishing](mockups/git-publishing.html) ![](mockups/git-publishing.png) | [Tokens](mockups/tokens.html) ![](mockups/tokens.png) |
+| [Members and seats](mockups/members-seats.html) (F4.8) ![](mockups/members-seats.png) | [Approvals](mockups/approvals.html) (F4.9) ![](mockups/approvals.png) |
+
+Members and approvals (added 2026-10-18) follow the [authorization design](../../authorization.md): roles are OpenFGA relations, seats follow them ([E10](../E10-tiers-and-billing/design.md)), and approval status lives in the Inkcast database. Billing, usage, pricing and paywall screens are in [E10's mockups](../E10-tiers-and-billing/mockups/).
 
 ## System design
 

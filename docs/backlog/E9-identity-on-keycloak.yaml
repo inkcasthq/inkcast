@@ -2,38 +2,71 @@
 id: E9
 title: Identity on Keycloak
 status: next
-goal: Keycloak is the single identity layer of the SaaS (sign-up, social login, MFA, enterprise SSO); Inkcast keeps MCP OAuth, consent and tokens (ADR-0006). Needed before E4 and E6.
+goal: Keycloak is the single identity layer of the SaaS (sign-up, social login, MFA, enterprise SSO); Inkcast keeps MCP OAuth,
+  consent and tokens (ADR-0006). Needed before E4 and E6.
 features:
 - id: F9.1
   title: Realm as code and real Keycloak in CI
   stories:
-  - {id: F9.1.S1, title: "Realm export deploy/keycloak/realm-inkcast.json (clients, roles, policies; no secrets)", status: planned}
-  - {id: F9.1.S2, title: "kind CI: Keycloak with the realm; end-to-end sign-in against it in single and split mode", status: planned}
-  - {id: F9.1.S3, title: "Kustomize component for Keycloak (dev) and docs for a production Keycloak on Postgres", status: planned}
+  - id: F9.1.S1
+    title: Realm export deploy/keycloak/realm-inkcast.json (clients, roles, policies; no secrets)
+    status: planned
+  - id: F9.1.S2
+    title: 'kind CI: Keycloak with the realm; end-to-end sign-in against it in single and split mode'
+    status: planned
+  - id: F9.1.S3
+    title: Kustomize component for Keycloak (dev) and docs for a production Keycloak on Postgres
+    status: planned
 - id: F9.2
   title: Self sign-up
   stories:
-  - {id: F9.2.S1, title: "Registration, email verification, terms; default role inkcast-user", status: planned}
-  - {id: F9.2.S2, title: "First login creates the Inkcast user (and, with E3, a personal workspace)", status: planned}
+  - id: F9.2.S1
+    title: Registration, email verification, terms; default role inkcast-user
+    status: planned
+  - id: F9.2.S2
+    title: First login creates the Inkcast user and their personal organization (owner tuple; emits org.created)
+    status: planned
+    change: refined
 - id: F9.3
   title: Social login and account linking
   stories:
-  - {id: F9.3.S1, title: "Google, GitHub, Microsoft identity providers (secrets from Kubernetes Secrets)", status: planned}
-  - {id: F9.3.S2, title: "First-broker-login flow links by verified email; manual verification runbook", status: planned}
+  - id: F9.3.S1
+    title: Google, GitHub, Microsoft identity providers (secrets from Kubernetes Secrets)
+    status: planned
+  - id: F9.3.S2
+    title: First-broker-login flow links by verified email; manual verification runbook
+    status: planned
 - id: F9.4
   title: MFA and operators
   stories:
-  - {id: F9.4.S1, title: "inkcast-admin requires OTP or WebAuthn; admin client enforces it", status: planned}
+  - id: F9.4.S1
+    title: inkcast-admin requires OTP or WebAuthn; admin client enforces it
+    status: planned
 - id: F9.5
-  title: User lifecycle sync
+  title: Identity and membership sync
   stories:
-  - {id: F9.5.S1, title: "IdentitySync worker consumes Keycloak admin events", status: planned}
-  - {id: F9.5.S2, title: "Disabled/deleted user: revoke OAuth tokens and PATs, refuse sign-in (tested with real Keycloak)", status: planned}
+  - id: F9.5.S1
+    title: IdentitySync consumes Keycloak user and Organization events (membership, admins) and writes tuples (ADR-0008)
+    status: planned
+    change: refined
+  - id: F9.5.S2
+    title: 'Disabled or deleted user: revoke OAuth tokens and PATs, delete tuples, refuse sign-in (tested with real Keycloak)'
+    status: planned
+    change: refined
+  - id: F9.5.S3
+    title: Scheduled reconcile of Keycloak membership against OpenFGA; a missed event still removes access; drift alert
+    status: planned
+    change: new
 - id: F9.6
   title: Enterprise SSO
   stories:
-  - {id: F9.6.S1, title: "Keycloak Organizations: domain to customer IdP (CI: brokered to a second realm)", status: planned}
+  - id: F9.6.S1
+    title: 'Keycloak Organizations for enterprise SSO: domain to customer IdP; Organization id = organization:<id> in OpenFGA'
+    status: planned
+    change: refined
 - id: F9.7
   title: Operations
   stories:
-  - {id: F9.7.S1, title: "Runbook: realm upgrades, signing-key rotation, backup and restore", status: planned}
+  - id: F9.7.S1
+    title: 'Runbook: realm upgrades, signing-key rotation, backup and restore'
+    status: planned

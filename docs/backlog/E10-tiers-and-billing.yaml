@@ -1,0 +1,128 @@
+# Backlog as code. File with: scripts/backlog/file.py inkcasthq/inkcast (see docs/epics/README.md)
+id: E10
+title: Tiers, subscriptions and entitlements strategy (spike)
+status: next
+goal: 15 working days of time-boxed spikes that turn the tier and billing design (docs/epics/E10-tiers-and-billing/design.md)
+  into decisions, validated prices, mockups, diagrams and a refined E5 backlog. No production code; prototypes live in draft
+  PRs.
+features:
+- id: F10.1
+  title: Pricing and packaging
+  stories:
+  - id: F10.1.S1
+    title: Market and unit-economics refresh (competitors, provider fees, X cost, infra per org)
+    status: planned
+    timebox: 1d
+    change: new
+    acceptance:
+    - Every figure has a URL and fetch date
+    - Gross margin per tier at 1, 5, 25 seats under each provider
+  - id: F10.1.S2
+    title: 'Price validation: 10 interviews (writers, DevRel teams, agencies), Van Westendorp survey, fake-door pricing page'
+    status: planned
+    timebox: 3d
+    change: new
+    acceptance:
+    - Go or adjust per tier price
+    - Seat rule and credits wallet tested with users
+  - id: F10.1.S3
+    title: Entitlement matrix and plans.yaml draft with the feature registry
+    status: planned
+    timebox: 1d
+    change: new
+    acceptance:
+    - Every key typed and classed
+    - Never-paywalled list encoded
+- id: F10.2
+  title: Billing provider bake-off
+  stories:
+  - id: F10.2.S1
+    title: 'Merchant of record path: Paddle sandbox (checkout, webhook, seat change, cancel); Lemon Squeezy desk check'
+    status: planned
+    timebox: 2d
+    change: new
+  - id: F10.2.S2
+    title: Stripe Billing + Stripe Tax path (test mode) and the tax-registration burden estimate
+    status: planned
+    timebox: 1.5d
+    change: new
+  - id: F10.2.S3
+    title: Self-hosted Lago path (compose, Stripe as payment processor) and an ops cost estimate
+    status: planned
+    timebox: 1.5d
+    change: new
+  - id: F10.2.S4
+    title: Scoring against the weighted criteria; provider ADR
+    status: planned
+    timebox: 0.5d
+    change: new
+    acceptance:
+    - The same fake-provider contract tests pass against each prototype adapter
+    - ADR records scores, fee model at 1, 5, 25 seats, tax position, exit plan
+- id: F10.3
+  title: Entitlements, quotas and licences
+  stories:
+  - id: F10.3.S1
+    title: Atomic reserve/release counters on SQLite and Postgres (50 concurrent reservations never exceed the limit)
+    status: planned
+    timebox: 1d
+    change: new
+  - id: F10.3.S2
+    title: 'Ed25519 JWS licence: offline sign, verify, kid rotation, expiry and grace'
+    status: planned
+    timebox: 1d
+    change: new
+  - id: F10.3.S3
+    title: Fail-safe classes and the 402 problem contract (web, MCP, CLI renderings)
+    status: planned
+    timebox: 0.5d
+    change: new
+- id: F10.4
+  title: Fit with Keycloak and OpenFGA (billing side)
+  stories:
+  - id: F10.4.S1
+    title: Keycloak Organizations scale probe (10k and 100k orgs) to confirm a personal organization per sign-up
+    status: planned
+    timebox: 1d
+    change: new
+  - id: F10.4.S2
+    title: 'Seats from billable relations: seat ledger vs OpenFGA Read/ListUsers reconcile'
+    status: planned
+    timebox: 1d
+    change: new
+  - id: F10.4.S3
+    title: 'Agency walkthrough: one-tuple grant, client slot per client org, client reviewer, managed-org billing, white-label
+      scope'
+    status: planned
+    timebox: 1d
+    change: new
+- id: F10.5
+  title: Design outputs
+  stories:
+  - id: F10.5.S1
+    title: 'Remaining mockups: checkout handoff, downgrade, roles editor, agency switcher, client review, admin override,
+      licence'
+    status: planned
+    timebox: 3d
+    change: new
+  - id: F10.5.S2
+    title: 'Remaining diagrams to the /visual standard (light only): data ownership, ERD, effective power, over-limit states,
+      entitlement resolution, licence lifecycle, outbox/inbox, tier ladder, roadmap'
+    status: planned
+    timebox: 1d
+    change: new
+  - id: F10.5.S3
+    title: Owner decisions on the six open questions (design.md section 8.3)
+    status: planned
+    timebox: 0.5d
+    change: new
+  - id: F10.5.S4
+    title: Refine E5 stories with the spike results; file cross-epic asks
+    status: planned
+    timebox: 0.5d
+    change: new
+  - id: F10.5.S5
+    title: Licence and terms-of-service mapping questions for counsel (issue 32)
+    status: planned
+    timebox: 0.5d
+    change: new

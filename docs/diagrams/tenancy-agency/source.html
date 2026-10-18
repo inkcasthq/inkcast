@@ -1,0 +1,111 @@
+<!-- SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0 -->
+<!-- Copyright 2026 ScalarOps Technologies LLC. Started from the diagram-kit template (MIT-0),
+     https://github.com/ephico2real2/diagram-kit. Inkcast diagrams are light theme only: no dark tokens. -->
+<title>Tenancy And Agencies</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root {
+  color-scheme: light;
+  --ground: #f5f6f8; --surface: #ffffff; --ink: #18212c; --muted: #58636f; --rule: #d7dce3;
+  --host: #a55a0b; --host-wash: #fbf1e4; --remote: #0e6f68; --remote-wash: #e3f3f1;
+  --gap: #b3261e; --gap-wash: #fbe9e7; --none: #5f6a77; --none-wash: #eef0f3;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+* { box-sizing: border-box; }
+body { background: var(--ground); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.55; margin: 0; }
+.page { max-width: 1060px; margin: 0 auto; padding-inline: 16px; padding-block: 40px 72px; display: grid; gap: 44px; }
+header { display: grid; gap: 10px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font-size: clamp(26px, 4vw, 36px); line-height: 1.15; margin: 0; font-weight: 700; text-wrap: balance; }
+h2 { font-size: 20px; margin: 0 0 6px; font-weight: 600; text-wrap: balance; }
+p { margin: 0; max-width: 72ch; }
+.lede { font-size: 17px; max-width: 70ch; }
+code { font-family: var(--font-mono); font-size: .9em; }
+section { display: grid; gap: 14px; }
+figure { margin: 0; display: grid; gap: 10px; }
+.fig-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 12px; }
+.fig-scroll svg { display: block; width: 100%; min-width: 760px; height: auto; color: var(--ink); }
+figcaption { font-size: 13.5px; color: var(--muted); max-width: 80ch; }
+.tbl { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+th { font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); background: var(--ground); }
+tr:last-child td { border-bottom: 0; }
+a { color: var(--remote); }
+:focus-visible { outline: 2px solid var(--remote); outline-offset: 2px; }
+</style>
+
+<div class="page">
+  <header>
+    <div class="eyebrow">inkcast · design · 2026-10-18</div>
+    <h1>Tenancy and agencies</h1>
+    <p class="lede">A Keycloak Organization is an Inkcast organization, with the same id. Organizations own workspaces; an agency reaches a client workspace through one relationship, whether the client pays for itself or is managed and billed by the agency.</p>
+  </header>
+
+  <section>
+    <h2>Organizations, workspaces and one-tuple grants</h2>
+    <figure>
+      <div class="fig-scroll">
+<svg viewBox="0 0 980 415" role="img" aria-label="Tenancy and agencies: Keycloak Organizations are Inkcast organizations; organizations own workspaces; an agency&#x27;s members are granted editor on client workspaces with one tuple; a managed client bills to its agency.">
+<defs><marker id="ah4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+<g font-family="IBM Plex Sans, sans-serif" font-size="12.5" fill="currentColor">
+<rect x="20" y="14" width="940" height="52" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="490" y="35.5" text-anchor="middle" font-weight="600" fill="var(--host)">Keycloak realm inkcast · Organizations</text>
+<text x="490" y="53.5" text-anchor="middle" fill="currentColor">acme · agency-x · client-co · and a personal organization for every account, made at first login</text>
+<path d="M170,66 L170,126" fill="none" stroke="var(--muted)" stroke-width="1.3" stroke-dasharray="6 5" marker-end="url(#ah4)"/>
+<text x="178" y="100" text-anchor="start" fill="var(--muted)">same id</text>
+<path d="M490,66 L490,126" fill="none" stroke="var(--muted)" stroke-width="1.3" stroke-dasharray="6 5" marker-end="url(#ah4)"/>
+<text x="498" y="100" text-anchor="start" fill="var(--muted)">same id</text>
+<path d="M810,66 L810,126" fill="none" stroke="var(--muted)" stroke-width="1.3" stroke-dasharray="6 5" marker-end="url(#ah4)"/>
+<text x="818" y="100" text-anchor="start" fill="var(--muted)">same id</text>
+<rect x="30" y="130" width="280" height="62" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="170" y="148.5" text-anchor="middle" font-weight="600" fill="var(--host)">organization:acme</text>
+<text x="170" y="165.5" text-anchor="middle" fill="currentColor">independent client · pays for itself</text>
+<text x="170" y="182.5" text-anchor="middle" fill="var(--muted)">Business · 12 seats</text>
+<rect x="350" y="130" width="280" height="62" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="490" y="148.5" text-anchor="middle" font-weight="600" fill="var(--host)">organization:agency-x</text>
+<text x="490" y="165.5" text-anchor="middle" fill="currentColor">Agency add-on · 2 client slots</text>
+<text x="490" y="182.5" text-anchor="middle" fill="var(--muted)">Business · 6 seats</text>
+<rect x="670" y="130" width="280" height="62" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="810" y="148.5" text-anchor="middle" font-weight="600" fill="var(--host)">organization:client-co</text>
+<text x="810" y="165.5" text-anchor="middle" fill="currentColor">managed client · no seats of its own</text>
+<text x="810" y="182.5" text-anchor="middle" fill="var(--muted)">billing_parent = agency-x</text>
+<path d="M670,161 L634,161" fill="none" stroke="var(--muted)" stroke-width="1.3" stroke-dasharray="6 5" marker-end="url(#ah4)"/>
+<text x="636" y="154" text-anchor="start" fill="var(--muted)">bills</text>
+<path d="M170,192 L170,256" fill="none" stroke="var(--muted)" stroke-width="1.3" stroke-dasharray="6 5" marker-end="url(#ah4)"/>
+<text x="178" y="232" text-anchor="start" fill="var(--muted)">org</text>
+<path d="M810,192 L810,256" fill="none" stroke="var(--muted)" stroke-width="1.3" stroke-dasharray="6 5" marker-end="url(#ah4)"/>
+<text x="818" y="232" text-anchor="start" fill="var(--muted)">org</text>
+<path d="M420,192 L420,222 L240,222 L240,256" fill="none" stroke="var(--muted)" stroke-width="1.3" stroke-dasharray="6 5" marker-end="url(#ah4)"/>
+<text x="250" y="216" text-anchor="start" fill="var(--muted)">editor · one tuple</text>
+<path d="M560,192 L560,222 L740,222 L740,256" fill="none" stroke="var(--muted)" stroke-width="1.3" stroke-dasharray="6 5" marker-end="url(#ah4)"/>
+<text x="572" y="216" text-anchor="start" fill="var(--muted)">editor · one tuple</text>
+<rect x="30" y="260" width="280" height="62" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="170" y="278.5" text-anchor="middle" font-weight="600" fill="var(--host)">workspace:acme-blog</text>
+<text x="170" y="295.5" text-anchor="middle" fill="currentColor">channels acme-x, acme-dev</text>
+<text x="170" y="312.5" text-anchor="middle" fill="var(--muted)">editors: acme staff and the agency</text>
+<rect x="670" y="260" width="280" height="62" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="810" y="278.5" text-anchor="middle" font-weight="600" fill="var(--host)">workspace:client-co-news</text>
+<text x="810" y="295.5" text-anchor="middle" fill="currentColor">the agency writes, the client approves</text>
+<text x="810" y="312.5" text-anchor="middle" fill="var(--muted)">client_reviewer: client staff</text>
+<text x="350" y="276" text-anchor="start" fill="currentColor">organization:agency-x#member</text>
+<text x="350" y="294" text-anchor="start" fill="currentColor">is the subject of both grants;</text>
+<text x="350" y="312" text-anchor="start" fill="currentColor">revoking is deleting one tuple</text>
+<text x="20" y="356" text-anchor="start" fill="currentColor">Independent client (acme): pays its own seats; the agency pays one client slot when acme&#x27;s manager approves it.</text>
+<text x="20" y="376" text-anchor="start" fill="currentColor">Managed client (client-co): created by the agency, billed to it ($25 per client organization per month).</text>
+<text x="20" y="402" text-anchor="start" fill="var(--host)" font-weight="600">Every box is proposed (E3, E9; the Agency add-on is E5.F5.9). Dashed arrows are relationships (tuples), not traffic.</text>
+</g>
+</svg>
+      </div>
+      <figcaption>Organizations come from Keycloak with the same id and own their workspaces. The agency's members get editor on a client workspace through one tuple; a managed client is billed to the agency. All of it is proposed.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>The tuples behind the picture</h2>
+<div class="tbl"><table><thead><tr><th>User</th><th>Relation</th><th>Object</th><th>Written by</th></tr></thead><tbody><tr><td><code>organization:acme</code></td><td><code>org</code></td><td><code>workspace:acme-blog</code></td><td>E3 workspace API</td></tr><tr><td><code>organization:agency-x#member</code></td><td><code>editor</code></td><td><code>workspace:acme-blog</code></td><td>E3 grant API, after acme approves</td></tr><tr><td><code>organization:agency-x#member</code></td><td><code>editor</code></td><td><code>workspace:client-co-news</code></td><td>E3 grant API</td></tr><tr><td><code>user:&lt;client staff&gt;</code></td><td><code>client_reviewer</code></td><td><code>workspace:client-co-news</code></td><td>E3 grant API</td></tr><tr><td><code>user:&lt;id&gt;</code></td><td><code>member</code></td><td><code>organization:agency-x</code></td><td>E9 membership sync from Keycloak</td></tr></tbody></table></div>
+  </section>
+</div>
