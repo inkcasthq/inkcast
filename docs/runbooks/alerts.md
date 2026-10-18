@@ -120,6 +120,16 @@ SLO burn-rate alerts carry `slo`, `burn_rate`, `long_window` and `short_window` 
 3. Take one now: `oc create job inkcast-backup-now --from=cronjob/inkcast-backup`. Restores: [backup and restore runbook](backup-restore.md).
 4. Needs kube-state-metrics (OpenShift ships it). With PostgreSQL (E3) this alert moves to the database operator's backups.
 
+## InkcastIdentitySyncFailing
+
+**Meaning:** every pass of the Keycloak user sync (E9.F9.5.S2) failed for 15 minutes. People disabled or deleted in Keycloak can't sign in again, but the OAuth tokens and personal access tokens Inkcast already gave them keep working until the sync recovers or the tokens expire. Sign-in is not affected: readiness deliberately ignores the sync.
+
+1. The IdentityService log has `identity.sync.failed` lines with the reason.
+2. "Keycloak refused the sync service account (HTTP 401)": the `inkcast-sync` client secret in Keycloak and `INKCAST_KEYCLOAK_SYNC_SECRET` differ (a rotation done on one side only). Set both to the same value.
+3. "HTTP 403" on `users/…` or `admin-events`: the service account lost `view-users` or `view-events` (realm-management). The realm file grants both.
+4. Connection errors: Keycloak is down, or a NetworkPolicy blocks the admin API (same host and port as the issuer).
+5. Once it recovers, the next full reconcile (every `INKCAST_KEYCLOAK_RECONCILE_INTERVAL`, 10 minutes by default, and at start) catches anyone missed. To force it now, restart IdentityService.
+
 ## SLO burn-rate alerts
 
 Each SLO has four alerts named `InkcastSloBurn<Name>`; the labels say which window pair fired. `critical` pairs (14.4x over 1 h, 6x over 6 h) page: at that rate the 30-day budget is gone in two days or five. `warning` pairs (3x over 1 d, 1x over 3 d) open a ticket. Dashboards show `inkcast_slo:<name>:error_ratio_1h` against `1 - objective`.

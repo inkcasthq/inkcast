@@ -56,6 +56,8 @@ def build_metrics(store: Store | None, registry: dict[str, Platform], config: Co
     m.histogram("inkcast_publish_lag_seconds",
                 "How late a scheduled post was claimed after its run_at (schedule lag), by platform.", LAG_BUCKETS)
     m.counter("inkcast_ratelimit_total", "Rate-limit decisions on unauthenticated writes, by limit and decision.")
+    m.counter("inkcast_identity_sync_total", "Keycloak user sync passes, by result (ok, error).")
+    m.counter("inkcast_identity_users_disabled_total", "People disabled in Inkcast because Keycloak disabled or deleted them, by reason.")
     m.counter("inkcast_cache_requests_total", "Cache reads by backend and result (hit or miss): the hit ratio.")
     m.counter("inkcast_cache_errors_total", "Cache backend failures by backend (a request fell back or failed).")
     m.counter("inkcast_outbox_events_total", "Domain events handed to event sinks, by sink and result (handled, failed).")

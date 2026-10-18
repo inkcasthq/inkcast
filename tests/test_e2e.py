@@ -589,5 +589,73 @@ class EndToEnd(Harness):
             self.fakes.next_user = {**self.fakes.next_user, "sub": "kc-user-1", "realm_access": {"roles": ["inkcast-user"]}}
 
 
+    def test_keycloak_disabling_or_deleting_a_person_cuts_off_their_tokens(self):
+        """E9.F9.5.S2: a person Keycloak disables loses their OAuth token and personal access tokens on the sync's
+        next pass (admin events), one deleted while no event was seen is caught by the reconcile, and signing in
+        again once Keycloak allows it gives access back."""
+        import dataclasses
+        from inkcast.libs.secrets import SecretValue
+        from inkcast.services.identity.keycloak_sync import KeycloakSync
+
+        base, first = self.config.public_url, dict(self.fakes.next_user)
+        self.addCleanup(setattr, self.fakes, "next_user", first)
+        people = {}
+        for sub in ("kc-sync-ada", "kc-sync-bob"):
+            self.fakes.next_user = {**first, "sub": sub, "preferred_username": sub, "email": f"{sub}@example.com"}
+            token = self.access_token()
+
+            async def pat(token=token):
+                async with httpx2.AsyncClient() as c:
+                    r = await c.post(f"{base}/api/v1/tokens", headers={"Authorization": f"Bearer {token}"},
+                                     json={"name": "sync", "scopes": ["posts:read"]})
+                    return r.raise_for_status().json()["token"]
+            people[sub] = (token, asyncio.run(pat()))
+
+        async def status(token):
+            async with httpx2.AsyncClient() as c:
+                return (await c.get(f"{base}/api/v1/me", headers={"Authorization": f"Bearer {token}"})).status_code
+
+        def statuses(sub):
+            return [asyncio.run(status(t)) for t in people[sub]]
+
+        self.assertEqual(statuses("kc-sync-ada") + statuses("kc-sync-bob"), [200] * 4)
+        config = dataclasses.replace(self.config, keycloak_sync_client_id="inkcast-sync",
+                                     keycloak_sync_secret=SecretValue("sync-secret"))
+
+        async def tick(sync):
+            async with httpx2.AsyncClient(timeout=10) as http:
+                sync.http = http
+                return await sync.tick()
+
+        sync = KeycloakSync(config, self.app.store, None, self.app.metrics)
+        self.assertEqual(asyncio.run(tick(sync))["disabled"], 0, "start: everyone enabled, nothing cut off")
+
+        self.fakes.kc_admin_change("kc-sync-ada", enabled=False)               # an admin disables Ada
+        self.fakes._kc_sync_tokens.clear()                                      # and its token went stale: retried
+        self.assertEqual(asyncio.run(tick(sync)), {"checked": 1, "disabled": 1})
+        self.assertEqual(statuses("kc-sync-ada"), [401, 401], "OAuth token and PAT cut off")
+        self.assertEqual(statuses("kc-sync-bob"), [200, 200], "nobody else touched")
+
+        self.fakes.kc_deleted.add("kc-sync-bob")                                # deleted, no admin event seen
+        self.assertEqual(asyncio.run(tick(sync))["disabled"], 0, "the reconcile is not due yet")
+        sync.last_reconcile = 0
+        self.assertEqual(asyncio.run(tick(sync))["disabled"], 1)
+        self.assertEqual(statuses("kc-sync-bob"), [401, 401])
+        self.assertIn('inkcast_identity_users_disabled_total{reason="deleted"} 1', self.app.metrics.render())
+
+        self.fakes.kc_admin_change("kc-sync-ada", enabled=True)                 # re-enabled: sign in again
+        self.fakes.next_user = {**first, "sub": "kc-sync-ada", "preferred_username": "kc-sync-ada",
+                                "email": "kc-sync-ada@example.com"}
+        self.assertEqual(asyncio.run(status(self.access_token())), 200)
+        self.assertEqual(statuses("kc-sync-ada"), [401, 401], "the old tokens stay dead")
+        self.assertEqual(asyncio.run(tick(sync))["disabled"], 0, "an enabled person is left alone")
+
+        self.fakes.kc_sync_client = ("inkcast-sync", "rotated")                 # a wrong secret: an error, not a crash
+        self.fakes._kc_sync_tokens.clear()
+        sync._token = None
+        with self.assertRaises(Exception):
+            asyncio.run(tick(sync))
+        self.fakes.kc_sync_client = ("inkcast-sync", "sync-secret")
+
 if __name__ == "__main__":
     unittest.main()

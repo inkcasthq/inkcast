@@ -63,6 +63,8 @@ EVENTS: dict[str, tuple[str, str]] = {
     "auth.login.refused": ("warning", "A sign-in was refused by the allow-list, role or password check."),
     "cache.backend.unavailable": ("warning", "Redis/Valkey did not answer; rate limits are per replica until it is back."),
     "outbox.consumer.failed": ("warning", "An event sink failed on a batch; the cursor stayed and the batch is retried."),
+    "identity.user.disabled": ("warning", "Keycloak disabled or deleted a person: their Inkcast tokens and PATs were cut off."),
+    "identity.sync.failed": ("warning", "A Keycloak user sync pass failed (service account refused, Keycloak down); retried."),
     "backup.done": ("info", "A database backup was taken, checked and kept (name, size, rows)."),
     "backup.failed": ("critical", "A database backup failed; nothing was removed. The alert fires when none succeeds for 26 h."),
     "restore.done": ("warning", "The database was replaced by a backup; the previous one was kept beside it."),

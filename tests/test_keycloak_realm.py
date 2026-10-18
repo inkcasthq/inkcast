@@ -20,8 +20,12 @@ class Realm(unittest.TestCase):
         self.client = next(c for c in self.realm["clients"] if c["clientId"] == "inkcast-identity")
 
     def test_no_secret_and_no_person_in_git(self):
-        self.assertNotIn("users", self.realm, "people are created at runtime, never committed")
+        for user in self.realm.get("users", []):     # people are created at runtime; only service accounts here
+            self.assertIn("serviceAccountClientId", user, f"{user.get('username')}: no people in Git")
+            self.assertNotIn("credentials", user)
         self.assertEqual(self.client["secret"], "${KC_INKCAST_CLIENT_SECRET}")
+        for c in self.realm["clients"]:
+            self.assertTrue(c.get("publicClient") or str(c.get("secret", "")).startswith("${"), c["clientId"])
         for key in ("smtpServer", "identityProviders"):
             for item in ([self.realm.get(key)] if isinstance(self.realm.get(key), dict) else self.realm.get(key, [])):
                 for field in ("password", "clientSecret"):
@@ -59,6 +63,20 @@ class Realm(unittest.TestCase):
         self.assertEqual(c["attributes"]["pkce.code.challenge.method"], "S256")
         self.assertEqual(c["redirectUris"], ["${INKCAST_PUBLIC_URL}/auth/callback"])
         self.assertTrue(all("*" not in u for u in c["redirectUris"] + c["webOrigins"]), "no wildcard redirects")
+
+    def test_the_sync_client_is_a_read_only_service_account(self):
+        """E9.F9.5.S2: Inkcast reads users and admin events, nothing more, and nobody signs in through it."""
+        c = next(c for c in self.realm["clients"] if c["clientId"] == "inkcast-sync")
+        self.assertEqual(c["secret"], "${KC_INKCAST_SYNC_SECRET}")
+        self.assertTrue(c["serviceAccountsEnabled"])
+        self.assertFalse(c["publicClient"])
+        for flow in ("standardFlowEnabled", "implicitFlowEnabled", "directAccessGrantsEnabled"):
+            self.assertFalse(c[flow], flow)
+        self.assertEqual(c["redirectUris"], [])
+        account = next(u for u in self.realm["users"] if u.get("serviceAccountClientId") == "inkcast-sync")
+        self.assertEqual(account["clientRoles"], {"realm-management": ["view-users", "view-events"]})
+        self.assertFalse(account.get("realmRoles"), "no realm roles: not a person, not an admin")
+        self.assertTrue(self.realm["adminEventsEnabled"], "the sync follows USER admin events")
 
     def test_roles_and_account_protection(self):
         r = self.realm

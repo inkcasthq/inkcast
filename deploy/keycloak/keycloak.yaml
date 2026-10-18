@@ -41,6 +41,8 @@ spec:
             # Filled into the realm's ${...} placeholders at import (realm-inkcast.json).
             - name: KC_INKCAST_CLIENT_SECRET
               valueFrom: {secretKeyRef: {name: keycloak-secrets, key: inkcast-client-secret}}
+            - name: KC_INKCAST_SYNC_SECRET              # the inkcast-sync service account (E9.F9.5.S2)
+              valueFrom: {secretKeyRef: {name: keycloak-secrets, key: inkcast-sync-secret}}
             - name: INKCAST_PUBLIC_URL
               valueFrom: {configMapKeyRef: {name: keycloak-realm-settings, key: INKCAST_PUBLIC_URL}}
             # SMTP for verification and password-reset emails (realm smtpServer placeholders). Dev: Mailpit, no auth.

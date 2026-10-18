@@ -11,6 +11,8 @@ Routes
 
 from __future__ import annotations
 
+import asyncio
+
 import hmac
 import time
 from datetime import datetime, timezone
@@ -181,10 +183,22 @@ def _routes(ctx: Context) -> list[Route]:
     ]
 
 
+async def run_keycloak_sync(ctx: "Context", stop: asyncio.Event) -> None:
+    """E9.F9.5: cut off people Keycloak disabled or deleted (services/identity/keycloak_sync.py). Off unless
+    INKCAST_KEYCLOAK_SYNC_CLIENT_ID is set."""
+    if not ctx.config.keycloak_sync_client_id:
+        await stop.wait()
+        return
+    from .keycloak_sync import KeycloakSync
+    sync = ctx.extras.setdefault("keycloak_sync", KeycloakSync(ctx.config, ctx.store, ctx.http, ctx.metrics))
+    await sync.run_forever(stop)
+
+
 SERVICE = ServiceSpec(
     name="IdentityService",
     summary="OAuth 2.1 authorization server, sign-in via Keycloak/GitHub/password, consent, personal access tokens",
     routes=_routes,
+    workers=(run_keycloak_sync,),
     public_paths=ROUTES["IdentityService"],
     needs=("login", "secret_key"),
 )

@@ -11,6 +11,7 @@ Inkcast has five credentials of its own:
 | `GITHUB_CLIENT_SECRET` | IdentityService (`INKCAST_LOGIN=github`) | the GitHub OAuth app secret |
 | `INKCAST_PASSWORD` | IdentityService (`INKCAST_LOGIN=password`) | the one shared password |
 | `INKCAST_CACHE_PASSWORD` | every service except the Gateway, when `INKCAST_CACHE_URL` is set | the Redis/Valkey password (`AUTH`); never part of the URL |
+| `INKCAST_KEYCLOAK_SYNC_SECRET` | IdentityService, when `INKCAST_KEYCLOAK_SYNC_CLIENT_ID` is set | the realm's `inkcast-sync` service-account secret (the user sync, E9.F9.5.S2) |
 
 Platform credentials (a DEV API key, a Medium token) never come from configuration: people type
 them on the connect page and they are sealed into the database.
