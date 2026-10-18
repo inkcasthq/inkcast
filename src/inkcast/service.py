@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Shield-1.0.0
+# Copyright 2026 ScalarOps Technologies LLC
 """Use cases, shared by the MCP tools and the REST API. Every method takes the
 authenticated user id first; nothing here trusts input about *who* is calling."""
 

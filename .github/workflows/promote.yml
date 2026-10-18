@@ -59,7 +59,7 @@ jobs:
           cosign verify --certificate-oidc-issuer https://token.actions.githubusercontent.com \
             --certificate-identity-regexp "^$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/\.github/workflows/publish\.yml@refs/(heads/main|tags/v.*)$" \
             "$REF" > /dev/null
-          if [ "${{ vars.GITHUB_ATTESTATIONS }}" = "true" ]; then
+          if [ "${{ vars.GITHUB_ATTESTATIONS == 'true' || github.event.repository.visibility == 'public' }}" = "true" ]; then
             gh attestation verify "oci://$REF" --repo "$GITHUB_REPOSITORY" > /dev/null
           fi
       - name: Open the promotion pull request

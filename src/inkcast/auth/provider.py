@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Shield-1.0.0
+# Copyright 2026 ScalarOps Technologies LLC
 """Inkcast's OAuth 2.1 authorization server for MCP clients.
 
 Claude Code (or any MCP client) registers itself dynamically, sends the person

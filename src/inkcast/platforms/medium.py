@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Shield-1.0.0
+# Copyright 2026 ScalarOps Technologies LLC
 """Medium, through its official REST API and a self-issued integration token.
 
 Medium's API rules this plug-in encodes:
