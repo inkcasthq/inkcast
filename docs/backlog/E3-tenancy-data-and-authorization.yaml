@@ -174,7 +174,7 @@ features:
   - id: F3.6.S1
     title: PolicyEngine interface (check, batch_check, list_objects, write, delete, read) with typed Ref and relation constants
     status: done
-    change: 'built in PR #PRNUM'
+    change: 'built in PR #49'
     acceptance:
     - 'libs/authz: Ref(type, id) and Tuple(user, relation, object) validate OpenFGA''s identifier rules; usersets
       (organization:acme#member) are tuples'' users; relation constants per type, and a test fails when they drift
@@ -186,7 +186,7 @@ features:
     title: 'OpenFgaEngine over the REST API with httpx2: store and model id from config, credentials via SecretsProvider,
       timeouts, fail closed'
     status: done
-    change: 'built in PR #PRNUM'
+    change: 'built in PR #49'
     acceptance:
     - 'check, batch-check (correlation ids, chunks of 50), list-objects, write, read (continuation tokens) and GET
       authorization-models/{id}, every request pinning INKCAST_FGA_MODEL_ID; no SDK'
@@ -198,7 +198,7 @@ features:
   - id: F3.6.S3
     title: LocalEngine evaluating authz/model.json over tuples in the DB (tests, laptops, small air-gapped self-hosts)
     status: done
-    change: 'built in PR #PRNUM'
+    change: 'built in PR #49'
     acceptance:
     - The same model.fga.yaml passes in Python tests (tests/test_authz.py loads its tuples and runs every check and list_objects assertion)
     - 'The evaluator implements this (including userset grants), computedUserset, tupleToUserset, union, intersection and
@@ -210,7 +210,7 @@ features:
     title: INKCAST_AUTHZ_ENGINE; posture check (hosted production requires openfga); readiness checks the store and model
       id
     status: done
-    change: 'built in PR #PRNUM'
+    change: 'built in PR #49'
     acceptance:
     - 'INKCAST_AUTHZ_ENGINE=local (the default: every existing deployment and test works unchanged) or openfga; Context.authz
       holds the instrumented engine in every product process, none in a Gateway'
@@ -220,7 +220,7 @@ features:
   - id: F3.6.S5
     title: authz.denied and authz.error events; inkcast_authz_checks_total{relation,result} and latency
     status: done
-    change: 'built in PR #PRNUM'
+    change: 'built in PR #49'
     acceptance:
     - 'Instrumented wraps either engine: inkcast_authz_checks_total{relation,result} (allowed, denied, error) and
       inkcast_authz_duration_seconds{op,engine}; authz.denied and authz.error carry user, relation and object ids only'
