@@ -34,6 +34,7 @@
   ],
   "adminEventsEnabled": true,
   "adminEventsDetailsEnabled": false,
+  "eventsExpiration": 604800,
   "roles": {
     "realm": [
       {
@@ -195,5 +196,8 @@
     "password": "${KC_SMTP_PASSWORD}",
     "starttls": "${KC_SMTP_STARTTLS}",
     "ssl": "${KC_SMTP_SSL}"
+  },
+  "attributes": {
+    "adminEventsExpiration": "604800"
   }
 }
