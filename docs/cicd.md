@@ -112,6 +112,7 @@ Keyless signing writes the repository and workflow path, not code, to the public
 |---|---|
 | Tests | `PYTHONPATH=src:tests python -m unittest discover -s tests` |
 | Lint | `ruff check src tests` |
+| Code scanning | `scripts/dev/codeql.sh`: CI's CodeQL bundle, config (`.github/codeql/codeql-config.yml`) and suites; prints each result's code flow and exits 1 at the check's failure threshold (security severity high or above, or error) |
 | Vendored assets | `scripts/vendor-assets.sh` (offline verify); `--outdated`, `--update`, `--upgrade` |
 | Manifests | `kubectl kustomize deploy/kustomize/overlays/openshift` |
 | Cluster smoke | `kind create cluster && kind load docker-image inkcast:ci && kubectl apply -k deploy/kustomize/overlays/ci` |

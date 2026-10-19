@@ -1,0 +1,10 @@
+# CodeQL configuration, shared by CI (.github/workflows/codeql.yml) and the local run (scripts/dev/codeql.sh), so a
+# result seen locally is the result CI reports.
+name: inkcast
+queries:
+  - uses: security-extended
+# Tests deliberately build insecure fixtures (world-readable secret files, throwaway keys, fake IdPs) to prove the
+# checks catch them; scanning them only produces false alerts. Vendored assets are third-party, pinned and hashed.
+paths-ignore:
+  - src/inkcast/static/vendor
+  - tests
