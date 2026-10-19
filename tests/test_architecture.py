@@ -188,6 +188,34 @@ class Workflows(unittest.TestCase):
         self.assertIn("pull_request", triggers)
         self.assertEqual(triggers["push"]["branches"], ["main"])
 
+    def test_every_required_check_is_a_job_that_runs_on_pull_requests(self):
+        """Issue #34: a required check that no job produces blocks every merge forever, so each required context in
+        .github/rulesets/main.json must be a job (or matrix entry) of a workflow that runs on pull_request, and
+        docs/bootstrap.md must list the same checks."""
+        import json
+        import pathlib
+        import yaml
+        root = pathlib.Path(__file__).resolve().parents[1]
+        ruleset = json.loads((root / ".github" / "rulesets" / "main.json").read_text())
+        rule = next(r for r in ruleset["rules"] if r["type"] == "required_status_checks")
+        required = {c["context"] for c in rule["parameters"]["required_status_checks"]}
+        produced = {"CodeQL"}                       # the code-scanning results check, from codeql.yml's upload
+        for path in (root / ".github" / "workflows").glob("*.yml"):
+            flow = yaml.safe_load(path.read_text())
+            if "pull_request" not in (flow.get(True) or {}):   # YAML reads the key `on` as True
+                continue
+            for name, job in flow["jobs"].items():
+                matrix = (job.get("strategy") or {}).get("matrix") or {}
+                if len(matrix) == 1 and isinstance(next(iter(matrix.values())), list):
+                    produced |= {f"{name} ({v})" for v in next(iter(matrix.values()))}
+                else:
+                    produced.add(job.get("name", name))
+        self.assertEqual(required - produced, set(), "required but no pull-request job produces it")
+        bootstrap = (root / "docs" / "bootstrap.md").read_text()
+        missing = sorted(c for c in required if f"`{c}`" not in bootstrap)
+        self.assertEqual(missing, [], "docs/bootstrap.md must list every required check")
+        self.assertEqual(ruleset["bypass_actors"], [], "nobody bypasses main's ruleset")
+
     def test_the_local_codeql_run_is_the_one_ci_runs(self):
         """Issue #28: scripts/dev/codeql.sh pins the CodeQL bundle of the github/codeql-action version codeql.yml
         pins, and both read .github/codeql/codeql-config.yml. Bump the action, bump the script (its comment says how)."""
