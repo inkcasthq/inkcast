@@ -119,8 +119,8 @@ features:
     status: planned
   - id: F9.7.S2
     title: 'Keycloak event retention in the realm: eventsExpiration and adminEventsExpiration (7 days)'
-    status: planned
-    change: 'new; issue #43'
+    status: done
+    change: 'new; issue #43, built in the event-retention PR (adminEventsExpiration is a realm attribute in Keycloak 26)'
     acceptance:
     - realm-inkcast.json sets both; tests/test_keycloak_realm.py keeps them set and at least 1 day (the sync reads from
       the day before its cursor)

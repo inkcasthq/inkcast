@@ -78,6 +78,15 @@ class Realm(unittest.TestCase):
         self.assertFalse(account.get("realmRoles"), "no realm roles: not a person, not an admin")
         self.assertTrue(self.realm["adminEventsEnabled"], "the sync follows USER admin events")
 
+    def test_events_expire(self):
+        """Issue #43: without retention Keycloak keeps every login and admin event forever. The user sync reads admin
+        events from the day before its cursor, so retention must be at least a day; 7 days leaves time to investigate."""
+        user_events = self.realm["eventsExpiration"]                       # seconds; a top-level Long
+        admin_events = int(self.realm["attributes"]["adminEventsExpiration"])   # seconds; a realm attribute (string)
+        for name, value in (("eventsExpiration", user_events), ("adminEventsExpiration", admin_events)):
+            self.assertGreaterEqual(value, 86400, f"{name}: the sync needs at least a day")
+            self.assertLessEqual(value, 30 * 86400, f"{name}: keep events for a bounded time")
+
     def test_roles_and_account_protection(self):
         r = self.realm
         roles = {x["name"]: x for x in r["roles"]["realm"]}
