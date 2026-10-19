@@ -7,6 +7,13 @@ namespace: inkcast
 resources:
   - ../../base
   - route.yaml
+configMapGenerator:
+  # Self-host install path: the in-process authorization engine (INKCAST_AUTHZ_ENGINE=local, the default) is accepted
+  # until this overlay ships OpenFGA (E3.F3.9). The hosted environment (environments/production) turns this off.
+  - name: inkcast-config
+    behavior: merge
+    literals:
+      - INKCAST_AUTHZ_ALLOW_LOCAL=true
 components:
   - ../../components/servicemonitor     # needs user-workload monitoring enabled
   - ../../components/metrics-access     # the metrics port: Prometheus pods only (#21)

@@ -280,6 +280,11 @@ features:
     title: 'Kustomize component: OpenFGA on Postgres, OpenShift restricted-v2, migrate Job, mirrored images'
     status: planned
     change: new
+    acceptance:
+    - 'The kubernetes and openshift overlays use OpenFGA and drop INKCAST_AUTHZ_ALLOW_LOCAL=true (set in PR #49 so
+      the self-host install path starts before OpenFGA ships)'
+    - environments/production sets INKCAST_AUTHZ_ENGINE=openfga and the INKCAST_FGA_* settings; until then it refuses
+      to start (INKCAST_AUTHZ_ALLOW_LOCAL=false), by design
   - id: F3.9.S2
     title: NetworkPolicy (only Inkcast services reach OpenFGA); credentials from the secrets store
     status: planned

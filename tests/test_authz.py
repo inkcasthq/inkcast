@@ -619,3 +619,22 @@ class Instrumentation(unittest.TestCase):
         rendered = self.metrics.render()
         for op in ("batch_check", "list_objects", "write", "read"):
             self.assertIn(f'op="{op}"', rendered)
+
+
+class Overlays(unittest.TestCase):
+    """E3.F3.6.S4 in the manifests: the self-host overlays accept the in-process engine until they ship OpenFGA
+    (E3.F3.9); the hosted environment never does, even though it builds on the openshift overlay."""
+
+    def literals(self, path: str) -> list[str]:
+        import yaml
+        k = yaml.safe_load((ROOT / "deploy" / "kustomize" / path / "kustomization.yaml").read_text())
+        return [lit for g in k.get("configMapGenerator", []) if g["name"] == "inkcast-config"
+                for lit in g.get("literals", [])]
+
+    def test_self_host_overlays_allow_the_local_engine(self):
+        for overlay in ("overlays/openshift", "overlays/kubernetes"):
+            self.assertIn("INKCAST_AUTHZ_ALLOW_LOCAL=true", self.literals(overlay), overlay)
+
+    def test_the_hosted_environment_refuses_it(self):
+        self.assertIn("INKCAST_AUTHZ_ALLOW_LOCAL=false", self.literals("environments/production"))
+
