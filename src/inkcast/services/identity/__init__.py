@@ -200,7 +200,7 @@ SERVICE = ServiceSpec(
     routes=_routes,
     workers=(run_keycloak_sync,),
     public_paths=ROUTES["IdentityService"],
-    needs=("login", "secret_key"),
+    needs=("login", "secret_key", "authz"),
 )
 
 __all__ = ["SERVICE", "TOKEN_REQUEST"]

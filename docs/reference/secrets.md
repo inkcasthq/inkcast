@@ -2,7 +2,7 @@
 
 How Inkcast reads, holds, rotates and hides its credentials. Code lives in `src/inkcast/libs/secrets/`.
 
-Inkcast has five credentials of its own:
+Inkcast has seven credentials of its own:
 
 | Setting | Used by | What it is |
 | --- | --- | --- |
@@ -12,6 +12,7 @@ Inkcast has five credentials of its own:
 | `INKCAST_PASSWORD` | IdentityService (`INKCAST_LOGIN=password`) | the one shared password |
 | `INKCAST_CACHE_PASSWORD` | every service except the Gateway, when `INKCAST_CACHE_URL` is set | the Redis/Valkey password (`AUTH`); never part of the URL |
 | `INKCAST_KEYCLOAK_SYNC_SECRET` | IdentityService, when `INKCAST_KEYCLOAK_SYNC_CLIENT_ID` is set | the realm's `inkcast-sync` service-account secret (the user sync, E9.F9.5.S2) |
+| `INKCAST_FGA_API_TOKEN` | every service except the Gateway, when `INKCAST_AUTHZ_ENGINE=openfga` | OpenFGA's preshared key, sent as a bearer header (E3.F3.6.S2); optional when OpenFGA runs without one |
 
 Platform credentials (a DEV API key, a Medium token) never come from configuration: people type
 them on the connect page and they are sealed into the database.

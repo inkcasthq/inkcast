@@ -173,28 +173,58 @@ features:
   stories:
   - id: F3.6.S1
     title: PolicyEngine interface (check, batch_check, list_objects, write, delete, read) with typed Ref and relation constants
-    status: planned
-    change: new
+    status: done
+    change: 'built in PR #49'
+    acceptance:
+    - 'libs/authz: Ref(type, id) and Tuple(user, relation, object) validate OpenFGA''s identifier rules; usersets
+      (organization:acme#member) are tuples'' users; relation constants per type, and a test fails when they drift
+      from authz/model.json'
+    - 'PolicyEngine Protocol: check, batch_check, list_objects, write(writes, deletes), read, ready; a consistency
+      option (minimize_latency, higher_consistency); EngineError for every failure so callers fail closed,
+      InvalidRequest (an EngineError) for what OpenFGA answers with 400'
   - id: F3.6.S2
     title: 'OpenFgaEngine over the REST API with httpx2: store and model id from config, credentials via SecretsProvider,
       timeouts, fail closed'
-    status: planned
-    change: new
+    status: done
+    change: 'built in PR #49'
+    acceptance:
+    - 'check, batch-check (correlation ids, chunks of 50), list-objects, write, read (continuation tokens) and GET
+      authorization-models/{id}, every request pinning INKCAST_FGA_MODEL_ID; no SDK'
+    - INKCAST_FGA_API_TOKEN is a SecretValue through the secrets design (NAME_FILE, SECRET_SETTINGS, redaction), sent as a bearer header only
+    - 'Timeouts (INKCAST_FGA_TIMEOUT), one retry for reads and checks when the connection could not be made, never for writes;
+      every transport error, 5xx, 401 and 404 is an EngineError, every 400 an InvalidRequest'
+    - 'tests/fakes.py holds a fake OpenFGA (request shapes validated against the documented API) answering from the same
+      evaluator the LocalEngine uses; model.fga.yaml passes through OpenFgaEngine over real HTTP against it'
   - id: F3.6.S3
     title: LocalEngine evaluating authz/model.json over tuples in the DB (tests, laptops, small air-gapped self-hosts)
-    status: planned
-    change: new
+    status: done
+    change: 'built in PR #49'
     acceptance:
-    - The same model.fga.yaml passes in Python tests
+    - The same model.fga.yaml passes in Python tests (tests/test_authz.py loads its tuples and runs every check and list_objects assertion)
+    - 'The evaluator implements this (including userset grants), computedUserset, tupleToUserset, union, intersection and
+      difference, with cycle protection and OpenFGA''s resolution depth of 25 (deeper is an error, never a wrong answer)'
+    - 'Tuples live in authz_tuples (libs/db/authz.py, unique on (subject, relation, object)); writes are validated
+      against directly_related_user_types as OpenFGA does, and a duplicate write or a missing delete is refused'
+    - list_objects enumerates the stored objects of the type and checks each, capped at 1,000 like OpenFGA
   - id: F3.6.S4
     title: INKCAST_AUTHZ_ENGINE; posture check (hosted production requires openfga); readiness checks the store and model
       id
-    status: planned
-    change: new
+    status: done
+    change: 'built in PR #49'
+    acceptance:
+    - 'INKCAST_AUTHZ_ENGINE=local (the default: every existing deployment and test works unchanged) or openfga; Context.authz
+      holds the instrumented engine in every product process, none in a Gateway'
+    - 'Production refuses local with a ConfigError unless INKCAST_AUTHZ_ALLOW_LOCAL=true (a self-host that accepts it);
+      openfga needs INKCAST_FGA_API_URL, INKCAST_FGA_STORE_ID and INKCAST_FGA_MODEL_ID'
+    - '/readyz reports the engine: with openfga, the store holds the pinned model (cached 30 s); with local, the model loaded'
   - id: F3.6.S5
     title: authz.denied and authz.error events; inkcast_authz_checks_total{relation,result} and latency
-    status: planned
-    change: new
+    status: done
+    change: 'built in PR #49'
+    acceptance:
+    - 'Instrumented wraps either engine: inkcast_authz_checks_total{relation,result} (allowed, denied, error) and
+      inkcast_authz_duration_seconds{op,engine}; authz.denied and authz.error carry user, relation and object ids only'
+    - InkcastAuthzErrors pages on sustained engine errors, with a runbook section
 - id: F3.7
   title: One enforcement path, deny by default
   stories:
@@ -250,6 +280,11 @@ features:
     title: 'Kustomize component: OpenFGA on Postgres, OpenShift restricted-v2, migrate Job, mirrored images'
     status: planned
     change: new
+    acceptance:
+    - 'The kubernetes and openshift overlays use OpenFGA and drop INKCAST_AUTHZ_ALLOW_LOCAL=true (set in PR #49 so
+      the self-host install path starts before OpenFGA ships)'
+    - environments/production sets INKCAST_AUTHZ_ENGINE=openfga and the INKCAST_FGA_* settings; until then it refuses
+      to start (INKCAST_AUTHZ_ALLOW_LOCAL=false), by design
   - id: F3.9.S2
     title: NetworkPolicy (only Inkcast services reach OpenFGA); credentials from the secrets store
     status: planned

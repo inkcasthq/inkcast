@@ -16,13 +16,15 @@ LedgerRepo         PublishingApi       ledger
 OutboxRepo         (the row's owner)   outbox, outbox_cursors (events written with the row;
                                        drained by InsightsService)
 KpiRepo            InsightsService     kpi_rollups, kpi_applied
+AuthzRepo          LocalEngine         authz_tuples (only with INKCAST_AUTHZ_ENGINE=local)
 =================  ==================  =============================================
 """
 
 from __future__ import annotations
 
 from ..secrets import Sealer, SecretValue, new_secret, token_hash
-from . import identity, kpi, ledger, outbox, posts, vault
+from . import authz, identity, kpi, ledger, outbox, posts, vault
+from .authz import AuthzRepo, TupleConflict
 from .database import Database
 from .identity import IdentityRepo
 from .kpi import KpiRepo
@@ -32,8 +34,8 @@ from .posts import PostsRepo
 from .vault import VaultRepo
 
 
-class Store(IdentityRepo, VaultRepo, PostsRepo, LedgerRepo, OutboxRepo, KpiRepo):
-    SCHEMAS = (identity.SCHEMA, vault.SCHEMA, posts.SCHEMA, ledger.SCHEMA, outbox.SCHEMA, kpi.SCHEMA)
+class Store(IdentityRepo, VaultRepo, PostsRepo, LedgerRepo, OutboxRepo, KpiRepo, AuthzRepo):
+    SCHEMAS = (identity.SCHEMA, vault.SCHEMA, posts.SCHEMA, ledger.SCHEMA, outbox.SCHEMA, kpi.SCHEMA, authz.SCHEMA)
     COLUMNS = identity.COLUMNS
 
     def __init__(self, path: str, secret_key: "str | SecretValue"):
@@ -47,5 +49,5 @@ class Store(IdentityRepo, VaultRepo, PostsRepo, LedgerRepo, OutboxRepo, KpiRepo)
         self.purge_kpis()
 
 
-__all__ = ["Database", "IdentityRepo", "KpiRepo", "LedgerRepo", "OutboxRepo", "PostsRepo", "Sealer", "Store",
-           "VaultRepo", "new_secret", "token_hash"]
+__all__ = ["AuthzRepo", "Database", "IdentityRepo", "KpiRepo", "LedgerRepo", "OutboxRepo", "PostsRepo", "Sealer", "Store",
+           "TupleConflict", "VaultRepo", "new_secret", "token_hash"]

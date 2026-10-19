@@ -202,6 +202,9 @@ All settings are environment variables; see [.env.example](.env.example). Each s
 | `INKCAST_KEYCLOAK_SYNC_CLIENT_ID` | | with `INKCAST_LOGIN=oidc` on Keycloak: the service-account client (`inkcast-sync`) the user sync signs in as, so a person disabled or deleted in Keycloak loses their Inkcast tokens within a minute. Its secret: `INKCAST_KEYCLOAK_SYNC_SECRET(_FILE)` |
 | `INKCAST_KEYCLOAK_SYNC_INTERVAL` | `30` | seconds between reads of Keycloak's USER admin events |
 | `INKCAST_KEYCLOAK_RECONCILE_INTERVAL` | `600` | seconds between full re-reads of every Keycloak person Inkcast knows (also at start) |
+| `INKCAST_AUTHZ_ENGINE` | `local` | the permission engine ([design](docs/authorization.md)): `local` evaluates the model in-process over tuples in the Inkcast database; `openfga` asks an OpenFGA server. Production refuses `local` unless `INKCAST_AUTHZ_ALLOW_LOCAL=true` (a self-host that accepts it) |
+| `INKCAST_FGA_API_URL`, `INKCAST_FGA_STORE_ID`, `INKCAST_FGA_MODEL_ID` | | with `openfga`: the server, the store and the pinned model version. The preshared key: `INKCAST_FGA_API_TOKEN(_FILE)`; `INKCAST_FGA_TIMEOUT` (`5`) seconds per request |
+| `INKCAST_AUTHZ_MODEL` | the packaged model | with `local`: a `model.json` to evaluate instead of the one shipped in the package |
 | `INKCAST_ENV` | `production` in the image | `production`/`staging` make the startup security checks strict; `ci`/`development` relax them. `inkcast checks` prints the table |
 | `INKCAST_SECRETS_SOURCE` | `env` | where secrets come from: `env` (`NAME` or `NAME_FILE`), `dir` (a mounted Secret directory, `INKCAST_SECRETS_DIR`), `agent` (the AWS Secrets Manager agent), `aws`, `chain`. See [docs/reference/secrets.md](docs/reference/secrets.md) |
 | `INKCAST_MAX_BODY_BYTES` | 10 MB | larger requests get 413 before any handler runs |
