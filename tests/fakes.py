@@ -1,4 +1,5 @@
-"""Fake upstreams for tests: a Keycloak-style OIDC provider, Medium's API and the Forem (DEV) API.
+"""Fake upstreams for tests: a Keycloak-style OIDC provider, Medium's API, the Forem (DEV) API and an OpenFGA
+server (its REST API over the real model evaluator).
 
 They follow the documented request/response shapes closely enough to catch
 contract mistakes (field names, auth headers, PKCE, limits)."""
@@ -17,6 +18,8 @@ from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.routing import Route
+
+from inkcast.libs.authz import EngineError, Evaluator, InvalidRequest, Model, Tuple
 
 
 class Fakes:
@@ -46,6 +49,15 @@ class Fakes:
         self.devto_articles: list[dict] = []
         self.devto_fail_next: int | None = None  # e.g. 429 to simulate rate limiting
         self.devto_updates: list[tuple[int, dict]] = []  # (article id, article) for every PUT
+        # OpenFGA (E3.F3.6.S2): one store, one model (the packaged one), a preshared key, tuples in memory. The
+        # answers come from the same Evaluator the LocalEngine uses, so this fake checks the HTTP contract only.
+        self.fga_store = "01JSTORE0000000000000000AA"
+        self.fga_model = "01JMODEL0000000000000000AA"
+        self.fga_token: str | None = "fga-preshared-key"
+        self.fga_tuples: list[tuple[str, str, str]] = []
+        self.fga_calls: list[tuple[str, str, dict | None]] = []
+        self.fga_fail_next: int | None = None  # answer the next call with this status (503, 429...)
+        self._fga_evaluator = Evaluator(Model.load(), _FgaSource(self))
 
     # ---- Keycloak-style OIDC ------------------------------------------------
 
@@ -291,6 +303,151 @@ class Fakes:
                               "url": f"https://dev.to/ada/article-{i}", "published": a["published"]}
                              for i, a in enumerate(self.devto_articles, 1)])
 
+    # ---- OpenFGA REST API ----------------------------------------------------------------------------------
+    # https://openfga.dev/api/service: field names, limits and error codes as documented; 400 bodies are
+    # {"code": ..., "message": ...}. Every handler records (method, path, body) in fga_calls.
+
+    _CONSISTENCY = ("UNSPECIFIED", "MINIMIZE_LATENCY", "HIGHER_CONSISTENCY")
+
+    async def _fga_begin(self, request: Request):
+        """Common checks: the preshared key, the store id, a forced failure; returns (body, None) or (None, response)."""
+        body = await request.json() if request.method == "POST" else None
+        self.fga_calls.append((request.method, request.url.path, body))
+        if self.fga_fail_next:
+            status, self.fga_fail_next = self.fga_fail_next, None
+            return None, JSONResponse({"code": "internal_error", "message": "forced by the test"}, status_code=status)
+        if self.fga_token and request.headers.get("authorization") != f"Bearer {self.fga_token}":
+            return None, JSONResponse({"code": "unauthenticated", "message": "unauthenticated"}, status_code=401)
+        if request.path_params["store"] != self.fga_store:
+            return None, JSONResponse({"code": "store_id_not_found", "message": "store id not found"}, status_code=404)
+        if body is not None and body.get("authorization_model_id", self.fga_model) != self.fga_model:
+            return None, JSONResponse({"code": "authorization_model_not_found",
+                                       "message": f"Authorization Model '{body['authorization_model_id']}' not found"},
+                                      status_code=400)
+        if body is not None and body.get("consistency", "UNSPECIFIED") not in self._CONSISTENCY:
+            return None, self._fga_invalid(f"invalid consistency {body['consistency']!r}")
+        return body, None
+
+    @staticmethod
+    def _fga_invalid(message: str, code: str = "validation_error") -> JSONResponse:
+        return JSONResponse({"code": code, "message": message}, status_code=400)
+
+    @staticmethod
+    def _fga_key(key) -> tuple[str, str, str]:
+        assert isinstance(key, dict) and set(key) <= {"user", "relation", "object", "condition"}, key
+        for field in ("user", "relation", "object"):
+            assert isinstance(key.get(field), str) and key[field], f"tuple_key.{field} is required"
+        return key["user"], key["relation"], key["object"]
+
+    def _fga_answer(self, user: str, relation: str, obj: str) -> bool:
+        return self._fga_evaluator.check(user, relation, obj)
+
+    async def fga_check(self, request: Request):
+        body, refused = await self._fga_begin(request)
+        if refused:
+            return refused
+        try:
+            user, relation, obj = self._fga_key(body["tuple_key"])
+            return JSONResponse({"allowed": self._fga_answer(user, relation, obj), "resolution": ""})
+        except InvalidRequest as exc:
+            return self._fga_invalid(str(exc))
+        except EngineError as exc:
+            return self._fga_invalid(str(exc), "authorization_model_resolution_too_complex")
+
+    async def fga_batch_check(self, request: Request):
+        body, refused = await self._fga_begin(request)
+        if refused:
+            return refused
+        checks = body.get("checks")
+        if not isinstance(checks, list) or not 1 <= len(checks) <= 50:
+            return self._fga_invalid("batch check: 1 to 50 checks")
+        result, seen = {}, set()
+        for item in checks:
+            cid = item.get("correlation_id", "")
+            if not re.fullmatch(r"[\w\d-]{1,36}", cid) or cid in seen:
+                return self._fga_invalid(f"invalid or duplicate correlation_id {cid!r}")
+            seen.add(cid)
+            try:
+                result[cid] = {"allowed": self._fga_answer(*self._fga_key(item["tuple_key"]))}
+            except EngineError as exc:
+                result[cid] = {"error": {"input_error": "validation_error", "message": str(exc)}}
+        return JSONResponse({"result": result})
+
+    async def fga_list_objects(self, request: Request):
+        body, refused = await self._fga_begin(request)
+        if refused:
+            return refused
+        for field in ("type", "relation", "user"):
+            if not isinstance(body.get(field), str) or not body[field]:
+                return self._fga_invalid(f"{field} is required")
+        try:
+            return JSONResponse({"objects": self._fga_evaluator.list_objects(body["user"], body["relation"], body["type"])})
+        except EngineError as exc:
+            return self._fga_invalid(str(exc))
+
+    async def fga_write(self, request: Request):
+        body, refused = await self._fga_begin(request)
+        if refused:
+            return refused
+        writes = [self._fga_key(k) for k in (body.get("writes") or {}).get("tuple_keys", [])]
+        deletes = [self._fga_key(k) for k in (body.get("deletes") or {}).get("tuple_keys", [])]
+        if not writes and not deletes:
+            return self._fga_invalid("invalid WriteRequest: writes or deletes must be set")
+        if len(writes) + len(deletes) > 100:
+            return self._fga_invalid("at most 100 tuples per write")
+        if len(set(writes + deletes)) != len(writes) + len(deletes):
+            return self._fga_invalid("duplicate tuple in the write request")
+        try:
+            for t in writes:
+                self._fga_evaluator.model.validate_tuple(Tuple(*t))
+        except (InvalidRequest, ValueError) as exc:
+            return self._fga_invalid(str(exc))
+        for t in writes:
+            if t in self.fga_tuples:
+                return self._fga_invalid(f"cannot write a tuple which already exists: {t}", "write_failed_due_to_invalid_input")
+        for t in deletes:
+            if t not in self.fga_tuples:
+                return self._fga_invalid(f"cannot delete a tuple which does not exist: {t}", "write_failed_due_to_invalid_input")
+        self.fga_tuples = [t for t in self.fga_tuples if t not in deletes] + writes
+        return JSONResponse({})
+
+    async def fga_read(self, request: Request):
+        body, refused = await self._fga_begin(request)
+        if refused:
+            return refused
+        page = int(body.get("page_size", 50))
+        if not 1 <= page <= 100:
+            return self._fga_invalid("page_size must be between 1 and 100")
+        rows = list(self.fga_tuples)
+        key = body.get("tuple_key")
+        if key is not None:
+            obj = key.get("object", "")
+            type_, _, obj_id = obj.partition(":")
+            if not type_:
+                return self._fga_invalid("tuple_key.object (a type or type:id) is required")
+            if not obj_id and not key.get("user"):
+                return self._fga_invalid("a type-only object needs a user")
+            rows = [t for t in rows if (t[2] == obj if obj_id else t[2].startswith(type_ + ":"))]
+            if key.get("user"):
+                rows = [t for t in rows if t[0] == key["user"]]
+            if key.get("relation"):
+                rows = [t for t in rows if t[1] == key["relation"]]
+        start = int(body.get("continuation_token") or 0)
+        chunk = rows[start:start + page]
+        token = str(start + page) if start + page < len(rows) else ""
+        return JSONResponse({"tuples": [{"key": {"user": u, "relation": r, "object": o},
+                                         "timestamp": "2026-01-01T00:00:00.000Z"} for u, r, o in chunk],
+                             "continuation_token": token})
+
+    async def fga_model_get(self, request: Request):
+        _, refused = await self._fga_begin(request)
+        if refused:
+            return refused
+        if request.path_params["model"] != self.fga_model:
+            return self._fga_invalid("Authorization Model not found", "authorization_model_not_found")
+        return JSONResponse({"authorization_model": {"id": self.fga_model, "schema_version": "1.1",
+                                                     "type_definitions": [{"type": "user"}]}})
+
     def app(self) -> Starlette:
         kc = "/kc/realms/inkcast"
         return Starlette(routes=[
@@ -316,7 +473,26 @@ class Fakes:
             Route("/devto/api/articles", self.devto_create, methods=["POST"]),
             Route("/devto/api/articles/me/all", self.devto_mine),
             Route("/devto/api/articles/{aid:int}", self.devto_update, methods=["PUT"]),
+            Route("/fga/stores/{store}/check", self.fga_check, methods=["POST"]),
+            Route("/fga/stores/{store}/batch-check", self.fga_batch_check, methods=["POST"]),
+            Route("/fga/stores/{store}/list-objects", self.fga_list_objects, methods=["POST"]),
+            Route("/fga/stores/{store}/write", self.fga_write, methods=["POST"]),
+            Route("/fga/stores/{store}/read", self.fga_read, methods=["POST"]),
+            Route("/fga/stores/{store}/authorization-models/{model}", self.fga_model_get),
         ])
+
+
+class _FgaSource:
+    """The fake OpenFGA's tuples as the evaluator's ``TupleSource``."""
+
+    def __init__(self, fakes: Fakes):
+        self.fakes = fakes
+
+    def users_of(self, obj: str, relation: str) -> list[str]:
+        return [u for u, r, o in self.fakes.fga_tuples if o == obj and r == relation]
+
+    def objects_of_type(self, type_: str) -> list[str]:
+        return [o for _, _, o in self.fakes.fga_tuples if o.startswith(type_ + ":")]
 
 
 class FakeRedis:

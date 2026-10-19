@@ -6,10 +6,10 @@ Every service reads the same ``Config``; ``validate(needs)`` checks only what th
 process need, so a SchedulerWorker doesn't demand sign-in secrets and a Gateway doesn't demand
 a database. The launcher refuses to start on a problem and exits 78 (EX_CONFIG).
 
-Settings are plain values. The four credentials (``secret_key``, ``oidc_client_secret``,
-``github_client_secret``, ``password``) are ``SecretValue``s that come through the ``SecretsProvider``
-(env, ``NAME_FILE``, a mounted directory, or a secrets manager; see libs/secrets): call ``.reveal()`` at
-the point of use. A ``Config(...)`` built in tests with plain strings gets the same wrapping.
+Settings are plain values. The credentials (``secret_key``, ``oidc_client_secret``, ``github_client_secret``,
+``password``, ``cache_password``, ``keycloak_sync_secret``, ``fga_api_token``) are ``SecretValue``s that come
+through the ``SecretsProvider`` (env, ``NAME_FILE``, a mounted directory, or a secrets manager; see libs/secrets):
+call ``.reveal()`` at the point of use. A ``Config(...)`` built in tests with plain strings gets the same wrapping.
 
 ``INKCAST_CONFIG_FILE`` (``.env``, ``.yaml`` or ``.json``) may supply the same names as the environment;
 real environment variables win, and the file may hold secret *names* (``INKCAST_SECRET_KEY_FILE``), never
@@ -38,7 +38,9 @@ SECRET_SETTINGS: dict[str, str] = {
     "INKCAST_PASSWORD": "login",
     "INKCAST_CACHE_PASSWORD": "secret_key",  # read by every product service (rate limits, locks); not by a Gateway
     "INKCAST_KEYCLOAK_SYNC_SECRET": "login",  # IdentityService's Keycloak service account (E9.F9.5)
+    "INKCAST_FGA_API_TOKEN": "authz",  # OpenFGA's preshared key, when INKCAST_AUTHZ_ENGINE=openfga (E3.F3.6)
 }
+AUTHZ_ENGINES = ("local", "openfga")
 
 
 class ConfigError(RuntimeError):
@@ -142,6 +144,17 @@ class Config:
     # Redis/Valkey shared by every replica. The password never goes in the URL: INKCAST_CACHE_PASSWORD(_FILE).
     cache_url: str = ""
     cache_password: SecretValue = SecretValue("")
+    # Authorization (E3.F3.6, docs/authorization.md §7-8): "local" evaluates authz/model.json in-process over
+    # tuples in the Inkcast database (tests, laptops, small self-hosts); "openfga" asks an OpenFGA server.
+    # Production refuses "local" unless INKCAST_AUTHZ_ALLOW_LOCAL says this is a self-host that accepts it.
+    authz_engine: str = "local"
+    authz_allow_local: bool = False
+    authz_model_path: str = ""  # INKCAST_AUTHZ_MODEL: a model.json to use instead of the packaged one (local engine)
+    fga_api_url: str = ""
+    fga_store_id: str = ""
+    fga_model_id: str = ""  # every deploy pins a model version; a change is a new version, never an edit
+    fga_api_token: SecretValue = SecretValue("")  # preshared-key bearer auth; empty when OpenFGA runs without one
+    fga_timeout_seconds: float = 5.0
     extra_allowed_hosts: tuple[str, ...] = ()
     # Per-platform API base URL overrides, e.g. {"devto": "https://community.example.com/api"}
     platform_urls: dict[str, str] = field(default_factory=dict)
@@ -167,7 +180,7 @@ class Config:
 
     def __post_init__(self) -> None:
         for name in ("secret_key", "oidc_client_secret", "github_client_secret", "password", "cache_password",
-                     "keycloak_sync_secret"):
+                     "keycloak_sync_secret", "fga_api_token"):
             value = getattr(self, name)
             if not isinstance(value, SecretValue):
                 value = SecretValue(value)
@@ -188,9 +201,10 @@ class Config:
         hosts = {netloc, f"localhost:{self.port}", f"127.0.0.1:{self.port}", *self.extra_allowed_hosts}
         return sorted(h for h in hosts if h)
 
-    def validate(self, needs: Iterable[str] = ("login", "secret_key")) -> None:
+    def validate(self, needs: Iterable[str] = ("login", "secret_key", "authz")) -> None:
         """Raise ConfigError listing every problem. ``needs``: "login" (IdentityService), "secret_key"
-        (anything touching tokens or credentials), "upstreams" (Gateway)."""
+        (anything touching tokens or credentials), "authz" (anything that checks permissions), "upstreams"
+        (Gateway)."""
         needs = set(needs)
         problems = []
         if self.environment not in ENVIRONMENTS:
@@ -215,6 +229,8 @@ class Config:
                 parse_cache_url(self.cache_url)
             except ValueError as exc:
                 problems.append(str(exc))
+        if "authz" in needs:
+            problems += self._authz_problems()
         if "secret_key" in needs and len(self.secret_key.reveal()) < 32:
             problems.append(
                 "INKCAST_SECRET_KEY must be at least 32 characters; generate one with "
@@ -256,6 +272,28 @@ class Config:
             problems.append("INKCAST_PUBLIC_URL must use https unless it is localhost.")
         if problems:
             raise ConfigError("Inkcast configuration problems:\n- " + "\n- ".join(problems))
+
+    def _authz_problems(self) -> list[str]:
+        """E3.F3.6.S4. The hosted SaaS runs OpenFGA (ADR-0007); nothing in the configuration says "hosted", so
+        the smallest honest rule is: production refuses the local engine unless the operator states, with
+        INKCAST_AUTHZ_ALLOW_LOCAL=true, that this is a self-host that accepts it. The hosted environments never
+        set that flag."""
+        problems = []
+        if self.authz_engine not in AUTHZ_ENGINES:
+            return [f"INKCAST_AUTHZ_ENGINE must be one of {', '.join(AUTHZ_ENGINES)} (got {self.authz_engine!r})."]
+        if self.authz_engine == "openfga":
+            if not (self.fga_api_url and self.fga_store_id and self.fga_model_id):
+                problems.append("INKCAST_AUTHZ_ENGINE=openfga needs INKCAST_FGA_API_URL, INKCAST_FGA_STORE_ID and "
+                                "INKCAST_FGA_MODEL_ID (the pinned model version).")
+            if self.fga_api_url and urlparse(self.fga_api_url).scheme not in ("http", "https"):
+                problems.append("INKCAST_FGA_API_URL must be an http(s) URL.")
+            if self.fga_timeout_seconds <= 0:
+                problems.append("INKCAST_FGA_TIMEOUT must be a positive number of seconds.")
+        elif self.is_production and not self.authz_allow_local:
+            problems.append("INKCAST_AUTHZ_ENGINE=local is refused in production: the hosted service runs OpenFGA "
+                            "(INKCAST_AUTHZ_ENGINE=openfga). A self-host that accepts the in-process engine sets "
+                            "INKCAST_AUTHZ_ALLOW_LOCAL=true.")
+        return problems
 
 
 def settings_from(environ: Mapping[str, str] | None = None) -> dict[str, str]:
@@ -302,6 +340,7 @@ def load_config(environ: Mapping[str, str] | None = None) -> Config:
 
     port = env.int("PORT", env.get("INKCAST_PORT", "8787"))
     cache_url = env.get("INKCAST_CACHE_URL").rstrip("/")
+    authz_engine = env.get("INKCAST_AUTHZ_ENGINE", "local").lower()
     return Config(
         public_url=env.get("INKCAST_PUBLIC_URL", f"http://localhost:{port}").rstrip("/"),
         secret_key=secret("INKCAST_SECRET_KEY"),
@@ -348,6 +387,15 @@ def load_config(environ: Mapping[str, str] | None = None) -> Config:
         cache_url=cache_url,
         # Asked for only when a shared cache is configured: no credential is fetched that nothing uses.
         cache_password=secret("INKCAST_CACHE_PASSWORD") if cache_url else SecretValue(""),
+        authz_engine=authz_engine,
+        authz_allow_local=env.bool("INKCAST_AUTHZ_ALLOW_LOCAL"),
+        authz_model_path=env.get("INKCAST_AUTHZ_MODEL"),
+        fga_api_url=env.get("INKCAST_FGA_API_URL").rstrip("/"),
+        fga_store_id=env.get("INKCAST_FGA_STORE_ID"),
+        fga_model_id=env.get("INKCAST_FGA_MODEL_ID"),
+        # Asked for only when OpenFGA is the engine: no credential is fetched that nothing uses.
+        fga_api_token=secret("INKCAST_FGA_API_TOKEN") if authz_engine == "openfga" else SecretValue(""),
+        fga_timeout_seconds=env.float("INKCAST_FGA_TIMEOUT", "5"),
         reveal_secrets=env.bool("INKCAST_LOG_REVEAL_SECRETS"),
         secrets=provider,
         secret_errors=secret_errors,

@@ -193,6 +193,19 @@ spec:
         description: Every Keycloak user sync pass for 15 minutes failed, so people disabled or deleted in Keycloak keep their
           Inkcast tokens until it recovers. Sign-in itself is unaffected.
         runbook_url: https://github.com/inkcasthq/inkcast/blob/main/docs/runbooks/alerts.md#inkcastidentitysyncfailing
+    - alert: InkcastAuthzErrors
+      expr: sum(rate(inkcast_authz_checks_total{result="error"}[5m])) > 0
+      for: 5m
+      labels:
+        severity: critical
+        team: inkcast
+        service: platform
+      annotations:
+        summary: The authorization engine is failing; requests are refused (503)
+        description: 'Permission checks have been failing for 5 minutes ({{ $value | humanize }}/s). Every failed check is
+          a 503 for the caller: nothing is granted without an answer. OpenFGA is down or unreachable, the pinned model id
+          is wrong, or the preshared key was rotated on one side only (authz.error in the logs says which).'
+        runbook_url: https://github.com/inkcasthq/inkcast/blob/main/docs/runbooks/alerts.md#inkcastauthzerrors
   - name: inkcast.slo.api-availability
     interval: 1m
     rules:

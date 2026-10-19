@@ -113,6 +113,8 @@ Rook-Ceph RGW on-prem, S3 in cloud, through one `ObjectStore` seam (put, presign
 | `inkcast_cache_requests_total`, `inkcast_cache_errors_total` | counter | `backend`, `result` | hit ratio, backend health |
 | `inkcast_outbox_pending`, `inkcast_outbox_oldest_age_seconds` | gauge | `consumer` | event stream lag |
 | `inkcast_outbox_events_total`, `inkcast_kpi_events_total` | counter | `sink`, `result` | consumer throughput and failures |
+| `inkcast_authz_checks_total` | counter | `relation`, `result` (allowed, denied, error) | permission decisions; errors mean 503s (fail closed) |
+| `inkcast_authz_duration_seconds` | histogram | `op`, `engine` | one policy engine call (check, batch_check, list_objects, write, read) |
 | `inkcast_build_info` | gauge | `version`, `platforms` | facts |
 
 **Cardinality rules** (tests enforce the first two): the `route` label is a template from a closed list (`observability.route_label`; anything unknown is `other`), never a path; label values are closed sets (`status`, `platform` from the registry, `code` classes); no user, organization, workspace, token or ticket id ever appears on a metric. Budget: under 2,000 series per pod.

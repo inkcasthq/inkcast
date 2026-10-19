@@ -43,13 +43,17 @@ def _service_app(specs: Iterable[ServiceSpec], ctx: Context) -> Starlette:
     return app
 
 
-def readiness(specs: Iterable[ServiceSpec], ctx: Context) -> list[str]:
+async def readiness(specs: Iterable[ServiceSpec], ctx: Context) -> list[str]:
     problems = []
     if ctx.store is not None:
         try:
             ctx.store.ping()
         except Exception as exc:  # pragma: no cover - depends on storage failure
             problems.append(f"storage: {exc}")
+    if ctx.authz is not None:  # the engine caches its answer, so this never hammers OpenFGA (E3.F3.6.S4)
+        problem = await ctx.authz.ready()
+        if problem:
+            problems.append(f"authz ({ctx.authz.name}): {problem}")
     if ctx.runs_scheduler and ctx.publisher and ctx.publisher.last_tick and \
             time.time() - ctx.publisher.last_tick > max(120, 6 * ctx.config.scheduler_interval_seconds):
         problems.append("scheduler: no tick recently")
@@ -62,15 +66,16 @@ def readiness(specs: Iterable[ServiceSpec], ctx: Context) -> list[str]:
 
 
 def probe_routes(specs: Iterable[ServiceSpec], ctx: Context) -> list[Route]:
-    """Kubernetes-style probes. /livez: the process serves requests. /readyz: storage answers, the
-    scheduler loop (if this process runs it) ticked recently, and each service's own checks pass."""
+    """Kubernetes-style probes. /livez: the process serves requests. /readyz: storage answers, the policy engine's
+    store and model exist, the scheduler loop (if this process runs it) ticked recently, and each service's own
+    checks pass."""
     specs = list(specs)
 
     async def livez(_: Request) -> Response:
         return JSONResponse({"ok": True})
 
     async def readyz(_: Request) -> Response:
-        problems = readiness(specs, ctx)
+        problems = await readiness(specs, ctx)
         body = {"ok": not problems, "version": __version__, "platforms": list(ctx.platforms),
                 "services": [s.name for s in specs]}
         if problems:

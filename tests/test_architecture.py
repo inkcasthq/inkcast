@@ -87,6 +87,7 @@ class Architecture(unittest.TestCase):
             "inkcast/services/identity/login.py",   # the HMAC key, the IdP client secrets
             "inkcast/libs/cache/redis.py",          # the AUTH command to Redis/Valkey
             "inkcast/services/identity/keycloak_sync.py",  # the sync service account's client secret, token request
+            "inkcast/libs/authz/openfga.py",        # OpenFGA's preshared key, the bearer header of each request
         }
         found = {}
         for path in (SRC / "inkcast").rglob("*.py"):

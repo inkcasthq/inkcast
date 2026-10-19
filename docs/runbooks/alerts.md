@@ -130,6 +130,17 @@ SLO burn-rate alerts carry `slo`, `burn_rate`, `long_window` and `short_window` 
 4. Connection errors: Keycloak is down, or a NetworkPolicy blocks the admin API (same host and port as the issuer).
 5. Once it recovers, the next full reconcile (every `INKCAST_KEYCLOAK_RECONCILE_INTERVAL`, 10 minutes by default, and at start) catches anyone missed. To force it now, restart IdentityService.
 
+## InkcastAuthzErrors
+
+**Meaning:** permission checks (E3.F3.6) have been failing for 5 minutes. Inkcast fails closed: every check the engine could not answer became a 503 for the person asking, and nothing was granted or changed. Readiness also reports the engine (`authz (openfga): …` in `/readyz`), so with several replicas the ones that can't reach OpenFGA stop receiving traffic.
+
+1. The log has `authz.error` lines with the operation and the reason (ids only, never a token).
+2. "OpenFGA unreachable" or "request failed (ReadTimeout)": OpenFGA is down, or a NetworkPolicy blocks it (E3.F3.9 lets only Inkcast services reach it). Check its pods and `INKCAST_FGA_API_URL`; `INKCAST_FGA_TIMEOUT` (5 s) is per request.
+3. "refused the credentials (HTTP 401)": the preshared key in OpenFGA and `INKCAST_FGA_API_TOKEN(_FILE)` differ (a rotation done on one side only). Set both to the same value; the file is re-read without a restart.
+4. "store or model not found (HTTP 404)" or `authorization_model_not_found`: `INKCAST_FGA_STORE_ID` or `INKCAST_FGA_MODEL_ID` names something that store does not hold. Each deploy pins a model id; after a new model version is written, its id must reach the ConfigMap (docs/authorization.md §8).
+5. "too deep": a relationship chain longer than OpenFGA's resolution depth (25). Look for a cycle in the tuples written for that object.
+6. With `INKCAST_AUTHZ_ENGINE=local` the engine is the Inkcast database itself: the storage probe will be failing too.
+
 ## SLO burn-rate alerts
 
 Each SLO has four alerts named `InkcastSloBurn<Name>`; the labels say which window pair fired. `critical` pairs (14.4x over 1 h, 6x over 6 h) page: at that rate the 30-day budget is gone in two days or five. `warning` pairs (3x over 1 d, 1x over 3 d) open a ticket. Dashboards show `inkcast_slo:<name>:error_ratio_1h` against `1 - objective`.

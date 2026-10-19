@@ -65,6 +65,8 @@ EVENTS: dict[str, tuple[str, str]] = {
     "outbox.consumer.failed": ("warning", "An event sink failed on a batch; the cursor stayed and the batch is retried."),
     "identity.user.disabled": ("warning", "Keycloak disabled or deleted a person: their Inkcast tokens and PATs were cut off."),
     "identity.sync.failed": ("warning", "A Keycloak user sync pass failed (service account refused, Keycloak down); retried."),
+    "authz.denied": ("warning", "A permission check said no (user, relation and object ids; never a token or a name)."),
+    "authz.error": ("critical", "The policy engine could not answer (OpenFGA down, bad model id); the caller failed closed (503)."),
     "backup.done": ("info", "A database backup was taken, checked and kept (name, size, rows)."),
     "backup.failed": ("critical", "A database backup failed; nothing was removed. The alert fires when none succeeds for 26 h."),
     "restore.done": ("warning", "The database was replaced by a backup; the previous one was kept beside it."),
