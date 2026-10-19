@@ -53,13 +53,14 @@ Every route, MCP tool and job goes through one `authz.require()`: token scope, t
 | Entry | `launcher.py`, `cli.py` | Parse the command, validate config for the chosen services (exit 78 on a problem), build the context, serve |
 | Services | `services/<name>/` | Each one exposes `SERVICE: ServiceSpec`, and never imports another service |
 | Contracts | `libs/contracts/` | API models, the OpenAPI document and the route table: the only thing clients and services agree on |
-| Shared libraries | `libs/` (config, secrets, observability, auth, db, content, platforms, http, pipeline, runtime) | Reusable, and never imports a service |
+| Shared libraries | `libs/` (config, secrets, observability, auth, authz, db, content, platforms, http, pipeline, runtime) | Reusable, and never imports a service |
 | Plug-ins | `inkcast.platforms`, `inkcast.services` entry points | Platforms and services can come from other packages |
 
 | Module | Responsibility |
 |---|---|
 | `libs/auth` | `TokenVerifier` turns an OAuth access token or a personal access token into a `Principal` (user, scopes, kind). REST (`Authed`) and MCP tools check a scope on every call. |
-| `libs/db` | One `Database` with domain repositories (`IdentityRepo`, `VaultRepo`, `PostsRepo`, `LedgerRepo`), each owned by one service ([ADR-0003](adr/0003-data-store.md)). |
+| `libs/authz` | The pluggable `PolicyEngine` ([authorization design](authorization.md), [ADR-0007](adr/0007-openfga-authorization.md)): `OpenFgaEngine` over OpenFGA's REST API, `LocalEngine` evaluating the same compiled model in-process, `Instrumented` counting and logging every check the same way. |
+| `libs/db` | One `Database` with domain repositories (`IdentityRepo`, `VaultRepo`, `PostsRepo`, `LedgerRepo`, `AuthzRepo`), each owned by one service ([ADR-0003](adr/0003-data-store.md)). |
 | `libs/content` | Platform-neutral story: front matter, per-platform overrides, image URL fixing, schedule validation. Pure, with no I/O. |
 | `libs/platforms` | The `Platform` interface (`prepare` is pure; `publish`, `update` and `find_existing` do I/O, with `capabilities`), the built-ins and the registry. |
 | `libs/pipeline` | Fan-out to platforms, sends, safe retries (`60s`, `5m`, `30m`), updates, confirmation of unconfirmed sends, cancel. |

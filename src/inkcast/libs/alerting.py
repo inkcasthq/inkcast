@@ -158,6 +158,13 @@ ALERTS: tuple[Alert, ...] = (
           "warning", "The Keycloak user sync has failed for 15 minutes",
           "Every Keycloak user sync pass for 15 minutes failed, so people disabled or deleted in Keycloak keep their "
           "Inkcast tokens until it recovers. Sign-in itself is unaffected.", "identity"),
+    # E3.F3.6.S5: an engine error is a 503 for the person asking (fail closed), so any sustained rate pages.
+    Alert("InkcastAuthzErrors", 'sum(rate(inkcast_authz_checks_total{result="error"}[5m])) > 0', "critical",
+          "The authorization engine is failing; requests are refused (503)",
+          "Permission checks have been failing for 5 minutes ({{ $value | humanize }}/s). Every failed check is a 503 "
+          "for the caller: nothing is granted without an answer. OpenFGA is down or unreachable, the pinned model id "
+          "is wrong, or the preshared key was rotated on one side only (authz.error in the logs says which).",
+          "platform"),
 )
 
 SLOS: tuple[Slo, ...] = (

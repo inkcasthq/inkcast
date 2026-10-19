@@ -1,5 +1,6 @@
 """Shared libraries: secrets handling, log redaction, the config gate, service naming, prefixes."""
 
+import dataclasses
 import io
 import json
 import logging
@@ -197,6 +198,9 @@ class ConfigGate(unittest.TestCase):
         with self.assertRaisesRegex(ConfigError, "INKCAST_SECRET_KEY must be at least 32"):
             gate(gw, resolve("PublishingApi"))
         weak = self.cfg(secret_key="k" * 48, environment="production", public_url="https://inkcast.example.com")
+        with self.assertRaisesRegex(ConfigError, "INKCAST_AUTHZ_ENGINE=local is refused in production"):
+            gate(weak, resolve("PublishingApi"))                                # E3.F3.6.S4: no OpenFGA, no opt-in
+        weak = dataclasses.replace(weak, authz_allow_local=True)               # a self-host that accepts it
         with self.assertRaisesRegex(ConfigError, "(?s)Security posture problems.*not a random key"):
             gate(weak, resolve("PublishingApi"))
         with self.assertLogs("inkcast", "WARNING") as logs:                   # the same finding only warns elsewhere

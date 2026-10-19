@@ -58,8 +58,9 @@ class ServiceSpec:
     workers: tuple[Callable[["Context", Any], Awaitable[None]], ...] = ()
     # Public path prefixes this service answers behind the gateway (the route table).
     public_paths: tuple[str, ...] = ()
-    # What Config.validate must check for this service ("login", "secret_key", "upstreams").
-    needs: tuple[str, ...] = ("secret_key",)
+    # What Config.validate must check for this service ("login", "secret_key", "authz", "upstreams"). Every
+    # product service checks permissions (E3.F3.6); a Gateway only proxies.
+    needs: tuple[str, ...] = ("secret_key", "authz")
     # Extra readiness checks: return a problem string, or None when healthy.
     ready_checks: tuple[Callable[["Context"], str | None], ...] = field(default_factory=tuple)
 

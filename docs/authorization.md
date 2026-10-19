@@ -130,30 +130,39 @@ fga model test --tests authz/model.fga.yaml
 
 ## 7. Enforcement (Python, `inkcast.libs.authz`)
 
-All checks go through one helper, and there are no direct engine calls anywhere else. The engine is pluggable: `INKCAST_AUTHZ_ENGINE=openfga` (the default; it calls OpenFGA's REST API through `httpx2`, with no SDK dependency) or `local`. The local engine is an in-process evaluator of the same compiled model, for tests, laptops and small air-gapped self-hosts. Both must pass the same `model.fga.yaml`.
+All checks go through one helper, and there are no direct engine calls anywhere else. The engine is pluggable (E3.F3.6, built): `INKCAST_AUTHZ_ENGINE=openfga` calls OpenFGA's REST API through `httpx2`, with no SDK dependency, and is what the hosted service runs; `local` is an in-process evaluator of the same compiled model (`authz/model.json`, shipped in the package) over tuples in the Inkcast database, for tests, laptops and small air-gapped self-hosts. **`local` is the default**, so a deployment without OpenFGA keeps working; production refuses it unless `INKCAST_AUTHZ_ALLOW_LOCAL=true` says this is a self-host that accepts it (the hosted environments never set that). Both engines pass the same `model.fga.yaml`: CI runs it with `fga model test`, and `tests/test_authz.py` runs it through `LocalEngine` and through `OpenFgaEngine` against a fake OpenFGA server that answers from the same evaluator.
 
 ```python
-# libs/authz/__init__.py (E3.F3.6 / F3.7): the shape, not yet built
-from typing import Protocol
-
+# libs/authz (E3.F3.6): the interface every caller sees
 class PolicyEngine(Protocol):
-    async def check(self, user: str, relation: str, obj: Ref, *, consistency: str = "minimize_latency") -> bool: ...
-    async def batch_check(self, items: list[tuple[str, str, Ref]]) -> list[bool]: ...
-    async def list_objects(self, user: str, relation: str, type_: str) -> list[str]: ...
-    async def write(self, writes: list[Tuple], deletes: list[Tuple] = ()) -> None: ...
+    name: str  # "local" | "openfga"
+    async def check(self, user: str, relation: str, obj: Ref, *, consistency: Consistency = MINIMIZE_LATENCY) -> bool: ...
+    async def batch_check(self, items: Sequence[tuple[str, str, Ref]], *, consistency=...) -> list[bool]: ...
+    async def list_objects(self, user: str, relation: str, type_: str, *, consistency=...) -> list[str]: ...
+    async def write(self, writes: Iterable[Tuple] = (), deletes: Iterable[Tuple] = ()) -> None: ...
+    async def read(self, *, user=None, relation=None, obj: Ref | None = None, type_: str | None = None) -> list[Tuple]: ...
+    async def ready(self) -> str | None: ...  # a readiness problem, cached
+```
 
+- `Ref(type, id)` is one object (`str(Ref("post", id))` is `post:<id>`); `Tuple(user, relation, object)` is one relationship, with usersets such as `organization:acme#member`. Both validate OpenFGA's identifier rules at construction. The relation names are constants per type (`Workspace.CAN_CREATE_POST`, `Channel.CAN_PUBLISH`, …), and a test fails when they drift from `model.json`.
+- **Fail closed.** Anything the engine cannot answer raises `EngineError` (a timeout, a 5xx, a wrong store or model id, an unknown relation); a denial is `False`, never an exception. The caller turns an error into a 503 and never grants on it.
+- **Writes follow OpenFGA.** A request is applied whole or not at all; writing a tuple that exists, or deleting one that doesn't, is an `InvalidRequest` (an `EngineError`), and the local engine validates each write against the model's `directly_related_user_types` exactly as OpenFGA does. The lifecycle (E3.F3.8) reads before it writes.
+- **Consistency.** `check`, `batch_check` and `list_objects` take `consistency="higher_consistency"` for read-after-write checks (grant, then act); the default takes OpenFGA's cache. The local engine is always consistent.
+- **`list_objects` is capped** at OpenFGA's default of 1,000 results, and the local engine checks every candidate object of the type one by one. List pages ask for workspaces, then filter in the database (§8).
+- `Context.authz` holds the engine every product process builds (a Gateway has none), wrapped in `Instrumented`: whichever engine answers, each check is counted in `inkcast_authz_checks_total{relation,result}` and timed in `inkcast_authz_duration_seconds{op,engine}`, a denial logs `authz.denied` and a failure `authz.error`, with user, relation and object ids only.
+
+`require()` arrives with E3.F3.7 and only raises; the engine wrapper has already logged and counted:
+
+```python
 async def require(principal: Principal, relation: str, obj: Ref, *, scope: str) -> None:
-    """Scope AND OpenFGA must allow. Raises 403 (denied) or 503 (engine error; fail closed)."""
+    """Scope AND the policy engine must allow. Raises 403 (denied) or 503 (engine error; fail closed)."""
     if not principal.can(scope):
         raise ApiError(403, "insufficient_scope", f"This token lacks the `{scope}` scope.")
-    user = f"user:{principal.user_id}"
     try:
-        allowed = await engine.check(user, relation, obj)
+        allowed = await ctx.authz.check(user_ref(principal.user_id), relation, obj)
     except EngineError:
-        log.error("authorization check failed", extra={"event": "authz.error", "user": user, "relation": relation, "object": str(obj)})
         raise ApiError(503, "authz_unavailable", "Authorization is unavailable; nothing was changed.")
     if not allowed:
-        log.warning("denied", extra={"event": "authz.denied", "user": user, "relation": relation, "object": str(obj)})
         raise ApiError(403, "forbidden", "You don't have permission to do that.")
 ```
 
@@ -178,11 +187,12 @@ A **personal access token never exceeds its user**: its scopes narrow what the u
 ## 8. Operations
 
 - **Deployment:** OpenFGA backed by Postgres, using the Kustomize component from E3.F3.9 (OpenShift restricted-v2). Run `openfga migrate` as a Job before upgrades. Images are mirrored for air-gapped registries.
-- **Credentials:** the OpenFGA API credentials come from the secrets store, following the [secrets design](reference/secrets.md), never from committed env files. A NetworkPolicy lets only Inkcast services reach OpenFGA.
-- **Model versions:** each deploy pins `INKCAST_FGA_MODEL_ID`. A model change ships as a new model version, written by `inkcast authz apply-model`, never edited in place.
+- **Settings:** `INKCAST_AUTHZ_ENGINE=openfga`, `INKCAST_FGA_API_URL`, `INKCAST_FGA_STORE_ID`, `INKCAST_FGA_MODEL_ID`, `INKCAST_FGA_TIMEOUT` (5 s per request). Reads and checks are retried once when the connection could not be made; a write never is.
+- **Credentials:** the preshared key comes from the secrets store as `INKCAST_FGA_API_TOKEN` (or `_FILE`), following the [secrets design](reference/secrets.md), never from committed env files; it is sent as a bearer header and is redacted everywhere else. A NetworkPolicy lets only Inkcast services reach OpenFGA.
+- **Model versions:** each deploy pins `INKCAST_FGA_MODEL_ID`. A model change ships as a new model version, written by `inkcast authz apply-model` (E3.F3.9), never edited in place. Readiness (`/readyz`) checks that the store holds the pinned model, cached for 30 s so probes never hammer OpenFGA; with the local engine it checks that the model loaded (`INKCAST_AUTHZ_MODEL` may point at a model.json other than the packaged one).
 - **Batching:** use `BatchCheck` for several checks in one request. List pages use `ListObjects` on **workspaces**, then filter in the DB, because `ListObjects` caps its results.
 - **Consistency:** read-after-write checks (grant, then act) ask for higher consistency.
-- **Logging and metrics:** every denied check and every engine error is logged with user, relation and object (ids only), and counted (`inkcast_authz_checks_total{relation,result}`). Errors and drift raise alerts (E7.F7.1.S2).
+- **Logging and metrics:** every denied check (`authz.denied`) and every engine error (`authz.error`) is logged with user, relation and object (ids only), and counted (`inkcast_authz_checks_total{relation,result}`, latency in `inkcast_authz_duration_seconds{op,engine}`). `InkcastAuthzErrors` pages on sustained errors ([runbook](runbooks/alerts.md#inkcastauthzerrors)); drift alerts come with the reconciler (E3.F3.8.S3).
 
 ## 9. Contributor checklist
 

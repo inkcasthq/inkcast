@@ -14,6 +14,7 @@ import httpx2
 
 from .. import __version__
 from .auth import TokenVerifier
+from .authz import PolicyEngine, build_engine
 from .cache import CacheBackend, build_cache
 from .config import Config
 from .db import Store
@@ -36,6 +37,7 @@ class Context:
     extras: dict = field(default_factory=dict)  # per-service objects (e.g. the MCP server)
     limiter: RateLimiter = field(default_factory=RateLimiter)  # for the endpoints anyone can call (libs/http/ratelimit)
     cache: CacheBackend | None = None  # libs/cache: in-process, or Redis/Valkey shared by every replica
+    authz: PolicyEngine | None = None  # libs/authz: the policy engine INKCAST_AUTHZ_ENGINE picked (None in a Gateway)
 
     @property
     def runs_scheduler(self) -> bool:
@@ -62,6 +64,8 @@ def build_metrics(store: Store | None, registry: dict[str, Platform], config: Co
     m.counter("inkcast_cache_errors_total", "Cache backend failures by backend (a request fell back or failed).")
     m.counter("inkcast_outbox_events_total", "Domain events handed to event sinks, by sink and result (handled, failed).")
     m.counter("inkcast_kpi_events_total", "Domain events folded into KPI rollups, by result (applied, duplicate).")
+    m.counter("inkcast_authz_checks_total", "Authorization checks by relation and result (allowed, denied, error).")
+    m.histogram("inkcast_authz_duration_seconds", "Time one policy engine call took, by operation and engine.")
     if store is None:
         return m
     m.gauge("inkcast_posts", "Posts by status.", lambda: {(("status", k),): v for k, v in store.post_counts().items()})
@@ -88,5 +92,7 @@ def build_context(config: Config, transport: httpx2.AsyncBaseTransport | None = 
     publisher = Publisher(store, registry, metrics) if store else None
     verifier = TokenVerifier(store) if store else None
     cache = build_cache(config.cache_url, config.cache_password, metrics)
+    authz = build_engine(config, store, http, metrics) if store else None
     return Context(config, store, http, registry, metrics, publisher, verifier, services=services,
-                   limiter=RateLimiter(config.rate_limit_per_minute, backend=cache, metrics=metrics), cache=cache)
+                   limiter=RateLimiter(config.rate_limit_per_minute, backend=cache, metrics=metrics), cache=cache,
+                   authz=authz)
