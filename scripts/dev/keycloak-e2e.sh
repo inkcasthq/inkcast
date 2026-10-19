@@ -32,9 +32,13 @@ kcadm config credentials --server http://localhost:8080 --realm master --user ad
 redirects="$(kcadm get clients -r inkcast -q clientId=inkcast-identity --fields redirectUris,secret)"
 echo "$redirects" | grep -q 'http://localhost:8787/auth/callback' || { echo "realm placeholders not filled: $redirects" >&2; exit 1; }
 if echo "$redirects" | grep -q '\${'; then echo "a \${...} placeholder was left unfilled" >&2; exit 1; fi
-retention="$(kcadm get realms/inkcast --fields eventsExpiration,attributes)"
-echo "$retention" | grep -q '"eventsExpiration" : 604800' || { echo "user events don't expire after 7 days: $retention" >&2; exit 1; }
-echo "$retention" | grep -q '"adminEventsExpiration" : "604800"' || { echo "admin events don't expire after 7 days" >&2; exit 1; }
+kcadm get realms/inkcast | python3 -c '
+import json, sys
+realm = json.load(sys.stdin)
+got = {"eventsExpiration": realm.get("eventsExpiration"),
+       "adminEventsExpiration": (realm.get("attributes") or {}).get("adminEventsExpiration")}
+print("event retention (s):", got)
+sys.exit(0 if got == {"eventsExpiration": 604800, "adminEventsExpiration": "604800"} else "events must expire after 7 days")'
 sync_roles="$(kcadm get-roles -r inkcast --uusername service-account-inkcast-sync --cclientid realm-management --effective)"
 for role in view-users view-events; do
   echo "$sync_roles" | grep -q "\"$role\"" || { echo "the inkcast-sync service account lacks $role: $sync_roles" >&2; exit 1; }
