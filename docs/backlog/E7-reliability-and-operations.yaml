@@ -99,6 +99,19 @@ features:
     title: 'Active/passive region: CloudNativePG replica cluster, scheduler active in one region, DNS failover; DR drill'
     status: planned
     change: new
+  - id: F7.6.S5
+    title: 'Runbook: the Compose stack on an EC2 instance (localhost-bound ports reached over SSM or SSH port forwarding,
+      secrets from AWS Secrets Manager)'
+    status: planned
+    change: 'new; issue #39'
+    acceptance:
+    - docs/runbooks/compose-on-ec2.md takes a fresh Amazon Linux or Ubuntu instance to a running stack (Docker, Compose,
+      the repo, scripts/dev/stack.sh compose)
+    - No inbound security-group rule is needed; access is by SSM Session Manager port forwarding (or SSH -L) to 8787, 3000
+      and 9091
+    - Secrets come from AWS Secrets Manager through the instance role into the files Compose mounts, as in the secrets
+      design (docs/reference/secrets.md); nothing secret on the command line or in shell history
+    - Stop, start and teardown steps; what survives a stop (volumes) and what does not
 - id: F7.7
   title: Dashboards to the /dashboard standard
   stories:
@@ -133,6 +146,18 @@ features:
     - 'The check runs every panel''s queries through Grafana: any query error fails; the core panels must have data; a light
       screenshot and summary are uploaded'
     - Both paths run in CI (a Compose job and kind steps); secrets are generated per run and never committed
+  - id: F7.7.S7
+    title: 'Dashboard panels for the identity sync (passes, failures, people cut off) and authorization checks (allowed,
+      denied, error, latency)'
+    status: planned
+    change: 'new; issue #40'
+    acceptance:
+    - 'Generated from libs/dashboards.py: inkcast_identity_sync_total by result, inkcast_identity_users_disabled_total
+      by reason, inkcast_authz_checks_total by result and the check latency (after E3.F3.6)'
+    - 'Panels for features that are off show "No data" in the neutral colour, never green, and the check lists them in
+      EXPECTED_EMPTY with the reason'
+    - The kind dashboards check seeds them (a sync pass against the realm, allowed and denied checks) and every panel's
+      query runs through Grafana
 - id: F7.8
   title: Traces and the OTLP exporter (replaces issue 27)
   stories:
