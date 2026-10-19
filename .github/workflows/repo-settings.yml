@@ -1,0 +1,27 @@
+# Repository settings as code (E1.F1.8.S1, S6): fails when the live main ruleset or the security settings drift
+# from .github/rulesets/*.json and .github/repo-settings.json. It only reads; the owner applies changes with
+# `scripts/repo/settings.py apply` (admin). Reads GITHUB_TOKEN can't make (admin-only paths) are reported, not failed.
+name: repo-settings
+
+on:
+  push:
+    branches: [main]
+    paths: [".github/rulesets/**", ".github/repo-settings.json", "scripts/repo/**"]
+  schedule:
+    - cron: "41 6 * * *"   # daily: a setting changed by hand in the UI shows up here
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Live settings match the files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          scripts/ci-run.sh "repository settings drifted (run scripts/repo/settings.py apply)" \
+            python3 scripts/repo/settings.py check "${{ github.repository }}"
