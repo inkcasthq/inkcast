@@ -88,6 +88,22 @@ features:
     title: Scheduled reconcile of Keycloak membership against OpenFGA; a missed event still removes access; drift alert
     status: planned
     change: new
+  - id: F9.5.S4
+    title: The user sync also reads user events (DELETE_ACCOUNT from the account console), so a self-deleted account is
+      cut off within a minute, not at the next reconcile
+    status: planned
+    change: 'new; issue #41'
+    acceptance:
+    - The realm records DELETE_ACCOUNT user events; the sync reads them with its own cursor beside the admin-events one
+    - The inkcast-sync service account still needs only view-users and view-events
+    - The fake and the kind e2e delete an account through the account API and expect 401 on its tokens within 60 s
+  - id: F9.5.S5
+    title: The user sync proven in split mode on kind (IdentityService's own Deployment carries the sync settings)
+    status: planned
+    change: 'new; issue #42'
+    acceptance:
+    - ci-split-oidc sets INKCAST_KEYCLOAK_SYNC_* and the secret on the IdentityService Deployment only
+    - keycloak-e2e.sh runs the disable, 401, re-enable check through the Gateway as it does in single mode
 - id: F9.6
   title: Enterprise SSO
   stories:
@@ -101,3 +117,11 @@ features:
   - id: F9.7.S1
     title: 'Runbook: realm upgrades, signing-key rotation, backup and restore'
     status: planned
+  - id: F9.7.S2
+    title: 'Keycloak event retention in the realm: eventsExpiration and adminEventsExpiration (7 days)'
+    status: planned
+    change: 'new; issue #43'
+    acceptance:
+    - realm-inkcast.json sets both; tests/test_keycloak_realm.py keeps them set and at least 1 day (the sync reads from
+      the day before its cursor)
+    - The kind e2e reads the imported realm and checks both values

@@ -73,6 +73,14 @@ features:
   - id: F1.6.S2
     title: End-to-end suite in single and split mode
     status: done
+  - id: F1.6.S3
+    title: 'The image on Python 3.15 once its wheels settle (second half of #24; CI already tests 3.15)'
+    status: planned
+    change: 'new; issue #32'
+    acceptance:
+    - Both Dockerfile stages on python:3.15-slim (digest-pinned, F1.8.S2); the image job, grype and kind pass
+    - Every dependency installs from wheels on 3.15 (no source builds in the image build log)
+    - Workflows.test_the_image_runs_a_python_the_tests_run_on still passes; README states the image's Python
 - id: F1.7
   title: Docs
   stories:
@@ -82,3 +90,58 @@ features:
   - id: F1.7.S2
     title: Backlog as code
     status: done
+  - id: F1.7.S3
+    title: 'Correct merged PR descriptions that went stale before merge (#22 names the servicemonitor component; the policy
+      is in metrics-access)'
+    status: done
+    change: 'new; issue #33, done 2026-10-19 (PR #22 description corrected, with a dated note)'
+    acceptance:
+    - The PR body says what was merged; a dated note at the end says what changed and why
+- id: F1.8
+  title: Supply chain and repository hardening
+  stories:
+  - id: F1.8.S1
+    title: 'Protect main with a ruleset: required checks, squash only, no force-push or deletion'
+    status: planned
+    change: 'new; issue #34'
+    acceptance:
+    - 'Required checks: lint, test (3.12), test (3.13), test (3.14), test (3.15), authz, manifests, image, kind, dashboards,
+      analyze (CodeQL); a pull request cannot merge while one is missing or failing'
+    - Squash merge only, linear history, no force-push or branch deletion on main; bypass for no one (owner included)
+    - The ruleset is kept as code (.github/rulesets/main.json) and a check compares it with the live ruleset
+    - docs/bootstrap.md lists the required checks from the same file, so renaming a job means editing one place
+  - id: F1.8.S2
+    title: Base images pinned by digest (python, Keycloak, Mailpit, Prometheus, Grafana) and moved by Dependabot
+    status: planned
+    change: 'new; issue #35'
+    acceptance:
+    - 'Every FROM and image: line names a tag and its digest (name:tag@sha256:...); the Dockerfile comment that claims
+      this becomes true'
+    - A test fails on any image reference without a digest in Dockerfile, deploy/ and the workflows
+    - Dependabot's docker ecosystem covers each directory that holds image references and opens digest bumps weekly
+  - id: F1.8.S3
+    title: Hash-locked Python dependencies for the image (requirements.lock, pip install --require-hashes)
+    status: planned
+    change: 'new; issue #36'
+    acceptance:
+    - requirements.lock pins every runtime dependency, transitive ones included, with sha256 hashes for each wheel
+    - The image installs with --require-hashes --no-deps from the lock, then the wheel with --no-deps; two builds of one
+      commit install identical files
+    - A CI check fails when the lock no longer satisfies pyproject.toml; scripts/lock.sh regenerates it
+    - Dependabot (pip) keeps the lock fresh; the SBOM job lists exactly the locked versions
+  - id: F1.8.S4
+    title: kind's node image pinned by digest in CI and scripts/dev/stack.sh
+    status: planned
+    change: 'new; issue #37'
+    acceptance:
+    - kind create cluster --image kindest/node:<version>@sha256:<digest> everywhere it runs, with the kind version pinned
+      next to it
+    - One place holds the pin (scripts/versions.env); a test checks every kind create uses it
+  - id: F1.8.S5
+    title: Remove the stale publish.yml:codeql code-scanning configuration
+    status: planned
+    change: 'new; issue #38'
+    acceptance:
+    - 'The CodeQL check on pull requests no longer warns "1 configuration not found" (needs the owner in Security, Tool
+      status, or a token with security_events)'
+    - docs/cicd.md says how to retire a configuration when a workflow or job is renamed
