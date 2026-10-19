@@ -40,7 +40,7 @@ services:
     volumes: [inkcast-data:/data]
 
   prometheus:
-    image: quay.io/prometheus/prometheus:v3.5.0
+    image: quay.io/prometheus/prometheus:v3.5.0@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996
     command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus",
               "--storage.tsdb.retention.time=2d"]
     depends_on: [inkcast]
@@ -51,7 +51,7 @@ services:
       - prometheus-data:/prometheus
 
   grafana:
-    image: grafana/grafana-oss:12.1.0
+    image: grafana/grafana-oss:12.1.0@sha256:6ac590e7cabc2fbe8d7b8fc1ce9c9f0582177b334e0df9c927ebd9670469440f
     depends_on: [prometheus]
     ports: ["127.0.0.1:3000:3000"]
     environment:

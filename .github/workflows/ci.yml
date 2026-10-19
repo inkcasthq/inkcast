@@ -102,7 +102,7 @@ jobs:
       - name: Alert rules pass promtool (deploy/dev/prometheus/rules.yaml, the PrometheusRule's groups)
         run: |
           scripts/ci-run.sh "promtool check rules" docker run --rm -v "$PWD/deploy/dev/prometheus:/w:ro" \
-            --entrypoint promtool quay.io/prometheus/prometheus:v3.5.0 check rules /w/rules.yaml
+            --entrypoint promtool quay.io/prometheus/prometheus:v3.5.0@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996 check rules /w/rules.yaml
 
   image:
     runs-on: ubuntu-24.04
@@ -111,6 +111,9 @@ jobs:
       security-events: write   # upload the scan to code scanning
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # E1.F1.8.S2: every third-party image is pinned by digest; a pin that no longer resolves fails, a tag that moved
+      # is a notice (the weekly run catches the Kubernetes manifests Dependabot doesn't read).
+      - run: scripts/ci-run.sh "image digests" python3 scripts/images.py verify
       - run: scripts/ci-run.sh "docker build" docker build -t inkcast:ci .
       - name: Scan the image (Grype)
         id: scan

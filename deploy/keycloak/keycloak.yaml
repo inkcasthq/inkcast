@@ -29,7 +29,7 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: keycloak
-          image: quay.io/keycloak/keycloak:26.6.1
+          image: quay.io/keycloak/keycloak:26.6.1@sha256:dea26401d06341095cc4ea9d66896200b55de5ca1daa1d2fcbe58493afa6e0ad
           args: ["start-dev", "--import-realm"]
           env:
             - {name: KC_HEALTH_ENABLED, value: "true"}
@@ -106,7 +106,7 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: mailpit
-          image: axllent/mailpit:v1.28.3
+          image: axllent/mailpit:v1.28.3@sha256:27cfb8893806ed676042a00f4db70325a0d57cc5217349d210b6dd903e1a7e67
           ports:
             - {name: smtp, containerPort: 1025}
             - {name: http, containerPort: 8025}
