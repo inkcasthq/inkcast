@@ -1,0 +1,18 @@
+{
+  "repository": {
+    "allow_squash_merge": true,
+    "allow_merge_commit": false,
+    "allow_rebase_merge": false,
+    "delete_branch_on_merge": true,
+    "squash_merge_commit_title": "PR_TITLE",
+    "squash_merge_commit_message": "PR_BODY"
+  },
+  "security_and_analysis": {
+    "secret_scanning": "enabled",
+    "secret_scanning_push_protection": "enabled",
+    "secret_scanning_non_provider_patterns": "enabled",
+    "dependabot_security_updates": "enabled"
+  },
+  "vulnerability_alerts": true,
+  "private_vulnerability_reporting": true
+}
