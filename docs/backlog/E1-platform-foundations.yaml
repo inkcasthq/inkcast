@@ -102,8 +102,9 @@ features:
   stories:
   - id: F1.8.S1
     title: 'Protect main with a ruleset: required checks, squash only, no force-push or deletion'
-    status: done
-    change: 'new; issue #34, built in the repo-settings PR (approvals 0 while there is one maintainer)'
+    status: in-progress
+    change: 'new; issue #34, as code in PR #46 (approvals 0 while there is one maintainer); live once the owner runs
+      scripts/repo/settings.py apply (automation here may not write repository settings)'
     acceptance:
     - 'Required checks: lint, test (3.12), test (3.13), test (3.14), test (3.15), authz, manifests, image, kind, dashboards,
       analyze (CodeQL); a pull request cannot merge while one is missing or failing'
@@ -112,8 +113,9 @@ features:
     - docs/bootstrap.md lists the required checks from the same file, so renaming a job means editing one place
   - id: F1.8.S2
     title: Base images pinned by digest (python, Keycloak, Mailpit, Prometheus, Grafana) and moved by Dependabot
-    status: planned
-    change: 'new; issue #35'
+    status: done
+    change: 'new; issue #35, built in PR #50 (digests resolved by CI; Kubernetes manifests are checked weekly by
+      scripts/images.py verify, since Dependabot does not read them)'
     acceptance:
     - 'Every FROM and image: line names a tag and its digest (name:tag@sha256:...); the Dockerfile comment that claims
       this becomes true'
@@ -148,8 +150,9 @@ features:
   - id: F1.8.S6
     title: 'Repository security settings as code: secret scanning with push protection, Dependabot security updates,
       private vulnerability reporting'
-    status: done
-    change: 'new; issue #45, found 2026-10-19 (all off on a public repository); built with F1.8.S1'
+    status: in-progress
+    change: 'new; issue #45, found 2026-10-19 (all off on a public repository); as code in PR #46, live once the owner
+      runs scripts/repo/settings.py apply'
     acceptance:
     - Secret scanning, push protection (with non-provider patterns), Dependabot security updates, vulnerability alerts and
       private vulnerability reporting are on

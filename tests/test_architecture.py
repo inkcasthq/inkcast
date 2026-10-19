@@ -163,6 +163,22 @@ class Workflows(unittest.TestCase):
     """CI runs on a pinned runner image (issue #16): `ubuntu-latest` moves to a new Ubuntu on GitHub's date, not
     ours, and kind, Docker Compose and Playwright's system packages all depend on it. Move deliberately, in a PR."""
 
+    def test_every_third_party_image_is_pinned_by_digest(self):
+        """Issue #35: a tag can be re-pushed, a digest can't. scripts/images.py finds every third-party image reference
+        (FROM, image:, docker run) and each one must be name:tag@sha256:...; `scripts/images.py pin` adds them."""
+        import importlib.util
+        import pathlib
+        root = pathlib.Path(__file__).resolve().parents[1]
+        spec = importlib.util.spec_from_file_location("images", root / "scripts" / "images.py")
+        images = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(images)
+        refs = images.references()
+        names = {m["name"] for _, _, m in refs}
+        self.assertTrue({"python", "quay.io/keycloak/keycloak", "quay.io/prometheus/prometheus"} <= names,
+                        f"the scan must see the images, not silently nothing: {sorted(names)}")
+        unpinned = sorted(f"{p.relative_to(root)}:{n} {m.group(0)}" for p, n, m in refs if not m["digest"])
+        self.assertEqual(unpinned, [], "pin with: scripts/images.py pin (needs docker), or --from a resolve list")
+
     def test_every_job_runs_on_a_pinned_image(self):
         import pathlib
         import re

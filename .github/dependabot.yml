@@ -11,7 +11,11 @@ updates:
     schedule: {interval: weekly, day: monday}
     groups: {python: {patterns: ["*"]}}
     labels: [dependencies, python]
-  - package-ecosystem: docker
+  - package-ecosystem: docker          # the Dockerfile's FROM lines, tag and digest (E1.F1.8.S2)
     directory: /
+    schedule: {interval: weekly, day: monday}
+    labels: [dependencies, docker]
+  - package-ecosystem: docker-compose  # deploy/dev/compose.yaml: Prometheus and Grafana, tag and digest
+    directory: /deploy/dev
     schedule: {interval: weekly, day: monday}
     labels: [dependencies, docker]
