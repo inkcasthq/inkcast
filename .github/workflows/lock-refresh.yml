@@ -1,0 +1,60 @@
+# Hash-locked dependencies (E1.F1.8.S3, issue #36): resolve requirements.lock and build.lock in CI (PyPI is reachable
+# here), weekly and on demand, and push them to the deps/lock-refresh branch. It pushes a branch only: a pull
+# request opened with this workflow's token would not run CI, so the owner (or automation acting as the owner)
+# opens it, and the squash merge is then the owner's commit like every other.
+name: lock-refresh
+
+on:
+  workflow_dispatch:
+    inputs:
+      upgrade:
+        description: "Move every pin to the newest allowed version (otherwise keep pins that still satisfy pyproject)"
+        type: boolean
+        default: true
+  schedule:
+    - cron: "23 7 * * 1"   # weekly, after Dependabot's Monday run
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lock-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write   # push deps/lock-refresh, never main (the ruleset protects it)
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.11.32"
+          enable-cache: false
+      - name: Resolve the locks
+        run: |
+          if [ "${{ github.event_name }}" = schedule ] || [ "${{ inputs.upgrade }}" = true ] || [ ! -f requirements.lock ]; then
+            scripts/ci-run.sh "lock" scripts/lock.sh --upgrade
+          else
+            scripts/ci-run.sh "lock" scripts/lock.sh
+          fi
+      - name: Push deps/lock-refresh when they changed
+        run: |
+          set -euo pipefail
+          git add requirements.lock build.lock
+          if git diff --cached --quiet; then
+            echo "### Locks are current; nothing pushed" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git -c user.name="inkcast-lock-refresh" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "Refresh the hash-locked dependencies (scripts/lock.sh)"
+          git push --force origin HEAD:refs/heads/deps/lock-refresh
+          {
+            echo "### Pushed deps/lock-refresh"
+            echo
+            echo "Open a pull request from it: \`gh pr create --head deps/lock-refresh --title 'Refresh the hash-locked dependencies'\`"
+            echo
+            git diff HEAD~1 --stat
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=Locks changed::pushed deps/lock-refresh; open a pull request from it"

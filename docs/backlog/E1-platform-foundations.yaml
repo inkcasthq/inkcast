@@ -123,8 +123,9 @@ features:
     - Dependabot's docker ecosystem covers each directory that holds image references and opens digest bumps weekly
   - id: F1.8.S3
     title: Hash-locked Python dependencies for the image (requirements.lock, pip install --require-hashes)
-    status: planned
-    change: 'new; issue #36'
+    status: in-progress
+    change: 'new; issue #36. Step 1: scripts/lock.sh and the lock-refresh workflow (locks resolved in CI, where PyPI
+      is reachable); step 2: the image installs from the locks with --require-hashes, and CI checks them'
     acceptance:
     - requirements.lock pins every runtime dependency, transitive ones included, with sha256 hashes for each wheel
     - The image installs with --require-hashes --no-deps from the lock, then the wheel with --no-deps; two builds of one
