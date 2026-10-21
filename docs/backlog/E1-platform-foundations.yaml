@@ -134,8 +134,9 @@ features:
     - Dependabot (pip) keeps the lock fresh; the SBOM job lists exactly the locked versions
   - id: F1.8.S4
     title: kind's node image pinned by digest in CI and scripts/dev/stack.sh
-    status: planned
-    change: 'new; issue #37'
+    status: done
+    change: 'new; issue #37, built in PR #55 (kind v0.33.0, kindest/node v1.37.0 by digest, kubectl v1.37.0; both
+      binaries SHA-256 checked by scripts/kind-tools.sh)'
     acceptance:
     - kind create cluster --image kindest/node:<version>@sha256:<digest> everywhere it runs, with the kind version pinned
       next to it

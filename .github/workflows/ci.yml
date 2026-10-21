@@ -155,9 +155,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: docker build -t inkcast:ci .
-      - name: Create cluster and load the image (kind and kubectl ship on the runner image)
+      - name: Pinned kind and kubectl (scripts/versions.env, SHA-256 checked)
+        run: scripts/ci-run.sh "kind tools" scripts/kind-tools.sh "$RUNNER_TEMP/bin" && echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Create cluster (pinned node image) and load the image
         run: |
-          kind create cluster --name inkcast --wait 120s
+          set -a; source scripts/versions.env; set +a
+          kind version && kubectl version --client
+          kind create cluster --name inkcast --image "$KIND_NODE_IMAGE" --wait 120s
           kind load docker-image inkcast:ci --name inkcast
       - name: Deploy the CI overlay
         run: |

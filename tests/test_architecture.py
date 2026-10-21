@@ -186,6 +186,30 @@ class Workflows(unittest.TestCase):
                 if re.match(r"[A-Za-z0-9_.-]+==", entry):
                     self.assertIn("--hash=sha256:", entry, f"{lock}: {entry.split()[0]} has no hash")
 
+    def test_kind_runs_the_pinned_node_image(self):
+        """Issue #37: every `kind create cluster` uses KIND_NODE_IMAGE from scripts/versions.env (a digest-pinned
+        kindest/node), and the kind and kubectl binaries are installed by scripts/kind-tools.sh, checked against the
+        SHA-256 pinned there, never taken from whatever the runner image ships."""
+        import pathlib
+        import re
+        root = pathlib.Path(__file__).resolve().parents[1]
+        versions = dict(re.findall(r"^([A-Za-z0-9_]+)=(.*)$", (root / "scripts" / "versions.env").read_text(), re.M))
+        self.assertRegex(versions["KIND_NODE_IMAGE"], r"^kindest/node:v\d+\.\d+\.\d+@sha256:[0-9a-f]{64}$")
+        self.assertRegex(versions["KIND_SHA256_linux_amd64"], r"^[0-9a-f]{64}$")
+        self.assertRegex(versions["KUBECTL_SHA256_linux_amd64"], r"^[0-9a-f]{64}$", "pin kubectl's SHA-256")
+        node_minor = int(re.search(r":v1\.(\d+)\.", versions["KIND_NODE_IMAGE"]).group(1))
+        kubectl_minor = int(re.search(r"^v1\.(\d+)\.", versions["KUBECTL_VERSION"]).group(1))
+        self.assertLessEqual(abs(node_minor - kubectl_minor), 1, "kubectl within one minor of the cluster")
+        creates = []
+        for path in [*(root / ".github" / "workflows").glob("*.yml"), *(root / "scripts").rglob("*.sh")]:
+            for line in path.read_text().splitlines():
+                if "kind create cluster" in line and not line.lstrip().startswith("#"):
+                    creates.append((path.name, line.strip()))
+                    self.assertIn('--image "$KIND_NODE_IMAGE"', line, f"{path.name}: {line.strip()}")
+        self.assertGreaterEqual(len(creates), 2, "the check must see CI and stack.sh")
+        ci = (root / ".github" / "workflows" / "ci.yml").read_text()
+        self.assertIn("scripts/kind-tools.sh", ci)
+
     def test_each_image_is_the_same_version_everywhere(self):
         """Dependabot moves the Dockerfile and Compose pins but not the Kubernetes manifests or workflows: one image at
         two versions means Compose and kind test different things. Every reference to an image names the same
