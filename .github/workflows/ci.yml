@@ -32,6 +32,18 @@ env:
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
 
 jobs:
+  locks:
+    # E1.F1.8.S3: requirements.lock and build.lock still satisfy pyproject.toml and build-requirements.in (the image
+    # installs only from them, with --require-hashes). scripts/lock.sh writes them; the lock-refresh workflow too.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.11.32"
+          enable-cache: false
+      - run: scripts/ci-run.sh "locks are stale (run scripts/lock.sh)" scripts/lock.sh --check
+
   lint:
     runs-on: ubuntu-24.04
     steps:
