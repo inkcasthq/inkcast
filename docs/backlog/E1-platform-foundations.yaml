@@ -142,8 +142,9 @@ features:
     - One place holds the pin (scripts/versions.env); a test checks every kind create uses it
   - id: F1.8.S5
     title: Remove the stale publish.yml:codeql code-scanning configuration
-    status: planned
-    change: 'new; issue #38'
+    status: in-progress
+    change: 'new; issue #38; docs/cicd.md says how (UI or API with security_events); the deletion itself is the
+      owner''s, since automation here cannot use the code-scanning API'
     acceptance:
     - 'The CodeQL check on pull requests no longer warns "1 configuration not found" (needs the owner in Security, Tool
       status, or a token with security_events)'
