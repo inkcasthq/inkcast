@@ -32,7 +32,7 @@ scripts/file-issues.sh inkcasthq/inkcast          # files the roadmap issues in 
 - **Actions → General → Workflow permissions:** "Read repository contents". Each job asks for the extra permissions it needs.
 - **Protect `main` and the security settings, as code:** `scripts/repo/settings.py apply` (admin) sets the ruleset in `.github/rulesets/main.json` and the settings in `.github/repo-settings.json`; the `repo-settings` workflow checks them daily and fails on drift. What they hold:
   - a pull request for every change, squash merge only, linear history, no force pushes or deletion, and no bypass (the owner included);
-  - required checks: `lint`, `test (3.12)`, `test (3.13)`, `test (3.14)`, `test (3.15)`, `authz`, `manifests`, `image`, `kind`, `dashboards`, `analyze` (CodeQL) and `CodeQL` (its results: a new high alert fails it). A test keeps this list, the ruleset and the jobs in step;
+  - required checks: `lint`, `locks`, `test (3.12)`, `test (3.13)`, `test (3.14)`, `test (3.15)`, `authz`, `manifests`, `image`, `kind`, `dashboards`, `analyze` (CodeQL) and `CodeQL` (its results: a new high alert fails it). A test keeps this list, the ruleset and the jobs in step;
   - approvals: 0 while there is one maintainer (GitHub doesn't let an author approve their own pull request). Set `required_approving_review_count` to 1 and `require_code_owner_review` to true when a second maintainer joins;
   - secret scanning with push protection, Dependabot security updates, vulnerability alerts and private vulnerability reporting on; head branches deleted after merge.
 - **Environments:**

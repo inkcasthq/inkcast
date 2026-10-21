@@ -164,6 +164,28 @@ class Workflows(unittest.TestCase):
     """CI runs on a pinned runner image (issue #16): `ubuntu-latest` moves to a new Ubuntu on GitHub's date, not
     ours, and kind, Docker Compose and Playwright's system packages all depend on it. Move deliberately, in a PR."""
 
+    def test_the_image_installs_only_hash_locked_dependencies(self):
+        """Issue #36: the image's Python packages come from requirements.lock and build.lock with --require-hashes,
+        the wheel is built without build isolation (nothing unlocked fetched) and installed with --no-deps; every pin
+        in the locks is exact and carries hashes."""
+        import pathlib
+        import re
+        root = pathlib.Path(__file__).resolve().parents[1]
+        docker = (root / "Dockerfile").read_text()
+        self.assertIn("--require-hashes --no-deps -r build.lock", docker)
+        self.assertIn("--require-hashes --no-deps -r /tmp/requirements.lock", docker)
+        self.assertIn("--no-build-isolation", docker)
+        self.assertIn("pip install --no-deps /tmp/*.whl", docker)
+        self.assertNotRegex(docker, r"pip install (?!--)(?!-r)\S", "a pip install that resolves outside the locks")
+        for lock in ("requirements.lock", "build.lock"):
+            text = (root / lock).read_text()
+            pins = re.findall(r"^([A-Za-z0-9_.-]+)==\S+", text, re.M)
+            self.assertTrue(pins, f"{lock} pins nothing")
+            entries = re.split(r"\n(?=[A-Za-z0-9_.-]+==)", text.split("\n", 2)[2] if text.startswith("#") else text)
+            for entry in entries:
+                if re.match(r"[A-Za-z0-9_.-]+==", entry):
+                    self.assertIn("--hash=sha256:", entry, f"{lock}: {entry.split()[0]} has no hash")
+
     def test_every_third_party_image_is_pinned_by_digest(self):
         """Issue #35: a tag can be re-pushed, a digest can't. scripts/images.py finds every third-party image reference
         (FROM, image:, docker run) and each one must be name:tag@sha256:...; `scripts/images.py pin` adds them."""
