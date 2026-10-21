@@ -106,6 +106,22 @@ Keyless signing writes the repository and workflow path, not code, to the public
 
 **Security:** Dependabot alerts and security updates on; code scanning on; secret scanning with push protection on.
 
+## Retiring a code-scanning configuration
+
+GitHub keys code-scanning results by **configuration**: the workflow file and job that uploaded them, plus the category, for example `.github/workflows/codeql.yml:analyze`. When a workflow or job is renamed or removed, the old configuration stays on `main` with its last results. Every pull request's `CodeQL` check then warns "1 configuration not found", and GitHub can't tell whether the old configuration's alerts were fixed. Retire it once the new configuration has run on `main`:
+
+1. **In the UI:** Security → Code scanning → Tool status → CodeQL. Under *Configurations*, open the old one, then ⋯ → **Delete configuration**. Its alerts close; alerts that the new configuration also finds stay open there.
+2. **Or with the API** (a token with `security_events`, which repository automation doesn't have here):
+   ```bash
+   gh api "repos/inkcasthq/inkcast/code-scanning/analyses?ref=refs/heads/main&per_page=100" \
+     --jq '.[] | select(.analysis_key == ".github/workflows/publish.yml:codeql") | .id' |
+   while read -r id; do gh api -X DELETE "repos/inkcasthq/inkcast/code-scanning/analyses/$id?confirm_delete=true"; done
+   ```
+   An analysis can only be deleted when it's the newest of its configuration, so the loop goes newest first. Repeat it until nothing is listed.
+3. Check: the next pull request's `CodeQL` check no longer mentions a missing configuration.
+
+The one to retire today is **`.github/workflows/publish.yml:codeql`**. It's left over from when CodeQL ran inside ci.yml, which publish.yml calls as its gate on `main` (#15, fixed in #20). Its replacement is `.github/workflows/codeql.yml:analyze` (issue #38).
+
 ## What runs where locally
 
 | Task | Command |
