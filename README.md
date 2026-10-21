@@ -1,6 +1,6 @@
 # CI captures
 
-Published by `publish.yml` from `main` at 7f8be3bd6c74. Each folder's `latest/` is the newest run;
+Published by `publish.yml` from `main` at 868f01e16b46. Each folder's `latest/` is the newest run;
 the branch history keeps the older ones. Light theme only.
 
 ## dashboards-compose
