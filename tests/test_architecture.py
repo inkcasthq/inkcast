@@ -186,6 +186,21 @@ class Workflows(unittest.TestCase):
                 if re.match(r"[A-Za-z0-9_.-]+==", entry):
                     self.assertIn("--hash=sha256:", entry, f"{lock}: {entry.split()[0]} has no hash")
 
+    def test_each_image_is_the_same_version_everywhere(self):
+        """Dependabot moves the Dockerfile and Compose pins but not the Kubernetes manifests or workflows: one image at
+        two versions means Compose and kind test different things. Every reference to an image names the same
+        tag and digest; a Dependabot bump is completed by updating the other references (scripts/images.py list)."""
+        import importlib.util
+        import pathlib
+        root = pathlib.Path(__file__).resolve().parents[1]
+        spec = importlib.util.spec_from_file_location("images", root / "scripts" / "images.py")
+        images = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(images)
+        seen: dict[str, set[str]] = {}
+        for _, _, m in images.references():
+            seen.setdefault(m["name"], set()).add(f"{m['tag']}@{m['digest']}")
+        self.assertEqual({n: v for n, v in seen.items() if len(v) > 1}, {}, "one image, several versions")
+
     def test_every_third_party_image_is_pinned_by_digest(self):
         """Issue #35: a tag can be re-pushed, a digest can't. scripts/images.py finds every third-party image reference
         (FROM, image:, docker run) and each one must be name:tag@sha256:...; `scripts/images.py pin` adds them."""
