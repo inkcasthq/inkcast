@@ -1,0 +1,2 @@
+# The image's build backend (pyproject.toml [build-system]), locked into build.lock by scripts/lock.sh.
+hatchling
