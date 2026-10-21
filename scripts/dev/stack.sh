@@ -62,7 +62,12 @@ case "${1:-}" in
   compose-down) compose down -v ;;
   kind)
     secrets
-    kind get clusters 2>/dev/null | grep -qx "$CLUSTER" || kind create cluster --name "$CLUSTER" --wait 120s
+    # The pinned kind, kubectl and node image (scripts/versions.env), as in CI (E1.F1.8.S4).
+    PATH="$("$ROOT/scripts/kind-tools.sh")":$PATH
+    # shellcheck disable=SC1091
+    source "$ROOT/scripts/versions.env"
+    kind get clusters 2>/dev/null | grep -qx "$CLUSTER" || \
+      kind create cluster --name "$CLUSTER" --image "$KIND_NODE_IMAGE" --wait 120s
     if [ "${BUILD:-1}" = 1 ]; then
       docker build -t inkcast:ci "$ROOT"
     fi
