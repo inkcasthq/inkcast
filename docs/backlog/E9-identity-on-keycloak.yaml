@@ -89,14 +89,22 @@ features:
     status: planned
     change: new
   - id: F9.5.S4
-    title: The user sync also reads user events (DELETE_ACCOUNT from the account console), so a self-deleted account is
-      cut off within a minute, not at the next reconcile
+    title: 'Delete my account, led by Inkcast: erase the person''s data, then remove their Keycloak user'
     status: planned
-    change: 'new; issue #41'
+    change: 'refined 2026-10-22 (owner: deletion is Inkcast-led; Keycloak self-service delete stays off); issue #41'
     acceptance:
-    - The realm records DELETE_ACCOUNT user events; the sync reads them with its own cursor beside the admin-events one
-    - The inkcast-sync service account still needs only view-users and view-events
-    - The fake and the kind e2e delete an account through the account API and expect 401 on its tokens within 60 s
+    - MCP inkcast_delete_account and REST POST /api/v1/account/deletion-link (OAuth only) return a one-time link;
+      the assistant never deletes anything itself
+    - 'The page: a fresh sign-in; what goes (posts, schedules, ledger, connections and stored credentials, tokens, KPI
+      rows) and what stays (articles already on the platforms); a link to the export (E3.F3.3.S7); type your email'
+    - Erasure reuses E3.F3.3.S5 in one transaction; scheduled posts can never send; the outbox is purged; the audit
+      record keeps a salted hash of the user id, the time and the counts
+    - 'The Keycloak user is deleted after commit through a separate inkcast-account-deletion client, scoped with Keycloak
+      26 fine-grained admin permissions (v2) to deleting non-operators (never inkcast-admin, no role mapping, no password
+      reset); a fallback needs the owner''s decision; retried from the outbox; alert after an hour pending'
+    - 'Events identity.user.deleted and identity.user.deletion_failed; inkcast_identity_users_deleted_total{result}'
+    - 'Kind e2e: ada deletes her account; her tokens answer 401; her Keycloak user is gone; signing in again is refused;
+      another person is untouched; the walkthrough (#57) gains the steps'
   - id: F9.5.S5
     title: The user sync proven in split mode on kind (IdentityService's own Deployment carries the sync settings)
     status: planned
