@@ -179,3 +179,18 @@ features:
       private vulnerability reporting are on
     - Kept as code in .github/repo-settings.json; scripts/repo/settings.py apply sets them and check compares them
     - The repo-settings workflow runs check daily and on changes, and fails on drift
+- id: F1.9
+  title: Local development
+  stories:
+  - id: F1.9.S1
+    title: 'Run Inkcast on a Mac: pinned macOS tools, a doctor script, a setup guide, and arm64 proven in CI'
+    status: planned
+    change: 'new; issue #66 (before the owner moves from the cloud workspace to a MacBook)'
+    acceptance:
+    - scripts/versions.env pins kubectl's SHA-256 for darwin/arm64, darwin/amd64 and linux/arm64; kind-tools.sh installs on all four
+    - 'scripts/dev/doctor.sh checks Docker and its memory, Python with Playwright and Chromium, kind and kubectl, and free
+      ports; it says exactly what is missing and exits non-zero until ready'
+    - docs/local-mac.md takes a fresh Mac to stack.sh compose, stack.sh kind and the walkthrough
+    - 'An arm64 CI job (ubuntu-24.04-arm) builds the image from the locks, starts it, and passes /readyz and a smoke
+      publish against the fakes; it is a required check'
+    - tests/test_architecture.py keeps versions.env complete for the four platforms
