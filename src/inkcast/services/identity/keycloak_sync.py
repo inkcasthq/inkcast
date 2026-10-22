@@ -35,6 +35,9 @@ import httpx2
 log = logging.getLogger("inkcast.identity.sync")
 CURSOR = "keycloak-admin-events"
 USER_EVENTS_CURSOR = "keycloak-user-events"
+# Events become visible out of time order (stamped when a request starts, stored when it commits; replicas have
+# their own clocks), so each pass also re-reads the minute before the cursor. Re-checking a person is harmless.
+LOOKBACK_MS = 60_000
 
 
 class SyncError(Exception):
@@ -119,8 +122,8 @@ class KeycloakSync:
         return "active" if r.json().get("enabled", True) else "disabled"
 
     async def changed_people(self) -> list[str]:
-        """Keycloak ids from USER update/delete admin events at or after the cursor (Keycloak times are whole
-        milliseconds; re-checking the last one is harmless); moves the cursor. Keycloak answers newest first, at
+        """Keycloak ids from USER update/delete admin events at or after LOOKBACK_MS before the cursor (re-checking
+        a person is harmless); moves the cursor. Keycloak answers newest first, at
         most 500: a burst bigger than that between two passes is left to the reconcile."""
         cursor = int(self.store.get_sync_state(CURSOR) or self.clock() * 1000)
         day = datetime.fromtimestamp(cursor / 1000 - 86400, timezone.utc).strftime("%Y-%m-%d")
@@ -133,7 +136,7 @@ class KeycloakSync:
         for event in r.json():
             at = int(event.get("time", 0))
             path = event.get("resourcePath", "")
-            if at >= cursor and path.startswith("users/"):
+            if at >= cursor - LOOKBACK_MS and path.startswith("users/"):
                 ids.append(path.split("/")[1])
             newest = max(newest, at)
         self.store.set_sync_state(CURSOR, str(newest))
@@ -214,7 +217,7 @@ class KeycloakSync:
                 await self.tick()
                 if self.metrics:
                     self.metrics.inc("inkcast_identity_sync_total", result="ok")
-            except (SyncError, httpx2.HTTPError, ValueError, KeyError) as exc:
+            except Exception as exc:  # any error (Keycloak, an odd answer, the database): logged, counted, retried
                 log.error("Keycloak user sync failed: %s", exc, extra={"event": "identity.sync.failed"})
                 if self.metrics:
                     self.metrics.inc("inkcast_identity_sync_total", result="error")

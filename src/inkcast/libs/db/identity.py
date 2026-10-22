@@ -103,6 +103,7 @@ class IdentityRepo(Database):
                 return {"oauth_tokens": 0, "personal_access_tokens": 0, "codes": 0}
             tokens = c.execute("DELETE FROM tokens WHERE user_id = ?", (user_id,)).rowcount
             codes = c.execute("DELETE FROM auth_codes WHERE user_id = ?", (user_id,)).rowcount
+            c.execute("DELETE FROM pending_auth WHERE user_id = ?", (user_id,))   # signed in, not yet approved
             pats = c.execute("UPDATE api_tokens SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL",
                              (now, user_id)).rowcount
         return {"oauth_tokens": tokens, "personal_access_tokens": pats, "codes": codes}

@@ -74,6 +74,9 @@ class Authed:
         async def endpoint(request: Request) -> Response:
             auth = request.headers.get("authorization", "")
             token = auth[7:].strip() if auth[:7].lower() == "bearer " else ""
+            # The whole request first, then the token: a body that arrives slowly must not let a token revoked in
+            # the meantime act (the handler reads the cached body; nothing awaits between this check and it).
+            await request.body()
             principal = self.verifier.principal(token)
             if principal is None:
                 return problem(401, "invalid_token", "Send a valid Bearer token (an OAuth access token with the "
