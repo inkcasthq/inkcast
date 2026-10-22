@@ -11,7 +11,11 @@ Job's deletion fail; ``$SERVER_PODS=unreadable`` makes listing the server's pods
 
 import os
 import pathlib
+import shutil
+import signal
+import sqlite3
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -153,6 +157,73 @@ class AnInterruptWhileTheJobIsBeingStopped(_Script):
         self.assertTrue(run.has(DELETE), run.calls)
         self.assertFalse(run.has(SCALE_UP), f"the server came back beside a live restore pod: {run.calls}")
         self.assertIn("stays at 0 replicas", run.out)
+
+
+# Runs restore_backup and SIGKILLs itself just before its <step>-th rename, link or removal in the data directory (an
+# audit hook runs before the operation), as the kubelet's SIGKILL can land at any instant.
+_KILLED_BEFORE_STEP = r"""
+import os, pathlib, signal, sys
+backup, database, step = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), int(sys.argv[3])
+from inkcast.libs.db.backup import restore_backup
+data, seen = str(database.parent), 0
+
+def kill_before(event, args):
+    global seen
+    if event in ("os.rename", "os.link", "os.remove") and str(args[0]).startswith(data):
+        seen += 1
+        if seen == step:
+            os.kill(os.getpid(), signal.SIGKILL)
+
+sys.addaudithook(kill_before)
+restore_backup(backup, database, force=True)
+"""
+
+
+class ARestoreKilledDuringTheSwap(unittest.TestCase):
+    """The Job's deadline and stop_job now stop a restore that runs late, and the pod's end is a SIGKILL at any
+    instant (`inkcast` is PID 1 in the image and sets no SIGTERM handler for `restore`, so the SIGTERM is ignored and
+    the grace period ends in SIGKILL). restore_backup moved the current database aside, then moved the restored copy
+    in: killed between the two, no database is at its path, the server creates an empty one as it starts, and the
+    script says "Nothing was replaced: the server runs on the database it had"."""
+
+    @staticmethod
+    def users(path: pathlib.Path) -> int:
+        conn = sqlite3.connect(path)
+        try:
+            return conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        finally:
+            conn.close()
+
+    def test_a_kill_before_any_step_of_the_swap_leaves_the_old_or_the_new_database(self):
+        from inkcast.libs.db import Store
+        from inkcast.libs.db.backup import take_backup
+        base = pathlib.Path(tempfile.mkdtemp(prefix="review-restore-swap-"))
+        self.addCleanup(shutil.rmtree, base, True)
+        db = base / "data" / "inkcast.db"
+        db.parent.mkdir()
+        store = Store(str(db), "k" * 40)                              # WAL mode, as the server runs it
+        store.upsert_user("local:owner", "owner", None, None)
+        backup = take_backup(db, base / "backups").path              # the new database: one user
+        store.upsert_user("local:second", "second", None, None)      # the old one: two
+        store.close()
+        env = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
+        killed = 0
+        for step in range(1, 10):
+            run = base / f"run-{step}"
+            shutil.copytree(base / "data", run / "data")
+            shutil.copytree(base / "backups", run / "backups")
+            target = run / "data" / "inkcast.db"
+            done = subprocess.run([sys.executable, "-c", _KILLED_BEFORE_STEP, str(run / "backups" / backup.name),
+                                   str(target), str(step)], env=env, capture_output=True, text=True, timeout=60)
+            left = sorted(p.name for p in target.parent.iterdir())
+            self.assertTrue(target.exists(), f"killed before step {step}: no database at its path, only {left}")
+            if done.returncode == 0:                                  # no step {step}: the restore went through
+                self.assertEqual(self.users(target), 1)
+                break
+            self.assertEqual(done.returncode, -signal.SIGKILL, done.stderr)
+            killed += 1
+            self.assertIn(self.users(target), (1, 2), f"killed before step {step}")
+        self.assertGreater(killed, 0, "the restore was never killed: the hook saw no step")
 
 
 if __name__ == "__main__":
