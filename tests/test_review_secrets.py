@@ -83,5 +83,52 @@ class MethodLabelStaysClosed(unittest.TestCase):
         self.assertIn('method="GET"', text)
 
 
+_FAKE_KUBECTL = r"""#!/usr/bin/env bash
+echo "$*" >> "$CALLS"
+case "$*" in
+  *imagePullPolicy*|*securityContext*) echo "" ;;
+  *"get cronjob"*) echo "ghcr.io/inkcasthq/inkcast@sha256:0123" ;;
+  *"get deploy inkcast"*) echo "1" ;;
+  *"wait --for=delete"*) if [ -n "$FAKE_POD" ]; then echo "timed out waiting for the condition" >&2; exit 1; fi ;;
+  *"get pod"*) [ -n "$FAKE_POD" ] && echo "$FAKE_POD" ;;
+  *"apply -f -"*) cat > /dev/null ;;
+esac
+exit 0
+"""
+
+
+class RestoreScriptWaitsForTheServer(unittest.TestCase):
+    """scripts/ops/restore.sh scales the server to 0, waits for its pod with `|| true`, then runs `inkcast restore
+    --force`, which skips the library's live-server guard. When the pod outlives the wait (stuck terminating, slow
+    shutdown, an API hiccup) the database was replaced under a running server: its later writes went to the file
+    moved aside."""
+
+    def run_script(self, pod: str):
+        import os
+        import pathlib
+        import subprocess
+        import tempfile
+        root = pathlib.Path(__file__).resolve().parents[1]
+        d = pathlib.Path(tempfile.mkdtemp())
+        fake, calls = d / "kubectl", d / "calls"
+        fake.write_text(_FAKE_KUBECTL)
+        fake.chmod(0o755)
+        env = {**os.environ, "KUBECTL": str(fake), "CALLS": str(calls), "FAKE_POD": pod}
+        done = subprocess.run(["bash", str(root / "scripts/ops/restore.sh"), "inkcast"], env=env,
+                              capture_output=True, text=True, timeout=60)
+        return done.returncode, calls.read_text().splitlines()
+
+    def test_no_forced_restore_while_the_server_pod_is_still_there(self):
+        code, calls = self.run_script(pod="pod/inkcast-6d9f-abcde")
+        self.assertFalse(any(c.startswith("-n inkcast apply") for c in calls), "the restore Job ran under a live pod")
+        self.assertNotEqual(code, 0)
+        self.assertEqual(calls[-1], "-n inkcast scale deploy/inkcast --replicas=1")   # the server is back as it was
+
+    def test_a_stopped_server_is_still_restored(self):
+        code, calls = self.run_script(pod="")
+        self.assertEqual(code, 0)
+        self.assertTrue(any(c.startswith("-n inkcast apply") for c in calls))
+
+
 if __name__ == "__main__":
     unittest.main()
