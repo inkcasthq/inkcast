@@ -134,5 +134,19 @@ class OperatorInputInTheAudit(Scenario):
                 self.assertTrue(listing[0].startswith(pass_id))
 
 
+class TheGaugeSaysWhatTheSyncDoes(Scenario):
+    def test_with_the_breaker_off_a_pending_pass_is_not_reported_as_holding_anyone(self):
+        """``INKCAST_KEYCLOAK_BREAKER=off`` neither trips nor holds, a pass recorded earlier included: the reconcile cuts
+        off and erases as before. The gauge is "1 while the Keycloak user sync holds a pass", and the critical alert
+        on it says "Nobody is cut off or erased": both must not say so while the sync is cutting everyone off."""
+        people = self.people(20)
+        self.kc.gone.update(u["kc"] for u in people[:5])
+        self.reconcile(self.sync(0))
+        self.assertEqual((len(self.trips()), self.gauge()), (1, 1), "a pass is pending")
+        done = self.reconcile(self.sync(0, keycloak_breaker=False), T0 + 600)     # the breaker turned off meanwhile
+        self.assertEqual((done["disabled"], done["erased"]), (5, 5), "nothing is held: all five cut off and erased")
+        self.assertEqual(self.gauge(), 0, "the sync holds nobody: the alert must not say it does")
+
+
 if __name__ == "__main__":
     unittest.main()
