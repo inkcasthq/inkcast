@@ -192,5 +192,34 @@ class RevocationReachesRequestsInFlight(unittest.TestCase):
         self.assertEqual(r.status_code, 401)
 
 
+class CutOffCoversSignInsInProgress(unittest.TestCase):
+    """E9.F9.5.S2: a person Keycloak disables loses everything at once, and their old tokens stay dead when they are
+    enabled again. A sign-in that already finished (consent page open, 15 minutes to answer) is a grant waiting to
+    happen: answered after the cut-off it mints a PAT or code that the _NOT_DISABLED guard hides only until the
+    person is enabled again, which is exactly when an account taken back from an attacker is handed back."""
+
+    def test_a_consent_answered_after_the_cut_off_yields_nothing_once_re_enabled(self):
+        cfg = password_config()
+        app, ctx = in_process("IdentityService", cfg)
+        store = ctx.store
+        with TestClient(app, base_url=cfg.public_url) as c:
+            form = c.get("/tokens/new", params={"name": "ci", "scopes": "posts:write", "days": "366"})
+            pending = form_fields(form.text)["pending"]
+            r = c.post("/auth/callback", data={"pending": pending, "password": PASSWORD}, follow_redirects=False)
+            self.assertIn("/auth/consent", r.headers["location"])
+            user_id = store.get_pending(pending)["user_id"]
+
+            cut = store.disable_user(user_id)                          # Keycloak disabled them; the sync ran
+            self.assertEqual(cut["personal_access_tokens"], 0)
+
+            page = c.get(r.headers["location"])
+            done = c.post("/auth/consent", data={**form_fields(page.text), "decision": "approve"})
+            store.upsert_user("local:owner", "owner", None, None)      # enabled again, signs in
+        minted = re.search(r"ink_pat_[A-Za-z0-9_\-]+", done.text)
+        alive = minted and ctx.verifier.principal(minted.group(0))
+        self.assertFalse(alive, "a PAT approved after the cut-off works once the person is enabled again")
+        self.assertEqual(store.list_api_tokens(user_id), [])
+
+
 if __name__ == "__main__":
     unittest.main()
