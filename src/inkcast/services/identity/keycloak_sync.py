@@ -8,9 +8,10 @@ polling (the ADR-0008 option that needs no Keycloak plug-in, so it works air-gap
 
 * every ``keycloak_sync_interval_seconds`` it reads the realm's admin events for USER updates and deletes since its
   cursor, and re-reads each such person from the admin API;
-* in the same pass it reads the realm's user events of type DELETE_ACCOUNT since a cursor of its own: a person
-  who deleted their own account (through Inkcast's "Delete my account", E9.F9.5.S4, or Keycloak's account console)
-  is erased from Inkcast (``Store.erase_user``, every table in one transaction) rather than merely cut off;
+* in the same pass it reads the realm's user events of type DELETE_ACCOUNT since a cursor of its own, with the same
+  look-back: a person who deleted their own account (through Inkcast's "Delete my account", E9.F9.5.S4, or
+  Keycloak's account console) is erased from Inkcast (``Store.erase_user``, every table in one transaction) rather
+  than merely cut off, once: an event seen again finds no user row and changes nothing;
 * every ``keycloak_reconcile_seconds`` (and on start) it re-reads every Keycloak-backed person Inkcast knows, so an
   event missed while it was down, a deleted account from the account console (a user event, not an admin event),
   or events trimmed by Keycloak's retention still lead to the same result.
@@ -36,7 +37,8 @@ log = logging.getLogger("inkcast.identity.sync")
 CURSOR = "keycloak-admin-events"
 USER_EVENTS_CURSOR = "keycloak-user-events"
 # Events become visible out of time order (stamped when a request starts, stored when it commits; replicas have
-# their own clocks), so each pass also re-reads the minute before the cursor. Re-checking a person is harmless.
+# their own clocks), so each pass also re-reads the minute before each cursor (admin and user events alike).
+# Re-checking a person is harmless, and re-seeing an erased one is a no-op.
 LOOKBACK_MS = 60_000
 
 
@@ -143,9 +145,11 @@ class KeycloakSync:
         return list(dict.fromkeys(ids))
 
     async def deleted_accounts(self) -> tuple[list[str], int]:
-        """Keycloak ids from DELETE_ACCOUNT user events at or after their own cursor (the person deleted the account
-        themselves), and the newest event time: ``tick`` moves the cursor there only once every one of them is
-        erased, so an erasure that failed is read again. Same shape as ``changed_people``: newest first, at most 500."""
+        """Keycloak ids from DELETE_ACCOUNT user events at or after LOOKBACK_MS before their own cursor (the person
+        deleted the account themselves; one already erased has no user row left, so seeing the event again erases,
+        counts and records nothing), and the newest event time: ``tick`` moves the cursor there only once every one
+        of them is erased, so an erasure that failed is read again. Same shape as ``changed_people``: newest first,
+        at most 500."""
         cursor = int(self.store.get_sync_state(USER_EVENTS_CURSOR) or self.clock() * 1000)
         day = datetime.fromtimestamp(cursor / 1000 - 86400, timezone.utc).strftime("%Y-%m-%d")
         r = await self._get("events", params=[("type", "DELETE_ACCOUNT"), ("dateFrom", day), ("first", "0"), ("max", "500")])
@@ -154,10 +158,21 @@ class KeycloakSync:
         newest, ids = cursor, []
         for event in r.json():
             at = int(event.get("time", 0))
-            if at >= cursor and event.get("type") == "DELETE_ACCOUNT" and event.get("userId"):
+            if at >= cursor - LOOKBACK_MS and event.get("type") == "DELETE_ACCOUNT" and event.get("userId"):
                 ids.append(str(event["userId"]))
             newest = max(newest, at)
         return list(dict.fromkeys(ids)), newest
+
+    async def deleted_own_account(self, keycloak_id: str) -> bool:
+        """Whether Keycloak holds a DELETE_ACCOUNT user event for this person, for the reconcile: a person gone from
+        Keycloak who deleted the account themselves is erased even when the pass above missed the event (more than
+        LOOKBACK_MS late, a replica's clock running fast, a burst of more than 500); one an administrator deleted
+        is only cut off."""
+        r = await self._get("events", params=[("type", "DELETE_ACCOUNT"), ("user", keycloak_id), ("first", "0"),
+                                              ("max", "1")])
+        if r.status_code != 200:
+            raise SyncError(f"reading events answered HTTP {r.status_code}")
+        return any(e.get("type") == "DELETE_ACCOUNT" and e.get("userId") == keycloak_id for e in r.json())
 
     # ---- what Inkcast does about it ------------------------------------------------------------------------
 
@@ -190,7 +205,10 @@ class KeycloakSync:
         done = {"checked": 0, "disabled": 0, "erased": 0}
         deleted, newest = await self.deleted_accounts()
         for keycloak_id in deleted:
-            if self._erase(keycloak_id):
+            # The look-back reads an event again on later passes, and Keycloak can have the person again under the
+            # same id (restored from a realm export, LDAP without import): erase only once it confirms they are gone.
+            if self.store.find_user_by_identity(self.prefix + keycloak_id) \
+                    and await self.person(keycloak_id) == "deleted" and self._erase(keycloak_id):
                 done["erased"] += 1
         self.store.set_sync_state(USER_EVENTS_CURSOR, str(newest))
         for keycloak_id in await self.changed_people():
@@ -203,7 +221,10 @@ class KeycloakSync:
                 keycloak_id = user["identity"][len(self.prefix):]
                 done["checked"] += 1
                 state = await self.person(keycloak_id)
-                if state != "active" and self._cut_off(keycloak_id, state, "reconcile"):
+                if state == "deleted" and await self.deleted_own_account(keycloak_id):
+                    if self._erase(keycloak_id):         # an event the pass missed: erased, as the pass would have
+                        done["erased"] += 1
+                elif state != "active" and self._cut_off(keycloak_id, state, "reconcile"):
                     done["disabled"] += 1
             self.last_reconcile = self.clock()
         self.last_success = self.clock()
