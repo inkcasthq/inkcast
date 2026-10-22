@@ -16,10 +16,13 @@ from dataclasses import dataclass
 from typing import Literal
 
 # OpenFGA's limits: an object (``type:id``) is at most 256 characters, a type name 254, a relation 50.
-_TYPE = re.compile(r"^[^:#@\s]{1,254}$")
-_RELATION = re.compile(r"^[^:#@\s]{1,50}$")
-_ID = re.compile(r"^[^:#\s]{1,256}$")
-_USER = re.compile(r"^(?P<type>[^:#@\s]{1,254}):(?P<id>[^:#\s]{1,256}|\*)(?:#(?P<relation>[^:#@\s]{1,50}))?$")
+# No control characters either (OpenFGA's unicode.IsControl: C0, DEL, C1), and \Z, not $, which would let a
+# trailing newline through.
+_TYPE = re.compile(r"^[^:#@\s\x00-\x1f\x7f-\x9f]{1,254}\Z")
+_RELATION = re.compile(r"^[^:#@\s\x00-\x1f\x7f-\x9f]{1,50}\Z")
+_ID = re.compile(r"^[^:#\s\x00-\x1f\x7f-\x9f]{1,256}\Z")
+_USER = re.compile(r"^(?P<type>[^:#@\s\x00-\x1f\x7f-\x9f]{1,254}):(?P<id>[^:#\s\x00-\x1f\x7f-\x9f]{1,256}|\*)"
+                   r"(?:#(?P<relation>[^:#@\s\x00-\x1f\x7f-\x9f]{1,50}))?\Z")
 
 # Read-after-write checks (grant, then act) ask for higher consistency; everything else takes the cache.
 Consistency = Literal["minimize_latency", "higher_consistency"]

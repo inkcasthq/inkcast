@@ -11,7 +11,9 @@ import unittest
 
 import httpx2
 
-from inkcast.libs.authz import EngineError, Evaluator, Instrumented, LocalEngine, Model, OpenFgaEngine, Ref, Tuple
+from inkcast.libs.authz import (
+    EngineError, Evaluator, Instrumented, LocalEngine, Model, OpenFgaEngine, Ref, Tuple, parse_user,
+)
 from inkcast.libs.authz.model import PACKAGED_MODEL
 from inkcast.libs.db import Store
 from inkcast.libs.observability import Metrics
@@ -122,6 +124,37 @@ class LocalStoreFailures(unittest.TestCase):
                 self.assertEqual(logs.records[0].__dict__["event"], "authz.error")
         errors = self.metrics.snapshot()["inkcast_authz_checks_total"][(("relation", "can_view"), ("result", "error"))]
         self.assertEqual(errors, 3)
+
+
+class IdentifierCharacters(unittest.TestCase):
+    """OpenFGA refuses control characters anywhere in a type, id, relation or user (pkg/tuple/tuple.go:
+    ``unicode.IsControl`` in IsValidObject, IsValidRelation, IsValidUserID, IsValidUserset). Python's ``$`` also
+    matches before a final newline, so ``"post-1\\n"`` passed the "no whitespace" rule. An id OpenFGA refuses is a
+    400 there, which Instrumented counts as an engine error: anyone who can put ``%0A`` or ``%00`` in a path would
+    page InkcastAuthzErrors once routes build Refs (E3.F3.7), and the local engine would store tuples that can't
+    be exported to OpenFGA. In text logs they also forge or rewrite authz.denied lines."""
+
+    BAD = ("post-1\n", "a\x00b", "a\x1b[2Kb", "a\x7fb", "a\x9bb")
+
+    def test_refs_refuse_control_characters_and_a_trailing_newline(self):
+        for bad in self.BAD:
+            with self.subTest(id=bad), self.assertRaises(ValueError):
+                Ref("post", bad)
+        with self.assertRaises(ValueError):
+            Ref("post\n", "1")
+        with self.assertRaises(ValueError):
+            Ref.parse("post:1\n")
+
+    def test_tuples_and_users_refuse_them_too(self):
+        for bad in self.BAD:
+            with self.subTest(user=bad), self.assertRaises(ValueError):
+                parse_user(f"user:{bad}")
+        with self.assertRaises(ValueError):
+            parse_user("organization:acme#member\n")
+        with self.assertRaises(ValueError):
+            Tuple("user:alice", "viewer\n", "workspace:w")
+        with self.assertRaises(ValueError):
+            Tuple("user:alice", "viewer", "workspace:w\n")
 
 
 if __name__ == "__main__":
