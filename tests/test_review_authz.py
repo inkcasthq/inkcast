@@ -12,7 +12,7 @@ import unittest
 import httpx2
 
 from inkcast.libs.authz import (
-    EngineError, Evaluator, Instrumented, LocalEngine, Model, OpenFgaEngine, Ref, Tuple, parse_user,
+    EngineError, Evaluator, Instrumented, InvalidRequest, LocalEngine, Model, OpenFgaEngine, Ref, Tuple, parse_user,
 )
 from inkcast.libs.authz.model import PACKAGED_MODEL
 from inkcast.libs.config import ConfigError, load_config
@@ -239,6 +239,24 @@ class FgaTimeoutSetting(unittest.TestCase):
         for value in ("nan", "inf", "-inf", "Infinity"):
             with self.subTest(timeout=value), self.assertRaisesRegex(ConfigError, "INKCAST_FGA_TIMEOUT"):
                 load_config({**self.BASE, "INKCAST_FGA_TIMEOUT": value}).validate()
+
+
+class WriteSizeParity(unittest.TestCase):
+    """OpenFGA takes at most 100 tuples per Write (OPENFGA_MAX_TUPLES_PER_WRITE) and OpenFgaEngine refuses more,
+    but LocalEngine applied any number. Tests run on the local engine, so lifecycle code that writes or deletes
+    more than 100 tuples at once (removing an organization, say) would pass every test and fail in production."""
+
+    def test_the_local_engine_refuses_more_than_100_tuples_in_one_write(self):
+        store = Store(":memory:", "k" * 40)
+        self.addCleanup(store.close)
+        engine = LocalEngine(store)
+        grants = [Tuple(f"user:u{i}", "viewer", "workspace:w") for i in range(101)]
+        with self.assertRaisesRegex(InvalidRequest, "at most 100"):
+            run(engine.write(grants))
+        self.assertEqual(run(engine.read(obj=Ref("workspace", "w"))), [], "nothing was written")
+        run(engine.write(grants[:100]))
+        with self.assertRaisesRegex(InvalidRequest, "at most 100"):
+            run(engine.write([grants[100]], deletes=grants[:100]))
 
 
 if __name__ == "__main__":

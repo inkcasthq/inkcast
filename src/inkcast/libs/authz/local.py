@@ -17,6 +17,7 @@ from typing import Any, Iterable, Sequence
 
 from .engine import MAX_BATCH_CHECK, Check
 from .model import Evaluator, Model
+from .openfga import MAX_TUPLES_PER_WRITE
 from .types import MINIMIZE_LATENCY, Consistency, EngineError, InvalidRequest, Ref, Tuple
 
 
@@ -44,6 +45,8 @@ def validate_write(model: Model, writes: list[Tuple], deletes: list[Tuple]) -> N
     and deleted, and (for writes) a user type the model does not allow on that relation."""
     if not writes and not deletes:
         raise InvalidRequest("a write needs at least one tuple to write or delete")
+    if len(writes) + len(deletes) > MAX_TUPLES_PER_WRITE:
+        raise InvalidRequest(f"a write takes at most {MAX_TUPLES_PER_WRITE} tuples (got {len(writes) + len(deletes)})")
     seen: set[Tuple] = set()
     for t in (*writes, *deletes):
         if t in seen:
