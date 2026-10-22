@@ -16,10 +16,13 @@ from dataclasses import dataclass
 from typing import Literal
 
 # OpenFGA's limits: an object (``type:id``) is at most 256 characters, a type name 254, a relation 50.
-_TYPE = re.compile(r"^[^:#@\s]{1,254}$")
-_RELATION = re.compile(r"^[^:#@\s]{1,50}$")
-_ID = re.compile(r"^[^:#\s]{1,256}$")
-_USER = re.compile(r"^(?P<type>[^:#@\s]{1,254}):(?P<id>[^:#\s]{1,256}|\*)(?:#(?P<relation>[^:#@\s]{1,50}))?$")
+# No control characters either (OpenFGA's unicode.IsControl: C0, DEL, C1), and \Z, not $, which would let a
+# trailing newline through.
+_TYPE = re.compile(r"^[^:#@\s\x00-\x1f\x7f-\x9f]{1,254}\Z")
+_RELATION = re.compile(r"^[^:#@\s\x00-\x1f\x7f-\x9f]{1,50}\Z")
+_ID = re.compile(r"^[^:#\s\x00-\x1f\x7f-\x9f]{1,256}\Z")
+_USER = re.compile(r"^(?P<type>[^:#@\s\x00-\x1f\x7f-\x9f]{1,254}):(?P<id>[^:#\s\x00-\x1f\x7f-\x9f]{1,256}|\*)"
+                   r"(?:#(?P<relation>[^:#@\s\x00-\x1f\x7f-\x9f]{1,50}))?\Z")
 
 # Read-after-write checks (grant, then act) ask for higher consistency; everything else takes the cache.
 Consistency = Literal["minimize_latency", "higher_consistency"]
@@ -49,6 +52,8 @@ class Ref:
             raise ValueError(f"invalid object type {self.type!r}")
         if not _ID.match(self.id):
             raise ValueError(f"invalid object id {self.id!r} (no ':', '#' or whitespace; 1-256 characters)")
+        if len(self.type) + 1 + len(self.id) > 256:
+            raise ValueError(f"invalid object {self.type}:{self.id[:32]}...: 'type:id' is at most 256 characters")
 
     def __str__(self) -> str:
         return f"{self.type}:{self.id}"
@@ -70,7 +75,7 @@ def parse_user(user: str) -> tuple[str, str, str | None]:
     """``type:id`` or ``type:id#relation`` (a userset such as ``organization:acme#member``) or ``type:*``;
     returns (type, id, relation or None). Raises ``ValueError`` for anything else."""
     m = _USER.match(user)
-    if not m:
+    if not m or len(user.encode("utf-8")) > 512:  # OpenFGA's user limit is 512 bytes
         raise ValueError(f"invalid user {user!r}: expected 'type:id', 'type:id#relation' or 'type:*'")
     return m.group("type"), m.group("id"), m.group("relation")
 

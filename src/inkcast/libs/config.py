@@ -287,7 +287,7 @@ class Config:
                                 "INKCAST_FGA_MODEL_ID (the pinned model version).")
             if self.fga_api_url and urlparse(self.fga_api_url).scheme not in ("http", "https"):
                 problems.append("INKCAST_FGA_API_URL must be an http(s) URL.")
-            if self.fga_timeout_seconds <= 0:
+            if not 0 < self.fga_timeout_seconds < float("inf"):  # also nan, which httpx2 reads as "no timeout"
                 problems.append("INKCAST_FGA_TIMEOUT must be a positive number of seconds.")
         elif self.is_production and not self.authz_allow_local:
             problems.append("INKCAST_AUTHZ_ENGINE=local is refused in production: the hosted service runs OpenFGA "
