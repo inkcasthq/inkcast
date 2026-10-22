@@ -84,7 +84,7 @@ features:
   - id: F1.6.S4
     title: 'End-to-end walkthrough built and checked in CI: the MCP client flow, the browser pages and the REST calls, pictured'
     status: done
-    change: 'new; issue #57, built in PR #<n>'
+    change: 'new; issue #57, built in PR #58'
     acceptance:
     - 'scripts/dev/walkthrough/run_walk.sh drives the whole journey for real against the fake platforms: the real SDK OAuth
       flow (discovery, registration, PKCE, sign-in and consent in the browser, the code at a local listener), platforms,
