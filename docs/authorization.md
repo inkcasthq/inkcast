@@ -64,8 +64,10 @@ The model lives in [`authz/model.fga`](../authz/model.fga), schema 1.1. It is th
 3. New relations for teams and tiers:
    - **On the organization:** `billing_admin` and `can_manage_billing`, `can_view_billing`, `can_manage_members`, `can_manage_security`, `can_view_audit`, `can_create_workspace`.
    - **On the workspace:** `client_reviewer` (for agencies), and `can_manage_members`, `can_manage_channels`, `can_create_post`, `can_create_token`, `can_view_usage`.
-   - **Custom roles (Enterprise):** a `role` type, granted as `role:x#assignee` through dedicated relations (`role_manager`, `role_editor`, `role_reviewer`, `role_viewer` on a workspace; `role_publisher` on a channel). Adding a custom role is data, never a model change.
-4. **Custom roles stay inside their organization.** A role grant counts only for members of the workspace's (or channel's) own organization (`role_editor and org_member`). A role from another organization, written by mistake, grants nothing. The member API also refuses such a write (E3.F3.8.S2): defence in two layers, because a model alone can't compare `role.org` with `workspace.org`.
+   - **Custom roles (Enterprise):** a `role` type, granted as `role:x#member_assignee` through dedicated relations (`role_manager`, `role_editor`, `role_reviewer`, `role_viewer` on a workspace; `role_publisher` on a channel). Adding a custom role is data, never a model change.
+4. **Custom roles stay inside their organization.** A role belongs to one organization (`role#org`), and a grant takes `role:x#member_assignee`: an assignee who is a member of the role's own organization (`assignee and member from org`). On top of that, a grant counts only for members of the workspace's (or channel's) own organization (`role_editor and org_member`). A grant whose `role.org` isn't the target's org is *misaligned*, and it can let someone in two ways:
+   1. **The role is assigned to the target organization's members** (`organization:acme#member` assignee of `role:globex-ghost`, granted on Acme's blog). Every Acme member is then an assignee, but none is a member of Globex, so nobody is a `member_assignee` and the grant is inert. **The model closes this case** (tested in `model.fga.yaml`).
+   2. **A user is a member of both organizations.** They are a `member_assignee` of Globex's role and an `org_member` of Acme's workspace, and OpenFGA can't compare the two organizations, so the misaligned grant works for them. **The model can't close this case.** The write API closes it by refusing a role grant whose `role.org` isn't the target's org, and refusing an assignee outside the role's organization (E3.F3.8.S2); the reconciler removes a misaligned grant that got in anyway (E3.F3.8.S3). Nothing writes role grants before E3.F3.8, so there is no exposure today.
 
 | Type | Meaning |
 |---|---|
@@ -112,7 +114,8 @@ Granting an agency access is **one tuple**, and revoking it is deleting that tup
 - managers versus editors versus reviewers;
 - a client reviewer;
 - a custom role;
-- a custom role from another organization, wrongly granted (it must grant nothing).
+- a custom role from another organization, wrongly granted (it must grant nothing);
+- a foreign custom role assigned to this organization's members (case 1 above: it must grant nothing).
 
 Run the tests locally, and in CI (the `authz` job, which also checks that the compiled `authz/model.json` is current):
 

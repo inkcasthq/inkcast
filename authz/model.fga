@@ -21,24 +21,34 @@ type organization
     define can_create_workspace: admin
     define can_manage_custom_roles: admin
 
-# Enterprise custom roles: a role is data (role:x#assignee granted through role_* relations on a workspace or
-# channel), never a model change. A role belongs to one organization (org) and only works inside it.
+# Enterprise custom roles: a role is data (role:x#member_assignee granted through role_* relations on a workspace
+# or channel), never a model change. A role belongs to one organization (org) and only works inside it.
 type role
   relations
     define org: [organization]
     define assignee: [user, organization#member]
+    # An assignee counts only while a member of the role's own organization. That closes case 1 of a misaligned
+    # grant (a role of organization A granted on organization B's workspace or channel): assigning the role to
+    # organization:B#member makes every B member an assignee, but none of them a member_assignee.
+    # Case 2 is out of the model's reach: a user who is a member of BOTH organizations is a member_assignee of
+    # A's role and an org_member of B's workspace, and OpenFGA can't compare the two organizations. Only the
+    # write API closes it, by refusing the misaligned grant and any assignee outside the role's organization
+    # (E3.F3.8.S2), and the reconciler, by removing one that got in anyway (E3.F3.8.S3).
+    define member_assignee: assignee and member from org
 
 type workspace
   relations
     define org: [organization]
     define org_member: member from org
-    # Custom-role grants are their own relations and count only for members of THIS workspace's organization,
-    # so a role from another organization written here by mistake grants nothing. (The API also refuses to write
-    # a role grant whose role.org isn't the workspace's org: E3.F3.8.S2.)
-    define role_manager: [role#assignee]
-    define role_editor: [role#assignee]
-    define role_reviewer: [role#assignee]
-    define role_viewer: [role#assignee]
+    # Custom-role grants are their own relations, take a role's member_assignee (members of the role's own
+    # organization) and count only for members of THIS workspace's organization, so a role from another
+    # organization written here by mistake grants nothing, except to a member of both organizations (case 2
+    # under type role: the API's job). The API refuses to write a role grant whose role.org isn't the
+    # workspace's org in the first place (E3.F3.8.S2).
+    define role_manager: [role#member_assignee]
+    define role_editor: [role#member_assignee]
+    define role_reviewer: [role#member_assignee]
+    define role_viewer: [role#member_assignee]
     define manager: [user] or (role_manager and org_member) or admin from org
     define editor: [user, organization#member] or (role_editor and org_member) or manager
     define reviewer: [user] or (role_reviewer and org_member) or manager
@@ -55,8 +65,9 @@ type workspace
 type channel
   relations
     define workspace: [workspace]
-    # As on the workspace: a custom-role grant counts only for members of the channel's own organization.
-    define role_publisher: [role#assignee]
+    # As on the workspace: a custom-role grant takes a role's member_assignee and counts only for members of the
+    # channel's own organization.
+    define role_publisher: [role#member_assignee]
     define publisher: [user] or (role_publisher and org_member from workspace) or manager from workspace
     # Publishing needs the grant AND current access to the workspace (a direct grant to an outsider is not enough).
     define can_publish: publisher and viewer from workspace

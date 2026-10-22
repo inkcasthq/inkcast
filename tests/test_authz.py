@@ -43,29 +43,42 @@ def run(coro):
 
 
 def yaml_tuples(doc: dict) -> list[Tuple]:
-    return [Tuple(t["user"], t["relation"], t["object"]) for t in doc["tuples"]]
+    return [Tuple(t["user"], t["relation"], t["object"]) for t in doc.get("tuples") or ()]
 
 
 class ModelYaml:
-    """Runs every ``check`` and ``list_objects`` assertion of ``model.fga.yaml`` against ``self.engine``."""
+    """Runs every ``check`` and ``list_objects`` assertion of ``model.fga.yaml`` against ``self.engine``. A test's
+    own ``tuples`` are added to the file's for that test only, as ``fga model test`` does."""
 
     engine = None
 
     def assert_yaml_passes(self, doc: dict) -> int:
         n = 0
         for case in doc["tests"]:
-            for check in case.get("check", ()):
-                for relation, expected in check["assertions"].items():
-                    with self.subTest(test=case["name"], user=check["user"], object=check["object"], relation=relation):
-                        got = run(self.engine.check(check["user"], relation, Ref.parse(check["object"])))
-                        self.assertEqual(got, expected)
-                        n += 1
-            for lo in case.get("list_objects", ()):
-                for relation, expected in lo["assertions"].items():
-                    with self.subTest(test=case["name"], user=lo["user"], type=lo["type"], relation=relation):
-                        got = run(self.engine.list_objects(lo["user"], relation, lo["type"]))
-                        self.assertEqual(sorted(got), sorted(expected))
-                        n += 1
+            own = yaml_tuples(case)
+            if own:
+                run(self.engine.write(own))
+            try:
+                n += self._assert_case(case)
+            finally:
+                if own:
+                    run(self.engine.write(deletes=own))
+        return n
+
+    def _assert_case(self, case: dict) -> int:
+        n = 0
+        for check in case.get("check", ()):
+            for relation, expected in check["assertions"].items():
+                with self.subTest(test=case["name"], user=check["user"], object=check["object"], relation=relation):
+                    got = run(self.engine.check(check["user"], relation, Ref.parse(check["object"])))
+                    self.assertEqual(got, expected)
+                    n += 1
+        for lo in case.get("list_objects", ()):
+            for relation, expected in lo["assertions"].items():
+                with self.subTest(test=case["name"], user=lo["user"], type=lo["type"], relation=relation):
+                    got = run(self.engine.list_objects(lo["user"], relation, lo["type"]))
+                    self.assertEqual(sorted(got), sorted(expected))
+                    n += 1
         return n
 
 
@@ -124,7 +137,8 @@ class LocalEngineModelTests(ModelYaml, unittest.TestCase):
         for user, relation, obj, why in (
             ("organization:acme#member", "owner", "organization:globex", "owner takes users only"),
             ("role:r#assignee", "editor", "workspace:acme-blog", "editor takes user or organization#member"),
-            ("user:x", "role_editor", "workspace:acme-blog", "role_editor takes role#assignee only"),
+            ("user:x", "role_editor", "workspace:acme-blog", "role_editor takes role#member_assignee only"),
+            ("role:r#assignee", "role_editor", "workspace:acme-blog", "a plain assignee is not a member_assignee"),
             ("user:x", "can_edit", "post:post-1", "can_edit is computed, not assignable"),
             ("user:x", "nope", "post:post-1", "unknown relation"),
             ("user:x", "viewer", "thing:1", "unknown type"),

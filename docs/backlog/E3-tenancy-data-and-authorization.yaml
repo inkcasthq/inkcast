@@ -277,8 +277,12 @@ features:
       org (for a channel, its workspace''s org); a workspace, channel or post tuple needs its parent in the same organization;
       agency grants are the only cross-organization writes, and only through the agency grant API'
     - A misaligned write is refused with 422 `cross_organization_grant` and audited; nothing reaches OpenFGA
+    - 'The write API refuses a role grant whose role.org isn''t the target''s org, and refuses a role assignee (a user or
+      an organization#member) outside the role''s organization. The model (#71) only closes a misaligned grant for people
+      outside the role''s organization; a user who is a member of both organizations is the API''s job (docs/authorization.md,
+      section 4, case 2)'
     - 'Negative tests at the API level: Globex''s role on Acme''s workspace and channel; an Acme workspace tuple pointing
-      at a Globex organization'
+      at a Globex organization; Acme''s members, and a member of both organizations, assigned to Globex''s role'
   - id: F3.8.S3
     title: Reconciler compares DB-owned relationships with tuples, fixes drift (including misaligned role grants), reports
       a metric
