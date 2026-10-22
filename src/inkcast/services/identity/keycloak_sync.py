@@ -247,7 +247,7 @@ class KeycloakSync:
         pass goes on with the others (#103); the person is read again at the next pass or reconcile. Only the
         Inkcast user id (None for a person Inkcast does not know), which read it was and the HTTP status reach the
         log: never the Keycloak id, nor anything from the answer."""
-        log.warning("Keycloak answered HTTP %d to the %s read about Inkcast user %s (%s): nothing done for them; "
+        log.warning("Keycloak answered HTTP %d to the %s read about Inkcast user %s (%s): retried at the next read; "
                     "the others go on", exc.status, exc.call, user_id, via,
                     extra={"event": "identity.sync.person.failed", "user_id": user_id, "via": via, "call": exc.call,
                            "status": exc.status})
