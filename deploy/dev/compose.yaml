@@ -37,6 +37,9 @@ services:
       INKCAST_SCHEDULER_INTERVAL: "5"
       INKCAST_INSIGHTS_INTERVAL: "5"
       INKCAST_KEYCLOAK_ERASE_AFTER_DAYS: "30"    # inert with password sign-in; stated as the environments state it
+      INKCAST_KEYCLOAK_BREAKER: "on"             # likewise: the sync's circuit breaker and its thresholds (E9.F9.5.S7)
+      INKCAST_KEYCLOAK_BREAKER_PERCENT: "10"
+      INKCAST_KEYCLOAK_BREAKER_MIN: "5"
     secrets: [inkcast_password, inkcast_secret_key]
     volumes: [inkcast-data:/data]
 

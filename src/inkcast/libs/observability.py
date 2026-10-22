@@ -71,6 +71,17 @@ EVENTS: dict[str, tuple[str, str]] = {
     "identity.sync.failed": ("warning", "A Keycloak user sync pass failed (service account refused, Keycloak down); retried."),
     "identity.sync.person.failed": ("warning", "Keycloak answered an error about one person (Inkcast user id, read and status "
                                                "only); nothing was done for them, the pass went on, they are read again."),
+    "identity.sync.breaker.tripped": ("critical", "A reconcile found too many people gone from Keycloak at once (pass id and "
+                                                  "counts); nobody is cut off or erased until an operator confirms or "
+                                                  "dismisses the pass with inkcast identity."),
+    "identity.sync.breaker.held": ("warning", "The breaker is still open (pass id, how many people are held); every pass "
+                                              "says so until the pass is resolved."),
+    "identity.sync.breaker.confirmed": ("warning", "An operator confirmed a pass (audit: pass id, who, how many applied and "
+                                                   "skipped): its people are cut off and their grace period starts."),
+    "identity.sync.breaker.dismissed": ("warning", "An operator dismissed a pass (audit: pass id, who): nothing was done; "
+                                                   "the next reconcile reads everyone again."),
+    "identity.sync.breaker.refused": ("warning", "An operator's confirm or dismiss did nothing: no such pass, or it was "
+                                                 "resolved already (pass id only)."),
     "authz.denied": ("warning", "A permission check said no (user, relation and object ids; never a token or a name)."),
     "authz.error": ("critical", "The policy engine could not answer (OpenFGA down, bad model id); the caller failed closed (503)."),
     "backup.done": ("info", "A database backup was taken, checked and kept (name, size, rows)."),

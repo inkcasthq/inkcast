@@ -7,6 +7,7 @@
     inkcast run IdentityService,ConnectorService
     inkcast services                 # list what can run
     inkcast checks                   # the security posture table for this configuration
+    inkcast identity ...             # resolve a pass the Keycloak user sync's breaker holds (breaker.py)
     inkcast all | web | worker       # v0.1 modes, still accepted
 
 Configuration problems stop the process before it serves anything, with exit code 78
@@ -151,10 +152,13 @@ def main(argv: list[str] | None = None) -> None:
     if argv[:1] in (["backup"], ["restore"], ["backups"]):  # operations on the database file, with their own options
         from .backup import backup_main, list_main, restore_main
         sys.exit({"backup": backup_main, "restore": restore_main, "backups": list_main}[argv[0]](argv[1:]))
+    if argv[:1] == ["identity"]:  # an operator resolves a pass the Keycloak user sync's breaker holds (#105)
+        from .breaker import identity_main
+        sys.exit(identity_main(argv[1:]))
 
     parser = argparse.ArgumentParser(prog="inkcast", description=f"Inkcast {__version__}")
     parser.add_argument("command", nargs="?", default=None,
-                        help="run (default) | services | checks | sync | backup | restore | backups, "
+                        help="run (default) | services | checks | sync | backup | restore | backups | identity, "
                              "or a v0.1 mode: all | web | worker")
     parser.add_argument("names", nargs="?", default=None, help="for run: CamelCase service name(s), comma-separated")
     args = parser.parse_args(argv)

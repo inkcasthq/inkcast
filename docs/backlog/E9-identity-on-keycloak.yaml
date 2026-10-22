@@ -137,6 +137,33 @@ features:
     - 'tests/test_erase_after_days.py: each mode, the boundary (N days minus a second; exactly N), present-but-disabled
       in every mode, counted and audited once across reconciles, configuration errors, the posture warning, the
       migration, and the fake Keycloak honouring the user filter on events'
+  - id: F9.5.S7
+    title: 'A mass "user not found" from Keycloak waits for an operator: a circuit breaker on the reconcile, parameterised'
+    status: done
+    change: 'new; issue #105, built in PR #131'
+    acceptance:
+    - 'The reconcile reads everyone before acting on anyone and counts the people newly found gone (404, no DELETE_ACCOUNT
+      event, no deleted_at yet); at INKCAST_KEYCLOAK_BREAKER_MIN (5) or more and above INKCAST_KEYCLOAK_BREAKER_PERCENT
+      (10) of the people read it trips: nobody is cut off or erased, no deleted_at clock starts or advances'
+    - 'The pass is recorded (sync_breaker_trips: id, time, counts, status, who resolved it; sync_breaker_people: the ids
+      with last_login_at as read, in USER_TABLES), inkcast_identity_sync_breaker_open is 1 (read from the database, so a
+      restart changes nothing), InkcastIdentitySyncBreakerOpen (critical) fires with a runbook section'
+    - 'It stays open, every pass holding every 404 without an event (the admin-events pass too), until an operator runs
+      inkcast identity confirm-deletions --pass <id> (exactly that pass''s people are cut off and marked gone from then;
+      one who signed in since is spared; the reconcile erases them as the policy says) or dismiss-deletions (nothing
+      done; everyone read again); trips lists the passes; each is claimed once and audited (the pass row and
+      identity.sync.breaker.confirmed / dismissed with the pass id and who; never a person''s id)'
+    - 'Not held: a self-deletion with its DELETE_ACCOUNT event (events pass or reconcile) and Keycloak''s own
+      enabled: false'
+    - 'INKCAST_KEYCLOAK_BREAKER=on|off, _PERCENT (1-100) and _MIN (1 or more) validated at load and by validate(), each
+      error naming the variable; off neither trips nor holds and is a posture warning (keycloak-breaker) in production
+      and staging; set explicitly in deploy/kustomize/environments/{staging,production} and deploy/dev/compose.yaml'
+    - 'From the review: keycloak-erase-after says info, not pass, when sign-in is not a Keycloak realm or the sync is
+      off; more than ten years warns as effectively off'
+    - 'tests/test_sync_breaker.py: below the threshold as today, at and above it in every erase mode, the boundaries and
+      settings, open across reconciles and restarts, confirmation applies exactly the pass''s people and audits it, the
+      wrong pass or a second confirmation does nothing, dismissal, self-deletions by event still erase while open, each
+      setting validated, the posture warnings, the alert'
 - id: F9.6
   title: Enterprise SSO
   stories:

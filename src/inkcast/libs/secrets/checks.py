@@ -227,19 +227,67 @@ def _check_login(ctx: _Ctx) -> Check:
     return Check("login-method", "Sign-in suits the environment", "pass", f"INKCAST_LOGIN={ctx.config.login}.")
 
 
+def _sync_in_use(ctx: _Ctx) -> bool:
+    """Whether the Keycloak user sync runs at all: sign-in through a Keycloak realm, and the sync's service account set."""
+    config = ctx.config
+    return (getattr(config, "login", "") == "oidc" and "/realms/" in getattr(config, "oidc_issuer", "")
+            and bool(getattr(config, "keycloak_sync_client_id", "")))
+
+
+def _hosted(ctx: _Ctx) -> bool:
+    return getattr(ctx.config, "environment", "development") in ("production", "staging")
+
+
+# Beyond this many days (ten years) the erasure grace period is a way of never erasing, and is reported as one.
+EFFECTIVELY_NEVER_DAYS = 3650
+
+
 def _check_erase_after(ctx: _Ctx) -> Check:
     """E9.F9.5.S6 (issue #86): deletion promises erasure. With INKCAST_KEYCLOAK_ERASE_AFTER_DAYS=off a person Keycloak
     no longer has (an administrator's deletion, a self-deletion whose event was never seen) is cut off but their data
-    stays until an operator erases it: that is a choice production and staging must see."""
+    stays until an operator erases it: that is a choice production and staging must see; so is a number of days no
+    one will live to see (#105). A number is only ``pass`` where the sync runs: elsewhere it is noted, not promised."""
     days = getattr(ctx.config, "keycloak_erase_after_days", 30)
     title = "People gone from Keycloak are erased"
     if days is None:
-        hosted = getattr(ctx.config, "environment", "development") in ("production", "staging")
-        return Check("keycloak-erase-after", title, "warn" if hosted else "info",
+        return Check("keycloak-erase-after", title, "warn" if _hosted(ctx) else "info",
                      "INKCAST_KEYCLOAK_ERASE_AFTER_DAYS=off: a person Keycloak no longer has is cut off, but their posts, "
                      "ledger and credentials stay until an operator erases them. Set a number of days (the default is 30).")
+    if days > EFFECTIVELY_NEVER_DAYS:
+        return Check("keycloak-erase-after", title, "warn" if _hosted(ctx) else "info",
+                     f"INKCAST_KEYCLOAK_ERASE_AFTER_DAYS={days}: more than ten years is effectively off. A person Keycloak no "
+                     "longer has is cut off, but their data stays. Set a number of days (the default is 30).")
     when = "at the first reconcile that finds them gone" if days == 0 else f"{days} day(s) after the cut-off"
+    if not _sync_in_use(ctx):
+        return Check("keycloak-erase-after", title, "info",
+                     f"INKCAST_KEYCLOAK_ERASE_AFTER_DAYS={days}: not in use. Sign-in is not a Keycloak realm, or the user sync "
+                     "is off (INKCAST_KEYCLOAK_SYNC_CLIENT_ID unset), so nobody is found gone and nobody is erased by it.")
     return Check("keycloak-erase-after", title, "pass", f"INKCAST_KEYCLOAK_ERASE_AFTER_DAYS={days}: erased {when}.")
+
+
+def _check_breaker(ctx: _Ctx) -> Check:
+    """E9.F9.5.S7 (issue #105): a Keycloak that answers 404 about many people who still exist (restored from an older
+    backup, the wrong issuer, a user-storage provider disabled) must not cut everyone off at once. ``off`` is a choice
+    production and staging must see."""
+    title = "A mass deletion in Keycloak waits for an operator"
+    config = ctx.config
+    if not getattr(config, "keycloak_breaker", True):
+        return Check("keycloak-breaker", title, "warn" if _hosted(ctx) else "info",
+                     "INKCAST_KEYCLOAK_BREAKER=off: a reconcile that finds many people gone from Keycloak at once cuts them "
+                     "all off at once and erases them after the grace period, however wrong Keycloak's answer is (a realm "
+                     "restored from an older backup, the wrong issuer, a user-storage provider disabled). Set it to on.")
+    minimum, percent = getattr(config, "keycloak_breaker_min", 5), getattr(config, "keycloak_breaker_percent", 10)
+    if percent >= 100:                      # it trips above the percent: more than everyone read is never gone
+        return Check("keycloak-breaker", title, "warn" if _hosted(ctx) else "info",
+                     f"INKCAST_KEYCLOAK_BREAKER_PERCENT={percent}: more than all of the people read can never be gone, so "
+                     "the breaker never trips: effectively off. Set it lower (the default is 10).")
+    if not _sync_in_use(ctx):
+        return Check("keycloak-breaker", title, "info",
+                     "INKCAST_KEYCLOAK_BREAKER=on: not in use. Sign-in is not a Keycloak realm, or the user sync is off "
+                     "(INKCAST_KEYCLOAK_SYNC_CLIENT_ID unset).")
+    return Check("keycloak-breaker", title, "pass",
+                 f"INKCAST_KEYCLOAK_BREAKER=on: a reconcile that finds at least {minimum} people, and more than {percent}% of "
+                 "those it read, gone from Keycloak holds them all for an operator (inkcast identity confirm-deletions).")
 
 
 def _duration(seconds: int) -> str:
@@ -295,8 +343,8 @@ def _check_secrets_source(ctx: _Ctx) -> Check:
 CHECKS: tuple[Callable[[_Ctx], Check], ...] = (
     _check_public_url, _check_secret_key, _check_reveal_flag, _check_debug_flags, _check_log_format,
     _check_secret_files, _check_env_scrubbed, _check_redaction, _check_non_root, _check_core_dumps,
-    _check_forwarded_ips, _check_login, _check_erase_after, _check_publish_retry_window, _check_database_file,
-    _check_secrets_source,
+    _check_forwarded_ips, _check_login, _check_erase_after, _check_breaker, _check_publish_retry_window,
+    _check_database_file, _check_secrets_source,
 )
 
 
