@@ -15,6 +15,7 @@ from pydantic.json_schema import models_json_schema
 
 from ... import __version__
 from ..auth import SCOPE, SCOPES
+from ..content.story import SCHEDULE_HORIZON_DAYS
 from .models import (
     ConnectLink, DeletionLink, DestinationInfo, ErrorBody, InsightsSummary, KpiPoint, KpiSeries, LedgerEntry, Me, PlatformInfo,
     PostInfo, PublishRequest, PublishResponse, RateSummary, SyncRequest, SyncResponse, TokenCreate, TokenCreated, TokenInfo,
@@ -141,7 +142,9 @@ def openapi_document(public_url: str) -> dict[str, Any]:
                 "get": _op("listPosts", "Your posts in a time window", "Posts",
                            _resp("PostInfo", "Posts", array=True), scope="posts:read", service=pub,
                            params=[_query_int("days_back", 7, 366, "Include posts from this many days ago."),
-                                   _query_int("days_ahead", 90, 730, "Include posts up to this many days ahead.")])},
+                                   _query_int("days_ahead", 90, SCHEDULE_HORIZON_DAYS,
+                                              "Include posts up to this many days ahead; the maximum is the "
+                                              "scheduling horizon, so it covers every scheduled post.")])},
             "/api/v1/posts/{post_id}/cancel": {"post": _op(
                 "cancelPost", "Cancel a scheduled post", "Posts", _resp("PostInfo", "The cancelled post"),
                 scope="posts:write", service=pub, params=[_path_param("post_id", "Post id.")], errors=(404, 409))},

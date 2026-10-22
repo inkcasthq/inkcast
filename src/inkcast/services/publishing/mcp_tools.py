@@ -24,6 +24,7 @@ from mcp.types import ToolAnnotations
 from ... import __version__
 from ...libs.account import deletion_link
 from ...libs.auth import SCOPE, SCOPES, Principal
+from ...libs.content.story import SCHEDULE_HORIZON_DAYS
 from ...libs.contracts.models import PublishRequest, PublishResponse, SyncFile, SyncRequest, SyncResponse
 from ...libs.runtime import Context
 from .sync import GitSync
@@ -181,7 +182,7 @@ def build_mcp(ctx: Context, service: InkcastService, sync: GitSync) -> MCPServer
         canonical_url: Annotated[str | None, Field(description="URL of the original post, set as the canonical link everywhere.")] = None,
         cover_image: Annotated[str | None, Field(description="Public URL of a cover image.")] = None,
         destinations: Annotated[dict[str, str] | None, Field(description="Per-platform destination, e.g. {'medium': 'Better Programming', 'devto': 'my-org'}.")] = None,
-        publish_at: Annotated[str | None, Field(description="Schedule time, ISO 8601 WITH a UTC offset, e.g. 2026-10-21T09:00:00-05:00. Omit to publish now.")] = None,
+        publish_at: Annotated[str | None, Field(description=f"Schedule time, ISO 8601 WITH a UTC offset, e.g. 2026-10-21T09:00:00-05:00, at most {SCHEDULE_HORIZON_DAYS} days ahead. Omit to publish now.")] = None,
         draft: Annotated[bool, Field(description="Create drafts on the platforms instead of publishing.")] = False,
         image_base_url: Annotated[str | None, Field(description="Base URL to turn relative image paths into absolute ones.")] = None,
         dry_run: Annotated[bool, Field(description="Validate and preview each platform's version; nothing is sent or saved.")] = False,
@@ -211,7 +212,7 @@ def build_mcp(ctx: Context, service: InkcastService, sync: GitSync) -> MCPServer
     @mcp.tool(title="List posts", annotations=ToolAnnotations(read_only_hint=True))
     async def inkcast_posts(
         days_back: Annotated[int, Field(ge=0, le=366, description="Include posts from this many days ago.")] = 7,
-        days_ahead: Annotated[int, Field(ge=0, le=730, description="Include posts scheduled up to this many days ahead.")] = 90,
+        days_ahead: Annotated[int, Field(ge=0, le=SCHEDULE_HORIZON_DAYS, description="Include posts scheduled up to this many days ahead (the maximum covers every schedule).")] = 90,
     ) -> str:
         """List your scheduled, published, draft, failed and cancelled posts."""
         posts = await call("posts:read", service.list_posts, days_back, days_ahead)

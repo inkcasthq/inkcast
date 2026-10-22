@@ -54,7 +54,7 @@ subtitle: Lessons from year one
 tags: [ai, agents, python]
 canonical_url: https://blog.example.com/why-we-built-an-agent
 platforms: [devto, medium]
-publish_at: 2026-11-02T09:00:00-06:00   # optional; omit to publish on merge
+publish_at: 2026-11-02T09:00:00-06:00   # optional; omit to publish on merge; up to 730 days ahead
 devto:
   series: Building agents
 ---
