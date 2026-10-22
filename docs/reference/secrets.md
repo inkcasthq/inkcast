@@ -140,6 +140,7 @@ turns a weak `INKCAST_SECRET_KEY` and the reveal flag into failures.
 | `keycloak-erase-after` | a number of days, with the user sync in use (info elsewhere) | `INKCAST_KEYCLOAK_ERASE_AFTER_DAYS=off`, or more than ten years (a person gone from Keycloak is cut off but never erased), in production or staging: warn |
 | `keycloak-breaker` | `INKCAST_KEYCLOAK_BREAKER=on`, with the user sync in use (info elsewhere) | `off` (a mass "user not found" cuts everyone off at once), or `INKCAST_KEYCLOAK_BREAKER_PERCENT=100` (it trips above the percent, so never), in production or staging: warn |
 | `publish-retry-window` | retries end within 24 h | the `INKCAST_PUBLISH_RETRY_DELAYS` waits between the `INKCAST_PUBLISH_MAX_ATTEMPTS` sends (one fewer than the sends, the last delay repeating) add up to more than a day: warn |
+| `pat-expiry` | every new personal access token expires (`INKCAST_PAT_ALLOW_NO_EXPIRY=false`), or a laptop | `INKCAST_PAT_ALLOW_NO_EXPIRY=true` (a token may never expire, to be revoked by hand) in production or staging: **info**, a choice on record, never a problem |
 | `non-root`, `core-dumps`, `forwarded-ips`, `login-method`, `database-protected`, `secrets-source` | see `inkcast checks` | |
 
 ## Adding a source

@@ -53,6 +53,16 @@ PUBLISH_DELAYS_RULE = ("INKCAST_PUBLISH_RETRY_DELAYS must be 1 to 9 whole number
 ON_OFF_RULE = "{name} must be 'on' or 'off' (got {got!r})."
 BREAKER_PERCENT_RULE = "INKCAST_KEYCLOAK_BREAKER_PERCENT must be a whole number from 1 to 100 (got {got!r})."
 BREAKER_MIN_RULE = "INKCAST_KEYCLOAK_BREAKER_MIN must be a whole number, 1 or more (got {got!r})."
+# Token lifetimes (F1.10.S2, issue #90). 366 days is the absolute ceiling on a personal access token: TokenCreate's
+# le=366 in the API document, and the most INKCAST_PAT_MAX_DAYS may allow. A refresh token (MCP sign-in) lasts at most
+# 90 days: an MCP client left unused that long signs in again.
+PAT_DAYS_CEILING = 366
+REFRESH_TOKEN_DAYS = (1, 90)
+PAT_MAX_RULE = "INKCAST_PAT_MAX_DAYS must be a whole number of days from 1 to 366 (got {got!r})."
+PAT_DEFAULT_RULE = "INKCAST_PAT_DEFAULT_DAYS must be a whole number of days from 1 to INKCAST_PAT_MAX_DAYS ({max}) (got {got!r})."
+PAT_NO_EXPIRY_RULE = "INKCAST_PAT_ALLOW_NO_EXPIRY must be true or false (got {got!r})."
+REFRESH_TOKEN_RULE = "INKCAST_REFRESH_TOKEN_DAYS must be a whole number of days from 1 to 90 (got {got!r})."
+_SWITCH = {"true": True, "yes": True, "on": True, "1": True, "false": False, "no": False, "off": False, "0": False}
 
 
 class ConfigError(RuntimeError):
@@ -97,6 +107,62 @@ def publish_retry_problems(policy: RetryPolicy, got: tuple[Any, Any] | None = No
             and all(earlier <= later for earlier, later in zip(delays, delays[1:]))):
         problems.append(PUBLISH_DELAYS_RULE.format(got=got_delays))
     return problems
+
+
+@dataclass(frozen=True)
+class PatPolicy:
+    """How long a personal access token may live (F1.10.S2, issue #90): ``default_days`` when the request doesn't say
+    (INKCAST_PAT_DEFAULT_DAYS), at most ``max_days`` (INKCAST_PAT_MAX_DAYS), and never only while ``allow_no_expiry``
+    (INKCAST_PAT_ALLOW_NO_EXPIRY). Enforced where a token is made (REST, the /tokens/new page, the MCP tool), never on
+    tokens already issued: a lower maximum doesn't shorten them."""
+
+    default_days: int = 90
+    max_days: int = PAT_DAYS_CEILING
+    allow_no_expiry: bool = True
+
+    def refusal(self, days: int | None) -> str | None:
+        """Why a token of ``days`` (None = never) can't be made under this policy, naming the limit; None when it can."""
+        if days is None:
+            if self.allow_no_expiry:
+                return None
+            return (f"A personal access token must expire on this server (INKCAST_PAT_ALLOW_NO_EXPIRY=false): give it a "
+                    f"number of days, at most {self.max_days}.")
+        if days > self.max_days:
+            return (f"A personal access token may last at most {self.max_days} days on this server "
+                    f"(INKCAST_PAT_MAX_DAYS={self.max_days}); {days} is too many.")
+        return None
+
+
+def pat_policy_problems(policy: PatPolicy, got: tuple[Any, Any, Any] | None = None) -> list[str]:
+    """The rules of the three INKCAST_PAT_* settings, as problems naming the variable: the maximum from 1 to 366, the
+    default from 1 to the maximum, the switch true or false. ``got`` is what to quote (the raw strings at load, the
+    values for a Config built by hand)."""
+    got_default, got_max, got_allow = got if got else (policy.default_days, policy.max_days, policy.allow_no_expiry)
+    problems = []
+    max_ok = _whole(policy.max_days) and 1 <= policy.max_days <= PAT_DAYS_CEILING
+    if not max_ok:
+        problems.append(PAT_MAX_RULE.format(got=got_max))
+    ceiling = policy.max_days if max_ok else PAT_DAYS_CEILING
+    if not (_whole(policy.default_days) and 1 <= policy.default_days <= ceiling):
+        problems.append(PAT_DEFAULT_RULE.format(max=ceiling, got=got_default))
+    if not isinstance(policy.allow_no_expiry, bool):
+        problems.append(PAT_NO_EXPIRY_RULE.format(got=got_allow))
+    return problems
+
+
+def refresh_token_problems(days: Any, got: Any = None) -> list[str]:
+    """The rule of INKCAST_REFRESH_TOKEN_DAYS (a whole number of days from 1 to 90), as a problem naming it."""
+    if _whole(days) and REFRESH_TOKEN_DAYS[0] <= days <= REFRESH_TOKEN_DAYS[1]:
+        return []
+    return [REFRESH_TOKEN_RULE.format(got=days if got is None else got)]
+
+
+def _problems(problems: list[str]) -> None:
+    """Raise the problems found at load, one plainly or several as a list."""
+    if len(problems) == 1:
+        raise ConfigError(problems[0])
+    if problems:
+        raise ConfigError("Inkcast configuration problems:\n- " + "\n- ".join(problems))
 
 
 class _Env:
@@ -187,6 +253,34 @@ class _Env:
         if value < low or (high is not None and value > high):
             raise ConfigError(rule.format(got=raw))
         return value
+    def pat_policy(self) -> PatPolicy:
+        """INKCAST_PAT_DEFAULT_DAYS, INKCAST_PAT_MAX_DAYS and INKCAST_PAT_ALLOW_NO_EXPIRY as a ``PatPolicy``; a value
+        outside its rule is a ConfigError naming that variable (each of them, when several are wrong)."""
+        raw_default = self.get("INKCAST_PAT_DEFAULT_DAYS", "90")
+        raw_max = self.get("INKCAST_PAT_MAX_DAYS", str(PAT_DAYS_CEILING))
+        raw_allow = self.get("INKCAST_PAT_ALLOW_NO_EXPIRY", "true")
+        try:
+            default: Any = int(raw_default)
+        except ValueError:
+            default = raw_default                     # fails the whole-number rule below, with the same message
+        try:
+            maximum: Any = int(raw_max)
+        except ValueError:
+            maximum = raw_max
+        # Not _Env.bool: its "anything else is false" would turn a typo into a silently stricter policy.
+        policy = PatPolicy(default, maximum, _SWITCH.get(raw_allow.lower(), raw_allow))
+        _problems(pat_policy_problems(policy, got=(raw_default, raw_max, raw_allow)))
+        return policy
+
+    def refresh_token_days(self) -> int:
+        """INKCAST_REFRESH_TOKEN_DAYS, a whole number of days from 1 to 90; anything else is a ConfigError naming it."""
+        raw = self.get("INKCAST_REFRESH_TOKEN_DAYS", "30")
+        try:
+            days: Any = int(raw)
+        except ValueError:
+            days = raw
+        _problems(refresh_token_problems(days, got=raw))
+        return days
 
     def prefixed(self, prefix: str, key_fn) -> dict[str, str]:
         return {key_fn(key[len(prefix):]): value.strip().rstrip("/")
@@ -246,8 +340,18 @@ class Config:
     keycloak_breaker_percent: int = 10
     keycloak_breaker_min: int = 5
 
+    # An OAuth access token (an MCP client's) lasts an hour. Deliberately not configurable: it is an opaque token
+    # checked in the database on every call, so cutting someone off (a revocation, Keycloak disabling them) is
+    # immediate whatever its lifetime, and a longer one would only widen what a leaked token is good for.
     access_token_seconds: int = 3600
-    refresh_token_seconds: int = 60 * 60 * 24 * 30
+    # How long a newly issued refresh token lasts (INKCAST_REFRESH_TOKEN_DAYS, 1-90; F1.10.S2, issue #90). Each
+    # refresh rotates and issues a new one with the full lifetime, so this is an idle timeout: an MCP client left
+    # unused this long signs in again. Refresh tokens already issued keep the lifetime they were given.
+    refresh_token_days: int = 30
+    # Personal access tokens (F1.10.S2, issue #90): INKCAST_PAT_DEFAULT_DAYS when the request doesn't say, at most
+    # INKCAST_PAT_MAX_DAYS (never above 366), and never only while INKCAST_PAT_ALLOW_NO_EXPIRY (a posture info in
+    # production). Enforced where a token is made; tokens already issued keep their expiry.
+    pat: PatPolicy = PatPolicy()
     scheduler_interval_seconds: float = 20.0
     # How a scheduled post whose send certainly never happened is retried (F1.10.S1, issue #89):
     # INKCAST_PUBLISH_MAX_ATTEMPTS sends in all, INKCAST_PUBLISH_RETRY_DELAYS seconds apart (the last repeats).
@@ -405,6 +509,8 @@ class Config:
         if not (_whole(minimum) and minimum >= 1):
             problems.append(BREAKER_MIN_RULE.format(got=minimum))
         problems += publish_retry_problems(self.publish_retry)  # load_config refuses already; a Config built by hand
+        problems += pat_policy_problems(self.pat)              # likewise
+        problems += refresh_token_problems(self.refresh_token_days)
         if urlparse(self.public_url).scheme != "https" and urlparse(self.public_url).hostname not in {
             "localhost", "127.0.0.1"
         }:
@@ -515,6 +621,8 @@ def load_config(environ: Mapping[str, str] | None = None) -> Config:
         keycloak_breaker=env.on_off("INKCAST_KEYCLOAK_BREAKER", "on"),
         keycloak_breaker_percent=env.int_in("INKCAST_KEYCLOAK_BREAKER_PERCENT", "10", 1, 100, BREAKER_PERCENT_RULE),
         keycloak_breaker_min=env.int_in("INKCAST_KEYCLOAK_BREAKER_MIN", "5", 1, None, BREAKER_MIN_RULE),
+        refresh_token_days=env.refresh_token_days(),
+        pat=env.pat_policy(),
         extra_allowed_hosts=tuple(h.strip() for h in settings.get("INKCAST_ALLOWED_HOSTS", "").split(",") if h.strip()),
         platform_urls=env.prefixed("INKCAST_API_URL_", str.lower),
         app_name=env.get("INKCAST_APP_NAME", "All"),

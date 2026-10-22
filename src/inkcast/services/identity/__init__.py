@@ -159,15 +159,34 @@ def _routes(ctx: Context) -> list[Route]:
 
     # ---- personal access tokens: browser flow (the token is shown to the person, never to an AI) ----
 
+    def _expiry(req: TokenCreate) -> int | None:
+        """The token's lifetime in days (None = never) under this server's policy (F1.10.S2, issue #90): the configured
+        default when the request didn't say; refused with a 422 naming the limit over INKCAST_PAT_MAX_DAYS, or never
+        while INKCAST_PAT_ALLOW_NO_EXPIRY is false. Checked where the token is made, so a /tokens/new link made under
+        an older, looser policy is held to the current one."""
+        days = req.expires_in_days if "expires_in_days" in req.model_fields_set else config.pat.default_days
+        why = config.pat.refusal(days)
+        if why:
+            raise ApiError(422, "invalid_expiry", why)
+        return days
+
     async def tokens_new(request: Request) -> Response:
         q = request.query_params
         try:
+            days = q.get("days", "").strip()                   # a number of days, "never", or nothing for the default
+            wanted = None if days == "never" else int(days) if days else config.pat.default_days
+            if why := config.pat.refusal(wanted):              # before the schema: its le=366 would name no limit
+                return pages.message("Invalid request", why, error=True, status=422)
             req = TokenCreate(name=q.get("name", ""), scopes=q.get("scopes", "stories:sync").split(),
-                              expires_in_days=int(q["days"]) if q.get("days") else 90)
+                              expires_in_days=wanted)
             _check_scopes(req.scopes)
         except (ValidationError, ValueError, ApiError) as exc:
             return pages.message("Invalid request", getattr(exc, "message", None) or "Check the token name, scopes and days.",
                                  error=True, status=400)
+        try:
+            _expiry(req)
+        except ApiError as exc:                                # over this server's limit: a 422 naming it
+            return pages.message("Invalid request", exc.message, error=True, status=exc.status)
         pending_id = store.create_pending(TOKEN_REQUEST, req.model_dump_json())
         try:
             return await identity.start(request, pending_id)
@@ -176,15 +195,19 @@ def _routes(ctx: Context) -> list[Route]:
 
     async def token_consent(request: Request, data, pending: dict, user: dict) -> Response:
         req = TokenCreate.model_validate_json(pending["params"])
+        try:
+            days = _expiry(req)
+        except ApiError as exc:                                # the policy tightened since the link was made
+            store.delete_pending(pending["id"])
+            return pages.message("Token not created", exc.message, error=True, status=exc.status)
         if request.method == "GET":
-            return pages.token_confirm(pending["id"], pending["csrf"], req.name, req.scopes, req.expires_in_days,
-                                       user.get("display", "?"))
+            return pages.token_confirm(pending["id"], pending["csrf"], req.name, req.scopes, days, user.get("display", "?"))
         if not _csrf_ok(data, pending):
             return pages.message("Request rejected", "The form was invalid. Start again.", error=True, status=400)
         store.delete_pending(pending["id"])
         if data.get("decision") != "approve":
             return pages.message("Cancelled", "No token was created.")
-        expires = time.time() + req.expires_in_days * 86400 if req.expires_in_days else None
+        expires = time.time() + days * 86400 if days else None
         token, _ = store.create_api_token(pending["user_id"], req.name, _check_scopes(req.scopes), expires)
         return pages.token_created(token, req.name)
 
@@ -298,7 +321,8 @@ def _routes(ctx: Context) -> list[Route]:
 
     async def create_token(request: Request, who: Principal):
         req = TokenCreate.model_validate(await json_body(request))
-        expires = time.time() + req.expires_in_days * 86400 if req.expires_in_days else None
+        days = _expiry(req)
+        expires = time.time() + days * 86400 if days else None
         token, row = store.create_api_token(who.user_id, req.name, _check_scopes(req.scopes), expires)
         return TokenCreated(**_info(row).model_dump(), token=token)
 
