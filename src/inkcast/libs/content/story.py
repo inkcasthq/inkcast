@@ -222,7 +222,7 @@ def parse_story(
     base = image_base_url or _pick(meta, "image_base_url")
 
     chosen = platforms or _as_tags(_pick(meta, "platforms")) or []
-    chosen = [p.strip().lower() for p in chosen]
+    chosen = list(dict.fromkeys(p.strip().lower() for p in chosen))  # once each: a repeat would post twice
     unknown = [p for p in chosen if p not in known]
     if unknown:
         raise StoryError(f"Unknown platform(s): {', '.join(unknown)}. Available: {', '.join(known)}.")

@@ -326,5 +326,20 @@ class NumericTitles(SyncHarness, unittest.TestCase):
         self.assertEqual(DevtoPlatform(httpx2.AsyncClient()).prepare(story.for_platform("devto"), story.body).title, "2048")
 
 
+class DuplicatePlatformIds(SyncHarness, unittest.TestCase):
+    def test_a_platform_named_twice_is_published_once(self):
+        """`platforms` from a request (REST, inkcast_publish) is lower-cased and stripped but not de-duplicated, so
+        ["fake", "Fake "] made two posts on the same platform and sent both."""
+        from inkcast.libs.contracts.models import PublishRequest
+        from inkcast.services.publishing.usecases import InkcastService
+
+        self.make()
+        service = InkcastService(self.store, {"fake": self.fake}, self.publisher, "http://localhost:8787")
+        resp = asyncio.run(service.publish(self.user, PublishRequest(markdown="# Twice\n\nBody.\n",
+                                                                     platforms=["fake", "Fake "])))
+        self.assertEqual(self.fake.sent, ["Twice"])
+        self.assertEqual([r.platform for r in resp.results], ["fake"])
+
+
 if __name__ == "__main__":
     unittest.main()
