@@ -9,6 +9,7 @@ in a sync beside a good file it must be `failed` while the good one is still sch
 
 import asyncio
 import itertools
+import time
 import unittest
 from datetime import datetime, timedelta, timezone
 
@@ -17,6 +18,7 @@ import httpx2
 from inkcast.cli import render_table
 from inkcast.launcher import build, resolve
 from inkcast.libs.config import Config
+from inkcast.libs.content import story as content
 from inkcast.libs.http.app import compose
 from test_e2e import free_port, serve
 
@@ -157,6 +159,21 @@ class LongNumberInAnotherBase(Api):
                 message = self.assert_refused(extra)
                 self.assertIn(where, message)
                 self.assertIn("isn't a valid int", message)
+
+
+class LongBaseSixtyNumber(unittest.TestCase):
+    """PyYAML builds a base-60 int (`1:2:3`, resolved without a tag) by multiplying a growing int by 60 once per part:
+    quadratic in the parts, and parse_story runs on the event loop, so while it does no other request is served.
+    150,000 parts (300 KB) take about 8 s here; the 10 MB body limit allows hours. int() refuses decimal text over
+    4300 digits before converting it; this form needs the same check before it is built, not after."""
+
+    def test_a_long_base_60_number_is_refused_before_it_is_built(self):
+        markdown = "---\ntitle: A story\nsubtitle: " + ":".join(["1"] * 150_000) + "\n---\n\nBody.\n"
+        started = time.monotonic()
+        with self.assertRaises(content.StoryError) as caught:
+            content.split_front_matter(markdown)
+        self.assertLess(time.monotonic() - started, 3)   # about 0.3 s once refused by length; 8 s to build it
+        self.assertIn("subtitle", str(caught.exception))
 
 
 if __name__ == "__main__":

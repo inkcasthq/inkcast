@@ -65,6 +65,10 @@ def _guarded(construct):
         # doesn't need, and which would hand the message below a list of nodes instead of the scalar's text.
         if not isinstance(node, yaml.ScalarNode):
             raise yaml.constructor.ConstructorError(None, None, f"expected a scalar, but found a {node.id}", node.start_mark)
+        # int() refuses decimal text over 4300 digits before converting it. PyYAML builds 1:2:3 (base 60) itself, in
+        # time quadratic in the parts, on the event loop: the same limit on its text comes first, before it is built.
+        if node.tag == "tag:yaml.org,2002:int" and ":" in node.value and len(node.value) > 4300:
+            raise _RefusedValue(node, ValueError("a base-60 number over 4300 characters long"))
         try:
             value = construct(loader, node)
             if type(value) is int:
