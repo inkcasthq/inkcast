@@ -89,22 +89,24 @@ features:
     status: planned
     change: new
   - id: F9.5.S4
-    title: 'Delete my account, led by Inkcast: erase the person''s data, then remove their Keycloak user'
+    title: 'Delete my account: Inkcast leads, Keycloak deletes the account (kc_action=delete_account), Inkcast erases
+      the data'
     status: planned
-    change: 'refined 2026-10-22 (owner: deletion is Inkcast-led; Keycloak self-service delete stays off); issue #41'
+    change: 'refined 2026-10-22 (owner: Inkcast-led; Keycloak deletes through an application-initiated action, because
+      fine-grained admin permissions have no delete-only scope: manage also allows email change and action emails);
+      issue #41'
     acceptance:
-    - MCP inkcast_delete_account and REST POST /api/v1/account/deletion-link (OAuth only) return a one-time link;
-      the assistant never deletes anything itself
-    - 'The page: a fresh sign-in; what goes (posts, schedules, ledger, connections and stored credentials, tokens, KPI
-      rows) and what stays (articles already on the platforms); a link to the export (E3.F3.3.S7); type your email'
-    - Erasure reuses E3.F3.3.S5 in one transaction; scheduled posts can never send; the outbox is purged; the audit
-      record keeps a salted hash of the user id, the time and the counts
-    - 'The Keycloak user is deleted after commit through a separate inkcast-account-deletion client, scoped with Keycloak
-      26 fine-grained admin permissions (v2) to deleting non-operators (never inkcast-admin, no role mapping, no password
-      reset); a fallback needs the owner''s decision; retried from the outbox; alert after an hour pending'
-    - 'Events identity.user.deleted and identity.user.deletion_failed; inkcast_identity_users_deleted_total{result}'
-    - 'Kind e2e: ada deletes her account; her tokens answer 401; her Keycloak user is gone; signing in again is refused;
-      another person is untouched; the walkthrough (#57) gains the steps'
+    - MCP inkcast_delete_account and REST POST /api/v1/account/deletion-link (OAuth only) return a one-time link
+    - 'Inkcast''s page: what goes, what stays (articles on the platforms), the export (E3.F3.3.S7); Continue goes to
+      Keycloak with kc_action=delete_account, where the person confirms and Keycloak deletes the account'
+    - 'Realm: delete_account required action enabled; account client''s delete-account role in the default roles;
+      DELETE_ACCOUNT in enabledEventTypes (the account console''s Delete account is an accepted side effect)'
+    - 'Erasure (E3.F3.3.S5, one transaction) on return with kc_action_status=success, and as a backstop from the sync
+      reading DELETE_ACCOUNT user events; cancelled erases nothing; audit keeps a salted id hash, time and counts'
+    - 'Event identity.user.deleted; inkcast_identity_users_deleted_total{via=return|event}; the sync keeps view-users
+      and view-events only'
+    - 'Kind e2e: ada deletes through the flow (401 on her tokens, Keycloak user and Inkcast rows gone, others untouched);
+      an account-console deletion is erased through the event path within 60 s; the walkthrough gains the steps'
   - id: F9.5.S5
     title: The user sync proven in split mode on kind (IdentityService's own Deployment carries the sync settings)
     status: planned
