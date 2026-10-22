@@ -186,6 +186,34 @@ class StartupEvidence(unittest.TestCase):
             self.assertTrue((run / "walkthrough.pdf").exists())
 
 
+class CallbackPort(unittest.TestCase):
+    """The OAuth callback listens on a port the OS picks unless one is set (issue #114): a fixed port inside Linux's
+    ephemeral range (32768-60999) can be held as the source port of any local connection, and the bind fails."""
+
+    def test_the_default_is_a_free_port_the_os_picks(self):
+        text = (WALK / "walk.py").read_text()
+        self.assertIn('os.environ.get("WALK_CALLBACK_PORT", "0")', text)
+        self.assertIn("self.port = self.server.server_address[1]", text)
+        self.assertIn('facts["callback"] = callback.url', text)
+
+    def test_the_listener_reports_the_port_it_got(self):
+        try:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("walk_for_test", WALK / "walk.py")
+            walk = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(walk)
+        except ImportError as exc:   # walk.py needs Playwright and the MCP SDK; the walk job has them
+            self.skipTest(f"walk.py's imports are not installed here: {exc}")
+        callback = walk.Callback(0)
+        try:
+            self.assertNotEqual(callback.port, 0)
+            self.assertEqual(callback.url, f"http://localhost:{callback.port}/callback")
+            with socket.create_connection(("127.0.0.1", callback.port), timeout=5):
+                pass
+        finally:
+            callback.server.shutdown()
+
+
 class Wiring(unittest.TestCase):
     """Issue #57: the Python 3.14 test job runs the walkthrough and uploads it; on main the captures job publishes
     it to ci-captures next to the dashboards, and the branch README links the document."""

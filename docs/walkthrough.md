@@ -50,7 +50,7 @@ open /tmp/walkthrough/walkthrough.pdf
 Needs Playwright with Chromium (`pip install playwright==1.56.0 && python -m playwright install chromium`), which
 the test suite needs too. The password is read from `WALK_PASSWORD` if set and generated for the run otherwise;
 it is never a command-line argument. Ports: `WALK_INKCAST_PORT` (8787), `WALK_FAKES_PORT` (8999),
-`WALK_METRICS_PORT` (9090), `WALK_CALLBACK_PORT` (53682). About twenty seconds.
+`WALK_METRICS_PORT` (9090), `WALK_CALLBACK_PORT` (0: a free port the OS picks; a fixed one inside the ephemeral range 32768-60999 failed at random, issue #114). About twenty seconds.
 
 The command runs, in order:
 
