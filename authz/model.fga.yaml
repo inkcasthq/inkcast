@@ -32,16 +32,16 @@ tuples:
   - {user: "user:ivan", relation: member, object: "organization:acme"}
   - {user: "organization:acme", relation: org, object: "role:acme-copy-editor"}
   - {user: "user:ivan", relation: assignee, object: "role:acme-copy-editor"}
-  - {user: "role:acme-copy-editor#assignee", relation: role_editor, object: "workspace:acme-blog"}
+  - {user: "role:acme-copy-editor#member_assignee", relation: role_editor, object: "workspace:acme-blog"}
   # Globex's custom role, wrongly granted on Acme's workspace and channel (a bad write the API should refuse).
   - {user: "user:quinn", relation: member, object: "organization:globex"}
   - {user: "organization:globex", relation: org, object: "role:globex-ghost"}
   - {user: "user:quinn", relation: assignee, object: "role:globex-ghost"}
   - {user: "organization:globex#member", relation: assignee, object: "role:globex-ghost"}
-  - {user: "role:globex-ghost#assignee", relation: role_manager, object: "workspace:acme-blog"}
-  - {user: "role:globex-ghost#assignee", relation: role_editor, object: "workspace:acme-blog"}
-  - {user: "role:globex-ghost#assignee", relation: role_viewer, object: "workspace:acme-blog"}
-  - {user: "role:globex-ghost#assignee", relation: role_publisher, object: "channel:acme-x"}
+  - {user: "role:globex-ghost#member_assignee", relation: role_manager, object: "workspace:acme-blog"}
+  - {user: "role:globex-ghost#member_assignee", relation: role_editor, object: "workspace:acme-blog"}
+  - {user: "role:globex-ghost#member_assignee", relation: role_viewer, object: "workspace:acme-blog"}
+  - {user: "role:globex-ghost#member_assignee", relation: role_publisher, object: "channel:acme-x"}
 
 tests:
   # ---- the owner's scenarios ----------------------------------------------------------------
@@ -179,3 +179,37 @@ tests:
       - user: "user:quinn"
         type: post
         assertions: {can_view: []}
+
+  # Case 1 of a misaligned grant (#71): Globex assigns its role to Acme's members. Every Acme member is now an
+  # assignee of the role, but none is a member of Globex, so nobody is a member_assignee and the grant is inert.
+  # (Case 2, a user who is a member of both organizations, is the write API's and the reconciler's job.)
+  - name: a foreign custom role assigned to this organization's members grants nothing
+    tuples:
+      - {user: "organization:acme#member", relation: assignee, object: "role:globex-ghost"}
+    check:
+      - user: "user:bob"
+        object: "workspace:acme-blog"
+        assertions: {manager: false, editor: false, viewer: false}
+      - user: "user:bob"
+        object: "channel:acme-x"
+        assertions: {publisher: false, can_publish: false}
+
+  # Acme's own role assigned to Acme's members grants each member, and the members userset itself: OpenFGA's check
+  # holds a userset to be in itself (organization:acme#member is a member of organization:acme), so the userset
+  # passes member_assignee's "member from org" too. A foreign role's guard still holds for it.
+  - name: an organization's own custom role assigned to its members grants them, and the members userset
+    tuples:
+      - {user: "organization:acme#member", relation: assignee, object: "role:acme-copy-editor"}
+    check:
+      - user: "user:bob"
+        object: "workspace:acme-blog"
+        assertions: {editor: true, manager: false}
+      - user: "organization:acme#member"
+        object: "role:acme-copy-editor"
+        assertions: {member_assignee: true}
+      - user: "organization:acme#member"
+        object: "workspace:acme-blog"
+        assertions: {editor: true, manager: false}
+      - user: "organization:acme#member"
+        object: "role:globex-ghost"
+        assertions: {member_assignee: false}

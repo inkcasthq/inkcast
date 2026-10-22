@@ -139,6 +139,8 @@ class Evaluator:
         if key in path:
             self._cycles += 1
             return False
+        if user == f"{obj}#{relation}":  # a userset is in itself, as OpenFGA's check holds (tuple.IsSelfDefining)
+            return True
         rewrite = self.model.rewrite(Ref.parse(obj).type, relation)
         return self._node(rewrite, user, relation, obj, depth, path | {key})
 
