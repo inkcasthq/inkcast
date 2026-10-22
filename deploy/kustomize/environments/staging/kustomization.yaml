@@ -10,6 +10,9 @@ configMapGenerator:
     behavior: merge
     literals:
       - INKCAST_ENV=staging       # same checks as production, but a weak key or a reveal flag only warns
+      # Staging rehearses production: no in-process authorization engine (the self-host overlay it builds on allows
+      # one). It doesn't start until INKCAST_AUTHZ_ENGINE=openfga and its INKCAST_FGA_* settings land (E3.F3.9).
+      - INKCAST_AUTHZ_ALLOW_LOCAL=false
 images:
   - name: ghcr.io/inkcasthq/inkcast
     digest: sha256:0000000000000000000000000000000000000000000000000000000000000000

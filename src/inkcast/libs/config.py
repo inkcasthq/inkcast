@@ -275,9 +275,9 @@ class Config:
 
     def _authz_problems(self) -> list[str]:
         """E3.F3.6.S4. The hosted SaaS runs OpenFGA (ADR-0007); nothing in the configuration says "hosted", so
-        the smallest honest rule is: production refuses the local engine unless the operator states, with
-        INKCAST_AUTHZ_ALLOW_LOCAL=true, that this is a self-host that accepts it. The hosted environments never
-        set that flag."""
+        the smallest honest rule is: production and staging refuse the local engine unless the operator states,
+        with INKCAST_AUTHZ_ALLOW_LOCAL=true, that this is a self-host that accepts it. The hosted environments set
+        that flag to false explicitly."""
         problems = []
         if self.authz_engine not in AUTHZ_ENGINES:
             return [f"INKCAST_AUTHZ_ENGINE must be one of {', '.join(AUTHZ_ENGINES)} (got {self.authz_engine!r})."]
@@ -289,8 +289,9 @@ class Config:
                 problems.append("INKCAST_FGA_API_URL must be an http(s) URL.")
             if not 0 < self.fga_timeout_seconds < float("inf"):  # also nan, which httpx2 reads as "no timeout"
                 problems.append("INKCAST_FGA_TIMEOUT must be a positive number of seconds.")
-        elif self.is_production and not self.authz_allow_local:
-            problems.append("INKCAST_AUTHZ_ENGINE=local is refused in production: the hosted service runs OpenFGA "
+        elif self.environment in ("production", "staging") and not self.authz_allow_local:
+            # Staging too (owner, 2026-10-22): it rehearses production, so it runs what production runs.
+            problems.append(f"INKCAST_AUTHZ_ENGINE=local is refused in {self.environment}: the hosted service runs OpenFGA "
                             "(INKCAST_AUTHZ_ENGINE=openfga). A self-host that accepts the in-process engine sets "
                             "INKCAST_AUTHZ_ALLOW_LOCAL=true.")
         return problems
