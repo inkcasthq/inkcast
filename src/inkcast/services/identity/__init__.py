@@ -60,6 +60,18 @@ def _csrf_ok(data, pending: dict) -> bool:
     return hmac.compare_digest(str(data.get("csrf", "")).encode(), str(pending["csrf"]).encode())
 
 
+def _consent_cookie(identity, pending_id: str, user_id: str) -> tuple[str, str]:
+    """(name, value) of the cookie that binds a pending consent to the browser that signed in, as that person: the
+    pending id alone travels in URLs (it is the OIDC state), so it must not be enough to answer the consent."""
+    return (f"inkcast_consent_{identity._derived('consent-cookie', pending_id)[:16]}",
+            identity._derived("consent", f"{pending_id}:{user_id}"))
+
+
+def _same_browser(request: Request, identity, pending: dict) -> bool:
+    name, value = _consent_cookie(identity, pending["id"], pending["user_id"])
+    return hmac.compare_digest(request.cookies.get(name, "").encode(), value.encode())
+
+
 def _check_scopes(scopes: list[str]) -> list[str]:
     unknown = [s for s in scopes if s not in SCOPES]
     if unknown:
@@ -116,13 +128,20 @@ def _routes(ctx: Context) -> list[Route]:
             return pages.message("Link expired", "This sign-in took too long. Start again from your MCP client.", error=True, status=400)
         user = store.upsert_user(who.key, who.display, who.email, who.name)
         store.set_pending_user(pending_id, user["id"])
-        return RedirectResponse(f"/auth/consent?pending={pending_id}", status_code=303)
+        response = RedirectResponse(f"/auth/consent?pending={pending_id}", status_code=303)
+        name, value = _consent_cookie(identity, pending_id, user["id"])
+        response.set_cookie(name, value, max_age=900, httponly=True, samesite="lax",
+                            secure=config.public_url.startswith("https://"))
+        return response
 
     async def auth_consent(request: Request) -> Response:
         data = request.query_params if request.method == "GET" else await request.form()
         pending = store.get_pending(str(data.get("pending", "")))
         if not pending or not pending["user_id"]:
             return pages.message("Link expired", "This request expired. Start again from your MCP client.", error=True, status=400)
+        if not _same_browser(request, identity, pending):
+            return pages.message("Request rejected", "This request was not signed in from this browser. Start again "
+                                 "from your own MCP client.", error=True, status=400)
         user = store.get_user(pending["user_id"]) or {}
         if pending["client_id"] == TOKEN_REQUEST:
             return await token_consent(request, data, pending, user)
