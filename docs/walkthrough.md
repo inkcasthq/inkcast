@@ -38,6 +38,8 @@ The panels are plainly labelled as MCP tool calls or REST requests; they don't i
 Generated credentials (OAuth tokens, the personal access token, the authorization code) are masked in every
 picture and in `results.json`; the password (the fake Keycloak account's) is never written.
 
+A curated handful of its pictures is in [Screenshots](screenshots.md).
+
 ## Running it
 
 ```sh
