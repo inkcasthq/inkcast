@@ -61,6 +61,10 @@ def _guarded(construct):
     """One of SafeConstructor's scalar constructors, reporting a value Python refuses at its node."""
 
     def construct_or_report(loader: yaml.SafeLoader, node: yaml.ScalarNode) -> Any:
+        # PyYAML also builds these from a mapping holding YAML 1.1's value key (`!!bool {=: yes}`), which front matter
+        # doesn't need, and which would hand the message below a list of nodes instead of the scalar's text.
+        if not isinstance(node, yaml.ScalarNode):
+            raise yaml.constructor.ConstructorError(None, None, f"expected a scalar, but found a {node.id}", node.start_mark)
         try:
             return construct(loader, node)
         # Only PyYAML's conversion of this one scalar runs in the try, so nothing unrelated is caught. It lets out

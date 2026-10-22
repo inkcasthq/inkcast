@@ -84,5 +84,24 @@ class EmptyNumber(Api):
                 self.assertIn("draft", self.assert_refused(f"draft: !!{tag} ''\n"))
 
 
+class ScalarTagOnAMapping(Api):
+    """PyYAML's scalar constructors also take a mapping that holds YAML 1.1's value key (`!!bool {=: yes}` is True),
+    so the node the PR guards isn't always a ScalarNode. `!!timestamp {=: soon}` is a TypeError (PyYAML matches its
+    regexp against the node's list of pairs), which the PR doesn't catch; a refused `!!bool {=: maybe, ...}` hands
+    _RefusedValue a MappingNode, whose `value[:79] + "…"` is a TypeError past 80 pairs. Each is a 500 on REST publish
+    and for the whole sync. Under 80 pairs the message is the repr of every node: unbounded, and not the value."""
+
+    def test_a_scalar_tag_on_a_mapping_is_refused(self):
+        pairs = ", ".join(f"k{i}: {i}" for i in range(81))
+        for extra in ("devto:\n  publish_at: !!timestamp {=: soon}\n", f"draft: !!bool {{=: maybe, {pairs}}}\n"):
+            with self.subTest(extra=extra[:40]):
+                self.assert_refused(extra)
+
+    def test_the_message_does_not_repeat_the_mapping(self):
+        message = self.assert_refused("draft: !!bool {=: maybe, k: " + "x" * 5000 + "}\n")
+        self.assertFalse("ScalarNode" in message, message[:300])
+        self.assertLess(len(message), 500)
+
+
 if __name__ == "__main__":
     unittest.main()
