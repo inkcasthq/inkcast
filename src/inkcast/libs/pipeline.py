@@ -4,7 +4,10 @@
 
 A publish request becomes one post row per platform (sharing a group id).
 "Now" posts are sent immediately; scheduled posts wait in the database and
-the scheduler loop sends them when due, retrying transient failures.
+the scheduler loop sends them when due, retrying transient failures under the
+``RetryPolicy`` the Publisher was built with (INKCAST_PUBLISH_MAX_ATTEMPTS and
+INKCAST_PUBLISH_RETRY_DELAYS; libs/config). Only a failure whose send certainly
+never happened is retried: an uncertain one is ``unconfirmed``, whatever the policy.
 """
 
 from __future__ import annotations
@@ -18,14 +21,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .platforms import Account, Platform, PlatformError, Prepared
+from .config import RetryPolicy
 from .db import Store
 from .content.story import Story
 from .events import DomainEvent
 
 log = logging.getLogger(__name__)
 
-MAX_ATTEMPTS = 4
-RETRY_DELAYS = [60, 300, 1800]  # seconds after attempt 1, 2, 3
 STUCK_AFTER = 600  # a post 'publishing' for longer than this was interrupted (the HTTP timeout is 30 s)
 
 
@@ -42,10 +44,12 @@ class Outcome:
 
 
 class Publisher:
-    def __init__(self, store: Store, platforms: dict[str, Platform], metrics: Any = None):
+    def __init__(self, store: Store, platforms: dict[str, Platform], metrics: Any = None,
+                 retry: RetryPolicy = RetryPolicy()):
         self.store = store
         self.platforms = platforms
         self.metrics = metrics
+        self.retry = retry  # the scheduler's retry policy (config.publish_retry); the default is 4 sends over ~36 min
         self.last_tick: float = 0.0  # for readiness: is the scheduler loop alive?
 
     def _count(self, platform: str, status: str) -> None:
@@ -128,14 +132,15 @@ class Publisher:
         except PlatformError as exc:
             self._observe("inkcast_publish_duration_seconds", time.perf_counter() - started, platform=platform.id)
             if exc.uncertain:
+                # Never retried, under any policy: the post may already be out, and a retry could post it twice.
                 self.store.update_post(post_id, status="unconfirmed", error=str(exc),
                                        events=self._event("post.unconfirmed", post_id, user_id, platform.id))
                 self._count(platform.id, "unconfirmed")
                 log.warning("Post %s on %s is unconfirmed: %s", post_id, platform.id, exc,
                             extra={"event": "publish.unconfirmed", "post_id": post_id, "platform": platform.id})
                 return Outcome(platform.id, "unconfirmed", post_id=post_id, message=str(exc))
-            if scheduled and exc.retryable and attempts < MAX_ATTEMPTS:
-                delay = RETRY_DELAYS[min(attempts - 1, len(RETRY_DELAYS) - 1)]
+            if scheduled and exc.retryable and attempts < self.retry.max_attempts:
+                delay = self.retry.delay_after(attempts)
                 self.store.update_post(post_id, status="scheduled", run_at=time.time() + delay, error=f"retrying: {exc}",
                                        events=self._event("post.scheduled", post_id, user_id, platform.id, retry=attempts))
                 self._count(platform.id, "retry")

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import Iterable, Mapping
+from typing import Any, Iterable, Mapping
 from urllib.parse import urlparse
 
 from .secrets import (
@@ -42,10 +42,58 @@ SECRET_SETTINGS: dict[str, str] = {
 }
 AUTHZ_ENGINES = ("local", "openfga")
 DAYS_OR_OFF_RULE = "{name} must be a whole number of days, 0 or more, or 'off' (got {got!r})."
+# The publish retry policy (F1.10.S1, issue #89): sends in all, and the seconds between them. The 30 s floor is
+# there because a 429 means "slow down"; the ceiling (6 h) and the count keep the whole window a few days at most.
+PUBLISH_MAX_ATTEMPTS = (1, 10)
+PUBLISH_RETRY_DELAYS = (1, 9)       # how many delays may be listed
+PUBLISH_RETRY_DELAY = (30, 21600)   # seconds, each
+PUBLISH_ATTEMPTS_RULE = "INKCAST_PUBLISH_MAX_ATTEMPTS must be a whole number from 1 to 10 (got {got!r})."
+PUBLISH_DELAYS_RULE = ("INKCAST_PUBLISH_RETRY_DELAYS must be 1 to 9 whole numbers of seconds, comma-separated, each from 30 "
+                       "to 21600 and never decreasing (got {got!r}).")
 
 
 class ConfigError(RuntimeError):
     pass
+
+
+def _whole(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+@dataclass(frozen=True)
+class RetryPolicy:
+    """How the scheduler retries a post whose send certainly never happened (a connection failure, a 429):
+    ``max_attempts`` sends in all, ``delays`` seconds between them, the last delay repeating. Built from
+    INKCAST_PUBLISH_MAX_ATTEMPTS and INKCAST_PUBLISH_RETRY_DELAYS and handed to the Publisher (libs/pipeline), which
+    applies it only to ``retryable`` platform errors: an ``uncertain`` one (the post may have gone out) is never retried,
+    whatever the policy."""
+
+    max_attempts: int = 4
+    delays: tuple[int, ...] = (60, 300, 1800)
+
+    def delay_after(self, attempt: int) -> int:
+        """Seconds to wait after the ``attempt``-th send (counted from 1) before the next; the last delay repeats."""
+        return self.delays[min(attempt, len(self.delays)) - 1]
+
+    @property
+    def window_seconds(self) -> int:
+        """From the first send to the last: how long a post that keeps failing is retried before it is marked failed."""
+        return sum(self.delay_after(attempt) for attempt in range(1, self.max_attempts))
+
+
+def publish_retry_problems(policy: RetryPolicy, got: tuple[Any, Any] | None = None) -> list[str]:
+    """The rules of INKCAST_PUBLISH_MAX_ATTEMPTS and INKCAST_PUBLISH_RETRY_DELAYS, as problems naming the variable;
+    ``got`` is what to quote (the raw strings at load, the values for a Config built by hand)."""
+    got_attempts, got_delays = got if got else (policy.max_attempts, policy.delays)
+    problems = []
+    attempts, delays = policy.max_attempts, policy.delays
+    if not (_whole(attempts) and PUBLISH_MAX_ATTEMPTS[0] <= attempts <= PUBLISH_MAX_ATTEMPTS[1]):
+        problems.append(PUBLISH_ATTEMPTS_RULE.format(got=got_attempts))
+    if not (isinstance(delays, tuple) and PUBLISH_RETRY_DELAYS[0] <= len(delays) <= PUBLISH_RETRY_DELAYS[1]
+            and all(_whole(d) and PUBLISH_RETRY_DELAY[0] <= d <= PUBLISH_RETRY_DELAY[1] for d in delays)
+            and all(earlier <= later for earlier, later in zip(delays, delays[1:]))):
+        problems.append(PUBLISH_DELAYS_RULE.format(got=got_delays))
+    return problems
 
 
 class _Env:
@@ -97,6 +145,27 @@ class _Env:
         if days < 0:
             raise ConfigError(DAYS_OR_OFF_RULE.format(name=name, got=raw))
         return days
+
+    def publish_retry(self) -> RetryPolicy:
+        """INKCAST_PUBLISH_MAX_ATTEMPTS and INKCAST_PUBLISH_RETRY_DELAYS as a ``RetryPolicy``; a value outside its rule
+        is a ConfigError naming that variable (both, when both are wrong)."""
+        raw_attempts = self.get("INKCAST_PUBLISH_MAX_ATTEMPTS", "4")
+        raw_delays = self.get("INKCAST_PUBLISH_RETRY_DELAYS", "60,300,1800")
+        try:
+            attempts: Any = int(raw_attempts)
+        except ValueError:
+            attempts = raw_attempts                   # fails the whole-number rule below, with the same message
+        try:
+            delays: Any = tuple(int(part) for part in raw_delays.split(","))
+        except ValueError:
+            delays = raw_delays
+        policy = RetryPolicy(attempts, delays)
+        problems = publish_retry_problems(policy, got=(raw_attempts, raw_delays))
+        if len(problems) == 1:
+            raise ConfigError(problems[0])
+        if problems:
+            raise ConfigError("Inkcast configuration problems:\n- " + "\n- ".join(problems))
+        return policy
 
     def prefixed(self, prefix: str, key_fn) -> dict[str, str]:
         return {key_fn(key[len(prefix):]): value.strip().rstrip("/")
@@ -150,6 +219,10 @@ class Config:
     access_token_seconds: int = 3600
     refresh_token_seconds: int = 60 * 60 * 24 * 30
     scheduler_interval_seconds: float = 20.0
+    # How a scheduled post whose send certainly never happened is retried (F1.10.S1, issue #89):
+    # INKCAST_PUBLISH_MAX_ATTEMPTS sends in all, INKCAST_PUBLISH_RETRY_DELAYS seconds apart (the last repeats).
+    # The default is 4 sends over about 36 minutes. A window over 24 h is a posture warning (publish-retry-window).
+    publish_retry: RetryPolicy = RetryPolicy()
     insights_interval_seconds: float = 10.0  # how often InsightsService folds new domain events into KPI rollups
     log_format: str = "text"  # "json" in containers
     log_level: str = "INFO"
@@ -294,6 +367,7 @@ class Config:
         days = self.keycloak_erase_after_days          # None is "off"; load_config parses, this covers a Config built by hand
         if days is not None and not (isinstance(days, int) and days >= 0):
             problems.append(DAYS_OR_OFF_RULE.format(name="INKCAST_KEYCLOAK_ERASE_AFTER_DAYS", got=days))
+        problems += publish_retry_problems(self.publish_retry)  # load_config refuses already; a Config built by hand
         if urlparse(self.public_url).scheme != "https" and urlparse(self.public_url).hostname not in {
             "localhost", "127.0.0.1"
         }:
@@ -409,6 +483,7 @@ def load_config(environ: Mapping[str, str] | None = None) -> Config:
         overdue_grace_seconds=env.float("INKCAST_OVERDUE_GRACE", "600"),
         backup_keep=env.int("INKCAST_BACKUP_KEEP", "14"),
         scheduler_interval_seconds=env.float("INKCAST_SCHEDULER_INTERVAL", "20"),
+        publish_retry=env.publish_retry(),
         insights_interval_seconds=env.float("INKCAST_INSIGHTS_INTERVAL", "10"),
         log_format=env.get("INKCAST_LOG_FORMAT", "text").lower(),
         log_level=env.get("INKCAST_LOG_LEVEL", "INFO"),

@@ -63,7 +63,7 @@ Every route, MCP tool and job goes through one `authz.require()`: token scope, t
 | `libs/db` | One `Database` with domain repositories (`IdentityRepo`, `VaultRepo`, `PostsRepo`, `LedgerRepo`, `AuthzRepo`, `ErasureRepo`), each owned by one service ([ADR-0003](adr/0003-data-store.md)). `Store.erase_user` removes one person from every table in one transaction and keeps an audit record with only a salted hash of the id (E3.F3.3.S5). |
 | `libs/content` | Platform-neutral story: front matter, per-platform overrides, image URL fixing, schedule validation. Pure, with no I/O. |
 | `libs/platforms` | The `Platform` interface (`prepare` is pure; `publish`, `update` and `find_existing` do I/O, with `capabilities`), the built-ins and the registry. |
-| `libs/pipeline` | Fan-out to platforms, sends, safe retries (`60s`, `5m`, `30m`), updates, confirmation of unconfirmed sends, cancel. |
+| `libs/pipeline` | Fan-out to platforms, sends, safe retries under the configured policy (`INKCAST_PUBLISH_MAX_ATTEMPTS`, `INKCAST_PUBLISH_RETRY_DELAYS`; by default 4 sends, `60s`, `5m`, `30m` apart), updates, confirmation of unconfirmed sends, cancel. |
 | `libs/http` | App composition and prefixes, probes, REST auth and problem+json errors, the HTML pages (strict CSP), and Swagger UI/ReDoc from vendored, hash-locked bundles. |
 | `libs/observability` | JSON logs with a `service` field; the Redactor masks tokens and keys in every line; Prometheus metrics. |
 | `libs/secrets` | `SecretValue`, `SecretsProvider`, `Sealer` (encryption at rest), token hashing. |
@@ -143,8 +143,8 @@ Every route, MCP tool and job goes through one `authz.require()`: token scope, t
 
 **Duplicate-safe publishing:**
 
-- Connection errors and 429s are retried.
-- A timeout *after* a publish request was sent, or a 5xx on it, marks the post `unconfirmed`. Inkcast never retries it blindly: Git publishing asks the platform (`find_existing`) first, and anything else waits for a human.
+- Connection errors and 429s are retried: `INKCAST_PUBLISH_MAX_ATTEMPTS` sends in all, `INKCAST_PUBLISH_RETRY_DELAYS` seconds apart with the last delay repeating (4 and `60,300,1800` by default: about 36 minutes). A window over 24 h is a posture warning.
+- A timeout *after* a publish request was sent, or a 5xx on it, marks the post `unconfirmed`. Inkcast never retries it blindly, whatever the retry settings: Git publishing asks the platform (`find_existing`) first, and anything else waits for a human.
 
 ### CNCF building blocks
 

@@ -242,6 +242,36 @@ def _check_erase_after(ctx: _Ctx) -> Check:
     return Check("keycloak-erase-after", title, "pass", f"INKCAST_KEYCLOAK_ERASE_AFTER_DAYS={days}: erased {when}.")
 
 
+def _duration(seconds: int) -> str:
+    hours, rest = divmod(seconds, 3600)
+    minutes, secs = divmod(rest, 60)
+    parts = [f"{n} {unit}" for n, unit in ((hours, "h"), (minutes, "min"), (secs, "s")) if n]
+    return " ".join(parts) or "0 s"
+
+
+def _check_publish_retry_window(ctx: _Ctx) -> Check:
+    """F1.10.S1 (issue #89): a scheduled post whose send certainly never happened is retried INKCAST_PUBLISH_MAX_ATTEMPTS
+    times in all, INKCAST_PUBLISH_RETRY_DELAYS apart. The settings allow a window of over two days; a post still being
+    retried a day after its time is one its author should hear about instead."""
+    policy = getattr(ctx.config, "publish_retry", None)
+    title = "Publish retries end within a day"
+    if policy is None:
+        return Check("publish-retry-window", title, "skip", "No retry policy on this Config.")
+    settings = (f"INKCAST_PUBLISH_MAX_ATTEMPTS={policy.max_attempts}, "
+                f"INKCAST_PUBLISH_RETRY_DELAYS={','.join(str(d) for d in policy.delays)}")
+    window = policy.window_seconds
+    if window > 24 * 3600:
+        return Check("publish-retry-window", title, "warn",
+                     f"{settings}: a post whose send keeps failing is retried for {_duration(window)} before it is marked "
+                     "failed, and could go out that long after its time with nobody told. Fewer attempts or shorter delays "
+                     "keep the window within a day.")
+    if policy.max_attempts == 1:
+        return Check("publish-retry-window", title, "pass", f"{settings}: one send, no retry.")
+    return Check("publish-retry-window", title, "pass",
+                 f"{settings}: a post whose send keeps failing is marked failed after {_duration(window)} "
+                 f"({policy.max_attempts} sends).")
+
+
 def _check_database_file(ctx: _Ctx) -> Check:
     path = ctx.config.database_path
     if path == ":memory:" or not os.path.exists(path):
@@ -265,7 +295,8 @@ def _check_secrets_source(ctx: _Ctx) -> Check:
 CHECKS: tuple[Callable[[_Ctx], Check], ...] = (
     _check_public_url, _check_secret_key, _check_reveal_flag, _check_debug_flags, _check_log_format,
     _check_secret_files, _check_env_scrubbed, _check_redaction, _check_non_root, _check_core_dumps,
-    _check_forwarded_ips, _check_login, _check_erase_after, _check_database_file, _check_secrets_source,
+    _check_forwarded_ips, _check_login, _check_erase_after, _check_publish_retry_window, _check_database_file,
+    _check_secrets_source,
 )
 
 
