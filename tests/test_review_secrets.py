@@ -217,5 +217,27 @@ class UrlPasswordsWithoutAUser(unittest.TestCase):
         self.assertEqual(Redactor().scrub("http://localhost:2773/x@y"), "http://localhost:2773/x@y")  # a port, no password
 
 
+class JsonLinesMatchTheRegisteredForms(unittest.TestCase):
+    """The redactor registers a value raw, URL-encoded and JSON-escaped with ``json.dumps``' default ASCII escapes;
+    the JSON log formatter writes with ``ensure_ascii=False``. A value with a non-ASCII character and a character
+    JSON escapes (a quote, a backslash) appeared in an ``extra=`` field or a traceback in a third form, which no
+    registered variant matched."""
+
+    def test_a_registered_value_is_masked_in_a_json_extra_field(self):
+        from inkcast.libs.secrets import REDACTOR
+        value = 'Grüße"Kennwort-4711'
+        REDACTOR.register(value)
+        buf, log = _json_lines("inkcast.review.json")
+        self.addCleanup(buf.restore)
+        log.warning("sign-in failed", extra={"detail": f"provider said {value}"})
+        try:
+            raise ValueError(f"rejected {value}")
+        except ValueError:
+            log.exception("and a traceback")
+        out = buf.getvalue()
+        self.assertNotIn("Kennwort-4711", out)
+        self.assertEqual(out.count("[REDACTED]"), 2)   # the extra field and the traceback's last line
+
+
 if __name__ == "__main__":
     unittest.main()
