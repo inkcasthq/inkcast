@@ -27,10 +27,16 @@ class _StoreSource:
         self.store = store
 
     def users_of(self, obj: str, relation: str) -> list[str]:
-        return self.store.authz_users_of(obj, relation)
+        try:
+            return self.store.authz_users_of(obj, relation)
+        except Exception as exc:  # the database itself: locked, gone
+            raise EngineError(f"authorization store read failed: {type(exc).__name__}") from exc
 
     def objects_of_type(self, type_: str) -> list[str]:
-        return self.store.authz_objects_of_type(type_)
+        try:
+            return self.store.authz_objects_of_type(type_)
+        except Exception as exc:
+            raise EngineError(f"authorization store read failed: {type(exc).__name__}") from exc
 
 
 def validate_write(model: Model, writes: list[Tuple], deletes: list[Tuple]) -> None:

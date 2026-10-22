@@ -11,9 +11,10 @@ import unittest
 
 import httpx2
 
-from inkcast.libs.authz import EngineError, Evaluator, LocalEngine, Model, OpenFgaEngine, Ref, Tuple
+from inkcast.libs.authz import EngineError, Evaluator, Instrumented, LocalEngine, Model, OpenFgaEngine, Ref, Tuple
 from inkcast.libs.authz.model import PACKAGED_MODEL
 from inkcast.libs.db import Store
+from inkcast.libs.observability import Metrics
 
 LOOP = asyncio.new_event_loop()
 
@@ -94,6 +95,33 @@ class BatchCheckAnswers(unittest.TestCase):
 
             with self.subTest(allowed=allowed), self.assertRaises(EngineError):
                 run(fga(answer).batch_check([("user:a", "can_publish", Ref("channel", "1"))]))
+
+
+class LocalStoreFailures(unittest.TestCase):
+    """"Any failure to answer raises EngineError" (libs/authz/engine.py): write() and read() wrap a database
+    failure, but check, batch_check and list_objects let the raw sqlite3 error out. Instrumented then neither counts
+    it (``result="error"``, which InkcastAuthzErrors pages on) nor logs ``authz.error``, and require() (which maps
+    EngineError to 503) can't catch it."""
+
+    def setUp(self):
+        self.metrics = Metrics()
+        self.metrics.counter("inkcast_authz_checks_total", "")
+        self.metrics.histogram("inkcast_authz_duration_seconds", "")
+        store = Store(":memory:", "k" * 40)
+        self.engine = Instrumented(LocalEngine(store), self.metrics)
+        store.close()   # the database is gone
+
+    def test_check_batch_check_and_list_objects_raise_engine_error_and_are_counted(self):
+        post = Ref("post", "1")
+        for name, call in (("check", lambda: self.engine.check("user:a", "can_view", post)),
+                           ("batch_check", lambda: self.engine.batch_check([("user:a", "can_view", post)])),
+                           ("list_objects", lambda: self.engine.list_objects("user:a", "can_view", "post"))):
+            with self.subTest(call=name):
+                with self.assertLogs("inkcast.authz", "ERROR") as logs, self.assertRaises(EngineError):
+                    run(call())
+                self.assertEqual(logs.records[0].__dict__["event"], "authz.error")
+        errors = self.metrics.snapshot()["inkcast_authz_checks_total"][(("relation", "can_view"), ("result", "error"))]
+        self.assertEqual(errors, 3)
 
 
 if __name__ == "__main__":
