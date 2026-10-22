@@ -83,7 +83,8 @@ class AnEventTheLookBackMissesIsStillErased(unittest.TestCase):
     does." It does not: it only cuts a 404 off (and never looks at a cut-off person again), so a DELETE_ACCOUNT event
     the pass misses leaves every row behind for good. A Keycloak replica whose clock runs two minutes fast moves the
     cursor past the events the others stamp in the meantime (by more than LOOKBACK_MS); so does a burst of more than
-    500 between two passes. A person an administrator deleted (no DELETE_ACCOUNT event) is still only cut off."""
+    500 between two passes. A person an administrator deleted (no DELETE_ACCOUNT event) is cut off, and erased only
+    once gone for INKCAST_KEYCLOAK_ERASE_AFTER_DAYS (#86; the clock stands still here, so not yet)."""
 
     def test_the_reconcile_erases_a_person_whose_delete_account_event_the_pass_missed(self):
         from inkcast.libs.db.erasure import user_hash
@@ -116,7 +117,7 @@ class AnEventTheLookBackMissesIsStillErased(unittest.TestCase):
         hashes = sorted(r["user_hash"] for r in store.user_erasures())
         self.assertEqual(hashes, sorted(user_hash(store._erasure_salt, who["id"]) for who in (bob, carol)))
         kept = store.get_user(dave["id"])
-        self.assertIsNotNone(kept, "an administrator's deletion is cut off, not erased")
+        self.assertIsNotNone(kept, "an administrator's deletion is cut off, not erased before the grace period")
         self.assertIsNotNone(kept["disabled_at"])
         self.assertEqual(second["disabled"], 1)
 

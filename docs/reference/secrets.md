@@ -137,6 +137,7 @@ turns a weak `INKCAST_SECRET_KEY` and the reveal flag into failures.
 | `secret-files-protected` | mode without `o+r` | a world-readable `NAME_FILE`, `INKCAST_SECRETS_DIR` file or agent token: warn |
 | `env-scrubbed` | no credential in env vars | a loaded value or credential-named variable in the environment: warn |
 | `redaction-active` | values registered | nothing registered: warn |
+| `keycloak-erase-after` | a number of days | `INKCAST_KEYCLOAK_ERASE_AFTER_DAYS=off` (a person gone from Keycloak is cut off but never erased) in production or staging: warn |
 | `non-root`, `core-dumps`, `forwarded-ips`, `login-method`, `database-protected`, `secrets-source` | see `inkcast checks` | |
 
 ## Adding a source

@@ -128,6 +128,7 @@ SLO burn-rate alerts carry `slo`, `burn_rate`, `long_window` and `short_window` 
 3. "HTTP 403" on `users/…` or `admin-events`: the service account lost `view-users` or `view-events` (realm-management). The realm file grants both.
 4. Connection errors: Keycloak is down, or a NetworkPolicy blocks the admin API (same host and port as the issuer).
 5. Once it recovers, the next full reconcile (every `INKCAST_KEYCLOAK_RECONCILE_INTERVAL`, 10 minutes by default, and at start) catches anyone missed. To force it now, restart IdentityService.
+6. A self-deletion whose `DELETE_ACCOUNT` event Keycloak trimmed meanwhile (the realm keeps events 7 days) is still cut off by that reconcile, and erased `INKCAST_KEYCLOAK_ERASE_AFTER_DAYS` (30) later, like an administrator's deletion. An outage longer than the retention therefore delays those erasures by the grace period; it never loses them.
 
 ## InkcastAuthzErrors
 

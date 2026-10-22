@@ -41,6 +41,7 @@ SECRET_SETTINGS: dict[str, str] = {
     "INKCAST_FGA_API_TOKEN": "authz",  # OpenFGA's preshared key, when INKCAST_AUTHZ_ENGINE=openfga (E3.F3.6)
 }
 AUTHZ_ENGINES = ("local", "openfga")
+DAYS_OR_OFF_RULE = "{name} must be a whole number of days, 0 or more, or 'off' (got {got!r})."
 
 
 class ConfigError(RuntimeError):
@@ -83,6 +84,19 @@ class _Env:
             return float(raw)
         except ValueError:
             raise ConfigError(f"{name} must be a number (got {raw!r}).") from None
+
+    def days_or_off(self, name: str, default: str) -> int | None:
+        """A whole number of days (0 or more), or ``off`` for None; anything else is a ConfigError naming the variable."""
+        raw = self.get(name, default)
+        if raw.lower() == "off":
+            return None
+        try:
+            days = int(raw)
+        except ValueError:
+            days = -1
+        if days < 0:
+            raise ConfigError(DAYS_OR_OFF_RULE.format(name=name, got=raw))
+        return days
 
     def prefixed(self, prefix: str, key_fn) -> dict[str, str]:
         return {key_fn(key[len(prefix):]): value.strip().rstrip("/")
@@ -127,6 +141,11 @@ class Config:
     keycloak_sync_secret: SecretValue = SecretValue("")
     keycloak_sync_interval_seconds: float = 30.0   # how often admin events are read (the "within a minute" goal)
     keycloak_reconcile_seconds: float = 600.0      # how often every Keycloak-backed user is re-checked (missed events)
+    # Days a person Keycloak no longer has (an administrator's deletion, or a self-deletion whose event was never
+    # seen) stays cut off before the reconcile erases their data (E9.F9.5.S6, issue #86): 0 erases at the first
+    # reconcile that finds them gone; None (INKCAST_KEYCLOAK_ERASE_AFTER_DAYS=off) never erases on a 404, which is a
+    # posture warning in production and staging. The grace period lets an accidental deletion be restored.
+    keycloak_erase_after_days: int | None = 30
 
     access_token_seconds: int = 3600
     refresh_token_seconds: int = 60 * 60 * 24 * 30
@@ -266,6 +285,9 @@ class Config:
                 problems.append("INKCAST_KEYCLOAK_SYNC_SECRET is required with INKCAST_KEYCLOAK_SYNC_CLIENT_ID.")
             if "/realms/" not in self.oidc_issuer:
                 problems.append("Keycloak sync needs a Keycloak OIDC_ISSUER (https://<host>/realms/<realm>).")
+        days = self.keycloak_erase_after_days          # None is "off"; load_config parses, this covers a Config built by hand
+        if days is not None and not (isinstance(days, int) and days >= 0):
+            problems.append(DAYS_OR_OFF_RULE.format(name="INKCAST_KEYCLOAK_ERASE_AFTER_DAYS", got=days))
         if urlparse(self.public_url).scheme != "https" and urlparse(self.public_url).hostname not in {
             "localhost", "127.0.0.1"
         }:
@@ -372,6 +394,7 @@ def load_config(environ: Mapping[str, str] | None = None) -> Config:
                               else SecretValue("")),
         keycloak_sync_interval_seconds=env.float("INKCAST_KEYCLOAK_SYNC_INTERVAL", "30"),
         keycloak_reconcile_seconds=env.float("INKCAST_KEYCLOAK_RECONCILE_INTERVAL", "600"),
+        keycloak_erase_after_days=env.days_or_off("INKCAST_KEYCLOAK_ERASE_AFTER_DAYS", "30"),
         extra_allowed_hosts=tuple(h.strip() for h in settings.get("INKCAST_ALLOWED_HOSTS", "").split(",") if h.strip()),
         platform_urls=env.prefixed("INKCAST_API_URL_", str.lower),
         app_name=env.get("INKCAST_APP_NAME", "All"),

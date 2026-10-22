@@ -64,7 +64,8 @@ EVENTS: dict[str, tuple[str, str]] = {
     "cache.backend.unavailable": ("warning", "Redis/Valkey did not answer; rate limits are per replica until it is back."),
     "outbox.consumer.failed": ("warning", "An event sink failed on a batch; the cursor stayed and the batch is retried."),
     "identity.user.disabled": ("warning", "Keycloak disabled or deleted a person: their Inkcast tokens and PATs were cut off."),
-    "identity.user.deleted": ("warning", "A person deleted their account: every row of theirs was erased (ids and counts only)."),
+    "identity.user.deleted": ("warning", "A person's account is gone (deleted by them, or in Keycloak and past the grace "
+                                         "period): every row of theirs was erased (ids and counts only)."),
     "identity.sync.failed": ("warning", "A Keycloak user sync pass failed (service account refused, Keycloak down); retried."),
     "authz.denied": ("warning", "A permission check said no (user, relation and object ids; never a token or a name)."),
     "authz.error": ("critical", "The policy engine could not answer (OpenFGA down, bad model id); the caller failed closed (503)."),

@@ -227,6 +227,21 @@ def _check_login(ctx: _Ctx) -> Check:
     return Check("login-method", "Sign-in suits the environment", "pass", f"INKCAST_LOGIN={ctx.config.login}.")
 
 
+def _check_erase_after(ctx: _Ctx) -> Check:
+    """E9.F9.5.S6 (issue #86): deletion promises erasure. With INKCAST_KEYCLOAK_ERASE_AFTER_DAYS=off a person Keycloak
+    no longer has (an administrator's deletion, a self-deletion whose event was never seen) is cut off but their data
+    stays until an operator erases it: that is a choice production and staging must see."""
+    days = getattr(ctx.config, "keycloak_erase_after_days", 30)
+    title = "People gone from Keycloak are erased"
+    if days is None:
+        hosted = getattr(ctx.config, "environment", "development") in ("production", "staging")
+        return Check("keycloak-erase-after", title, "warn" if hosted else "info",
+                     "INKCAST_KEYCLOAK_ERASE_AFTER_DAYS=off: a person Keycloak no longer has is cut off, but their posts, "
+                     "ledger and credentials stay until an operator erases them. Set a number of days (the default is 30).")
+    when = "at the first reconcile that finds them gone" if days == 0 else f"{days} day(s) after the cut-off"
+    return Check("keycloak-erase-after", title, "pass", f"INKCAST_KEYCLOAK_ERASE_AFTER_DAYS={days}: erased {when}.")
+
+
 def _check_database_file(ctx: _Ctx) -> Check:
     path = ctx.config.database_path
     if path == ":memory:" or not os.path.exists(path):
@@ -250,7 +265,7 @@ def _check_secrets_source(ctx: _Ctx) -> Check:
 CHECKS: tuple[Callable[[_Ctx], Check], ...] = (
     _check_public_url, _check_secret_key, _check_reveal_flag, _check_debug_flags, _check_log_format,
     _check_secret_files, _check_env_scrubbed, _check_redaction, _check_non_root, _check_core_dumps,
-    _check_forwarded_ips, _check_login, _check_database_file, _check_secrets_source,
+    _check_forwarded_ips, _check_login, _check_erase_after, _check_database_file, _check_secrets_source,
 )
 
 

@@ -54,7 +54,8 @@ class ReviewAccountDeletion(Harness):
     def test_a_failed_erasure_in_the_event_pass_is_read_again(self):
         """Two people delete their accounts from the account console; the database refuses the first erasure (locked,
         a failover). The next pass must erase both: the DELETE_ACCOUNT cursor may only move past an event once the
-        erasure it calls for is done, or the person keeps every row (the reconcile only disables a 404)."""
+        erasure it calls for is done, or the person keeps every row until the reconcile (which erases a 404 at once
+        only while Keycloak still holds the event, and otherwise after INKCAST_KEYCLOAK_ERASE_AFTER_DAYS, #86)."""
         import sqlite3
         import time
         from unittest import mock
