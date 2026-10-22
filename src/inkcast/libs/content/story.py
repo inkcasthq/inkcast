@@ -61,13 +61,25 @@ def _guarded(construct):
     """One of SafeConstructor's scalar constructors, reporting a value Python refuses at its node."""
 
     def construct_or_report(loader: yaml.SafeLoader, node: yaml.ScalarNode) -> Any:
+        # PyYAML also builds these from a mapping holding YAML 1.1's value key (`!!bool {=: yes}`), which front matter
+        # doesn't need, and which would hand the message below a list of nodes instead of the scalar's text.
+        if not isinstance(node, yaml.ScalarNode):
+            raise yaml.constructor.ConstructorError(None, None, f"expected a scalar, but found a {node.id}", node.start_mark)
+        # int() refuses decimal text over 4300 digits before converting it. PyYAML builds 1:2:3 (base 60) itself, in
+        # time quadratic in the parts, on the event loop: the same limit on its text comes first, before it is built.
+        if node.tag == "tag:yaml.org,2002:int" and ":" in node.value and len(node.value) > 4300:
+            raise _RefusedValue(node, ValueError("a base-60 number over 4300 characters long"))
         try:
-            return construct(loader, node)
-        # Only PyYAML's conversion of this one scalar runs in the try, so nothing unrelated is caught. It lets out
+            value = construct(loader, node)
+            if type(value) is int:
+                str(value)  # int() limits decimal text to 4300 digits; 0x..., 0..., 0b... and 1:2:3 skip it, str() doesn't
+            return value
+        # Only the conversion of this one scalar runs in the try, so nothing unrelated is caught. It lets out
         # ValueError (datetime: 29 Feb 2027, an offset of 24 hours or more; int: 4301 digits, `!!int x`; float:
-        # `!!float x`), KeyError (`!!bool x`) and AttributeError (`!!timestamp x`: no regexp match, so None has
-        # no groupdict); a YAMLError of its own passes through to the caller as before.
-        except (ValueError, KeyError, AttributeError) as exc:
+        # `!!float x`), KeyError (`!!bool x`), AttributeError (`!!timestamp x`: no regexp match, so None has
+        # no groupdict) and IndexError (`!!int ''`, `!!float ''`: the sign check reads the first character); a
+        # YAMLError of its own passes through to the caller as before.
+        except (ValueError, KeyError, AttributeError, IndexError) as exc:
             raise _RefusedValue(node, exc) from exc
 
     return construct_or_report
@@ -132,8 +144,15 @@ def split_front_matter(markdown: str) -> tuple[dict[str, Any], str]:
     try:
         # An alias (*name) repeats a whole value: nested ones turn a few hundred bytes into gigabytes once the value
         # is made text (tags, titles, previews). Front matter doesn't need them, so they are refused before loading.
-        if any(isinstance(e, yaml.AliasEvent) for e in yaml.parse(match.group(1), Loader=yaml.SafeLoader)):
-            raise StoryError("The front matter uses a YAML alias (*name); write the value out instead.")
+        # PyYAML composes nested lists and mappings recursively: a few thousand `[` are a RecursionError. The same walk
+        # bounds the depth, before anything recurses.
+        depth = 0
+        for event in yaml.parse(match.group(1), Loader=yaml.SafeLoader):
+            if isinstance(event, yaml.AliasEvent):
+                raise StoryError("The front matter uses a YAML alias (*name); write the value out instead.")
+            depth += isinstance(event, yaml.CollectionStartEvent) - isinstance(event, yaml.CollectionEndEvent)
+            if depth > 32:
+                raise StoryError("The front matter nests lists or mappings more than 32 deep; flatten it.")
         # What yaml.load(text, Loader=_FrontMatterLoader) does; spelled out because CodeQL's model of yaml.load
         # knows SafeLoader itself as the safe Loader, not a subclass of it, and would report unsafe deserialization.
         loader = _FrontMatterLoader(match.group(1))
@@ -144,8 +163,12 @@ def split_front_matter(markdown: str) -> tuple[dict[str, Any], str]:
     except _RefusedValue as exc:
         kind = exc.node.tag.rsplit(":", 1)[-1]  # timestamp, int, float or bool
         # Marks count from 0 inside the YAML, whose first line is the file's second: the person's editor shows +2.
-        where = exc.field or f"The value on line {exc.node.start_mark.line + 2}"
-        reason = f": {str(exc.cause).rstrip('.')}" if isinstance(exc.cause, ValueError) else ""  # the others' text is Python's
+        # A key is any YAML string: only short plain text is named, never a line break, a lone surrogate ("\ud800",
+        # which the JSON response can't encode) or an explicit `? key` of any length. Anything else gets its line.
+        named = exc.field if exc.field and exc.field.isprintable() and len(exc.field) <= 80 else None
+        where = named or f"The value on line {exc.node.start_mark.line + 2}"
+        # The others' text is Python's. float()'s quotes the whole value, so it is cut too (int()'s stops at 200).
+        reason = f": {str(exc.cause).rstrip('.')[:200]}" if isinstance(exc.cause, ValueError) else ""
         value = exc.node.value if len(exc.node.value) <= 80 else exc.node.value[:79] + "…"  # a 4301-digit int, say
         raise StoryError(f"{where} {value!r} isn't a valid {kind}{reason}.") from exc
     except yaml.YAMLError as exc:
