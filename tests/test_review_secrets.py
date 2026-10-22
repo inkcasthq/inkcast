@@ -130,5 +130,29 @@ class RestoreScriptWaitsForTheServer(unittest.TestCase):
         self.assertTrue(any(c.startswith("-n inkcast apply") for c in calls))
 
 
+class EverySecretFileIsChecked(unittest.TestCase):
+    """The secret-files-protected posture check looked at a hand-kept list of five credentials; the two added later
+    (the Keycloak sync secret, OpenFGA's preshared key) could sit in a world-readable file and the check passed."""
+
+    def test_a_world_readable_file_is_flagged_for_every_credential(self):
+        import os
+        import tempfile
+        from inkcast.libs.config import SECRET_SETTINGS, Config
+        from inkcast.libs.secrets import Redactor, run_checks
+        config = Config(public_url="https://inkcast.example.com", secret_key="Q7r!x9Lm2vP0sZ4bN8cH1dK5fG3jT6wY-aE",
+                        database_path=":memory:")
+        missed = []
+        with tempfile.TemporaryDirectory() as d:
+            for name in SECRET_SETTINGS:
+                path = os.path.join(d, name.lower())
+                with open(path, "w") as f:
+                    f.write("x" * 40)
+                os.chmod(path, 0o644)
+                by_id = {c.id: c for c in run_checks(config, redactor=Redactor(), environ={f"{name}_FILE": path})}
+                if by_id["secret-files-protected"].status != "warn":
+                    missed.append(name)
+        self.assertEqual(missed, [])
+
+
 if __name__ == "__main__":
     unittest.main()
