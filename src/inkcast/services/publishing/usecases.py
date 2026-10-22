@@ -14,7 +14,7 @@ from ...libs.contracts.models import (
 from ...libs.platforms import Account, Platform, PlatformError
 from ...libs.pipeline import Publisher
 from ...libs.db import Store
-from ...libs.content.story import StoryError, parse_story
+from ...libs.content.story import SCHEDULE_HORIZON_DAYS, StoryError, parse_story
 from ...libs.http.rest import ApiError
 
 TICKET_TTL = 900
@@ -105,8 +105,9 @@ class InkcastService:
 
     def list_posts(self, user_id: str, days_back: int = 7, days_ahead: int = 90) -> list[PostInfo]:
         now = datetime.now(timezone.utc)
-        rows = self.store.list_posts(user_id, (now - timedelta(days=days_back)).timestamp(),
-                                     (now + timedelta(days=days_ahead)).timestamp())
+        # The maximum has no end: a post scheduled beyond the horizon before #95 stays findable and cancellable.
+        end = float("inf") if days_ahead >= SCHEDULE_HORIZON_DAYS else (now + timedelta(days=days_ahead)).timestamp()
+        rows = self.store.list_posts(user_id, (now - timedelta(days=days_back)).timestamp(), end)
         return [self._post(r) for r in rows]
 
     def cancel(self, user_id: str, post_id: str) -> PostInfo:
