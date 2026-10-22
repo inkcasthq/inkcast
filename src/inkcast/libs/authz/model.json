@@ -153,6 +153,7 @@
                             }
                         ]
                     },
+                    "member_assignee": {},
                     "org": {
                         "directly_related_user_types": [
                             {
@@ -165,6 +166,27 @@
             "relations": {
                 "assignee": {
                     "this": {}
+                },
+                "member_assignee": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "assignee"
+                                }
+                            },
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "member"
+                                    },
+                                    "tupleset": {
+                                        "relation": "org"
+                                    }
+                                }
+                            }
+                        ]
+                    }
                 },
                 "org": {
                     "this": {}
@@ -224,7 +246,7 @@
                     "role_editor": {
                         "directly_related_user_types": [
                             {
-                                "relation": "assignee",
+                                "relation": "member_assignee",
                                 "type": "role"
                             }
                         ]
@@ -232,7 +254,7 @@
                     "role_manager": {
                         "directly_related_user_types": [
                             {
-                                "relation": "assignee",
+                                "relation": "member_assignee",
                                 "type": "role"
                             }
                         ]
@@ -240,7 +262,7 @@
                     "role_reviewer": {
                         "directly_related_user_types": [
                             {
-                                "relation": "assignee",
+                                "relation": "member_assignee",
                                 "type": "role"
                             }
                         ]
@@ -248,7 +270,7 @@
                     "role_viewer": {
                         "directly_related_user_types": [
                             {
-                                "relation": "assignee",
+                                "relation": "member_assignee",
                                 "type": "role"
                             }
                         ]
@@ -484,7 +506,7 @@
                     "role_publisher": {
                         "directly_related_user_types": [
                             {
-                                "relation": "assignee",
+                                "relation": "member_assignee",
                                 "type": "role"
                             }
                         ]

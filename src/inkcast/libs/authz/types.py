@@ -136,6 +136,7 @@ class Role:
     TYPE = "role"
     ORG = "org"
     ASSIGNEE = "assignee"
+    MEMBER_ASSIGNEE = "member_assignee"  # an assignee who is a member of the role's org: what role_* grants take
 
 
 class Workspace:
