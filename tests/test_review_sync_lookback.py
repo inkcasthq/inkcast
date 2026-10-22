@@ -78,5 +78,48 @@ class ReSeenEventsSpareAnAccountKeycloakHasAgain(unittest.TestCase):
         self.assertIsNotNone(store.get_token("ic_at_" + "a" * 43, "access"))
 
 
+class AnEventTheLookBackMissesIsStillErased(unittest.TestCase):
+    """Issue #81: "The reconcile catches it later, but only if it erases people who no longer exist. Check that it
+    does." It does not: it only cuts a 404 off (and never looks at a cut-off person again), so a DELETE_ACCOUNT event
+    the pass misses leaves every row behind for good. A Keycloak replica whose clock runs two minutes fast moves the
+    cursor past the events the others stamp in the meantime (by more than LOOKBACK_MS); so does a burst of more than
+    500 between two passes. A person an administrator deleted (no DELETE_ACCOUNT event) is still only cut off."""
+
+    def test_the_reconcile_erases_a_person_whose_delete_account_event_the_pass_missed(self):
+        from inkcast.libs.db.erasure import user_hash
+        from inkcast.services.identity.keycloak_sync import KeycloakSync
+        cfg, store = _setup()
+        bob, carol, dave = (store.upsert_user(f"oidc:{ISSUER}#kc-{n}", n, None, None) for n in ("bob", "carol", "dave"))
+        store.save_token("ic_at_" + "c" * 43, "access", "c1", carol["id"], ["inkcast"], None, "f1", 3600)
+        now = 1_000_000.0
+        events = [{"time": int(now * 1000) + 120_000, "type": "DELETE_ACCOUNT", "realmId": "inkcast",
+                   "userId": "kc-bob"}]                         # stamped by a replica two minutes fast
+        gone = {"kc-bob"}
+
+        async def two_passes():
+            async with httpx2.AsyncClient(transport=httpx2.MockTransport(_keycloak(events, gone))) as http:
+                sync = KeycloakSync(cfg, store, http, clock=lambda: now)
+                sync.last_reconcile = now
+                first = await sync.tick()
+                events.append({"time": int(now * 1000) + 5_000, "type": "DELETE_ACCOUNT", "realmId": "inkcast",
+                               "userId": "kc-carol"})          # carol deletes hers on a replica with the right time
+                gone.update({"kc-carol", "kc-dave"})            # and an administrator deletes dave
+                sync.last_reconcile = 0                         # the reconcile is due
+                return first, await sync.tick()
+
+        first, second = asyncio.run(two_passes())
+        self.assertEqual(first["erased"], 1)
+        self.assertIsNone(store.get_user(bob["id"]))
+        self.assertIsNone(store.get_user(carol["id"]), "carol deleted her account; the reconcile only cut her off")
+        self.assertIsNone(store.get_token("ic_at_" + "c" * 43, "access"))
+        self.assertEqual(second["erased"], 1)
+        hashes = sorted(r["user_hash"] for r in store.user_erasures())
+        self.assertEqual(hashes, sorted(user_hash(store._erasure_salt, who["id"]) for who in (bob, carol)))
+        kept = store.get_user(dave["id"])
+        self.assertIsNotNone(kept, "an administrator's deletion is cut off, not erased")
+        self.assertIsNotNone(kept["disabled_at"])
+        self.assertEqual(second["disabled"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

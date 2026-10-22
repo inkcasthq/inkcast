@@ -163,6 +163,17 @@ class KeycloakSync:
             newest = max(newest, at)
         return list(dict.fromkeys(ids)), newest
 
+    async def deleted_own_account(self, keycloak_id: str) -> bool:
+        """Whether Keycloak holds a DELETE_ACCOUNT user event for this person, for the reconcile: a person gone from
+        Keycloak who deleted the account themselves is erased even when the pass above missed the event (more than
+        LOOKBACK_MS late, a replica's clock running fast, a burst of more than 500); one an administrator deleted
+        is only cut off."""
+        r = await self._get("events", params=[("type", "DELETE_ACCOUNT"), ("user", keycloak_id), ("first", "0"),
+                                              ("max", "1")])
+        if r.status_code != 200:
+            raise SyncError(f"reading events answered HTTP {r.status_code}")
+        return any(e.get("type") == "DELETE_ACCOUNT" and e.get("userId") == keycloak_id for e in r.json())
+
     # ---- what Inkcast does about it ------------------------------------------------------------------------
 
     def _erase(self, keycloak_id: str) -> bool:
@@ -210,7 +221,10 @@ class KeycloakSync:
                 keycloak_id = user["identity"][len(self.prefix):]
                 done["checked"] += 1
                 state = await self.person(keycloak_id)
-                if state != "active" and self._cut_off(keycloak_id, state, "reconcile"):
+                if state == "deleted" and await self.deleted_own_account(keycloak_id):
+                    if self._erase(keycloak_id):         # an event the pass missed: erased, as the pass would have
+                        done["erased"] += 1
+                elif state != "active" and self._cut_off(keycloak_id, state, "reconcile"):
                     done["disabled"] += 1
             self.last_reconcile = self.clock()
         self.last_success = self.clock()
