@@ -12,4 +12,4 @@ configMapGenerator:
       - INKCAST_ENV=staging       # same checks as production, but a weak key or a reveal flag only warns
 images:
   - name: ghcr.io/inkcasthq/inkcast
-    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    digest: sha256:a398ad9840671f9d775364badb3430e108b196ef77d91ab1d40d8a8c76914500
