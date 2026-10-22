@@ -68,7 +68,7 @@ def main() -> int:
             f.write(json.dumps(row, default=str) + "\n")
         print(f"  [{'ok ' if row['ok'] else 'FAIL'}] {row['check']}: {row['note']}" + ("" if row["ok"] else f" — {row['actual']}"))
         return 0 if row["ok"] else 1
-    res = json.loads((run / "results.json").read_text())
+    res = json.loads((run / "results.json").read_text()) if (run / "results.json").exists() else {}  # none: every check fails, none crashes
     articles = res.get("dev_articles") or []
     by_title = {a.get("title"): a for a in articles}
     rows: list[dict] = []

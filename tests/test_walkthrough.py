@@ -2,7 +2,10 @@
 server: masking, the panel's HTML, the counts a document is built from, the credential scan, and the one
 command's refusal to take a password on the command line."""
 
+import json
+import os
 import pathlib
+import socket
 import subprocess
 import sys
 import tempfile
@@ -121,6 +124,66 @@ class OneCommand(unittest.TestCase):
                            timeout=60, env={"PATH": "/usr/bin:/bin", "WALK_PASSWORD": "short", "PYTHONPATH": f"{ROOT / 'src'}"})
         self.assertEqual(r.returncode, 2)
         self.assertIn("never an argument", r.stderr)
+
+
+def free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+class StartupEvidence(unittest.TestCase):
+    """Issue #88: a crash before the first step still leaves results.json, with a failed ``startup`` step carrying the
+    exception and the last lines of each process log, and build_doc.py builds a document from it instead of raising."""
+
+    def build_doc(self, run: pathlib.Path) -> subprocess.CompletedProcess:
+        return subprocess.run([sys.executable, str(WALK / "build_doc.py"), str(run)], capture_output=True, text=True, timeout=120,
+                              env={**os.environ, "PYTHONPATH": f"{ROOT / 'src'}:{ROOT / 'tests'}"})
+
+    def test_a_server_that_never_starts_leaves_a_failed_startup_step_and_a_document(self):
+        # The real server refuses to start: PORT outranks INKCAST_PORT in the config and the walk does not set it, so
+        # the child dies with a config error while the walk polls a free port nobody listens on. The fakes get a free
+        # port of their own; the metrics port 0 disables the metrics server; the callback port 0 is ephemeral.
+        with tempfile.TemporaryDirectory() as d:
+            run = pathlib.Path(d)
+            env = {**os.environ, "PYTHONPATH": f"{ROOT / 'src'}:{ROOT / 'tests'}", "WALK_PASSWORD": "hunter22hunter22",
+                   "WALK_INKCAST_PORT": str(free_port()), "WALK_FAKES_PORT": str(free_port()), "WALK_METRICS_PORT": "0",
+                   "WALK_CALLBACK_PORT": "0", "PORT": "not-a-port"}
+            r = subprocess.run([sys.executable, str(WALK / "walk.py"), "--out", str(run)], capture_output=True, text=True,
+                               timeout=120, env=env)
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+            self.assertTrue((run / "results.json").exists(), "a crash at start-up must still leave results.json")
+            res = json.loads((run / "results.json").read_text())
+            self.assertEqual([s["step"] for s in res["steps"]], ["startup"])
+            step = res["steps"][0]
+            self.assertFalse(step["ok"])
+            self.assertIn("RuntimeError: a server process exited", step["detail"])
+            self.assertIn("not-a-port", step["logs"]["server.log"], "the server's last lines travel with the step")
+            self.assertIn("fakes.log", step["logs"])
+            self.assertNotIn("hunter22hunter22", (run / "results.json").read_text())
+            self.assertEqual((res["total"], res["failed"]), (1, 1))
+            self.assertIn("[FAIL] startup:", r.stdout)
+
+            b = self.build_doc(run)
+            self.assertEqual(b.returncode, 0, b.stdout + b.stderr)
+            html = (run / "walkthrough.html").read_text()
+            self.assertIn("The walk failed at start-up; nothing else ran.", html)
+            self.assertIn("The last lines of server.log", html)
+            self.assertIn("not-a-port", html)
+            self.assertTrue(b.stdout.startswith("FAIL:"), b.stdout)
+            self.assertIn("# Inkcast walkthrough — FAIL", (run / "summary.md").read_text())
+
+    def test_a_run_with_no_results_file_still_gets_a_document(self):
+        with tempfile.TemporaryDirectory() as d:
+            run = pathlib.Path(d)
+            (run / "server.log").write_text("Traceback (most recent call last):\nRuntimeError: no\n")
+            b = self.build_doc(run)
+            self.assertEqual(b.returncode, 0, b.stdout + b.stderr)
+            html = (run / "walkthrough.html").read_text()
+            self.assertIn("The walk failed at start-up; nothing else ran.", html)
+            self.assertIn("results.json is missing", html)
+            self.assertIn("0 of 0 steps passed", html)
+            self.assertTrue((run / "walkthrough.pdf").exists())
 
 
 class Wiring(unittest.TestCase):

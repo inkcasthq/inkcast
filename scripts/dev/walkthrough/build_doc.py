@@ -90,7 +90,8 @@ def e(s) -> str:
 
 
 def load(run: pathlib.Path):
-    res = json.loads((run / "results.json").read_text())
+    # No results.json at all (the walk never got to write one): the document is still built, and says so.
+    res = json.loads((run / "results.json").read_text()) if (run / "results.json").exists() else {"steps": []}
     integrity = [json.loads(line) for line in (run / "integrity.jsonl").read_text().splitlines() if line.strip()] \
         if (run / "integrity.jsonl").exists() else []
     findings = json.loads((run / "findings.json").read_text()) if (run / "findings.json").exists() else []
@@ -151,6 +152,15 @@ def build(run: pathlib.Path, env: dict) -> tuple[pathlib.Path, dict]:
         P(f"<div class='outcome{'' if ok_all else ' bad'}'><b>Outcome: {verdict}.</b> {c['passed']} of {c['total']} steps passed "
           f"({c['mcp_calls']} MCP calls, {c['rest_calls']} REST requests, {c['browser_steps']} browser pages); "
           f"{icount['passed']} of {icount['total']} integrity checks passed.</div>")
+        # A run that never reached its first step (issue #88): say so plainly, with the exception and the last lines of
+        # each process log, right here, before the empty tables.
+        startup = next((s for s in steps if s.get("step") == "startup" and not s.get("ok")), None)
+        if startup or not steps:
+            why = startup.get("detail") if startup else ("results.json is missing: the walk left no results at all"
+                                                         if not (run / "results.json").exists() else "the walk recorded no step")
+            P(f"<div class='outcome bad'><b>The walk failed at start-up; nothing else ran.</b> {e(why)}</div>")
+            for name, tail in ((startup or {}).get("logs") or {}).items():
+                P(f"<h3>The last lines of {e(name)}</h3><pre>{e(mask(tail)) or '(empty)'}</pre>")
 
         P("<h2 class='first'>1. What was measured</h2><table><tr><th>Measure</th><th>Value</th></tr>")
         for k, v in [
@@ -195,7 +205,11 @@ def build(run: pathlib.Path, env: dict) -> tuple[pathlib.Path, dict]:
                          "wide" if s.get("kind") == "browser" else "panel"))
             if s.get("kind") in ("mcp", "rest") and s.get("reply") is not None and not s.get("screenshot"):
                 P(key_fields(s))
+            for name, tail in (s.get("logs") or {}).items() if s is not startup else ():  # the startup step's are shown up top
+                P(f"<p class='small'>The last lines of {e(name)}:</p><pre>{e(mask(tail)) or '(empty)'}</pre>")
             P("</div>")
+        if not steps:
+            P("<p class='bad'>No step was recorded.</p>")
 
         P("<h2>3. Integrity of what was left behind</h2>")
         P("<p>Checked from the files alone, after the servers were stopped (integrity_check.py): the article the fake DEV "
