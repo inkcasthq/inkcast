@@ -41,6 +41,14 @@ class SyncError(Exception):
     pass
 
 
+def _user_not_found(r: httpx2.Response) -> bool:
+    try:
+        body = r.json()
+    except ValueError:
+        return False
+    return isinstance(body, dict) and body.get("error") == "User not found"
+
+
 def erase_person(store: Any, metrics: Any, user_id: str, via: str) -> dict[str, int]:
     """Erase one person whose account is gone (``via`` ``return`` for the visit back from Keycloak, ``event`` for
     the DELETE_ACCOUNT event); logs ``identity.user.deleted`` with ids and counts only. Nothing to erase is not an
@@ -100,9 +108,11 @@ class KeycloakSync:
         return r
 
     async def person(self, keycloak_id: str) -> str:
-        """'active', 'disabled' or 'deleted', as Keycloak sees them now."""
+        """'active', 'disabled' or 'deleted', as Keycloak sees them now. Only Keycloak's own answer for a missing
+        user (404 ``{"error": "User not found"}``, UsersResource) means 'deleted': a 404 from anything else (a proxy
+        that doesn't expose /admin/, a wrong URL) is an error, never a reason to erase or cut anyone off."""
         r = await self._get(f"users/{keycloak_id}")
-        if r.status_code == 404:
+        if r.status_code == 404 and _user_not_found(r):
             return "deleted"
         if r.status_code != 200:
             raise SyncError(f"reading users/{keycloak_id} answered HTTP {r.status_code}")
