@@ -196,6 +196,14 @@ class IdentityRepo(Database):
         """A resolved pass keeps its counts and status, not the ids."""
         return self._exec("DELETE FROM sync_breaker_people WHERE pass_id = ?", pass_id)
 
+    def release_breaker_people(self, user_ids: list[str]) -> int:
+        """People a pending pass holds whom Keycloak has again (a reconcile read them as present): the pass no longer
+        holds them, so confirming it does not cut them off."""
+        with self._tx() as c:
+            return sum(c.execute("DELETE FROM sync_breaker_people WHERE user_id = ? AND pass_id IN "
+                                 "(SELECT id FROM sync_breaker_trips WHERE status = ?)", (user_id, BREAKER_PENDING)).rowcount
+                       for user_id in user_ids)
+
     # ---- OAuth clients -------------------------------------------------------
 
     def save_client(self, client_id: str, info: str) -> None:
