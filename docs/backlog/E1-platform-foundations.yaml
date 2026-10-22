@@ -210,8 +210,8 @@ features:
   stories:
   - id: F1.10.S1
     title: Publish retry policy as settings (attempts and delays)
-    status: planned
-    change: 'new; issue #89 (parameterisation review, 2026-10-22)'
+    status: done
+    change: 'new; issue #89, built in PR #124'
     acceptance:
     - 'INKCAST_PUBLISH_MAX_ATTEMPTS (default 4, 1-10) and INKCAST_PUBLISH_RETRY_DELAYS (default 60,300,1800; 1-9 values,
       each 30-21600 s, never decreasing); the defaults equal today''s behaviour'
