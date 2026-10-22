@@ -12,15 +12,20 @@ polling (the ADR-0008 option that needs no Keycloak plug-in, so it works air-gap
   look-back: a person who deleted their own account (through Inkcast's "Delete my account", E9.F9.5.S4, or
   Keycloak's account console) is erased from Inkcast (``Store.erase_user``, every table in one transaction) rather
   than merely cut off, once: an event seen again finds no user row and changes nothing;
-* every ``keycloak_reconcile_seconds`` (and on start) it re-reads every Keycloak-backed person Inkcast knows, so an
-  event missed while it was down, a deleted account from the account console (a user event, not an admin event),
-  or events trimmed by Keycloak's retention still lead to the same result.
+* every ``keycloak_reconcile_seconds`` (and on start) it re-reads every Keycloak-backed person Inkcast knows, the
+  cut-off ones included, so a USER event missed while it was down or trimmed by Keycloak's retention still leads
+  to the same cut-off. A person who is gone is erased at once when Keycloak still holds their DELETE_ACCOUNT event
+  (a late event, a burst, a deletion from the account console); when it holds none (an administrator deleted them,
+  or retention trimmed the event while the sync was down) they are cut off and erased once they have been gone for
+  ``keycloak_erase_after_days`` (E9.F9.5.S6: ``0`` at the first reconcile that finds them gone, ``None`` = ``off``
+  never, cut off only). An account restored meanwhile under the same id stops the clock.
 
 A person who is gone (404) or ``enabled: false`` is disabled in Inkcast: every OAuth token, code and personal
 access token is cut off in one transaction (``Store.disable_user``) and the person is marked, which clears at their
-next successful sign-in (Keycloak only allows that once they are enabled again). The worker signs in to Keycloak
-as its own service account (client credentials; the realm's ``inkcast-sync`` client with realm-management
-``view-users`` and ``view-events`` only). Errors never stop the loop: they are logged, counted and retried.
+next successful sign-in (Keycloak only allows that once they are enabled again). A disabled-but-present person is
+never erased. The worker signs in to Keycloak as its own service account (client credentials; the realm's
+``inkcast-sync`` client with realm-management ``view-users`` and ``view-events`` only). Errors never stop the loop:
+they are logged, counted and retried.
 """
 
 from __future__ import annotations
@@ -56,13 +61,14 @@ def _user_not_found(r: httpx2.Response) -> bool:
 
 def erase_person(store: Any, metrics: Any, user_id: str, via: str) -> dict[str, int]:
     """Erase one person whose account is gone (``via`` ``return`` for the visit back from Keycloak, ``event`` for
-    the DELETE_ACCOUNT event); logs ``identity.user.deleted`` with ids and counts only. Nothing to erase is not an
-    error (the other path got there first), and is neither logged nor counted."""
+    the DELETE_ACCOUNT event pass, ``reconcile`` for the reconcile: a missed event, or the grace period over); logs
+    ``identity.user.deleted`` with ids and counts only. Nothing to erase is not an error (another path got there
+    first), and is neither logged nor counted."""
     counts = store.erase_user(user_id)
     if not any(counts.values()):
         return counts
     posts, tokens, pats = (int(counts.get(k, 0)) for k in ("posts", "tokens", "api_tokens"))
-    log.warning("Inkcast user %s deleted their account (%s): erased %d posts, %d OAuth grants, %d PATs, %d rows in all",
+    log.warning("Inkcast user %s's account is gone (%s): erased %d posts, %d OAuth grants, %d PATs, %d rows in all",
                 user_id, via, posts, tokens, pats, sum(counts.values()),
                 extra={"event": "identity.user.deleted", "user_id": user_id, "via": via, "rows": sum(counts.values())})
     if metrics:
@@ -166,8 +172,8 @@ class KeycloakSync:
     async def deleted_own_account(self, keycloak_id: str) -> bool:
         """Whether Keycloak holds a DELETE_ACCOUNT user event for this person, for the reconcile: a person gone from
         Keycloak who deleted the account themselves is erased even when the pass above missed the event (more than
-        LOOKBACK_MS late, a replica's clock running fast, a burst of more than 500); one an administrator deleted
-        is only cut off."""
+        LOOKBACK_MS late, a replica's clock running fast, a burst of more than 500); one an administrator deleted,
+        or whose event retention has trimmed, is cut off and erased after ``keycloak_erase_after_days``."""
         r = await self._get("events", params=[("type", "DELETE_ACCOUNT"), ("user", keycloak_id), ("first", "0"),
                                               ("max", "1")])
         if r.status_code != 200:
@@ -176,17 +182,24 @@ class KeycloakSync:
 
     # ---- what Inkcast does about it ------------------------------------------------------------------------
 
-    def _erase(self, keycloak_id: str) -> bool:
+    def _erase(self, keycloak_id: str, via: str) -> bool:
         user = self.store.find_user_by_identity(self.prefix + keycloak_id)
         if not user:
             return False
-        return any(erase_person(self.store, self.metrics, str(user["id"]), "event").values())
+        return any(erase_person(self.store, self.metrics, str(user["id"]), via).values())
 
     def _cut_off(self, keycloak_id: str, state: str, via: str) -> bool:
+        """Cut the person off once (tokens, codes, PATs; ``disabled_at``). A person Keycloak no longer has (state
+        ``deleted``) is also marked gone from now, already cut off or not: the erasure grace period runs from the
+        first time the sync finds them gone, on either path."""
         user = self.store.find_user_by_identity(self.prefix + keycloak_id)
-        if not user or user.get("disabled_at"):
+        if not user:
             return False
         user_id = str(user["id"])
+        if state == "deleted" and not user.get("deleted_at"):
+            self.store.mark_user_deleted(user_id, self.clock())
+        if user.get("disabled_at"):
+            return False
         cut = self.store.disable_user(user_id)
         # Only the Inkcast id, a fixed reason and counts reach the log: nothing from Keycloak's answers or the
         # token tables (the identity key already ties the user id to the Keycloak id).
@@ -200,6 +213,16 @@ class KeycloakSync:
             self.metrics.inc("inkcast_identity_users_disabled_total", reason=reason)
         return True
 
+    def _grace_over(self, user_id: str) -> bool:
+        """Whether a person Keycloak no longer has (``deleted_at`` set by ``_cut_off``) has been gone for
+        ``keycloak_erase_after_days``: exactly that many days counts, ``0`` is the first reconcile that finds them
+        gone, ``None`` (``off``) is never."""
+        days = self.config.keycloak_erase_after_days
+        user = self.store.get_user(user_id) if days is not None else None
+        if not user or user.get("deleted_at") is None:
+            return False
+        return self.clock() - float(user["deleted_at"]) >= days * 86400
+
     async def tick(self) -> dict[str, int]:
         """One pass: the events since the cursor, then a reconcile when it is due. Returns what it did."""
         done = {"checked": 0, "disabled": 0, "erased": 0}
@@ -208,7 +231,7 @@ class KeycloakSync:
             # The look-back reads an event again on later passes, and Keycloak can have the person again under the
             # same id (restored from a realm export, LDAP without import): erase only once it confirms they are gone.
             if self.store.find_user_by_identity(self.prefix + keycloak_id) \
-                    and await self.person(keycloak_id) == "deleted" and self._erase(keycloak_id):
+                    and await self.person(keycloak_id) == "deleted" and self._erase(keycloak_id, "event"):
                 done["erased"] += 1
         self.store.set_sync_state(USER_EVENTS_CURSOR, str(newest))
         for keycloak_id in await self.changed_people():
@@ -217,15 +240,25 @@ class KeycloakSync:
             if state != "active" and self._cut_off(keycloak_id, state, "event"):
                 done["disabled"] += 1
         if self.clock() - self.last_reconcile >= self.config.keycloak_reconcile_seconds:
-            for user in self.store.users_with_identity_prefix(self.prefix):
-                keycloak_id = user["identity"][len(self.prefix):]
+            # The cut-off people too: one Keycloak no longer has is erased once the grace period is over; one it has
+            # again (restored from a backup under the same id) gets a whole grace period at a later deletion.
+            for user in self.store.users_with_identity_prefix(self.prefix, include_disabled=True):
+                keycloak_id, user_id = user["identity"][len(self.prefix):], str(user["id"])
                 done["checked"] += 1
                 state = await self.person(keycloak_id)
-                if state == "deleted" and await self.deleted_own_account(keycloak_id):
-                    if self._erase(keycloak_id):         # an event the pass missed: erased, as the pass would have
+                if state != "deleted":                   # present, enabled or not: never erased
+                    if user.get("deleted_at") is not None:
+                        self.store.mark_user_present(user_id)
+                    if state == "disabled" and self._cut_off(keycloak_id, state, "reconcile"):
+                        done["disabled"] += 1
+                elif await self.deleted_own_account(keycloak_id):
+                    if self._erase(keycloak_id, "reconcile"):   # an event the pass missed: erased, as the pass would have
                         done["erased"] += 1
-                elif state != "active" and self._cut_off(keycloak_id, state, "reconcile"):
-                    done["disabled"] += 1
+                else:                                    # an administrator's deletion, or the event is past retention
+                    if self._cut_off(keycloak_id, state, "reconcile"):
+                        done["disabled"] += 1
+                    if self._grace_over(user_id) and self._erase(keycloak_id, "reconcile"):
+                        done["erased"] += 1
             self.last_reconcile = self.clock()
         self.last_success = self.clock()
         return done

@@ -53,7 +53,11 @@ CREATE TABLE IF NOT EXISTS deletion_requests (
 """
 # disabled_at: set when the identity provider disabled or deleted the person (E9.F9.5); cleared at their next
 # successful sign-in, which the provider only allows once they are enabled again.
-COLUMNS = (("users", "disabled_at", "REAL"),)
+# deleted_at: when the identity provider was first found to have no such person any more (Keycloak's 404, whether an
+# administrator deleted them or a self-deletion whose event was never seen; E9.F9.5.S6). The grace period before
+# erasure (INKCAST_KEYCLOAK_ERASE_AFTER_DAYS) runs from it. Cleared when the provider has them again (an account
+# restored from a backup) and at sign-in. A person disabled first and deleted later keeps disabled_at and gains this.
+COLUMNS = (("users", "disabled_at", "REAL"), ("users", "deleted_at", "REAL"))
 
 
 # Defence in depth behind disable_user() and erase_user(): a token or code minted in the moment a person was being
@@ -72,25 +76,30 @@ class IdentityRepo(Database):
             row = c.execute("SELECT * FROM users WHERE identity = ?", (identity,)).fetchone()
             if row:
                 c.execute(
-                    "UPDATE users SET display = ?, email = ?, name = ?, last_login_at = ?, disabled_at = NULL WHERE id = ?",
+                    "UPDATE users SET display = ?, email = ?, name = ?, last_login_at = ?, disabled_at = NULL,"
+                    " deleted_at = NULL WHERE id = ?",
                     (display, email, name, now, row["id"]),
                 )
                 return {**dict(row), "display": display, "email": email, "name": name, "last_login_at": now,
-                        "disabled_at": None}
+                        "disabled_at": None, "deleted_at": None}
             user = {"id": "usr_" + uuid.uuid4().hex[:16], "identity": identity, "display": display,
-                    "email": email, "name": name, "created_at": now, "last_login_at": now, "disabled_at": None}
-            c.execute("INSERT INTO users (id, identity, display, email, name, created_at, last_login_at, disabled_at)"
-                      " VALUES (:id, :identity, :display, :email, :name, :created_at, :last_login_at, :disabled_at)", user)
+                    "email": email, "name": name, "created_at": now, "last_login_at": now, "disabled_at": None,
+                    "deleted_at": None}
+            c.execute("INSERT INTO users (id, identity, display, email, name, created_at, last_login_at, disabled_at,"
+                      " deleted_at) VALUES (:id, :identity, :display, :email, :name, :created_at, :last_login_at,"
+                      " :disabled_at, :deleted_at)", user)
             return user
 
     def find_user_by_identity(self, identity: str) -> dict[str, Any] | None:
         row = self._one("SELECT * FROM users WHERE identity = ?", identity)
         return dict(row) if row else None
 
-    def users_with_identity_prefix(self, prefix: str) -> list[dict[str, Any]]:
-        """Users from one identity provider (e.g. ``oidc:<issuer>#``) who are not disabled."""
-        rows = self._all("SELECT * FROM users WHERE substr(identity, 1, ?) = ? AND disabled_at IS NULL ORDER BY id",
-                         len(prefix), prefix)
+    def users_with_identity_prefix(self, prefix: str, include_disabled: bool = False) -> list[dict[str, Any]]:
+        """Users from one identity provider (e.g. ``oidc:<issuer>#``) who are not disabled; with ``include_disabled``
+        the disabled ones too (the reconcile re-checks them: one Keycloak no longer has is erased after the grace
+        period, one it has again is spared)."""
+        rows = self._all("SELECT * FROM users WHERE substr(identity, 1, ?) = ?"
+                         + ("" if include_disabled else " AND disabled_at IS NULL") + " ORDER BY id", len(prefix), prefix)
         return [dict(r) for r in rows]
 
     def disable_user(self, user_id: str) -> dict[str, int]:
@@ -107,6 +116,20 @@ class IdentityRepo(Database):
             pats = c.execute("UPDATE api_tokens SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL",
                              (now, user_id)).rowcount
         return {"oauth_tokens": tokens, "personal_access_tokens": pats, "codes": codes}
+
+    def mark_user_deleted(self, user_id: str, now: float) -> float:
+        """The identity provider has no such person any more (Keycloak's 404): records when that was first seen (an
+        earlier time is kept) and returns it. The grace period before erasure runs from it, whether or not the person
+        was already disabled (``disable_user`` is a no-op the second time; this is not)."""
+        with self._tx() as c:
+            c.execute("UPDATE users SET deleted_at = COALESCE(deleted_at, ?) WHERE id = ?", (now, user_id))
+            row = c.execute("SELECT deleted_at FROM users WHERE id = ?", (user_id,)).fetchone()
+        return float(row["deleted_at"]) if row and row["deleted_at"] is not None else now
+
+    def mark_user_present(self, user_id: str) -> None:
+        """The identity provider has the person after all (restored from a backup under the same id): a grace period
+        that was running stops, so a later deletion gets a whole one again."""
+        self._exec("UPDATE users SET deleted_at = NULL WHERE id = ? AND deleted_at IS NOT NULL", user_id)
 
     def get_sync_state(self, name: str) -> str | None:
         row = self._one("SELECT value FROM sync_state WHERE name = ?", name)
