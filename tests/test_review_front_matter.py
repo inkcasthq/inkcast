@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx2
 
+from inkcast.cli import render_table
 from inkcast.launcher import build, resolve
 from inkcast.libs.config import Config
 from inkcast.libs.http.app import compose
@@ -101,6 +102,31 @@ class ScalarTagOnAMapping(Api):
         message = self.assert_refused("draft: !!bool {=: maybe, k: " + "x" * 5000 + "}\n")
         self.assertFalse("ScalarNode" in message, message[:300])
         self.assertLess(len(message), 500)
+
+
+class KeyEchoedRaw(Api):
+    """The PR shows the refused value with repr and caps it at 80 characters, but names the key it sits under as it
+    is, and a key is any YAML string. `"\\ud800"` (an escape for a lone surrogate) can't be encoded in the JSON
+    response: REST publish answers 500, and so does the whole sync. `"x\\n::warning::..."` puts a line break in the
+    message, which the CLI prints at the start of a line (a workflow command in a GitHub Actions log, from a file in
+    the repository). An explicit key (`? ...`) has no length limit, so the message has none either."""
+
+    CASES = {
+        "lone surrogate": '"\\ud800": 2027-02-29\n',
+        "line break": '"x\\n::warning::injected": 2027-02-29\n',
+        "escape sequence": '"\\e[2J": 2027-02-29\n',
+        "100 KB": '? "' + "k" * 100_000 + '"\n: 2027-02-29\n',
+    }
+
+    def test_a_key_that_is_not_short_plain_text_is_not_put_in_the_message(self):
+        for name, extra in self.CASES.items():
+            with self.subTest(name):
+                message = self.assert_refused(extra)
+                self.assertTrue(message.isprintable(), message[:300])
+                self.assertLess(len(message), 500)
+                self.assertIn("'2027-02-29' isn't a valid timestamp", message)
+                table = render_table([{"action": "failed", "platform": "*", "path": "posts/bad.md", "message": message}])
+                self.assertFalse(any(line.startswith("::") for line in table.splitlines()), table[:300])
 
 
 if __name__ == "__main__":

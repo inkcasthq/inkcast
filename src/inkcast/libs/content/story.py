@@ -149,7 +149,10 @@ def split_front_matter(markdown: str) -> tuple[dict[str, Any], str]:
     except _RefusedValue as exc:
         kind = exc.node.tag.rsplit(":", 1)[-1]  # timestamp, int, float or bool
         # Marks count from 0 inside the YAML, whose first line is the file's second: the person's editor shows +2.
-        where = exc.field or f"The value on line {exc.node.start_mark.line + 2}"
+        # A key is any YAML string: only short plain text is named, never a line break, a lone surrogate ("\ud800",
+        # which the JSON response can't encode) or an explicit `? key` of any length. Anything else gets its line.
+        named = exc.field if exc.field and exc.field.isprintable() and len(exc.field) <= 80 else None
+        where = named or f"The value on line {exc.node.start_mark.line + 2}"
         reason = f": {str(exc.cause).rstrip('.')}" if isinstance(exc.cause, ValueError) else ""  # the others' text is Python's
         value = exc.node.value if len(exc.node.value) <= 80 else exc.node.value[:79] + "…"  # a 4301-digit int, say
         raise StoryError(f"{where} {value!r} isn't a valid {kind}{reason}.") from exc
