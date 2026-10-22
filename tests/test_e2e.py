@@ -886,7 +886,8 @@ class AccountDeletion(Harness):
         not_yet, no_cookie, forged = asyncio.run(run())
         for r in (not_yet, forged):
             self.assertEqual(r.status_code, 200)
-            self.assertIn("being finished", r.text)
+        self.assertIn("Nothing was deleted", not_yet.text, "Keycloak still has her: no deletion is under way")
+        self.assertIn("being finished", forged.text)
         self.assertEqual(no_cookie.status_code, 200)
         self.assertIn("back at Inkcast", no_cookie.text, "Keycloak's other info pages link here too: no deletion wording")
         self.assertNotIn("delet", no_cookie.text.lower())

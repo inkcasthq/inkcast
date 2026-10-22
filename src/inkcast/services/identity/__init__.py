@@ -237,7 +237,8 @@ def _routes(ctx: Context) -> list[Route]:
         that says nothing about deletion. With one, the pending record outlives the erasure (the sync's
         DELETE_ACCOUNT pass may get there first), so the person always gets the right answer: gone at Keycloak →
         erased (idempotent; counted as via=return only when this visit erased rows) and "deleted"; Keycloak still
-        has them, or the record is unknown → nothing erased, "being finished"."""
+        has them → nothing erased, "nothing was deleted" (the record stays for a later confirmation); Keycloak not
+        answering, or the record unknown → nothing erased, "being finished"."""
         cookie = request.cookies.get(COOKIE, "")
         if not cookie:
             return pages.message("Back at Inkcast", "You're back at Inkcast. You can close this tab and return to your "
@@ -255,8 +256,12 @@ def _routes(ctx: Context) -> list[Route]:
             state = await sync.person(req["keycloak_id"])
         except (SyncError, httpx2.HTTPError, ValueError):
             state = "unknown"
-        if state != "deleted":                                   # Keycloak still has them: nothing is erased
+        if state == "unknown":                                   # Keycloak did not answer: nothing is erased
             return finishing
+        if state != "deleted":                                   # Keycloak still has them: nothing is erased
+            return pages.message("Nothing was deleted", "The sign-in provider still has your account, so Inkcast has "
+                                 "erased nothing. If you still want it gone, confirm the deletion there, or start again "
+                                 "from your MCP client or the API.")
         erase_person(store, ctx.metrics, req["user_id"], "return")
         store.delete_deletion_request(req["id"])
         response = pages.message("Account deleted", "Your account is deleted and your data on Inkcast is erased. "

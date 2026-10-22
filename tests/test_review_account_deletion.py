@@ -78,6 +78,32 @@ class ReviewAccountDeletion(Harness):
             self.assertEqual(set(self.rows(who["id"]).values()), {0}, f"{who['sub']} is erased on the next pass")
             self.assertEqual(self.statuses(who), [401, 401])
 
+    def test_a_person_keycloak_still_has_is_not_told_their_deletion_is_being_finished(self):
+        """Continue pressed, nothing confirmed at Keycloak (its "page has expired" and other error pages link Back to
+        Application too). Keycloak answers that she exists, so no deletion is under way and none will finish: the page
+        must say nothing was deleted, not that her data goes within a minute. The record stays, so confirming after
+        all still ends in "deleted"."""
+        import re
+        ada = self.person("kc-rev-kept")
+        link, before = self.link(ada), self.rows(ada["id"])
+
+        async def run():
+            async with httpx2.AsyncClient(follow_redirects=False, timeout=20) as c:
+                page = await self.to_confirm_page(c, link)
+                confirm = await self.continue_to_keycloak(c, page)
+                early = await c.get(f"{self.base}/account/return")             # Keycloak still has her
+                kept = self.rows(ada["id"])
+                deleted = await c.post(self.keycloak_form(confirm), data={})    # she confirms after all
+                back = re.search(r'href="([^"]+)"[^>]*>[^<]*Back to Application', deleted.text).group(1)
+                return early, kept, await c.get(back)
+        early, kept, home = asyncio.run(run())
+        self.assertEqual(kept, before, "nothing erased while Keycloak has her")
+        self.assertNotIn("being finished", early.text)
+        self.assertNotIn("erases your data", early.text)
+        self.assertIn("Nothing was deleted", early.text)
+        self.assertIn("Your account is deleted", home.text, "the record was kept for the real return")
+        self.assertEqual(set(self.rows(ada["id"]).values()), {0})
+
 
 del _AD
 
