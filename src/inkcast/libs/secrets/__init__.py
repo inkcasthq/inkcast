@@ -31,12 +31,12 @@ from .fetchers import (
 from .naming import ConfigFileError, NamingError, SecretNaming, load_config_file, render_secret_name, secret_slug
 from .provider import SecretEvent, SecretNotFound, SecretsProvider
 from .redactor import REDACTOR, Redactor, is_sensitive_key
-from .value import Sealer, SecretValue, as_str, new_secret, token_hash
+from .value import Sealer, SecretValue, as_str, derive_key, new_secret, token_hash
 
 __all__ = [
     "REDACTOR", "AgentFetcher", "AwsSdkFetcher", "ChainFetcher", "Check", "ConfigFileError", "DirectoryFetcher", "EnvFetcher",
     "Fetched", "Fetcher", "NamingError", "NotInstalledError", "Redactor", "Sealer", "SecretEvent", "SecretFetchError",
-    "SecretNaming", "SecretNotFound", "SecretValue", "SecretsProvider", "VaultFetcher", "as_str", "describe_keys",
-    "fetcher_from_environ", "fingerprint", "fully_mask", "is_sensitive_key", "load_config_file", "mask_value", "new_secret",
-    "partly_mask", "problems", "render_secret_name", "run_checks", "secret_slug", "token_hash",
+    "SecretNaming", "SecretNotFound", "SecretValue", "SecretsProvider", "VaultFetcher", "as_str", "derive_key",
+    "describe_keys", "fetcher_from_environ", "fingerprint", "fully_mask", "is_sensitive_key", "load_config_file",
+    "mask_value", "new_secret", "partly_mask", "problems", "render_secret_name", "run_checks", "secret_slug", "token_hash",
 ]

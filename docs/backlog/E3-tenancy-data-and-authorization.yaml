@@ -130,8 +130,10 @@ features:
   - id: F3.3.S5
     title: 'Erasure flow (user and organization): owning tables, user-scope KPI rows deleted, member dims tombstoned, outbox
       purged; audited'
-    status: planned
-    change: new
+    status: in-progress
+    change: 'user half built (issue #65): Store.erase_user over every user-keyed table in one transaction, the user_erasures
+      audit (salted id hash, time, counts) and an architecture test that scans the live schema; the organization half
+      (member dims tombstoned) follows with E3''s organizations'
   - id: F3.3.S6
     title: Events carry org_id and workspace_id; rollups appear at those scopes with no consumer change (test)
     status: planned

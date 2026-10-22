@@ -60,7 +60,7 @@ Every route, MCP tool and job goes through one `authz.require()`: token scope, t
 |---|---|
 | `libs/auth` | `TokenVerifier` turns an OAuth access token or a personal access token into a `Principal` (user, scopes, kind). REST (`Authed`) and MCP tools check a scope on every call. |
 | `libs/authz` | The pluggable `PolicyEngine` ([authorization design](authorization.md), [ADR-0007](adr/0007-openfga-authorization.md)): `OpenFgaEngine` over OpenFGA's REST API, `LocalEngine` evaluating the same compiled model in-process, `Instrumented` counting and logging every check the same way. |
-| `libs/db` | One `Database` with domain repositories (`IdentityRepo`, `VaultRepo`, `PostsRepo`, `LedgerRepo`, `AuthzRepo`), each owned by one service ([ADR-0003](adr/0003-data-store.md)). |
+| `libs/db` | One `Database` with domain repositories (`IdentityRepo`, `VaultRepo`, `PostsRepo`, `LedgerRepo`, `AuthzRepo`, `ErasureRepo`), each owned by one service ([ADR-0003](adr/0003-data-store.md)). `Store.erase_user` removes one person from every table in one transaction and keeps an audit record with only a salted hash of the id (E3.F3.3.S5). |
 | `libs/content` | Platform-neutral story: front matter, per-platform overrides, image URL fixing, schedule validation. Pure, with no I/O. |
 | `libs/platforms` | The `Platform` interface (`prepare` is pure; `publish`, `update` and `find_existing` do I/O, with `capabilities`), the built-ins and the registry. |
 | `libs/pipeline` | Fan-out to platforms, sends, safe retries (`60s`, `5m`, `30m`), updates, confirmation of unconfirmed sends, cancel. |
