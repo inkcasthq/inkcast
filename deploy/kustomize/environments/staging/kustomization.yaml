@@ -15,4 +15,4 @@ configMapGenerator:
       - INKCAST_AUTHZ_ALLOW_LOCAL=false
 images:
   - name: ghcr.io/inkcasthq/inkcast
-    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    digest: sha256:786e2bf970af348e423f423cf3bb6261e4abc1e786b994d0a17a2a379eeb2289
