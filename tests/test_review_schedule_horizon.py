@@ -75,5 +75,18 @@ class BeyondTheHorizonOverflowingUtc(Api):
         self.assertEqual((by_path["posts/ok.md"]["action"], by_path["posts/ok.md"]["status"]), ("create", "scheduled"))
 
 
+class ScheduledBeyondTheHorizonBeforeTheFix(Api):
+    """The listing's maximum is documented as covering every scheduled post. A post scheduled further out before #95
+    (nothing refused it then) is still in the database and must be listed there, so it can be found and cancelled."""
+
+    def test_the_maximum_listing_shows_it(self):
+        run_at = (datetime.now(timezone.utc) + timedelta(days=content.SCHEDULE_HORIZON_DAYS + 70)).timestamp()
+        post_id = self.ctx.store.create_post(group_id="grp_before95", user_id=self.user, platform="devto",
+                                             title="Scheduled before #95", status="scheduled", run_at=run_at, payload={})
+        listed = self.rest("GET", f"/api/v1/posts?days_ahead={content.SCHEDULE_HORIZON_DAYS}")
+        self.assertEqual(listed.status_code, 200, listed.text)
+        self.assertIn(post_id, {p["id"] for p in listed.json()}, listed.text)
+
+
 if __name__ == "__main__":
     unittest.main()
