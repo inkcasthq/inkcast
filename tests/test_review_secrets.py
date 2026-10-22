@@ -62,5 +62,26 @@ class ConnectTicketNotInAccessLog(unittest.TestCase):
         self.assertIn("/connect/", out)                  # the line still says which page it was
 
 
+class MethodLabelStaysClosed(unittest.TestCase):
+    """uvicorn's h11 parser accepts any token as a method (up to its 16 KB request-line limit), and the RED histogram
+    was labelled with it verbatim: every unauthenticated request with a new method made a new series (14 bucket
+    lines each) that the process kept forever and served on every scrape."""
+
+    def test_unknown_methods_share_one_label(self):
+        from inkcast.libs.http.middleware import HTTP_DURATION
+        from inkcast.libs.observability import Metrics
+
+        metrics = Metrics()
+        metrics.histogram(HTTP_DURATION, "test")
+        app = RequestContext(_ok, metrics=metrics)
+        for i in range(25):
+            asyncio.run(_request(app, f"X{'A' * 200}{i}", "/nope"))
+        asyncio.run(_request(app, "GET", "/nope"))
+        text = metrics.render()
+        self.assertEqual(text.count(f"{HTTP_DURATION}_count{{"), 2)   # GET and one shared series for the rest
+        self.assertFalse("AAAA" in text, "a client-chosen method reached a label")
+        self.assertIn('method="GET"', text)
+
+
 if __name__ == "__main__":
     unittest.main()
