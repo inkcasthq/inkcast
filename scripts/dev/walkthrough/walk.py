@@ -20,7 +20,8 @@ confirmation, its "deleted" page linking back, and Inkcast's erasure.
 Ports come from the environment (WALK_INKCAST_PORT 8787, WALK_FAKES_PORT 8999, WALK_METRICS_PORT 9090,
 WALK_CALLBACK_PORT 53682). Generated credentials are masked in the pictures and in results.json (prefix and an
 ellipsis); the password is never written anywhere. Exit 0 only if every step passed; results.json is written
-either way.
+either way, a crash before the first step included: that leaves one failed ``startup`` step carrying the
+exception and the last lines of each process log (issue #88).
 """
 
 from __future__ import annotations
@@ -302,18 +303,20 @@ async def wait_http(url: str, want: int, procs: list[subprocess.Popen], timeout:
                 pass
             gone = [p for p in procs if p.poll() is not None]
             if gone:
-                raise RuntimeError(f"a server process exited with code {gone[0].returncode} before serving; see the logs in the output directory")
+                raise RuntimeError(f"a server process exited with code {gone[0].returncode} before serving; "
+                                   "its log's last lines are in results.json and the whole log in the output directory")
             await asyncio.sleep(0.3)
     raise TimeoutError(f"{url} did not answer {want} within {timeout:.0f} s")
 
 
 def start_stack(out: pathlib.Path, state: pathlib.Path, base: str, fakes: str, ports: dict[str, int],
-                password: str) -> list[subprocess.Popen]:
+                password: str, procs: list[subprocess.Popen]) -> None:
     """The fake platforms with the fake Keycloak, and Inkcast (every service in one process) signing people in
     through it, as a developer runs them locally, the secrets handed over in the children's environment as a
     developer does (Inkcast's posture check notes it; development mode allows it). The person's password is the
     fake Keycloak's, never Inkcast's. ``state`` is a private directory outside the output: the database lives
-    there, not in what CI uploads."""
+    there, not in what CI uploads. Each child is appended to ``procs`` as it starts, so the caller can stop
+    whatever did start if the next one cannot."""
     env = {k: v for k, v in os.environ.items() if k != "WALK_PASSWORD"}
     env.update({"PYTHONPATH": f"{ROOT / 'src'}:{ROOT / 'tests'}",
                 "INKCAST_ENV": "development", "INKCAST_LOGIN": "oidc",
@@ -331,12 +334,31 @@ def start_stack(out: pathlib.Path, state: pathlib.Path, base: str, fakes: str, p
                 "FAKES_PORT": str(ports["fakes"]), "FAKES_HOST": "127.0.0.1", "FAKES_PUBLIC_URL": fakes})
     fakes_log = open(out / "fakes.log", "w")  # noqa: SIM115 — closed with the process
     server_log = open(out / "server.log", "w")  # noqa: SIM115
-    return [
-        subprocess.Popen([sys.executable, str(ROOT / "scripts" / "dev" / "fake_platforms.py")], env=env,
-                         stdout=fakes_log, stderr=subprocess.STDOUT),
-        subprocess.Popen([sys.executable, "-m", "inkcast.launcher", "all"], env=env, cwd=str(ROOT),
-                         stdout=server_log, stderr=subprocess.STDOUT),
-    ]
+    procs.append(subprocess.Popen([sys.executable, str(ROOT / "scripts" / "dev" / "fake_platforms.py")], env=env,
+                                  stdout=fakes_log, stderr=subprocess.STDOUT))
+    procs.append(subprocess.Popen([sys.executable, "-m", "inkcast.launcher", "all"], env=env, cwd=str(ROOT),
+                                  stdout=server_log, stderr=subprocess.STDOUT))
+
+
+def describe(exc: BaseException) -> str:
+    """``Type: message`` for an exception, or for each one in an ExceptionGroup."""
+    inner = getattr(exc, "exceptions", None) or [exc]
+    return "; ".join(f"{type(e).__name__}: {e}" for e in inner)[:600]
+
+
+def log_tails(out: pathlib.Path, hidden: list[str], password: str, lines: int = 30) -> dict[str, str]:
+    """The last ``lines`` of each child's log (server, fakes), credentials masked as everywhere else and the
+    password struck out entirely, for the failed startup step: the reason a server died is in its last lines."""
+    tails: dict[str, str] = {}
+    for name in ("server.log", "fakes.log"):
+        path = out / name
+        if not path.exists():
+            continue
+        text = path.read_text(errors="replace")
+        if password:
+            text = text.replace(password, "***")
+        tails[name] = mask("\n".join(text.splitlines()[-lines:]), hidden)
+    return tails
 
 
 def satisfied(predicate: Callable[..., bool], *args) -> bool:
@@ -361,22 +383,20 @@ async def run(args, password: str) -> dict:
     ports = {"inkcast": int(os.environ.get("WALK_INKCAST_PORT", "8787")), "fakes": int(os.environ.get("WALK_FAKES_PORT", "8999")),
              "metrics": int(os.environ.get("WALK_METRICS_PORT", "9090")), "callback": int(os.environ.get("WALK_CALLBACK_PORT", "53682"))}
     base, fakes = f"http://localhost:{ports['inkcast']}", f"http://127.0.0.1:{ports['fakes']}"
-    started = now()
-    state = pathlib.Path(tempfile.mkdtemp(prefix="inkcast-walk-"))
-    procs = start_stack(out, state, base, fakes, ports, password)
-    facts: dict[str, Any] = {"started": started, "base": base, "fakes": fakes, "client_name": CLIENT_NAME,
+    facts: dict[str, Any] = {"started": now(), "base": base, "fakes": fakes, "client_name": CLIENT_NAME,
                              "callback": f"http://localhost:{ports['callback']}/callback",
                              "viewport": {"width": 820, "height": 560, "device_scale_factor": 2, "api_docs": {"width": 1280, "height": 900}}, "steps": []}
     hidden = [DEV_KEY]   # the fake's fixed key, masked in the pictures out of habit; the real credentials are masked by shape
-    callback = Callback(ports["callback"])
+    procs: list[subprocess.Popen] = []
+    callback: Callback | None = None
+    state = pathlib.Path(tempfile.mkdtemp(prefix="inkcast-walk-"))
+    # Everything from here on runs inside one try/finally: whatever fails, start-up included, results.json is
+    # written with what there is (issue #88).
     try:
-        try:
-            await wait_http(f"{fakes}/devto/api/users/me", 401, procs)
-            await wait_http(f"{base}/livez", 200, procs)
-        except Exception as exc:  # noqa: BLE001 — recorded as the failed first step, so the document says why nothing else ran
-            facts["steps"] = [{"n": 1, "t": now(), "phase": "0. Start the stack", "step": "start Inkcast and the fake platforms",
-                               "kind": "check", "ok": False, "detail": f"{type(exc).__name__}: {exc}", "narration": "", "screenshot": None}]
-            raise SystemExit(1) from None
+        start_stack(out, state, base, fakes, ports, password, procs)
+        callback = Callback(ports["callback"])
+        await wait_http(f"{fakes}/devto/api/users/me", 401, procs)
+        await wait_http(f"{base}/livez", 200, procs)
         async with async_playwright() as pw:
             browser = await pw.chromium.launch()
             context = await browser.new_context(viewport={"width": 820, "height": 560}, device_scale_factor=2,
@@ -391,17 +411,24 @@ async def run(args, password: str) -> dict:
                 await journey(w, base, fakes, callback, facts, password)
             except BaseException as exc:  # noqa: BLE001 — the run must still leave its evidence (an ExceptionGroup is one)
                 (out / "walk-error.txt").write_text("".join(traceback.format_exception(exc)))
-                inner = getattr(exc, "exceptions", None) or [exc]
                 shot = None
                 try:
                     shot = await w.shot("failed-walk-aborted")
                 except Exception:  # noqa: BLE001
                     pass
-                w.record("walk aborted", "check", False,
-                         "; ".join(f"{type(e).__name__}: {e}" for e in inner)[:600] + " (walk-error.txt has the traceback)", "", shot)
+                w.record("walk aborted", "check", False, describe(exc) + " (walk-error.txt has the traceback)", "", shot)
             await browser.close()
+    except BaseException as exc:  # noqa: BLE001 — a crash before the first step (a port in use, a server that died, no browser)
+        (out / "walk-error.txt").write_text("".join(traceback.format_exception(exc)))
+        steps = facts["steps"]
+        row = {"n": len(steps) + 1, "t": now(), "phase": "0. Start the stack", "step": "startup" if not steps else "walk aborted",
+               "kind": "check", "ok": False, "detail": mask(describe(exc), hidden) + " (walk-error.txt has the traceback)",
+               "narration": "", "screenshot": None, "logs": log_tails(out, hidden, password)}
+        steps.append(row)
+        print(f"  [FAIL] {row['step']}: {row['detail']}")
     finally:
-        callback.close()
+        if callback is not None:
+            callback.close()
         for p in procs:
             p.terminate()
         for p in procs:
@@ -744,11 +771,7 @@ def main() -> int:
     if len(password) < 12:
         print("WALK_PASSWORD (at least 12 characters) is required in the environment; it is never an argument.", file=sys.stderr)
         return 2
-    try:
-        facts = asyncio.run(run(args, password))
-    except SystemExit:
-        print("the stack did not start; results.json records why", file=sys.stderr)
-        return 1
+    facts = asyncio.run(run(args, password))
     print(f"\n{facts['passed']} steps passed, {facts['failed']} failed -> {args.out}/results.json")
     return 0 if facts["failed"] == 0 and facts["total"] else 1
 

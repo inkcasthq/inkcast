@@ -12,8 +12,10 @@
 # tests use). Nothing is installed.
 #
 # Exit 0 only if every step and every integrity check passed. The document is built either way, so a failing
-# walk still leaves the evidence of what failed. Output: NN-*.png, results.json, integrity.jsonl, env.json,
-# walkthrough.html, walkthrough.pdf, summary.md, the process logs.
+# walk still leaves the evidence of what failed; when the walk itself exits non-zero, the last lines of the
+# server and fakes logs are printed last, so CI's annotation (the last 25 lines of this output) carries them.
+# Output: NN-*.png, results.json, integrity.jsonl, env.json, walkthrough.html, walkthrough.pdf, summary.md, the
+# process logs.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo="$(cd "${here}/../../.." && pwd)"
@@ -35,9 +37,10 @@ fi
 export PYTHONPATH="${repo}/src:${repo}/tests${PYTHONPATH:+:${PYTHONPATH}}"
 mkdir -p "${out}"
 rc=0
+walk_rc=0
 
 echo "== 1/5 the walk (MCP client sign-in, platforms, connect, publish, schedule, token, sync, insights, API docs)"
-"${py}" "${here}/walk.py" --out "${out}" || rc=1
+"${py}" "${here}/walk.py" --out "${out}" || { walk_rc=$?; rc=1; }
 
 echo "== 2/5 integrity of what was left behind"
 "${py}" "${here}/integrity_check.py" "${out}" || rc=1
@@ -50,5 +53,14 @@ echo "== 4/5 the document"
 
 echo "== 5/5 no credential in the document either"
 "${py}" "${here}/integrity_check.py" "${out}" --leaks-only || rc=1
+if [ "${walk_rc}" -ne 0 ]; then
+  # The walk failed: its reason is in results.json, and the last lines of each process log go here, last, so they
+  # are what CI's annotation keeps. The server's come last of all: they are the usual reason.
+  echo "== the walk exited ${walk_rc}; the last lines of the process logs (see results.json for the failed step)"
+  for log in fakes.log server.log; do
+    echo "-- ${out}/${log}:"
+    [ -f "${out}/${log}" ] && tail -n 10 "${out}/${log}" || echo "(missing)"
+  done
+fi
 echo "walkthrough finished with rc=${rc}: ${out}/walkthrough.pdf"
 exit "${rc}"

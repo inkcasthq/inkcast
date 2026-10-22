@@ -62,7 +62,11 @@ The command runs, in order:
 | document | `build_doc.py` | `walkthrough.html` (self-contained), `walkthrough.pdf` (Chromium print), `summary.md` |
 
 Every number in the document is read from those files; nothing is typed in. The document is built even when
-the walk fails, so the evidence of what failed survives. An optional `findings.json` in the output directory (a
+the walk fails, so the evidence of what failed survives: a crash before the first step (a port in use, a server
+that died, no browser) still leaves `results.json` with one failed `startup` step carrying the exception and the
+last lines of the server and fakes logs, the document says plainly that the walk failed at start-up and shows
+those lines, and `run_walk.sh` prints them last so CI's annotation carries them (issue #88). An optional
+`findings.json` in the output directory (a
 list of `{"title", "severity": "defect" | "note", "text"}`) becomes its Findings section.
 
 ## In CI
