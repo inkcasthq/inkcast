@@ -7,7 +7,7 @@
 #
 # The password comes from the environment only (WALK_PASSWORD), never an argument: argv is visible to every
 # process on the host. Unset, one is generated for this run and forgotten with it. Ports are overridable:
-# WALK_INKCAST_PORT (8787), WALK_FAKES_PORT (8999), WALK_METRICS_PORT (9090), WALK_CALLBACK_PORT (53682).
+# WALK_INKCAST_PORT (8787), WALK_FAKES_PORT (8999), WALK_METRICS_PORT (9090), WALK_CALLBACK_PORT (0: a free port).
 # WALK_PYTHON names the interpreter (default python3; it needs inkcast importable, or PYTHONPATH=src as the
 # tests use). Nothing is installed.
 #
