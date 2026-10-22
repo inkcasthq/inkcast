@@ -39,9 +39,10 @@ jobs:
       security-events: write
 
   captures:
-    # The gate's dashboard checks (Compose and kind) leave screenshots as artifacts; push them to the
-    # ci-captures branch so they can be viewed on GitHub. The only job here that may write to the repository,
-    # and only that orphan branch (scripts/ci-publish-captures.sh); runs even when the gate fails.
+    # The gate's dashboard checks (Compose and kind) and the end-to-end walkthrough (the test job on 3.14) leave
+    # screenshots and documents as artifacts; push them to the ci-captures branch so they can be viewed on GitHub.
+    # The only job here that may write to the repository, and only that orphan branch
+    # (scripts/ci-publish-captures.sh); runs even when the gate fails.
     needs: [gate]
     if: always() && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
@@ -50,10 +51,10 @@ jobs:
       actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Fetch this run's dashboard captures
+      - name: Fetch this run's dashboard captures and the walkthrough
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh run download "$GITHUB_RUN_ID" -R "$GITHUB_REPOSITORY" -p 'dashboards-*' -D "$RUNNER_TEMP/captures" || true
+        run: gh run download "$GITHUB_RUN_ID" -R "$GITHUB_REPOSITORY" -p 'dashboards-*' -p 'walkthrough-*' -D "$RUNNER_TEMP/captures" || true
       - name: Push them to the ci-captures branch
         run: scripts/ci-publish-captures.sh "$RUNNER_TEMP/captures"
 

@@ -26,6 +26,7 @@
 - [Observability, KPIs and the data stack](design/observability-and-kpis.md): metrics per layer, the KPI catalogue, the outbox, Valkey/Redis, alerts and SLOs, dashboards. Runbooks in [runbooks/alerts.md](runbooks/alerts.md).
 - [Backup and restore](runbooks/backup-restore.md): daily SQLite backups, the restore script and the drill, until PostgreSQL on CloudNativePG ([ADR-0014](adr/0014-postgresql-on-cloudnativepg.md)).
 - [CI/CD](cicd.md): pipeline, supply chain, environments and promotion, GitHub plan notes.
+- [End-to-end walkthrough](walkthrough.md): the whole journey driven for real by an MCP client and a browser, pictured and checked by CI; published to the `ci-captures` branch.
 - [Writing a platform plug-in](writing-a-platform-plugin.md)
 - API reference: served by every deployment at `/api` (Swagger UI) and `/api/redoc`. Screenshots: [Swagger UI](images/api-swagger-ui.png), [ReDoc](images/api-redoc.png).
 
