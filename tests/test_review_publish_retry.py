@@ -13,11 +13,12 @@ from datetime import datetime, timedelta, timezone
 
 import httpx2
 
-from inkcast.libs.config import RetryPolicy
+from inkcast.libs.config import Config, RetryPolicy
 from inkcast.libs.contracts.models import SyncFile, SyncRequest
 from inkcast.libs.db import Store
 from inkcast.libs.pipeline import Publisher
 from inkcast.libs.platforms import Account, Platform, PlatformError, Prepared
+from inkcast.libs.secrets import Redactor, run_checks
 from inkcast.services.publishing.sync import GitSync
 
 SOURCE = "github.com/acme/blog"
@@ -118,6 +119,22 @@ class DocsStateThePolicy(unittest.TestCase):
         section = doc_section("docs/runbooks/alerts.md", "InkcastPublishFailureRateHigh")
         self.assertIn("INKCAST_PUBLISH_MAX_ATTEMPTS", section)
         self.assertIn("INKCAST_PUBLISH_RETRY_DELAYS", section)
+
+    def test_the_posture_table_states_the_window_the_check_computes(self):
+        """docs/reference/secrets.md said publish-retry-window warns when "INKCAST_PUBLISH_MAX_ATTEMPTS ×
+        INKCAST_PUBLISH_RETRY_DELAYS add up to more than a day". The window is the waits between the sends: one fewer
+        than the sends, the last delay repeating. Five sends 6 h apart: the table's product is 30 h, a warning; the
+        check's window is 24 h, a pass."""
+        policy = RetryPolicy(5, (21600,))
+        cfg = Config(public_url="https://inkcast.example.com", secret_key="Q7r!x9Lm2vP0sZ4bN8cH1dK5fG3jT6wY-aE",
+                     database_path=":memory:", login="password", password="p" * 12, publish_retry=policy)
+        check = {c.id: c for c in run_checks(cfg, redactor=Redactor(), environ={})}["publish-retry-window"]
+        self.assertEqual((policy.window_seconds, check.status), (24 * 3600, "pass"))
+        text = (ROOT / "docs/reference/secrets.md").read_text(encoding="utf-8")
+        (row,) = [line for line in text.splitlines() if line.startswith("| `publish-retry-window`")]
+        self.assertNotIn("×", row, "the window is not the attempts times the delays")
+        self.assertIn("between", row)
+        self.assertIn("repeating", row)
 
 
 if __name__ == "__main__":
