@@ -244,10 +244,10 @@ def restore_backup(path: pathlib.Path, database: pathlib.Path, *, force: bool = 
     if database.exists():
         stamp = datetime.fromtimestamp(now, timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         aside = database.with_name(f"{database.name}.before-restore-{stamp}")
-        database.replace(aside)
+        os.link(database, aside)                        # a second name: the old file stays at its path until replaced
         for extra in ("-wal", "-shm"):                  # the old WAL belongs to the old file, never the restored one
             side = database.with_name(database.name + extra)
             if side.exists():
                 side.replace(aside.with_name(aside.name + extra))
-    incoming.replace(database)
+    incoming.replace(database)                          # one rename: a kill leaves the old database or the new one
     return aside

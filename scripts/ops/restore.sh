@@ -58,15 +58,17 @@ stop_job() {
   echo "Deleting job $job and its pod."
   $k -n "$ns" delete job "$job" --cascade=foreground --wait=true --timeout=120s --ignore-not-found || true
   $k -n "$ns" wait --for=delete pod -l "job-name=$job" --timeout=60s 2>/dev/null || true
-  applied=false
   local left
   left="$($k -n "$ns" get pod -l "job-name=$job" -o name)" || left="(could not list the pods of job $job)"
+  # A Job still there (its delete refused or failed) can still start a pod: it counts as left too.
+  [ -n "$left" ] || left="$($k -n "$ns" get job "$job" -o name --ignore-not-found)" || left="(could not read job $job)"
   if [ -n "$left" ]; then
-    echo "A pod of job $job is still there ($left): the server stays at 0 replicas, so the restore cannot swap" \
-         "the database under it. Remove the pod, then scale the server back: $k -n $ns scale deploy/inkcast" \
+    echo "Job $job or its pod is still there ($left): the server stays at 0 replicas, so the restore cannot swap" \
+         "the database under it. Remove it, then scale the server back: $k -n $ns scale deploy/inkcast" \
          "--replicas=$replicas" >&2
     return 1
   fi
+  applied=false               # only now: interrupted before this, the exit trap looks again
 }
 
 scale_back() {
@@ -97,12 +99,14 @@ trap 'exit 130' INT TERM
 
 if ! $listing; then
   echo "Scaling the server to 0 (it was $replicas)."
+  scaled_down=true            # before the call: interrupted while it runs, the server may be at 0 already
   $k -n "$ns" scale deploy/inkcast --replicas=0
-  scaled_down=true
   $k -n "$ns" wait --for=delete pod -l app.kubernetes.io/component=server --timeout=180s || true
-  # `|| true` covers "no pods to wait for"; what --force relies on is that none is left.
-  if [ -n "$($k -n "$ns" get pod -l app.kubernetes.io/component=server -o name)" ]; then
-    echo "The server's pod is still there: not restoring under a live server. Scaling back to $replicas." >&2
+  # `|| true` covers "no pods to wait for"; what --force relies on is that none is left (a list that fails is not).
+  servers="$($k -n "$ns" get pod -l app.kubernetes.io/component=server -o name)" ||
+    servers="(could not list the server's pods)"
+  if [ -n "$servers" ]; then
+    echo "The server's pod is still there ($servers): not restoring under a live server. Scaling back to $replicas." >&2
     scale_back
     finished=true
     exit 1
@@ -155,8 +159,10 @@ spec:
           emptyDir: {sizeLimit: 64Mi}
 EOF
 # `kubectl wait` exits 0 only once the Job's Complete condition is true: that is the one path that reports a restore.
+# When the wait gives up, the condition is read once more: the Job may have completed in that instant.
 completed=false
-if $k -n "$ns" wait --for=condition=complete "job/$job" --timeout="${timeout}s"; then completed=true; applied=false; fi
+if $k -n "$ns" wait --for=condition=complete "job/$job" --timeout="${timeout}s" ||
+   [ "$(job_condition Complete)" = "True" ]; then completed=true; applied=false; fi
 $k -n "$ns" logs "job/$job" || true
 if $listing; then
   finished=true
