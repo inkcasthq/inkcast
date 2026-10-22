@@ -348,17 +348,17 @@ class ReplayInsideTheOutboxRetention(unittest.TestCase):
         self.assertIn('inkcast_kpi_events_total{result="duplicate"} 1', self.metrics.render())
 
     def test_what_the_refused_order_would_do(self):
-        """A policy the configuration refuses, applied straight to the store: the replay counts twice. That is the
-        failure the cross-check prevents."""
+        """A policy the configuration refuses, applied straight to the store: the store still keeps ``kpi_applied``
+        while the outbox holds the event (tests/test_review_retention.py), so even then the replay counts once."""
         policy = RetentionPolicy(outbox_days=30, kpi_hourly_days=20)
         self.assertTrue(retention_problems(policy), "never reaches the store through load_config or validate()")
         event = self.folded_29_days_ago()
         self.store.purge_expired(policy)
         self.assertEqual([e.id for e in self.store.poll("audit")], [event.id], "the event is still there to replay")
-        self.assertEqual(applied(self.store), set(), "but the record that made a replay harmless is gone")
+        self.assertEqual(applied(self.store), {event.id}, "and so is the record that makes a replay harmless")
         self.store.advance("insights", 0)
         self.assertEqual(self.poller.drain(), 1)
-        self.assertEqual(self.total(event), 2.0, "counted twice")
+        self.assertEqual(self.total(event), 1.0, "counted once")
 
 
 # ---- the housekeeping threads the configuration through ----------------------------------------------------
