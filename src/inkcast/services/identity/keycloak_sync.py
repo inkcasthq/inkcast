@@ -103,6 +103,7 @@ class KeycloakSync:
         self._token_until = 0.0
         self.last_success = 0.0
         self.last_reconcile = 0.0
+        self.unread_until = 0.0     # after a reconcile that could act on nobody: no full re-read before this
 
     @property
     def enabled(self) -> bool:
@@ -285,6 +286,8 @@ class KeycloakSync:
             if state != "active" and self._cut_off(keycloak_id, state, "event"):
                 done["disabled"] += 1
         if self.clock() - self.last_reconcile >= self.config.keycloak_reconcile_seconds:
+            if self.clock() < self.unread_until:         # still failing, but everyone is read again on schedule
+                raise SyncError("the last reconcile could act on nobody; everyone is read again at the next one")
             # The cut-off people too: one Keycloak no longer has is erased once the grace period is over; one it has
             # again (restored from a backup under the same id) gets a whole grace period at a later deletion.
             people = self.store.users_with_identity_prefix(self.prefix, include_disabled=True)
@@ -318,6 +321,7 @@ class KeycloakSync:
                     if self._grace_over(user_id, user) and self._erase(keycloak_id, "reconcile"):
                         done["erased"] += 1
             if unread and unread == len(people):         # nobody could be read: the sync is failing, not a person
+                self.unread_until = self.clock() + self.config.keycloak_reconcile_seconds
                 raise SyncError(f"the reconcile could act on nobody: every one of {unread} reads failed")
             self.last_reconcile = self.clock()
         self.last_success = self.clock()
