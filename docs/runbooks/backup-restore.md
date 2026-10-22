@@ -53,15 +53,22 @@ KUBECTL=oc scripts/ops/restore.sh inkcast inkcast-20261018T031700Z.db  # a chose
 
 The script does the following, stopping at the first failure:
 1. Scales the server to 0, because a restore must not run under a live server.
-2. Runs `inkcast restore` as a one-off Job, with the same image and both volumes. The restore:
+2. Runs `inkcast restore` as a one-off Job, with the same image and both volumes, and waits up to `RESTORE_TIMEOUT` seconds for it (default 300; the Job gets the same number as its `activeDeadlineSeconds`, so it cannot outlive the wait). The restore:
    - verifies the backup (checksum against the manifest, then the integrity check);
    - copies it in;
    - checks the copy's row counts against the manifest;
    - carries the erasure records (`user_erasures`: a salted hash per person who deleted their account, the time, the counts; nothing that names them) of the database being replaced into the copy, skipping any it already has (`restore.erasures.carried` in the Job's log, with the count);
    - only then swaps it in.
-3. Scales the server back up and waits for it to be ready. **Before it serves anything, the server re-applies the erasures:** when a process opens the store it hashes every user id under the erasure key and erases again anyone whose hash is in `user_erasures` but who has rows, which is what a backup taken before their deletion brings back. One log line per person, `identity.erasure.reapplied`, with the id and the number of rows; no second audit row, and `inkcast_identity_users_deleted_total` does not move (it was one deletion). With nothing to do the step costs one read. Check the server's log after the rollout: `oc -n inkcast logs deploy/inkcast | grep identity.erasure.reapplied`.
+3. Once the Job's `Complete` condition is set, and only then, scales the server back up and waits for it to be ready. **Before it serves anything, the server re-applies the erasures:** when a process opens the store it hashes every user id under the erasure key and erases again anyone whose hash is in `user_erasures` but who has rows, which is what a backup taken before their deletion brings back. One log line per person, `identity.erasure.reapplied`, with the id and the number of rows; no second audit row, and `inkcast_identity_users_deleted_total` does not move (it was one deletion). With nothing to do the step costs one read. Check the server's log after the rollout: `oc -n inkcast logs deploy/inkcast | grep identity.erasure.reapplied`.
 
-Nothing is deleted. The replaced database stays on the data volume as `inkcast.db.before-restore-<time>`, with its WAL files. If the restore Job fails, the server comes back on the database it had.
+Nothing is deleted. The replaced database stays on the data volume as `inkcast.db.before-restore-<time>`, with its WAL files.
+
+**The server and the restore Job never run at the same time.** The script reports "Restored" only when the Job completed. On every other path it removes the Job and its pod (`kubectl delete job --cascade=foreground --wait`) and confirms no pod of the Job is left *before* it scales the server back up, then exits non-zero saying nothing was replaced:
+- the Job failed (its log is printed first; a failed Job is removed rather than left for its `ttlSecondsAfterFinished`);
+- the Job did not complete within `RESTORE_TIMEOUT` seconds (a very large `user_erasures` table, a slow volume): the deadline stops it on the cluster side, and the script deletes it on its own;
+- the script was interrupted (Ctrl-C, a lost terminal) or a step failed after the Job was created: an exit trap does the same, unless the Job had already completed, in which case it says the database was replaced and brings the server back.
+
+If a pod of the Job will not go (the delete timed out, or the pod list cannot be read), the server **stays at 0 replicas** and the script says so: bringing it back beside a restore that may still swap the database is the one thing it must not do. Remove the pod by hand, then `oc -n inkcast scale deploy/inkcast --replicas=<n>` with the count the script printed when it scaled down. A restore that needs longer than 300 s runs with `RESTORE_TIMEOUT=900 KUBECTL=oc scripts/ops/restore.sh inkcast`.
 
 After a restore:
 - **Tokens and sessions** issued after the backup no longer work. People sign in again, and CI tokens created since must be re-created.
