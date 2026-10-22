@@ -100,9 +100,11 @@ if ! $listing; then
   $k -n "$ns" scale deploy/inkcast --replicas=0
   scaled_down=true
   $k -n "$ns" wait --for=delete pod -l app.kubernetes.io/component=server --timeout=180s || true
-  # `|| true` covers "no pods to wait for"; what --force relies on is that none is left.
-  if [ -n "$($k -n "$ns" get pod -l app.kubernetes.io/component=server -o name)" ]; then
-    echo "The server's pod is still there: not restoring under a live server. Scaling back to $replicas." >&2
+  # `|| true` covers "no pods to wait for"; what --force relies on is that none is left (a list that fails is not).
+  servers="$($k -n "$ns" get pod -l app.kubernetes.io/component=server -o name)" ||
+    servers="(could not list the server's pods)"
+  if [ -n "$servers" ]; then
+    echo "The server's pod is still there ($servers): not restoring under a live server. Scaling back to $replicas." >&2
     scale_back
     finished=true
     exit 1
