@@ -218,8 +218,8 @@ features:
     - An uncertain error is never retried whatever the settings; a posture warning when the window exceeds 24 h
   - id: F1.10.S2
     title: 'Token lifetimes as settings: personal access tokens and MCP sign-in'
-    status: planned
-    change: 'new; issue #90'
+    status: done
+    change: 'new; issue #90, built in PR #132'
     acceptance:
     - 'INKCAST_PAT_DEFAULT_DAYS (90), INKCAST_PAT_MAX_DAYS (366, at most 366), INKCAST_PAT_ALLOW_NO_EXPIRY (true),
       INKCAST_REFRESH_TOKEN_DAYS (30, 1-90); default <= maximum checked at load'
