@@ -47,6 +47,51 @@ class StoryError(ValueError):
     """Input that can't become a story; the message says how to fix it."""
 
 
+class _RefusedValue(Exception):
+    """A scalar PyYAML's resolver accepted but Python refused to make a value of: the node, Python's reason, and the
+    key it sits under once the mapping holding it is known."""
+
+    def __init__(self, node: yaml.ScalarNode, cause: Exception) -> None:
+        super().__init__(str(cause))
+        self.node, self.cause = node, cause
+        self.field: str | None = None
+
+
+def _guarded(construct):
+    """One of SafeConstructor's scalar constructors, reporting a value Python refuses at its node."""
+
+    def construct_or_report(loader: yaml.SafeLoader, node: yaml.ScalarNode) -> Any:
+        try:
+            return construct(loader, node)
+        # Only PyYAML's conversion of this one scalar runs in the try, so nothing unrelated is caught. It lets out
+        # ValueError (datetime: 29 Feb 2027, an offset of 24 hours or more; int: 4301 digits, `!!int x`; float:
+        # `!!float x`), KeyError (`!!bool x`) and AttributeError (`!!timestamp x`: no regexp match, so None has
+        # no groupdict); a YAMLError of its own passes through to the caller as before.
+        except (ValueError, KeyError, AttributeError) as exc:
+            raise _RefusedValue(node, exc) from exc
+
+    return construct_or_report
+
+
+class _FrontMatterLoader(yaml.SafeLoader):
+    """SafeLoader whose refused values name their field. PyYAML lets the ValueError for `publish_at: 2027-02-29`
+    escape safe_load, which was a 500 for the whole request instead of a StoryError for the one file (#107)."""
+
+    def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict[Any, Any]:
+        try:
+            return super().construct_mapping(node, deep)
+        except _RefusedValue as exc:
+            # A scalar is built inside the mapping loop, so one directly under a key is caught here, key in hand.
+            # A list's items are built later by the document loop, so they stay unnamed and get their line instead.
+            if exc.field is None:
+                exc.field = next((k.value for k, v in node.value if v is exc.node and isinstance(k, yaml.ScalarNode)), None)
+            raise
+
+
+for _tag in ("timestamp", "int", "float", "bool"):
+    _FrontMatterLoader.add_constructor(f"tag:yaml.org,2002:{_tag}", _guarded(getattr(yaml.SafeLoader, f"construct_yaml_{_tag}")))
+
+
 @dataclass
 class Story:
     title: str
@@ -89,7 +134,20 @@ def split_front_matter(markdown: str) -> tuple[dict[str, Any], str]:
         # is made text (tags, titles, previews). Front matter doesn't need them, so they are refused before loading.
         if any(isinstance(e, yaml.AliasEvent) for e in yaml.parse(match.group(1), Loader=yaml.SafeLoader)):
             raise StoryError("The front matter uses a YAML alias (*name); write the value out instead.")
-        data = yaml.safe_load(match.group(1)) or {}
+        # What yaml.load(text, Loader=_FrontMatterLoader) does; spelled out because CodeQL's model of yaml.load
+        # knows SafeLoader itself as the safe Loader, not a subclass of it, and would report unsafe deserialization.
+        loader = _FrontMatterLoader(match.group(1))
+        try:
+            data = loader.get_single_data() or {}
+        finally:
+            loader.dispose()
+    except _RefusedValue as exc:
+        kind = exc.node.tag.rsplit(":", 1)[-1]  # timestamp, int, float or bool
+        # Marks count from 0 inside the YAML, whose first line is the file's second: the person's editor shows +2.
+        where = exc.field or f"The value on line {exc.node.start_mark.line + 2}"
+        reason = f": {str(exc.cause).rstrip('.')}" if isinstance(exc.cause, ValueError) else ""  # the others' text is Python's
+        value = exc.node.value if len(exc.node.value) <= 80 else exc.node.value[:79] + "…"  # a 4301-digit int, say
+        raise StoryError(f"{where} {value!r} isn't a valid {kind}{reason}.") from exc
     except yaml.YAMLError as exc:
         raise StoryError(f"The front matter isn't valid YAML: {exc}") from exc
     if not isinstance(data, dict):
