@@ -1,5 +1,5 @@
 # Inkcast walkthrough — PASS
 
-Inkcast 0.1.0 at `e7580fa73c1e`, run 2026-10-22T17:02:26Z → 2026-10-22T17:02:45Z. 42 of 42 steps passed (16 MCP calls, 11 REST requests, 14 browser pages); 11 of 11 integrity checks passed.
+Inkcast 0.1.0 at `87b82296dc2a`, run 2026-10-22T17:20:50Z → 2026-10-22T17:21:08Z. 42 of 42 steps passed (16 MCP calls, 11 REST requests, 14 browser pages); 11 of 11 integrity checks passed.
 
 The document: [walkthrough.html](walkthrough.html) · [walkthrough.pdf](walkthrough.pdf) (35 pages). Data: results.json, integrity.jsonl, env.json.
