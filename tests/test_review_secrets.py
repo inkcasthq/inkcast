@@ -239,5 +239,37 @@ class JsonLinesMatchTheRegisteredForms(unittest.TestCase):
         self.assertEqual(out.count("[REDACTED]"), 2)   # the extra field and the traceback's last line
 
 
+class SecretsEndpointErrorsAreScrubbed(unittest.TestCase):
+    """status() (served as JSON on GET /secrets) carries each secret's last fetch error verbatim. The same text goes
+    through the redactor on its way to the log, but not on its way to /secrets: a source whose error text quotes the
+    value it holds (the "library's error text" case the redactor exists for) published it on the metrics port."""
+
+    def test_last_error_on_the_secrets_endpoint_never_holds_a_value(self):
+        import json
+        from inkcast.libs.secrets import Fetched, Fetcher, Redactor, SecretsProvider
+
+        class Flaky(Fetcher):
+            kind = "flaky"
+            fail = False
+
+            def fetch(self, name, *, force=False):
+                if self.fail:
+                    raise RuntimeError("refused: stored value 'Vt9-c3QpLx77' no longer accepted")
+                return Fetched("Vt9-c3QpLx77", "flaky", "v1")
+
+        now = [0.0]
+        fetcher, redactor = Flaky(), Redactor()
+        provider = SecretsProvider(fetcher, ttl=10, clock=lambda: now[0], redactor=redactor)
+        provider.get("OIDC_CLIENT_SECRET")
+        fetcher.fail, now[0] = True, 20.0
+        with self.assertLogs("inkcast.libs.secrets", "WARNING") as logged:
+            self.assertEqual(provider.get("OIDC_CLIENT_SECRET").reveal(), "Vt9-c3QpLx77")   # served stale
+        self.assertTrue(logged.records)
+        [status] = provider.status()
+        self.assertTrue(status["stale"])
+        self.assertNotIn("Vt9-c3QpLx77", json.dumps(status))
+        self.assertIn("RuntimeError", status["last_error"])
+
+
 if __name__ == "__main__":
     unittest.main()
