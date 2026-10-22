@@ -9,8 +9,26 @@ import unittest
 from urllib.parse import parse_qs, urljoin, urlparse
 
 import httpx2
+from starlette.testclient import TestClient
 
 import test_e2e
+from inkcast.launcher import build, resolve
+from inkcast.libs.config import Config
+from inkcast.libs.http.app import compose
+
+PASSWORD = "p" * 12
+
+
+def password_config(**overrides) -> Config:
+    return Config(public_url="http://localhost:8787", secret_key="k" * 40, database_path=":memory:", login="password",
+                  password=PASSWORD, **overrides)
+
+
+def in_process(names: str, cfg: Config):
+    """(ASGI app, context) for these services, as the launcher builds them."""
+    specs = resolve(names)
+    ctx = build(cfg, specs)
+    return compose(specs, ctx), ctx
 
 
 def s256(verifier: str) -> str:
@@ -92,6 +110,50 @@ class ConsentBinding(test_e2e.Harness):
         return f"{base}/authorize?" + httpx2.QueryParams({
             "client_id": client["client_id"], "response_type": "code", "redirect_uri": "http://localhost:53682/callback",
             "state": "s", "code_challenge": s256("v" * 50), "code_challenge_method": "S256"}).__str__()
+
+
+class ResourceIndicators(unittest.TestCase):
+    """RFC 8707 / the MCP authorization spec: a token is for one audience. Inkcast's own resource servers don't check
+    the audience (validate_token_resource=False), so the authorization server must not mint Inkcast tokens for another
+    resource: a malicious MCP server that names Inkcast as its authorization server would otherwise receive a token
+    the person's client got "for it", and replay it to Inkcast."""
+
+    REDIRECT = "http://localhost:53682/callback"
+    VERIFIER = "v" * 50
+
+    def sign_in(self, c: TestClient, resource: str | None):
+        """Register, authorize with ``resource``, sign in, approve, exchange; the /api/v1/me status with the token,
+        or the authorization error."""
+        client = c.post("/register", json={"client_name": "Claude Code", "redirect_uris": [self.REDIRECT],
+                                           "token_endpoint_auth_method": "none", "grant_types": ["authorization_code"],
+                                           "response_types": ["code"]}).json()
+        params = {"client_id": client["client_id"], "response_type": "code", "redirect_uri": self.REDIRECT,
+                  "state": "s", "code_challenge": s256(self.VERIFIER), "code_challenge_method": "S256"}
+        if resource is not None:
+            params["resource"] = resource
+        r = c.get("/authorize", params=params, follow_redirects=False)
+        location = r.headers.get("location", "")
+        if location.startswith(self.REDIRECT):
+            return parse_qs(urlparse(location).query)["error"][0]
+        pending = parse_qs(urlparse(location).query)["pending"][0]
+        r = c.post("/auth/callback", data={"pending": pending, "password": PASSWORD}, follow_redirects=False)
+        page = c.get(r.headers["location"])
+        r = c.post("/auth/consent", data={**form_fields(page.text), "decision": "approve"}, follow_redirects=False)
+        code = parse_qs(urlparse(r.headers["location"]).query)["code"][0]
+        token = c.post("/token", data={"grant_type": "authorization_code", "code": code, "redirect_uri": self.REDIRECT,
+                                       "client_id": client["client_id"], "code_verifier": self.VERIFIER}).json()
+        return c.get("/api/v1/me", headers={"Authorization": f"Bearer {token['access_token']}"}).status_code
+
+    def test_inkcast_mints_no_token_for_another_resource(self):
+        cfg = password_config()
+        app, _ = in_process("IdentityService,PublishingApi", cfg)
+        with TestClient(app, base_url=cfg.public_url) as c:
+            self.assertEqual(self.sign_in(c, "https://evil.example/mcp"), "invalid_target",
+                             "a token minted for another server is accepted by Inkcast")
+            self.assertEqual(self.sign_in(c, "https://localhost:8787.evil.example/mcp"), "invalid_target")
+            # Its own resource, as advertised or spelled as clients do, and no resource at all, still work.
+            for resource in (cfg.mcp_url, cfg.mcp_url + "/", "HTTP://LOCALHOST:8787/mcp", cfg.public_url, None):
+                self.assertEqual(self.sign_in(c, resource), 200, resource)
 
 
 if __name__ == "__main__":
