@@ -164,6 +164,34 @@ features:
       settings, open across reconciles and restarts, confirmation applies exactly the pass''s people and audits it, the
       wrong pass or a second confirmation does nothing, dismissal, self-deletions by event still erase while open, each
       setting validated, the posture warnings, the alert'
+  - id: F9.5.S8
+    title: 'The breaker holds a mass "disabled" too: sign-in is cut at once, personal access tokens are held, not revoked'
+    status: done
+    change: 'new; issue #135, built in PR #138'
+    acceptance:
+    - 'A reconcile counts the people newly found disabled (enabled: false, no disabled_at yet) together with the people
+      newly found gone, against INKCAST_KEYCLOAK_BREAKER_MIN and _PERCENT; a switched-off importing LDAP provider, which
+      Keycloak reports as its people disabled, trips it like a non-importing one does with 404s'
+    - 'Above the thresholds the disabled are held (users.held_at through COLUMNS; Store.hold_user): OAuth access and
+      refresh tokens, codes and pending consents are cut at once (reversible: a sign-in restores them), personal access
+      tokens are refused but not revoked; the REST API answers 401 token_held and says why; _ACTIVE_USER refuses a held
+      person''s token, code and PAT as it does a disabled person''s'
+    - 'The pass records each person with their kind (sync_breaker_people.kind, sync_breaker_trips.disabled, through
+      COLUMNS; a pass from #131 reads as a 404 pass); the gauge, InkcastIdentitySyncBreakerOpen and the audit are the
+      404 trip''s, with the disabled counts; identity.user.held and identity.user.released per person, ids and counts only'
+    - 'Confirming a pass cuts its people off by kind (the gone as before; the disabled lose their PATs and are never
+      erased); dismissing does nothing to the gone and releases the disabled, whose PATs work again; trips lists both
+      counts; the audit lines carry the counts by kind'
+    - 'A held person Keycloak reports enabled again is released by whichever pass reads them and leaves the pass, so
+      confirming spares them; a sign-in lifts the hold; one who signs in between the reconcile''s read and its hold is not
+      held'
+    - 'While a pass is held the admin-events pass holds a disabled person too (not added to the pass; the first reconcile
+      after the pass is resolved judges them afresh); below the thresholds, and with INKCAST_KEYCLOAK_BREAKER=off, a
+      disabled person is cut off at once as before (off cuts a pending pass''s held people off at the next reconcile)'
+    - 'tests/test_sync_breaker_disabled.py: twenty newly disabled held in every erase mode, the boundaries, not newly when
+      cut off earlier, confirm and dismiss by kind, trips, one person as today, the events pass closed and open, a mixed
+      trip, re-enabled before confirmation (reconcile, events pass, sign-in, mid-reconcile sign-in), breaker off, the
+      store, the migration, the alert and posture texts'
 - id: F9.6
   title: Enterprise SSO
   stories:
