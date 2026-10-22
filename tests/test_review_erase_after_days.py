@@ -102,5 +102,28 @@ class AnIdTheUrlCutsShort(Review):
                 self.assertIsNone(row["disabled_at"], "nor cut off")
 
 
+class ASignInWhileTheReconcileAsks(Review):
+    """The reconcile reads a 404, then awaits Keycloak again (``deleted_own_account``) before it acts; the sign-in
+    callback runs in the same process meanwhile. With ``0`` the PR erases a person who signed in through Keycloak
+    after that 404 was read, the one proof Inkcast has that Keycloak has them. With ``N > 0`` the sign-in clears
+    ``deleted_at`` and ``_cut_off`` starts it again, so only ``0`` acts on the stale answer."""
+
+    def test_zero_does_not_erase_a_person_who_signed_in_after_the_404_was_read(self):
+        ada = self.person("kc-ada")
+        self.store._exec("UPDATE users SET last_login_at = ? WHERE id = ?", T0 - DAY, ada["id"])
+        worker = self.sync(0)
+        del self.kc.users["kc-ada"]                                 # deleted by mistake: the reconcile reads the 404
+
+        def restored_and_signed_in():                               # ...and she is back and signs in, mid-check
+            self.kc.users["kc-ada"] = True
+            self.store.upsert_user(f"oidc:{ISSUER}#kc-ada", "kc-ada", None, None)
+
+        self.kc.during_user_events = restored_and_signed_in
+        done = self.reconcile(worker)
+        self.assertIsNotNone(self.store.get_user(ada["id"]), "she signed in after the 404: not erased on it")
+        self.assertEqual(done["erased"], 0)
+        self.assertEqual(self.store.user_erasures(), [])
+
+
 if __name__ == "__main__":
     unittest.main()

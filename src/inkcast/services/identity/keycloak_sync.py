@@ -214,13 +214,14 @@ class KeycloakSync:
             self.metrics.inc("inkcast_identity_users_disabled_total", reason=reason)
         return True
 
-    def _grace_over(self, user_id: str) -> bool:
+    def _grace_over(self, user_id: str, listed: dict[str, Any]) -> bool:
         """Whether a person Keycloak no longer has (``deleted_at`` set by ``_cut_off``) has been gone for
         ``keycloak_erase_after_days``: exactly that many days counts, ``0`` is the first reconcile that finds them
-        gone, ``None`` (``off``) is never."""
+        gone, ``None`` (``off``) is never. Never when they signed in since ``listed`` was read: Keycloak let them in
+        after the 404 this reconcile is acting on."""
         days = self.config.keycloak_erase_after_days
         user = self.store.get_user(user_id) if days is not None else None
-        if not user or user.get("deleted_at") is None:
+        if not user or user.get("deleted_at") is None or user.get("last_login_at") != listed.get("last_login_at"):
             return False
         return self.clock() - float(user["deleted_at"]) >= days * 86400
 
@@ -258,7 +259,7 @@ class KeycloakSync:
                 else:                                    # an administrator's deletion, or the event is past retention
                     if self._cut_off(keycloak_id, state, "reconcile"):
                         done["disabled"] += 1
-                    if self._grace_over(user_id) and self._erase(keycloak_id, "reconcile"):
+                    if self._grace_over(user_id, user) and self._erase(keycloak_id, "reconcile"):
                         done["erased"] += 1
             self.last_reconcile = self.clock()
         self.last_success = self.clock()
