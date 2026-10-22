@@ -35,6 +35,7 @@ import logging
 import time
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import quote
 
 import httpx2
 
@@ -122,7 +123,7 @@ class KeycloakSync:
         """'active', 'disabled' or 'deleted', as Keycloak sees them now. Only Keycloak's own answer for a missing
         user (404 ``{"error": "User not found"}``, UsersResource) means 'deleted': a 404 from anything else (a proxy
         that doesn't expose /admin/, a wrong URL) is an error, never a reason to erase or cut anyone off."""
-        r = await self._get(f"users/{keycloak_id}")
+        r = await self._get(f"users/{quote(keycloak_id, safe='')}")   # one path segment: '#', '?' or '/' ask about another id
         if r.status_code == 404 and _user_not_found(r):
             return "deleted"
         if r.status_code != 200:
@@ -213,13 +214,14 @@ class KeycloakSync:
             self.metrics.inc("inkcast_identity_users_disabled_total", reason=reason)
         return True
 
-    def _grace_over(self, user_id: str) -> bool:
+    def _grace_over(self, user_id: str, listed: dict[str, Any]) -> bool:
         """Whether a person Keycloak no longer has (``deleted_at`` set by ``_cut_off``) has been gone for
         ``keycloak_erase_after_days``: exactly that many days counts, ``0`` is the first reconcile that finds them
-        gone, ``None`` (``off``) is never."""
+        gone, ``None`` (``off``) is never. Never when they signed in since ``listed`` was read: Keycloak let them in
+        after the 404 this reconcile is acting on."""
         days = self.config.keycloak_erase_after_days
         user = self.store.get_user(user_id) if days is not None else None
-        if not user or user.get("deleted_at") is None:
+        if not user or user.get("deleted_at") is None or user.get("last_login_at") != listed.get("last_login_at"):
             return False
         return self.clock() - float(user["deleted_at"]) >= days * 86400
 
@@ -237,6 +239,8 @@ class KeycloakSync:
         for keycloak_id in await self.changed_people():
             done["checked"] += 1
             state = await self.person(keycloak_id)
+            if state != "deleted" and (known := self.store.find_user_by_identity(self.prefix + keycloak_id)):
+                self.store.mark_user_present(str(known["id"]))     # Keycloak has them: a running grace period stops
             if state != "active" and self._cut_off(keycloak_id, state, "event"):
                 done["disabled"] += 1
         if self.clock() - self.last_reconcile >= self.config.keycloak_reconcile_seconds:
@@ -257,7 +261,7 @@ class KeycloakSync:
                 else:                                    # an administrator's deletion, or the event is past retention
                     if self._cut_off(keycloak_id, state, "reconcile"):
                         done["disabled"] += 1
-                    if self._grace_over(user_id) and self._erase(keycloak_id, "reconcile"):
+                    if self._grace_over(user_id, user) and self._erase(keycloak_id, "reconcile"):
                         done["erased"] += 1
             self.last_reconcile = self.clock()
         self.last_success = self.clock()
