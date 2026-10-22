@@ -277,6 +277,33 @@ class PluginCrashAfterSend(SyncHarness, unittest.TestCase):
         self.assertEqual((entry["status"], entry["remote_id"]), ("published", "1001"))   # found on DEV and recorded
 
 
+class PlatformErrorBodies(SyncHarness, unittest.TestCase):
+    def test_a_rejection_whose_json_body_is_not_an_object_keeps_its_reason(self):
+        """describe_error assumed a JSON object (DEV) or a list of objects under "errors" (Medium); any other JSON
+        raised AttributeError inside request(), so a definitive 4xx surfaced as a plug-in crash: the platform's reason
+        was lost, and the post was treated as a crash instead of a rejection."""
+        from inkcast.libs.platforms.devto import DevtoPlatform
+        from inkcast.libs.platforms.medium import MediumPlatform
+
+        http = httpx2.AsyncClient()
+        for platform, body in ((DevtoPlatform(http), ["Title can't be blank"]),
+                               (MediumPlatform(http), ["Title can't be blank"]),
+                               (MediumPlatform(http), {"errors": ["Title can't be blank"]})):
+            with self.subTest(platform=platform.id, body=body):
+                self.assertIn("Title can't be blank", platform.describe_error(httpx2.Response(422, json=body)))
+
+        def dev(request: httpx2.Request) -> httpx2.Response:
+            return httpx2.Response(422, json=["Title can't be blank"])
+
+        devto = DevtoPlatform(httpx2.AsyncClient(transport=httpx2.MockTransport(dev)))
+        self.make()
+        self.store.save_credentials(self.user, "devto", {"api_key": "k"}, {"id": "42", "name": "ada"})
+        story = parse_story("# Rejected\n\nBody.\n", known_platforms=["devto"])
+        (outcome,) = asyncio.run(Publisher(self.store, {"devto": devto}).publish(self.user, story, ["devto"]))
+        self.assertEqual(outcome.status, "failed")
+        self.assertIn("Title can't be blank", outcome.message)
+
+
 class RecoveryInterrupted(SyncHarness, unittest.TestCase):
     def stuck(self, title: str) -> str:
         pid = self.store.create_post(group_id="g", user_id=self.user, platform="fake", title=title, status="publishing",

@@ -59,7 +59,7 @@ class MediumPlatform(Platform):
         try:
             errors = response.json().get("errors") or []
             detail = "; ".join(e.get("message", "") for e in errors) or response.text[:300]
-        except ValueError:
+        except (ValueError, AttributeError):  # not JSON, or not the documented shape
             detail = response.text[:300]
         return f"Medium rejected the story ({response.status_code}): {detail}"
 
