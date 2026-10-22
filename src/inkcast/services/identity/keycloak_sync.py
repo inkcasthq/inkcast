@@ -35,6 +35,7 @@ import logging
 import time
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import quote
 
 import httpx2
 
@@ -122,7 +123,7 @@ class KeycloakSync:
         """'active', 'disabled' or 'deleted', as Keycloak sees them now. Only Keycloak's own answer for a missing
         user (404 ``{"error": "User not found"}``, UsersResource) means 'deleted': a 404 from anything else (a proxy
         that doesn't expose /admin/, a wrong URL) is an error, never a reason to erase or cut anyone off."""
-        r = await self._get(f"users/{keycloak_id}")
+        r = await self._get(f"users/{quote(keycloak_id, safe='')}")   # one path segment: '#', '?' or '/' ask about another id
         if r.status_code == 404 and _user_not_found(r):
             return "deleted"
         if r.status_code != 200:
