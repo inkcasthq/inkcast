@@ -15,6 +15,7 @@ from inkcast.libs.authz import (
     EngineError, Evaluator, Instrumented, LocalEngine, Model, OpenFgaEngine, Ref, Tuple, parse_user,
 )
 from inkcast.libs.authz.model import PACKAGED_MODEL
+from inkcast.libs.config import ConfigError, load_config
 from inkcast.libs.db import Store
 from inkcast.libs.observability import Metrics
 
@@ -222,6 +223,22 @@ class MalformedOpenFgaAnswers(unittest.TestCase):
         self.assertIsInstance(run(fga(lambda r: httpx2.Response(200, json={"authorization_model": "m1"})).ready()), str)
         with self.assertRaises(EngineError):
             run(fga(lambda r: httpx2.Response(200, json={"tuples": 5})).read())
+
+
+class FgaTimeoutSetting(unittest.TestCase):
+    """``INKCAST_FGA_TIMEOUT <= 0`` is refused, but ``nan`` and ``inf`` passed (``nan <= 0`` is False), and httpx2
+    treats both as no timeout at all: a hung OpenFGA would hold every check forever instead of failing closed with
+    a 503 within the 5 s the docs promise."""
+
+    BASE = {"INKCAST_SECRET_KEY": "k" * 48, "INKCAST_LOGIN": "password", "INKCAST_PASSWORD": "p" * 16,
+            "INKCAST_PUBLIC_URL": "https://inkcast.example.com", "INKCAST_AUTHZ_ENGINE": "openfga",
+            "INKCAST_FGA_API_URL": "http://fga:8080", "INKCAST_FGA_STORE_ID": "s", "INKCAST_FGA_MODEL_ID": "m"}
+
+    def test_nan_and_infinity_are_refused(self):
+        load_config({**self.BASE, "INKCAST_FGA_TIMEOUT": "2.5"}).validate()
+        for value in ("nan", "inf", "-inf", "Infinity"):
+            with self.subTest(timeout=value), self.assertRaisesRegex(ConfigError, "INKCAST_FGA_TIMEOUT"):
+                load_config({**self.BASE, "INKCAST_FGA_TIMEOUT": value}).validate()
 
 
 if __name__ == "__main__":
