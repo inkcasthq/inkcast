@@ -18,7 +18,7 @@ confirmation, its "deleted" page linking back, and Inkcast's erasure.
     WALK_PASSWORD=<at least 12 characters> walk.py --out <dir>
 
 Ports come from the environment (WALK_INKCAST_PORT 8787, WALK_FAKES_PORT 8999, WALK_METRICS_PORT 9090,
-WALK_CALLBACK_PORT 53682). Generated credentials are masked in the pictures and in results.json (prefix and an
+WALK_CALLBACK_PORT 0, a free port the OS picks). Generated credentials are masked in the pictures and in results.json (prefix and an
 ellipsis); the password is never written anywhere. Exit 0 only if every step passed; results.json is written
 either way, a crash before the first step included: that leaves one failed ``startup`` step carrying the
 exception and the last lines of each process log (issue #88).
@@ -117,15 +117,13 @@ class Callback:
     """What an MCP client's local listener does: receive the OAuth redirect on the callback port."""
 
     def __init__(self, port: int):
-        self.port = port
-        self.url = f"http://localhost:{port}/callback"
         self.received: list[str] = []
         self.event = threading.Event()
         walk = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
             def do_GET(self):
-                walk.received.append(f"http://localhost:{port}{self.path}")
+                walk.received.append(f"http://localhost:{walk.port}{self.path}")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.end_headers()
@@ -136,7 +134,11 @@ class Callback:
             def log_message(self, *args):
                 pass
 
+        # Port 0 (the default) lets the OS choose a free port: a fixed one inside Linux's ephemeral range (32768-60999)
+        # can be held as the source port of any local connection, and the bind fails at random (issue #114).
         self.server = http.server.HTTPServer(("127.0.0.1", port), Handler)
+        self.port = self.server.server_address[1]
+        self.url = f"http://localhost:{self.port}/callback"
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
 
     async def wait(self, timeout: float = 30) -> str:
@@ -381,7 +383,7 @@ async def run(args, password: str) -> dict:
     out = pathlib.Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     ports = {"inkcast": int(os.environ.get("WALK_INKCAST_PORT", "8787")), "fakes": int(os.environ.get("WALK_FAKES_PORT", "8999")),
-             "metrics": int(os.environ.get("WALK_METRICS_PORT", "9090")), "callback": int(os.environ.get("WALK_CALLBACK_PORT", "53682"))}
+             "metrics": int(os.environ.get("WALK_METRICS_PORT", "9090")), "callback": int(os.environ.get("WALK_CALLBACK_PORT", "0"))}
     base, fakes = f"http://localhost:{ports['inkcast']}", f"http://127.0.0.1:{ports['fakes']}"
     facts: dict[str, Any] = {"started": now(), "base": base, "fakes": fakes, "client_name": CLIENT_NAME,
                              "callback": f"http://localhost:{ports['callback']}/callback",
@@ -395,6 +397,7 @@ async def run(args, password: str) -> dict:
     try:
         start_stack(out, state, base, fakes, ports, password, procs)
         callback = Callback(ports["callback"])
+        facts["callback"] = callback.url
         await wait_http(f"{fakes}/devto/api/users/me", 401, procs)
         await wait_http(f"{base}/livez", 200, procs)
         async with async_playwright() as pw:
