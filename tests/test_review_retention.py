@@ -6,6 +6,7 @@ Each test failed on the PR head before the fix committed with it."""
 
 import time
 import unittest
+from pathlib import Path
 
 from inkcast.libs.config import RetentionPolicy, retention_problems
 from inkcast.libs.db import Store
@@ -14,6 +15,8 @@ from inkcast.libs.kpi import RollupEngine, bucket_start
 from inkcast.libs.outbox import OutboxPoller
 
 DAY = 86400
+ROOT = Path(__file__).resolve().parents[1]
+DESIGN = "docs/design/observability-and-kpis.md"
 
 
 def published(at: float, user: str) -> DomainEvent:
@@ -91,6 +94,69 @@ class KpiAppliedOutlivesEveryEventTheOutboxHolds(unittest.TestCase):
         self.store.advance("insights", 0)                              # a replay of insights (a rule fixed forward)
         self.assertEqual(OutboxPoller(self.store, "insights", [RollupEngine(self.store)]).drain(), 1)
         self.assertEqual(counted(self.store, event), 1.0, "the replay counted the event a second time")
+
+
+def text(path: str) -> str:
+    return (ROOT / path).read_text(encoding="utf-8")
+
+
+def row(path: str, start: str) -> str:
+    """The one line of ``path`` that starts with ``start`` (a table row, a list item)."""
+    (line,) = [line for line in text(path).splitlines() if line.startswith(start)]
+    return line
+
+
+def doc_section(path: str, heading: str) -> str:
+    """The text under a ``## heading`` of a Markdown file, up to the next one."""
+    body = text(path)
+    start = body.index(f"\n## {heading}\n")
+    end = body.find("\n## ", start + 1)
+    return body[start:end if end != -1 else None]
+
+
+class TheDocumentedOutboxRetentionIsTheOnePurged(unittest.TestCase):
+    """``purge_outbox`` deletes events older than INKCAST_OUTBOX_RETENTION_DAYS that every consumer has passed: the
+    days count from when the event was written, and a consumer behind holds its events whatever the setting."""
+
+    def setUp(self):
+        self.store = Store(":memory:", "k" * 40)
+        self.addCleanup(self.store.close)
+        self.now = time.time()
+
+    def test_the_days_count_from_when_the_event_was_written_not_from_when_the_last_consumer_passed_it(self):
+        """The README, .env.example, design §8 and production said the setting is the "days a domain event stays in
+        the outbox after every consumer has passed it (the replay window)", and §6 "7 after every consumer passed".
+        An event a consumer passes only after an 8-day outage is gone at the next housekeeping: no replay window at
+        all after it was passed. §3.3 still said the fixed "seven days"."""
+        event = published(self.now - 8 * DAY, "u1")
+        self.store.enqueue(event)
+        self.store.advance("insights", 1)                              # insights was down 8 days and just caught up
+        self.store.purge_expired(RetentionPolicy())
+        self.assertEqual(self.store.poll("audit"), [], "purged at once, not 7 days after insights passed it")
+        for path in ("README.md", ".env.example", DESIGN, "deploy/kustomize/environments/production/kustomization.yaml"):
+            with self.subTest(path=path):
+                self.assertFalse("stays in the outbox after every consumer has passed it" in text(path),
+                                 "the days are said to count from the last consumer passing the event")
+        for path, start in (("README.md", "| `INKCAST_OUTBOX_RETENTION_DAYS`"), (DESIGN, "| `INKCAST_OUTBOX_RETENTION_DAYS`"),
+                            (DESIGN, "| Outbox rows |")):
+            with self.subTest(path=path, row=start):
+                self.assertIn("written", row(path, start), "says where the days count from")
+        bullet = row(DESIGN, "- retention: rows every consumer has passed")
+        self.assertNotIn("seven days", bullet)
+        self.assertIn("INKCAST_OUTBOX_RETENTION_DAYS", bullet)
+
+    def test_the_volume_runbook_says_a_consumer_behind_holds_outbox_rows_whatever_the_retention(self):
+        """InkcastDataVolumeNearlyFull said housekeeping drops "outbox rows older than INKCAST_OUTBOX_RETENTION_DAYS"
+        and "shortening either frees space at the next run". A stalled consumer is what makes the outbox grow, and
+        then shortening the setting frees nothing from it."""
+        event = published(self.now - 40 * DAY, "u1")
+        self.store.enqueue(event)
+        self.store.advance("insights", 1)
+        self.store.advance("webhooks", 0)                              # a consumer behind
+        self.store.purge_expired(RetentionPolicy(outbox_days=1, kpi_hourly_days=31))
+        self.assertEqual([e.id for e in self.store.poll("audit")], [event.id], "40 days old, kept with a 1-day setting")
+        section = doc_section("docs/runbooks/alerts.md", "InkcastDataVolumeNearlyFull")
+        self.assertIn("every consumer has passed", section)
 
 
 if __name__ == "__main__":
