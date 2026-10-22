@@ -1,93 +1,93 @@
-2026-10-22 07:12:09,238 INFO [All] inkcast.libs.secrets.provider: Secret INKCAST_SECRET_KEY loaded from env · event=secrets.loaded secret_name=INKCAST_SECRET_KEY reason=cold-start ms=0
-2026-10-22 07:12:09,239 INFO [All] inkcast.libs.secrets.provider: Secret INKCAST_PASSWORD loaded from env · event=secrets.loaded secret_name=INKCAST_PASSWORD reason=cold-start ms=0
-2026-10-22 07:12:09,241 WARNING [All] inkcast: Posture: No credentials in environment variables: INKCAST_PASSWORD, INKCAST_SECRET_KEY, PWD hold credential values. Use PWD_FILE or INKCAST_SECRETS_DIR (a mounted Secret) instead; env vars leak through /proc, child processes and crash reports. · event=config.posture.warn check=env-scrubbed
-2026-10-22 07:12:09,241 INFO [All] inkcast: Secret GITHUB_CLIENT_SECRET: not set (absent, fp=b2413d83d919) · event=secrets.status secret_name=GITHUB_CLIENT_SECRET source=absent
-2026-10-22 07:12:09,241 INFO [All] inkcast: Secret INKCAST_PASSWORD: set (env, fp=c35f232addcb) · event=secrets.status secret_name=INKCAST_PASSWORD source=env
-2026-10-22 07:12:09,241 INFO [All] inkcast: Secret INKCAST_SECRET_KEY: set (env, fp=8cc0be8efe6d) · event=secrets.status secret_name=INKCAST_SECRET_KEY source=env
-2026-10-22 07:12:09,241 INFO [All] inkcast: Secret OIDC_CLIENT_SECRET: not set (absent, fp=b2413d83d919) · event=secrets.status secret_name=OIDC_CLIENT_SECRET source=absent
-2026-10-22 07:12:12,369 INFO [All] inkcast: Inkcast 0.1.0 starting IdentityService, PublishingApi, ConnectorService, SchedulerWorker, InsightsService on 127.0.0.1:8787 (prefix /); public URL http://localhost:8787; platforms: devto, medium
-2026-10-22 07:12:12,394 INFO [All] uvicorn.error: Started server process [3451] · color_message=Started server process [[36m%d[0m]
-2026-10-22 07:12:12,395 INFO [All] uvicorn.error: Waiting for application startup.
-2026-10-22 07:12:12,395 INFO [All] uvicorn.error: Started server process [3451] · color_message=Started server process [[36m%d[0m]
-2026-10-22 07:12:12,395 INFO [All] uvicorn.error: Waiting for application startup.
-2026-10-22 07:12:12,395 INFO [All] inkcast.libs.pipeline: Scheduler running every 5s
-2026-10-22 07:12:12,583 INFO [All] inkcast.libs.outbox: Outbox consumer insights running every 1s (kpi-rollups)
-2026-10-22 07:12:12,591 INFO [All] mcp.server.streamable_http_manager: StreamableHTTP session manager started
-2026-10-22 07:12:12,606 INFO [All] uvicorn.error: Application startup complete.
-2026-10-22 07:12:12,606 INFO [All] uvicorn.error: Application startup complete.
-2026-10-22 07:12:12,606 INFO [All] uvicorn.error: Uvicorn running on http://127.0.0.1:9090 (Press CTRL+C to quit) · color_message=Uvicorn running on [1m%s://%s:%d[0m (Press CTRL+C to quit)
-2026-10-22 07:12:12,607 INFO [All] uvicorn.error: Uvicorn running on http://127.0.0.1:8787 (Press CTRL+C to quit) · color_message=Uvicorn running on [1m%s://%s:%d[0m (Press CTRL+C to quit)
-2026-10-22 07:12:13,036 INFO [All] inkcast.http: GET /.well-known/oauth-protected-resource/mcp -> 200 (0.6ms) · request_id=1db1ffbc501e4a019946b5e17257fe06 event=http.request method=GET path=/.well-known/oauth-protected-resource/mcp status=200 ms=0.6 client=127.0.0.1
-2026-10-22 07:12:13,423 INFO [All] inkcast.http: GET /.well-known/oauth-authorization-server -> 200 (0.3ms) · request_id=4c07da8ec96444acba8957cda59bd34b event=http.request method=GET path=/.well-known/oauth-authorization-server status=200 ms=0.3 client=127.0.0.1
-2026-10-22 07:12:13,622 INFO [All] inkcast.http: POST /mcp -> 401 (0.3ms) · request_id=1d0caf96b0cb40eaac5efe8e908552f3 event=http.request method=POST path=/mcp status=401 ms=0.3 client=127.0.0.1
-2026-10-22 07:12:13,623 INFO [All] inkcast.http: GET /.well-known/oauth-protected-resource/mcp -> 200 (0.2ms) · request_id=e4e8480cfd924e40926df6f0238325eb event=http.request method=GET path=/.well-known/oauth-protected-resource/mcp status=200 ms=0.2 client=127.0.0.1
-2026-10-22 07:12:13,624 INFO [All] inkcast.http: GET /.well-known/oauth-authorization-server -> 200 (0.2ms) · request_id=8eaffe99d1e741f1bb2606091ce1a1e6 event=http.request method=GET path=/.well-known/oauth-authorization-server status=200 ms=0.2 client=127.0.0.1
-2026-10-22 07:12:13,941 INFO [All] inkcast.http: POST /register -> 201 (315.4ms) · request_id=9305ce128ae34e93ace4b107f4426786 event=http.request method=POST path=/register status=201 ms=315.4 client=127.0.0.1
-2026-10-22 07:12:14,251 INFO [All] inkcast.http: GET /authorize -> 302 (130.5ms) · request_id=d49a495e84244c85b913b07352d03cfa event=http.request method=GET path=/authorize status=302 ms=130.5 client=127.0.0.1
-2026-10-22 07:12:14,253 INFO [All] inkcast.http: GET /auth/login -> 200 (0.4ms) · request_id=7b326b9247c94e709c259f246daaa10f event=http.request method=GET path=/auth/login status=200 ms=0.4 client=127.0.0.1
-2026-10-22 07:12:15,041 INFO [All] inkcast.http: POST /auth/callback -> 303 (1.5ms) · request_id=57624f1ef13b416aae08b11cca88d0eb event=http.request method=POST path=/auth/callback status=303 ms=1.5 client=127.0.0.1
-2026-10-22 07:12:15,042 INFO [All] inkcast.http: GET /auth/consent -> 200 (0.5ms) · request_id=21bf511ace2e46d9a7fe43f79c881448 event=http.request method=GET path=/auth/consent status=200 ms=0.5 client=127.0.0.1
-2026-10-22 07:12:15,840 INFO [All] inkcast.http: POST /auth/consent -> 303 (1.5ms) · request_id=d82926739eb64715ade8c6626cb60ca0 event=http.request method=POST path=/auth/consent status=303 ms=1.5 client=127.0.0.1
-2026-10-22 07:12:15,856 INFO [All] inkcast.http: POST /token -> 200 (2.1ms) · request_id=c3fe46dde5544c6796e7556b2ceafde4 event=http.request method=POST path=/token status=200 ms=2.1 client=127.0.0.1
-2026-10-22 07:12:15,859 INFO [All] mcp.server.streamable_http: Terminating session: None · request_id=6a2c531c1ea94082842c6174ce9144ef
-2026-10-22 07:12:15,859 INFO [All] inkcast.http: POST /mcp -> 200 (1.6ms) · request_id=6a2c531c1ea94082842c6174ce9144ef event=http.request method=POST path=/mcp status=200 ms=1.6 client=127.0.0.1
-2026-10-22 07:12:15,861 INFO [All] mcp.server.streamable_http: Terminating session: None · request_id=5376e43c6a9145eab9e1f97f8de00231
-2026-10-22 07:12:15,861 INFO [All] inkcast.http: POST /mcp -> 202 (0.8ms) · request_id=5376e43c6a9145eab9e1f97f8de00231 event=http.request method=POST path=/mcp status=202 ms=0.8 client=127.0.0.1
-2026-10-22 07:12:15,940 INFO [All] mcp.server.streamable_http: Terminating session: None · request_id=2b8d5a904f4643b7a1d951dd2622a8a8
-2026-10-22 07:12:15,940 INFO [All] inkcast.http: POST /mcp -> 200 (1.8ms) · request_id=2b8d5a904f4643b7a1d951dd2622a8a8 event=http.request method=POST path=/mcp status=200 ms=1.8 client=127.0.0.1
-2026-10-22 07:12:16,075 INFO [All] mcp.server.streamable_http: Terminating session: None · request_id=98ea481e9a794ce99c286a83b8da33d0
-2026-10-22 07:12:16,075 INFO [All] inkcast.http: POST /mcp -> 200 (1.8ms) · request_id=98ea481e9a794ce99c286a83b8da33d0 event=http.request method=POST path=/mcp status=200 ms=1.8 client=127.0.0.1
-2026-10-22 07:12:16,215 INFO [All] mcp.server.streamable_http: Terminating session: None · request_id=e9ecd39cde6a49bd9c136d3563828a45
-2026-10-22 07:12:16,215 INFO [All] inkcast.http: POST /mcp -> 200 (29.6ms) · request_id=e9ecd39cde6a49bd9c136d3563828a45 event=http.request method=POST path=/mcp status=200 ms=29.6 client=127.0.0.1
-2026-10-22 07:12:16,306 INFO [All] inkcast.http: GET /connect/4OUmWPNJ3GDuN2mK5RTbD__RYQQJbmrOFD4qejxTf9E -> 200 (0.5ms) · request_id=57ff8a57cb6b4875b5624b24720a0dd6 event=http.request method=GET path=/connect/4OUmWPNJ3GDuN2mK5RTbD__RYQQJbmrOFD4qejxTf9E status=200 ms=0.5 client=127.0.0.1
-2026-10-22 07:12:17,210 INFO [All] inkcast.http: POST /connect/4OUmWPNJ3GDuN2mK5RTbD__RYQQJbmrOFD4qejxTf9E -> 200 (137.6ms) · request_id=4afe8bf5ed2c4b25b285b76e613f986c event=http.request method=POST path=/connect/4OUmWPNJ3GDuN2mK5RTbD__RYQQJbmrOFD4qejxTf9E status=200 ms=137.6 client=127.0.0.1
-2026-10-22 07:12:17,947 INFO [All] mcp.server.streamable_http: Terminating session: None · request_id=9a7cee0a79f74ddebd68e0b8fa74321f
-2026-10-22 07:12:17,947 INFO [All] inkcast.http: POST /mcp -> 200 (1.6ms) · request_id=9a7cee0a79f74ddebd68e0b8fa74321f event=http.request method=POST path=/mcp status=200 ms=1.6 client=127.0.0.1
-2026-10-22 07:12:18,036 INFO [All] mcp.server.streamable_http: Terminating session: None · request_id=ca0b24e8ab314428b77826daebd3a6b7
-2026-10-22 07:12:18,036 INFO [All] inkcast.http: POST /mcp -> 200 (1.7ms) · request_id=ca0b24e8ab314428b77826daebd3a6b7 event=http.request method=POST path=/mcp status=200 ms=1.7 client=127.0.0.1
-2026-10-22 07:12:18,121 INFO [All] mcp.server.streamable_http: Terminating session: None · request_id=ff9e4778a6904ee0a4b38a3d6072c78d
-2026-10-22 07:12:18,121 INFO [All] inkcast.http: POST /mcp -> 200 (2.5ms) · request_id=ff9e4778a6904ee0a4b38a3d6072c78d event=http.request method=POST path=/mcp status=200 ms=2.5 client=127.0.0.1
-2026-10-22 07:12:18,269 INFO [All] mcp.server.streamable_http: Terminating session: None · request_id=65df9418de7d4d07a5cfb5f5b428b5b7
-2026-10-22 07:12:18,270 INFO [All] inkcast.http: POST /mcp -> 200 (5.2ms) · request_id=65df9418de7d4d07a5cfb5f5b428b5b7 event=http.request method=POST path=/mcp status=200 ms=5.2 client=127.0.0.1
-2026-10-22 07:12:18,391 INFO [All] mcp.server.streamable_http: Terminating session: None · request_id=c2f7a877df25494399698165d6abd21e
-2026-10-22 07:12:18,391 INFO [All] inkcast.http: POST /mcp -> 200 (1.7ms) · request_id=c2f7a877df25494399698165d6abd21e event=http.request method=POST path=/mcp status=200 ms=1.7 client=127.0.0.1
-2026-10-22 07:12:18,470 INFO [All] mcp.server.streamable_http: Terminating session: None · request_id=272b242a23c34b3ba12a3d52cda20192
-2026-10-22 07:12:18,470 INFO [All] inkcast.http: POST /mcp -> 200 (2.9ms) · request_id=272b242a23c34b3ba12a3d52cda20192 event=http.request method=POST path=/mcp status=200 ms=2.9 client=127.0.0.1
-2026-10-22 07:12:18,570 INFO [All] mcp.server.streamable_http: Terminating session: None · request_id=ecc06edadba246988e4e8ccf45430122
-2026-10-22 07:12:18,571 INFO [All] inkcast.http: POST /mcp -> 200 (1.6ms) · request_id=ecc06edadba246988e4e8ccf45430122 event=http.request method=POST path=/mcp status=200 ms=1.6 client=127.0.0.1
-2026-10-22 07:12:18,654 INFO [All] mcp.server.streamable_http: Terminating session: None · request_id=a5f335bf4fe640a98e54969c29be46a5
-2026-10-22 07:12:18,655 INFO [All] inkcast.http: POST /mcp -> 200 (2.2ms) · request_id=a5f335bf4fe640a98e54969c29be46a5 event=http.request method=POST path=/mcp status=200 ms=2.2 client=127.0.0.1
-2026-10-22 07:12:18,735 INFO [All] mcp.server.streamable_http: Terminating session: None · request_id=32254dc888e8453f8b3c7e7e5b5f81d7
-2026-10-22 07:12:18,735 INFO [All] inkcast.http: POST /mcp -> 200 (1.5ms) · request_id=32254dc888e8453f8b3c7e7e5b5f81d7 event=http.request method=POST path=/mcp status=200 ms=1.5 client=127.0.0.1
-2026-10-22 07:12:18,821 INFO [All] mcp.server.streamable_http: Terminating session: None · request_id=b23785f033034d8c8701ab583fd5ed94
-2026-10-22 07:12:18,821 INFO [All] inkcast.http: POST /mcp -> 200 (1.6ms) · request_id=b23785f033034d8c8701ab583fd5ed94 event=http.request method=POST path=/mcp status=200 ms=1.6 client=127.0.0.1
-2026-10-22 07:12:18,934 INFO [All] inkcast.http: GET /tokens/new -> 200 (16.3ms) · request_id=64db875c1faa40b0ae2d9b091418a207 event=http.request method=GET path=/tokens/new status=200 ms=16.3 client=127.0.0.1
-2026-10-22 07:12:19,006 INFO [All] inkcast.http: POST /auth/callback -> 303 (1.3ms) · request_id=bf08fac90d9a45cb9298a5ef93fe0003 event=http.request method=POST path=/auth/callback status=303 ms=1.3 client=127.0.0.1
-2026-10-22 07:12:19,008 INFO [All] inkcast.http: GET /auth/consent -> 200 (0.3ms) · request_id=791142d210cd4500a8747f3ca04f5585 event=http.request method=GET path=/auth/consent status=200 ms=0.3 client=127.0.0.1
-2026-10-22 07:12:19,845 INFO [All] inkcast.http: POST /auth/consent -> 200 (6.8ms) · request_id=1f63abe382164fd5a66b691b940f8eda event=http.request method=POST path=/auth/consent status=200 ms=6.8 client=127.0.0.1
-2026-10-22 07:12:20,595 INFO [All] inkcast.http: POST /api/v1/stories:sync -> 200 (10.9ms) · request_id=52a8a2bcea114ee284fa63cc30bb89f0 event=http.request method=POST path=/api/v1/stories:sync status=200 ms=10.9 client=127.0.0.1
-2026-10-22 07:12:20,745 INFO [All] inkcast.http: GET /api/v1/ledger -> 200 (0.7ms) · request_id=3e5f5f2b924e4aaba8c4a2e1f93d7dd3 event=http.request method=GET path=/api/v1/ledger status=200 ms=0.7 client=127.0.0.1
-2026-10-22 07:12:20,843 INFO [All] inkcast.http: GET /api/v1/insights/summary -> 200 (0.8ms) · request_id=feaaf4fac5884376ab6af245dbc942ee event=http.request method=GET path=/api/v1/insights/summary status=200 ms=0.8 client=127.0.0.1
-2026-10-22 07:12:21,845 INFO [All] inkcast.http: GET /api/v1/insights/summary -> 200 (0.7ms) · request_id=fd05ae2953ac48348a5de9fe46179e85 event=http.request method=GET path=/api/v1/insights/summary status=200 ms=0.7 client=127.0.0.1
-2026-10-22 07:12:21,847 INFO [All] inkcast.http: GET /api/v1/insights/summary -> 200 (0.4ms) · request_id=8726d3a236e642848417c137ce77ec2e event=http.request method=GET path=/api/v1/insights/summary status=200 ms=0.4 client=127.0.0.1
-2026-10-22 07:12:22,000 INFO [All] inkcast.http: GET /api -> 200 (2.4ms) · request_id=52c10e0f5a5f4ee485ae508e77163a81 event=http.request method=GET path=/api status=200 ms=2.4 client=127.0.0.1
-2026-10-22 07:12:22,005 INFO [All] inkcast.http: GET /api/static/swagger-ui.css -> 200 (0.3ms) · request_id=c9cd4bbbd8894b788b48b69a22ac6420 event=http.request method=GET path=/api/static/swagger-ui.css status=200 ms=0.3 client=127.0.0.1
-2026-10-22 07:12:22,006 INFO [All] inkcast.http: GET /api/static/swagger-ui-bundle.js -> 200 (0.6ms) · request_id=dea7dcee24964cc599bf626efe417553 event=http.request method=GET path=/api/static/swagger-ui-bundle.js status=200 ms=0.6 client=127.0.0.1
-2026-10-22 07:12:22,007 INFO [All] inkcast.http: GET /api/static/swagger-init.js -> 200 (0.3ms) · request_id=0f6941619e66432bbd59c18029728e17 event=http.request method=GET path=/api/static/swagger-init.js status=200 ms=0.3 client=127.0.0.1
-2026-10-22 07:12:22,256 INFO [All] inkcast.http: GET /api/openapi.json -> 200 (17.0ms) · request_id=c7805921241a4c5fb287b74385099c61 event=http.request method=GET path=/api/openapi.json status=200 ms=17.0 client=127.0.0.1
-2026-10-22 07:12:23,094 INFO [All] inkcast.http: GET /api/redoc -> 200 (1.5ms) · request_id=a8aee6ca07ae4d13b12b431f4aa6aa2b event=http.request method=GET path=/api/redoc status=200 ms=1.5 client=127.0.0.1
-2026-10-22 07:12:23,098 INFO [All] inkcast.http: GET /api/static/redoc.standalone.js -> 200 (0.4ms) · request_id=d18d5422008540baa7593b70ebd2ac5c event=http.request method=GET path=/api/static/redoc.standalone.js status=200 ms=0.4 client=127.0.0.1
-2026-10-22 07:12:23,183 INFO [All] inkcast.http: GET /api/openapi.json -> 200 (1.5ms) · request_id=6def733ac4d14048aed50f36aaec80d4 event=http.request method=GET path=/api/openapi.json status=200 ms=1.5 client=127.0.0.1
-2026-10-22 07:12:24,350 INFO [All] inkcast: SIGTERM received: finishing in-flight work, then exiting
-2026-10-22 07:12:24,350 INFO [All] inkcast.libs.pipeline: Scheduler stopped
-2026-10-22 07:12:24,350 INFO [All] inkcast.libs.outbox: Outbox consumer insights stopped
-2026-10-22 07:12:24,366 INFO [All] uvicorn.error: Shutting down
-2026-10-22 07:12:24,366 INFO [All] uvicorn.error: Shutting down
-2026-10-22 07:12:24,466 INFO [All] uvicorn.error: Waiting for application shutdown.
-2026-10-22 07:12:24,466 INFO [All] uvicorn.error: Waiting for application shutdown.
-2026-10-22 07:12:24,466 INFO [All] mcp.server.streamable_http_manager: StreamableHTTP session manager shutting down
-2026-10-22 07:12:24,467 INFO [All] uvicorn.error: Application shutdown complete.
-2026-10-22 07:12:24,467 INFO [All] uvicorn.error: Finished server process [3451] · color_message=Finished server process [[36m%d[0m]
-2026-10-22 07:12:24,467 INFO [All] uvicorn.error: Application shutdown complete.
-2026-10-22 07:12:24,467 INFO [All] uvicorn.error: Finished server process [3451] · color_message=Finished server process [[36m%d[0m]
-2026-10-22 07:12:24,467 INFO [All] inkcast: Inkcast stopped
+2026-10-22 07:31:16,459 INFO [All] inkcast.libs.secrets.provider: Secret INKCAST_SECRET_KEY loaded from env · event=secrets.loaded secret_name=INKCAST_SECRET_KEY reason=cold-start ms=0
+2026-10-22 07:31:16,459 INFO [All] inkcast.libs.secrets.provider: Secret INKCAST_PASSWORD loaded from env · event=secrets.loaded secret_name=INKCAST_PASSWORD reason=cold-start ms=0
+2026-10-22 07:31:16,462 WARNING [All] inkcast: Posture: No credentials in environment variables: INKCAST_PASSWORD, INKCAST_SECRET_KEY, PWD hold credential values. Use PWD_FILE or INKCAST_SECRETS_DIR (a mounted Secret) instead; env vars leak through /proc, child processes and crash reports. · event=config.posture.warn check=env-scrubbed
+2026-10-22 07:31:16,462 INFO [All] inkcast: Secret GITHUB_CLIENT_SECRET: not set (absent, fp=96b1f857a391) · event=secrets.status secret_name=GITHUB_CLIENT_SECRET source=absent
+2026-10-22 07:31:16,462 INFO [All] inkcast: Secret INKCAST_PASSWORD: set (env, fp=34d095a3233b) · event=secrets.status secret_name=INKCAST_PASSWORD source=env
+2026-10-22 07:31:16,462 INFO [All] inkcast: Secret INKCAST_SECRET_KEY: set (env, fp=7c37595c07ff) · event=secrets.status secret_name=INKCAST_SECRET_KEY source=env
+2026-10-22 07:31:16,462 INFO [All] inkcast: Secret OIDC_CLIENT_SECRET: not set (absent, fp=96b1f857a391) · event=secrets.status secret_name=OIDC_CLIENT_SECRET source=absent
+2026-10-22 07:31:16,509 INFO [All] inkcast: Inkcast 0.1.0 starting IdentityService, PublishingApi, ConnectorService, SchedulerWorker, InsightsService on 127.0.0.1:8787 (prefix /); public URL http://localhost:8787; platforms: devto, medium
+2026-10-22 07:31:16,534 INFO [All] uvicorn.error: Started server process [3459] · color_message=Started server process [[36m%d[0m]
+2026-10-22 07:31:16,534 INFO [All] uvicorn.error: Waiting for application startup.
+2026-10-22 07:31:16,535 INFO [All] uvicorn.error: Started server process [3459] · color_message=Started server process [[36m%d[0m]
+2026-10-22 07:31:16,535 INFO [All] uvicorn.error: Waiting for application startup.
+2026-10-22 07:31:16,535 INFO [All] inkcast.libs.pipeline: Scheduler running every 5s
+2026-10-22 07:31:16,732 INFO [All] inkcast.libs.outbox: Outbox consumer insights running every 1s (kpi-rollups)
+2026-10-22 07:31:16,740 INFO [All] mcp.server.streamable_http_manager: StreamableHTTP session manager started
+2026-10-22 07:31:16,740 INFO [All] uvicorn.error: Application startup complete.
+2026-10-22 07:31:16,740 INFO [All] uvicorn.error: Application startup complete.
+2026-10-22 07:31:16,740 INFO [All] uvicorn.error: Uvicorn running on http://127.0.0.1:9090 (Press CTRL+C to quit) · color_message=Uvicorn running on [1m%s://%s:%d[0m (Press CTRL+C to quit)
+2026-10-22 07:31:16,740 INFO [All] uvicorn.error: Uvicorn running on http://127.0.0.1:8787 (Press CTRL+C to quit) · color_message=Uvicorn running on [1m%s://%s:%d[0m (Press CTRL+C to quit)
+2026-10-22 07:31:17,184 INFO [All] inkcast.http: GET /.well-known/oauth-protected-resource/mcp -> 200 (0.7ms) · request_id=ae193f1da94345f38e3768e9dd308fec event=http.request method=GET path=/.well-known/oauth-protected-resource/mcp status=200 ms=0.7 client=127.0.0.1
+2026-10-22 07:31:17,329 INFO [All] inkcast.http: GET /.well-known/oauth-authorization-server -> 200 (0.4ms) · request_id=13c192c3d75a46b0a4013571544210a7 event=http.request method=GET path=/.well-known/oauth-authorization-server status=200 ms=0.4 client=127.0.0.1
+2026-10-22 07:31:17,483 INFO [All] inkcast.http: POST /mcp -> 401 (0.3ms) · request_id=9693c2dab2c04b0d93a7583a9cff380d event=http.request method=POST path=/mcp status=401 ms=0.3 client=127.0.0.1
+2026-10-22 07:31:17,484 INFO [All] inkcast.http: GET /.well-known/oauth-protected-resource/mcp -> 200 (0.2ms) · request_id=940a53a7642a4af08120f8d7b1f6893e event=http.request method=GET path=/.well-known/oauth-protected-resource/mcp status=200 ms=0.2 client=127.0.0.1
+2026-10-22 07:31:17,485 INFO [All] inkcast.http: GET /.well-known/oauth-authorization-server -> 200 (0.2ms) · request_id=ad4347cb16d845529792d0ba357d1e7c event=http.request method=GET path=/.well-known/oauth-authorization-server status=200 ms=0.2 client=127.0.0.1
+2026-10-22 07:31:17,488 INFO [All] inkcast.http: POST /register -> 201 (1.2ms) · request_id=c32291bdbaec4182a5638726703552cb event=http.request method=POST path=/register status=201 ms=1.2 client=127.0.0.1
+2026-10-22 07:31:17,787 INFO [All] inkcast.http: GET /authorize -> 302 (163.0ms) · request_id=5e35391aa3854a6da37228d6631e20ee event=http.request method=GET path=/authorize status=302 ms=163.0 client=127.0.0.1
+2026-10-22 07:31:17,789 INFO [All] inkcast.http: GET /auth/login -> 200 (0.4ms) · request_id=5b84e7b602d34a55bf100e1d3c7f78d8 event=http.request method=GET path=/auth/login status=200 ms=0.4 client=127.0.0.1
+2026-10-22 07:31:18,562 INFO [All] inkcast.http: POST /auth/callback -> 303 (1.6ms) · request_id=0dd1c1d10c8b4ac49d6b06a435aea8d8 event=http.request method=POST path=/auth/callback status=303 ms=1.6 client=127.0.0.1
+2026-10-22 07:31:18,564 INFO [All] inkcast.http: GET /auth/consent -> 200 (0.8ms) · request_id=e83ff690206e4d0cbcdfc7daf9fe3945 event=http.request method=GET path=/auth/consent status=200 ms=0.8 client=127.0.0.1
+2026-10-22 07:31:19,362 INFO [All] inkcast.http: POST /auth/consent -> 303 (1.5ms) · request_id=8b40dd077a3e461984f5fd06567f73d9 event=http.request method=POST path=/auth/consent status=303 ms=1.5 client=127.0.0.1
+2026-10-22 07:31:19,379 INFO [All] inkcast.http: POST /token -> 200 (2.2ms) · request_id=a27f29cf067a4fde9adfe7941fc316c9 event=http.request method=POST path=/token status=200 ms=2.2 client=127.0.0.1
+2026-10-22 07:31:19,381 INFO [All] mcp.server.streamable_http: Terminating session: None · request_id=17e00a94f4cb4b70b37b505c8b409c5a
+2026-10-22 07:31:19,381 INFO [All] inkcast.http: POST /mcp -> 200 (1.7ms) · request_id=17e00a94f4cb4b70b37b505c8b409c5a event=http.request method=POST path=/mcp status=200 ms=1.7 client=127.0.0.1
+2026-10-22 07:31:19,384 INFO [All] mcp.server.streamable_http: Terminating session: None · request_id=7593976810cb40a4916f516dcf34ffa3
+2026-10-22 07:31:19,384 INFO [All] inkcast.http: POST /mcp -> 202 (0.8ms) · request_id=7593976810cb40a4916f516dcf34ffa3 event=http.request method=POST path=/mcp status=202 ms=0.8 client=127.0.0.1
+2026-10-22 07:31:19,466 INFO [All] mcp.server.streamable_http: Terminating session: None · request_id=75da58e9c4b64896a57746513c9a2e80
+2026-10-22 07:31:19,466 INFO [All] inkcast.http: POST /mcp -> 200 (1.9ms) · request_id=75da58e9c4b64896a57746513c9a2e80 event=http.request method=POST path=/mcp status=200 ms=1.9 client=127.0.0.1
+2026-10-22 07:31:19,598 INFO [All] mcp.server.streamable_http: Terminating session: None · request_id=3d92371561bc4d4d9e0b2c5a08519afd
+2026-10-22 07:31:19,598 INFO [All] inkcast.http: POST /mcp -> 200 (1.7ms) · request_id=3d92371561bc4d4d9e0b2c5a08519afd event=http.request method=POST path=/mcp status=200 ms=1.7 client=127.0.0.1
+2026-10-22 07:31:19,709 INFO [All] mcp.server.streamable_http: Terminating session: None · request_id=2c76748f13e247bdbac824b8ac5dca53
+2026-10-22 07:31:19,709 INFO [All] inkcast.http: POST /mcp -> 200 (2.3ms) · request_id=2c76748f13e247bdbac824b8ac5dca53 event=http.request method=POST path=/mcp status=200 ms=2.3 client=127.0.0.1
+2026-10-22 07:31:19,795 INFO [All] inkcast.http: GET /connect/ZZIUmGFOh5fvc1SPwnvl-U6fypOuA8x-QmUoO6iw5nA -> 200 (0.4ms) · request_id=a3dab3a58f8949b48d4882a0db6ca309 event=http.request method=GET path=/connect/ZZIUmGFOh5fvc1SPwnvl-U6fypOuA8x-QmUoO6iw5nA status=200 ms=0.4 client=127.0.0.1
+2026-10-22 07:31:20,565 INFO [All] inkcast.http: POST /connect/ZZIUmGFOh5fvc1SPwnvl-U6fypOuA8x-QmUoO6iw5nA -> 200 (3.8ms) · request_id=0b37892077e94fa8a17ea452dbe84c67 event=http.request method=POST path=/connect/ZZIUmGFOh5fvc1SPwnvl-U6fypOuA8x-QmUoO6iw5nA status=200 ms=3.8 client=127.0.0.1
+2026-10-22 07:31:21,303 INFO [All] mcp.server.streamable_http: Terminating session: None · request_id=1c5b889e0fb84f9984a862194f92c68b
+2026-10-22 07:31:21,303 INFO [All] inkcast.http: POST /mcp -> 200 (1.6ms) · request_id=1c5b889e0fb84f9984a862194f92c68b event=http.request method=POST path=/mcp status=200 ms=1.6 client=127.0.0.1
+2026-10-22 07:31:21,392 INFO [All] mcp.server.streamable_http: Terminating session: None · request_id=367e10adb2d744cca197bcfe766be4e0
+2026-10-22 07:31:21,392 INFO [All] inkcast.http: POST /mcp -> 200 (1.7ms) · request_id=367e10adb2d744cca197bcfe766be4e0 event=http.request method=POST path=/mcp status=200 ms=1.7 client=127.0.0.1
+2026-10-22 07:31:21,476 INFO [All] mcp.server.streamable_http: Terminating session: None · request_id=b9f9b98fb5ce4ec0b99b3f48f408d72a
+2026-10-22 07:31:21,476 INFO [All] inkcast.http: POST /mcp -> 200 (2.5ms) · request_id=b9f9b98fb5ce4ec0b99b3f48f408d72a event=http.request method=POST path=/mcp status=200 ms=2.5 client=127.0.0.1
+2026-10-22 07:31:21,624 INFO [All] mcp.server.streamable_http: Terminating session: None · request_id=abf22ad619f74e99897497c0b907cf9c
+2026-10-22 07:31:21,624 INFO [All] inkcast.http: POST /mcp -> 200 (5.1ms) · request_id=abf22ad619f74e99897497c0b907cf9c event=http.request method=POST path=/mcp status=200 ms=5.1 client=127.0.0.1
+2026-10-22 07:31:21,749 INFO [All] mcp.server.streamable_http: Terminating session: None · request_id=22c76b6ed26f4933820a429592ac804c
+2026-10-22 07:31:21,749 INFO [All] inkcast.http: POST /mcp -> 200 (1.6ms) · request_id=22c76b6ed26f4933820a429592ac804c event=http.request method=POST path=/mcp status=200 ms=1.6 client=127.0.0.1
+2026-10-22 07:31:21,825 INFO [All] mcp.server.streamable_http: Terminating session: None · request_id=e9c9433063ae4791bc975c7ec0892ef8
+2026-10-22 07:31:21,825 INFO [All] inkcast.http: POST /mcp -> 200 (2.6ms) · request_id=e9c9433063ae4791bc975c7ec0892ef8 event=http.request method=POST path=/mcp status=200 ms=2.6 client=127.0.0.1
+2026-10-22 07:31:21,926 INFO [All] mcp.server.streamable_http: Terminating session: None · request_id=44276a55f0f949d98b70c9b64fea7b8f
+2026-10-22 07:31:21,927 INFO [All] inkcast.http: POST /mcp -> 200 (1.6ms) · request_id=44276a55f0f949d98b70c9b64fea7b8f event=http.request method=POST path=/mcp status=200 ms=1.6 client=127.0.0.1
+2026-10-22 07:31:22,010 INFO [All] mcp.server.streamable_http: Terminating session: None · request_id=78003512afcd4d95b6121dc285935d41
+2026-10-22 07:31:22,010 INFO [All] inkcast.http: POST /mcp -> 200 (2.2ms) · request_id=78003512afcd4d95b6121dc285935d41 event=http.request method=POST path=/mcp status=200 ms=2.2 client=127.0.0.1
+2026-10-22 07:31:22,091 INFO [All] mcp.server.streamable_http: Terminating session: None · request_id=91f05332542f4654ba1c28b804f30be2
+2026-10-22 07:31:22,091 INFO [All] inkcast.http: POST /mcp -> 200 (1.6ms) · request_id=91f05332542f4654ba1c28b804f30be2 event=http.request method=POST path=/mcp status=200 ms=1.6 client=127.0.0.1
+2026-10-22 07:31:22,177 INFO [All] mcp.server.streamable_http: Terminating session: None · request_id=176f3de5182e4a408e92d96b043410f7
+2026-10-22 07:31:22,177 INFO [All] inkcast.http: POST /mcp -> 200 (1.6ms) · request_id=176f3de5182e4a408e92d96b043410f7 event=http.request method=POST path=/mcp status=200 ms=1.6 client=127.0.0.1
+2026-10-22 07:31:22,267 INFO [All] inkcast.http: GET /tokens/new -> 200 (0.8ms) · request_id=fdba0c54816e4a828b9ee6e69a98c369 event=http.request method=GET path=/tokens/new status=200 ms=0.8 client=127.0.0.1
+2026-10-22 07:31:22,385 INFO [All] inkcast.http: POST /auth/callback -> 303 (73.8ms) · request_id=d016f2e756234b6ab3649eb6e141c859 event=http.request method=POST path=/auth/callback status=303 ms=73.8 client=127.0.0.1
+2026-10-22 07:31:22,386 INFO [All] inkcast.http: GET /auth/consent -> 200 (0.6ms) · request_id=c4e6bb4611964dcd8d9bda97be72cb25 event=http.request method=GET path=/auth/consent status=200 ms=0.6 client=127.0.0.1
+2026-10-22 07:31:23,195 INFO [All] inkcast.http: POST /auth/consent -> 200 (1.4ms) · request_id=48564385abcc4820a2722fb1ae925f41 event=http.request method=POST path=/auth/consent status=200 ms=1.4 client=127.0.0.1
+2026-10-22 07:31:24,000 INFO [All] inkcast.http: POST /api/v1/stories:sync -> 200 (77.1ms) · request_id=35c7eab439af4b828499d04b4328941d event=http.request method=POST path=/api/v1/stories:sync status=200 ms=77.1 client=127.0.0.1
+2026-10-22 07:31:24,152 INFO [All] inkcast.http: GET /api/v1/ledger -> 200 (0.7ms) · request_id=6875f866a69b42eb9929ba29532a1667 event=http.request method=GET path=/api/v1/ledger status=200 ms=0.7 client=127.0.0.1
+2026-10-22 07:31:24,265 INFO [All] inkcast.http: GET /api/v1/insights/summary -> 200 (0.8ms) · request_id=71e1e1042da945038a9e2d069cd18581 event=http.request method=GET path=/api/v1/insights/summary status=200 ms=0.8 client=127.0.0.1
+2026-10-22 07:31:25,268 INFO [All] inkcast.http: GET /api/v1/insights/summary -> 200 (0.7ms) · request_id=4c1e5ef4aac74eea866f10f8c958aea5 event=http.request method=GET path=/api/v1/insights/summary status=200 ms=0.7 client=127.0.0.1
+2026-10-22 07:31:25,269 INFO [All] inkcast.http: GET /api/v1/insights/summary -> 200 (0.4ms) · request_id=b56294979bcf4196b86c75aeaa0a06b4 event=http.request method=GET path=/api/v1/insights/summary status=200 ms=0.4 client=127.0.0.1
+2026-10-22 07:31:25,408 INFO [All] inkcast.http: GET /api -> 200 (2.2ms) · request_id=de8bc1cb4acf4b31a730cea0e6188bfa event=http.request method=GET path=/api status=200 ms=2.2 client=127.0.0.1
+2026-10-22 07:31:25,415 INFO [All] inkcast.http: GET /api/static/swagger-ui.css -> 200 (0.6ms) · request_id=77c8889f58c344d984f76f0a58acc8cc event=http.request method=GET path=/api/static/swagger-ui.css status=200 ms=0.6 client=127.0.0.1
+2026-10-22 07:31:25,415 INFO [All] inkcast.http: GET /api/static/swagger-ui-bundle.js -> 200 (0.5ms) · request_id=8a6cb201487a49dcada1f0dcfdd33316 event=http.request method=GET path=/api/static/swagger-ui-bundle.js status=200 ms=0.5 client=127.0.0.1
+2026-10-22 07:31:25,416 INFO [All] inkcast.http: GET /api/static/swagger-init.js -> 200 (0.2ms) · request_id=2af7a2eb637a42b39803920649546022 event=http.request method=GET path=/api/static/swagger-init.js status=200 ms=0.2 client=127.0.0.1
+2026-10-22 07:31:25,664 INFO [All] inkcast.http: GET /api/openapi.json -> 200 (14.6ms) · request_id=51de16e9e6be4ce8bedd4038cb20ec64 event=http.request method=GET path=/api/openapi.json status=200 ms=14.6 client=127.0.0.1
+2026-10-22 07:31:26,516 INFO [All] inkcast.http: GET /api/redoc -> 200 (1.4ms) · request_id=21f19359b4d54456b49b59089af1ba4f event=http.request method=GET path=/api/redoc status=200 ms=1.4 client=127.0.0.1
+2026-10-22 07:31:26,520 INFO [All] inkcast.http: GET /api/static/redoc.standalone.js -> 200 (0.4ms) · request_id=32c4eebc3c2b4db0b8a7f0132ddeeb3d event=http.request method=GET path=/api/static/redoc.standalone.js status=200 ms=0.4 client=127.0.0.1
+2026-10-22 07:31:26,611 INFO [All] inkcast.http: GET /api/openapi.json -> 200 (1.6ms) · request_id=46adcc9ac13e4d968f48d1637a451b1e event=http.request method=GET path=/api/openapi.json status=200 ms=1.6 client=127.0.0.1
+2026-10-22 07:31:27,872 INFO [All] inkcast: SIGTERM received: finishing in-flight work, then exiting
+2026-10-22 07:31:27,873 INFO [All] inkcast.libs.pipeline: Scheduler stopped
+2026-10-22 07:31:27,873 INFO [All] inkcast.libs.outbox: Outbox consumer insights stopped
+2026-10-22 07:31:27,928 INFO [All] uvicorn.error: Shutting down
+2026-10-22 07:31:27,928 INFO [All] uvicorn.error: Shutting down
+2026-10-22 07:31:28,029 INFO [All] uvicorn.error: Waiting for application shutdown.
+2026-10-22 07:31:28,029 INFO [All] uvicorn.error: Waiting for application shutdown.
+2026-10-22 07:31:28,029 INFO [All] mcp.server.streamable_http_manager: StreamableHTTP session manager shutting down
+2026-10-22 07:31:28,029 INFO [All] uvicorn.error: Application shutdown complete.
+2026-10-22 07:31:28,029 INFO [All] uvicorn.error: Finished server process [3459] · color_message=Finished server process [[36m%d[0m]
+2026-10-22 07:31:28,029 INFO [All] uvicorn.error: Application shutdown complete.
+2026-10-22 07:31:28,029 INFO [All] uvicorn.error: Finished server process [3459] · color_message=Finished server process [[36m%d[0m]
+2026-10-22 07:31:28,030 INFO [All] inkcast: Inkcast stopped
