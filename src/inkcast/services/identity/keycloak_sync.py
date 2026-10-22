@@ -239,6 +239,8 @@ class KeycloakSync:
         for keycloak_id in await self.changed_people():
             done["checked"] += 1
             state = await self.person(keycloak_id)
+            if state != "deleted" and (known := self.store.find_user_by_identity(self.prefix + keycloak_id)):
+                self.store.mark_user_present(str(known["id"]))     # Keycloak has them: a running grace period stops
             if state != "active" and self._cut_off(keycloak_id, state, "event"):
                 done["disabled"] += 1
         if self.clock() - self.last_reconcile >= self.config.keycloak_reconcile_seconds:

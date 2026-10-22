@@ -125,5 +125,35 @@ class ASignInWhileTheReconcileAsks(Review):
         self.assertEqual(self.store.user_erasures(), [])
 
 
+class ARestoreTheEventsPassSees(Review):
+    """The PR stops the clock only when a reconcile (every 10 minutes) finds the person present. The events pass (every
+    30 s) reads the person too, after each USER admin event, and finds them present, but leaves ``deleted_at`` as it
+    was; a deletion before the next reconcile then inherits the old clock, and "a later deletion gets a whole grace
+    period again" (README, E9 design) does not hold."""
+
+    def event(self, operation: str) -> dict:
+        return {"time": int(self.now * 1000), "resourceType": "USER", "operationType": operation,
+                "resourcePath": "users/kc-ada"}
+
+    def test_a_person_the_events_pass_finds_present_gets_a_whole_grace_period_at_the_next_deletion(self):
+        ada = self.person("kc-ada")
+        worker = self.sync(30)
+        del self.kc.users["kc-ada"]
+        self.reconcile(worker)                                      # day 0: gone, cut off, the clock starts
+        self.assertEqual(self.store.get_user(ada["id"])["deleted_at"], T0)
+        self.now = T0 + 29 * DAY                                    # day 29: restored from a backup and edited
+        worker.last_reconcile = self.now                            # (the next reconcile is ten minutes away)
+        self.kc.users["kc-ada"] = True
+        self.kc.admin_events.append(self.event("UPDATE"))
+        self.assertEqual(self.tick(worker)["checked"], 1, "the events pass reads her: present")
+        self.now += 300                                             # five minutes later, deleted again
+        del self.kc.users["kc-ada"]
+        self.kc.admin_events.append(self.event("DELETE"))
+        self.tick(worker)
+        self.assertEqual(self.reconcile(worker, T0 + 30 * DAY)["erased"], 0, "a day into the new deletion: kept")
+        self.assertIsNotNone(self.store.get_user(ada["id"]))
+        self.assertEqual(self.reconcile(worker, T0 + 59 * DAY + 300)["erased"], 1, "30 days after it: erased")
+
+
 if __name__ == "__main__":
     unittest.main()
