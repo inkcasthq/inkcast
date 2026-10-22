@@ -79,6 +79,15 @@ class Authed:
             await request.body()
             principal = self.verifier.principal(token)
             if principal is None:
+                if self.verifier.held(token):
+                    # A personal access token the Keycloak user sync holds (#135): the token is not a valid credential
+                    # right now (401, RFC 6750 invalid_token), not a valid one short of a permission (403), and the
+                    # same status a revoked one gets, so a script fails the same way; the code and message say why.
+                    return problem(401, "token_held", "This token is on hold while an operator reviews a change at "
+                                   "the sign-in provider: it works again if the change is dismissed, and is revoked "
+                                   "if it is confirmed.",
+                                   {"WWW-Authenticate": 'Bearer error="invalid_token", error_description="the token is '
+                                                        'on hold while an operator reviews a sign-in provider change"'})
                 return problem(401, "invalid_token", "Send a valid Bearer token (an OAuth access token with the "
                                "`inkcast` scope, or a personal access token).",
                                {"WWW-Authenticate": f'Bearer resource_metadata="{self.resource_metadata}", scope="{SCOPE}"'})

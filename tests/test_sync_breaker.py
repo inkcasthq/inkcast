@@ -312,10 +312,12 @@ class AtAndAboveTheThreshold(Scenario):
         self.assertEqual([(r.pass_id, r.held) for r in held], [(pass_id, 7)] * 3, "each reconcile says what it holds")
         self.assertEqual(self.gauge(), 1)
 
-    def test_a_disabled_person_is_still_cut_off_and_a_restored_one_still_noticed_while_open(self):
-        """The breaker is about Keycloak's 404. A 200 ``enabled: false`` is Keycloak's own answer about a person it
-        has, and reversible (they sign in again once enabled), so it is acted on; a person Keycloak has again stops
-        their grace period as before."""
+    def test_a_disabled_person_is_held_too_and_a_restored_one_still_noticed_while_open(self):
+        """A 200 ``enabled: false`` is Keycloak's own answer about a person it has, and reversible (they sign in again
+        once enabled). #131 cut such a person off even while the breaker was open; since #135 (a switched-off importing
+        LDAP provider reports its people disabled, not gone) they are held with the rest: OAuth token cut, personal
+        access tokens refused but kept, until an operator decides. A person Keycloak has again stops their grace
+        period as before."""
         people = self.people(20)
         self.kc.gone.add(people[0]["kc"])
         worker = self.sync(30)
@@ -324,9 +326,11 @@ class AtAndAboveTheThreshold(Scenario):
         self.kc.gone.update(u["kc"] for u in people[1:6])           # five others gone: the breaker trips
         self.kc.disabled.add(people[10]["kc"])                      # and an administrator disables one
         done = self.reconcile(worker, T0 + 600)
-        self.assertEqual((done["disabled"], done["erased"]), (1, 0))
-        self.assert_cut_off(people[10])
-        self.assertIsNone(self.row(people[10])["deleted_at"])
+        self.assertEqual((done["disabled"], done["erased"]), (0, 0))
+        held = self.row(people[10])
+        self.assertEqual((held["disabled_at"], held["deleted_at"]), (None, None), "held, not cut off (#135)")
+        self.assertIsNotNone(held["held_at"])
+        self.assertIsNone(self.store.get_token(f"ic_at_{people[10]['kc']:x<43}", "access"), "the OAuth token is cut")
         self.assertIsNone(self.row(people[0])["deleted_at"], "Keycloak has them again: the clock stops")
         self.assertEqual(len(self.trips()), 1)
 

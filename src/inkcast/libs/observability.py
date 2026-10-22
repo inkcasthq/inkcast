@@ -64,6 +64,10 @@ EVENTS: dict[str, tuple[str, str]] = {
     "cache.backend.unavailable": ("warning", "Redis/Valkey did not answer; rate limits are per replica until it is back."),
     "outbox.consumer.failed": ("warning", "An event sink failed on a batch; the cursor stayed and the batch is retried."),
     "identity.user.disabled": ("warning", "Keycloak disabled or deleted a person: their Inkcast tokens and PATs were cut off."),
+    "identity.user.held": ("warning", "Keycloak reports a person disabled while the sync's breaker holds a pass: their OAuth "
+                                      "tokens were cut, their PATs are refused but not revoked, until an operator decides."),
+    "identity.user.released": ("info", "The hold on a person was lifted (Keycloak reports them enabled again, or the pass was "
+                                       "dismissed): their PATs work again."),
     "identity.user.deleted": ("warning", "A person's account is gone (deleted by them, or in Keycloak and past the grace "
                                          "period): every row of theirs was erased (ids and counts only)."),
     "identity.erasure.reapplied": ("warning", "A restore brought back rows of a person erased before; they were erased again at "
@@ -71,15 +75,18 @@ EVENTS: dict[str, tuple[str, str]] = {
     "identity.sync.failed": ("warning", "A Keycloak user sync pass failed (service account refused, Keycloak down); retried."),
     "identity.sync.person.failed": ("warning", "Keycloak answered an error about one person (Inkcast user id, read and status "
                                                "only); nothing was done for them, the pass went on, they are read again."),
-    "identity.sync.breaker.tripped": ("critical", "A reconcile found too many people gone from Keycloak at once (pass id and "
-                                                  "counts); nobody is cut off or erased until an operator confirms or "
-                                                  "dismisses the pass with inkcast identity."),
-    "identity.sync.breaker.held": ("warning", "The breaker is still open (pass id, how many people are held); every pass "
-                                              "says so until the pass is resolved."),
-    "identity.sync.breaker.confirmed": ("warning", "An operator confirmed a pass (audit: pass id, who, how many applied and "
-                                                   "skipped): its people are cut off and their grace period starts."),
-    "identity.sync.breaker.dismissed": ("warning", "An operator dismissed a pass (audit: pass id, who): nothing was done; "
-                                                   "the next reconcile reads everyone again."),
+    "identity.sync.breaker.tripped": ("critical", "A reconcile found too many people gone from Keycloak or disabled in it at "
+                                                  "once (pass id and counts); nobody is cut off or erased, the disabled "
+                                                  "keep their PATs refused, until an operator confirms or dismisses the "
+                                                  "pass with inkcast identity."),
+    "identity.sync.breaker.held": ("warning", "The breaker is still open (pass id, how many people are held, gone and "
+                                              "disabled); every pass says so until the pass is resolved."),
+    "identity.sync.breaker.confirmed": ("warning", "An operator confirmed a pass (audit: pass id, who, how many applied by "
+                                                   "kind and skipped): its people are cut off; the gone start their grace "
+                                                   "period, the disabled lose their PATs."),
+    "identity.sync.breaker.dismissed": ("warning", "An operator dismissed a pass (audit: pass id, who, how many released): "
+                                                   "nothing was done to the gone, the disabled's PATs work again; the next "
+                                                   "reconcile reads everyone again."),
     "identity.sync.breaker.refused": ("warning", "An operator's confirm or dismiss did nothing: no such pass, or it was "
                                                  "resolved already (pass id only)."),
     "authz.denied": ("warning", "A permission check said no (user, relation and object ids; never a token or a name)."),

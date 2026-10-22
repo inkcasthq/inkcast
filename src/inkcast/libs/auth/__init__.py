@@ -75,6 +75,11 @@ class TokenVerifier:
         found = self.lookup(token)
         return found[0] if found else None
 
+    def held(self, token: str) -> bool:
+        """Whether a token ``lookup`` refused is a live personal access token whose person the Keycloak user sync holds
+        for an operator (#135: refused, not revoked), so the refusal can say so. Never a reason to serve it."""
+        return token.startswith(PAT_PREFIX) and self.store.api_token_held(token)
+
     def access_token(self, token: str) -> AccessToken | None:
         """The MCP SDK's view of a token. PATs get the ``inkcast`` gate scope so ``/mcp`` admits them;
         what each tool may do is still decided by the principal's own scopes."""
