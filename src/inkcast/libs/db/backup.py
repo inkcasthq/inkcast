@@ -184,7 +184,7 @@ def _carry_erasures(current: pathlib.Path, incoming: pathlib.Path) -> int:
     try:
         try:
             rows = source.execute("SELECT user_hash, erased_at, counts FROM user_erasures").fetchall()
-        except sqlite3.OperationalError as exc:
+        except sqlite3.DatabaseError as exc:
             if "no such table" in str(exc):
                 return 0
             raise BackupError(f"Couldn't read the current database's erasure records: {exc}") from exc
