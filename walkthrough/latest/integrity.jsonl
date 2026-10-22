@@ -5,5 +5,8 @@
 {"check": "ledger: the synced file is published", "ok": true, "expected": "published", "actual": "published", "note": ""}
 {"check": "DEV article: body of the synced file (sha256)", "ok": true, "expected": "60211cc4ac216304f2405bcdea991ef0e94612fd428a1ab426ab010d64d6bdc9", "actual": "60211cc4ac216304f2405bcdea991ef0e94612fd428a1ab426ab010d64d6bdc9", "note": ""}
 {"check": "cancelled schedule: nothing on DEV", "ok": true, "expected": "no article titled 'A story for later this hour'", "actual": ["Publishing from an MCP client", "Hello from a repository"], "note": "2 article(s) on the fake DEV, none is the cancelled one"}
-{"check": "no credential in full in any output file", "ok": true, "expected": {}, "actual": {}, "note": "32 files scanned for ink_pat_/ic_at_/ic_rt_ values"}
-{"check": "no credential in full in the document or any other output file", "ok": true, "expected": {}, "actual": {}, "note": "37 files scanned for ink_pat_/ic_at_/ic_rt_ values"}
+{"check": "deletion: the OAuth token and the PAT answer 401", "ok": true, "expected": [401, 401], "actual": [401, 401], "note": ""}
+{"check": "deletion: counted exactly once (via=return, or via=event when the sync read the event first)", "ok": true, "expected": "inkcast_identity_users_deleted_total{via=\"return\"|\"event\"} 1, one series", "actual": ["inkcast_identity_users_deleted_total{via=\"event\"} 1"], "note": ""}
+{"check": "deletion: the articles on DEV outlived the account", "ok": true, "expected": ["Publishing from an MCP client", "Hello from a repository"], "actual": ["Publishing from an MCP client", "Hello from a repository"], "note": "2 article(s) on the fake DEV after the account is gone"}
+{"check": "no credential in full in any output file", "ok": true, "expected": {}, "actual": {}, "note": "44 files scanned for ink_pat_/ic_at_/ic_rt_ values"}
+{"check": "no credential in full in the document or any other output file", "ok": true, "expected": {}, "actual": {}, "note": "49 files scanned for ink_pat_/ic_at_/ic_rt_ values"}

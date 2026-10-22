@@ -1,6 +1,6 @@
 # CI captures
 
-Published by `publish.yml` from `main` at 62c56cfdea1d. Each folder's `latest/` is the newest run;
+Published by `publish.yml` from `main` at e7580fa73c1e. Each folder's `latest/` is the newest run;
 the branch history keeps the older ones. Light theme only.
 
 ## dashboards-compose
@@ -51,3 +51,15 @@ The end-to-end walkthrough: [walkthrough.html](walkthrough/latest/walkthrough.ht
 ![walkthrough](walkthrough/latest/27-api-swagger.png)
 ![walkthrough](walkthrough/latest/28-api-redoc.png)
 ![walkthrough](walkthrough/latest/29-rest-get-devto-api-articles-me-all-fake-dev.png)
+![walkthrough](walkthrough/latest/30-mcp-tool-call-inkcast-delete-account.png)
+![walkthrough](walkthrough/latest/31-rest-post-api-v1-account-deletion-link.png)
+![walkthrough](walkthrough/latest/32-deletion-sign-in.png)
+![walkthrough](walkthrough/latest/33-deletion-page.png)
+![walkthrough](walkthrough/latest/34-provider-re-authentication.png)
+![walkthrough](walkthrough/latest/35-provider-confirmation.png)
+![walkthrough](walkthrough/latest/36-provider-deleted-page.png)
+![walkthrough](walkthrough/latest/37-account-deleted.png)
+![walkthrough](walkthrough/latest/38-rest-get-api-v1-me.png)
+![walkthrough](walkthrough/latest/39-rest-get-api-v1-me.png)
+![walkthrough](walkthrough/latest/40-rest-get-metrics-the-metrics-port.png)
+![walkthrough](walkthrough/latest/41-rest-get-devto-api-articles-me-all-fake-dev.png)
