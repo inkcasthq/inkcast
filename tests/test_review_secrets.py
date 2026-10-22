@@ -180,5 +180,27 @@ class RevealFlagIsOffInProduction(unittest.TestCase):
         self.assertTrue(secrets_provider({"INKCAST_LOG_REVEAL_SECRETS": "true", "INKCAST_ENV": "development"})._reveal)
 
 
+class ConfigFileErrorsShowNoContent(unittest.TestCase):
+    """INKCAST_CONFIG_FILE must hold names only, and a broken .env line is reported by line number alone. A broken
+    YAML file was reported with PyYAML's message, which quotes the offending line: the ConfigError went to the
+    config.unsafe log event and stderr with whatever value sat on that line, a credential included."""
+
+    def test_invalid_yaml_is_reported_by_position_not_content(self):
+        import os
+        import tempfile
+        import traceback
+        from inkcast.libs.config import ConfigError, settings_from
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "inkcast.yaml")
+            with open(path, "w") as f:
+                f.write("INKCAST_PUBLIC_URL: https://inkcast.example.com\nINKCAST_SECRET_KEY: kq9-Xs2!vB7: tail\n")
+            with self.assertRaises(ConfigError) as caught:
+                settings_from({"INKCAST_CONFIG_FILE": path})
+        rendered = "".join(traceback.format_exception(caught.exception))   # the message and any chained cause
+        self.assertNotIn("kq9-Xs2", rendered)
+        self.assertIn("not valid YAML", str(caught.exception))
+        self.assertIn("line 2", str(caught.exception))
+
+
 if __name__ == "__main__":
     unittest.main()
