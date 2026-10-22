@@ -276,6 +276,64 @@ class ConsentNamesTheRealHost(unittest.TestCase):
         self.assertEqual(shown, "evil.example")
 
 
+class KeycloakSyncKeepsGoing(unittest.TestCase):
+    """keycloak_sync.py: "Errors never stop the loop: they are logged, counted and retried." The worker runs in the
+    launcher's asyncio.gather, so an exception escaping run_forever ends the sync and takes IdentityService's whole
+    process down with it, again on every restart while the cause lasts."""
+
+    def test_an_unexpected_error_is_counted_and_retried_not_fatal(self):
+        import sqlite3
+        from inkcast.libs.db import Store
+        from inkcast.libs.secrets import SecretValue
+        from inkcast.services.identity.keycloak_sync import KeycloakSync
+        cfg = Config(public_url="http://localhost:8787", secret_key="k" * 40, database_path=":memory:", login="oidc",
+                     oidc_issuer="https://kc.example/realms/inkcast", oidc_client_id="inkcast",
+                     oidc_client_secret=SecretValue("s"), oidc_required_role="inkcast-user",
+                     keycloak_sync_client_id="inkcast-sync", keycloak_sync_secret=SecretValue("sync-secret"),
+                     keycloak_sync_interval_seconds=0.01)
+        store = Store(":memory:", "k" * 40)
+        real, reads = store.get_sync_state, []
+
+        def busy_once(name):                       # the database is busy for one pass (write contention, a failover)
+            reads.append(name)
+            if len(reads) == 1:
+                raise sqlite3.OperationalError("database is locked")
+            return real(name)
+
+        store.get_sync_state = busy_once
+
+        def keycloak(request: httpx2.Request) -> httpx2.Response:
+            if request.url.path.endswith("/token"):
+                return httpx2.Response(200, json={"access_token": "t", "expires_in": 300})
+            if request.url.path.endswith(("/admin-events", "/events")):
+                return httpx2.Response(200, json=[])
+            return httpx2.Response(200, json={"enabled": True})
+
+        counted = []
+
+        class Metrics:
+            def inc(self, name, **labels):
+                counted.append(labels.get("result"))
+
+        async def run():
+            stop = asyncio.Event()
+            async with httpx2.AsyncClient(transport=httpx2.MockTransport(keycloak)) as http:
+                task = asyncio.create_task(KeycloakSync(cfg, store, http, Metrics()).run_forever(stop))
+                for _ in range(500):
+                    if task.done() or "ok" in counted:
+                        break
+                    await asyncio.sleep(0.01)
+                crashed = task.exception() if task.done() else None
+                stop.set()
+                if not task.done():
+                    await asyncio.wait_for(task, 5)
+                return crashed
+
+        crashed = asyncio.run(run())
+        self.assertIsNone(crashed, "the sync worker died on an error it promises to retry")
+        self.assertEqual(counted[:2], ["error", "ok"])
+
+
 class NoBearerLinksInLogs(unittest.TestCase):
     """A connect ticket is a bearer secret for 15 minutes: whoever has /connect/<ticket> attaches platform
     credentials to that person's account. The access log keeps paths (never query strings, for OAuth codes)."""

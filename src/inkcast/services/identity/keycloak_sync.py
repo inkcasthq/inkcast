@@ -214,7 +214,7 @@ class KeycloakSync:
                 await self.tick()
                 if self.metrics:
                     self.metrics.inc("inkcast_identity_sync_total", result="ok")
-            except (SyncError, httpx2.HTTPError, ValueError, KeyError) as exc:
+            except Exception as exc:  # any error (Keycloak, an odd answer, the database): logged, counted, retried
                 log.error("Keycloak user sync failed: %s", exc, extra={"event": "identity.sync.failed"})
                 if self.metrics:
                     self.metrics.inc("inkcast_identity_sync_total", result="error")
