@@ -7,7 +7,8 @@
 #   scripts/ci-publish-captures.sh <dir>     # <dir>/<artifact-name>-<sha>/... as `gh run download` leaves it
 #
 # Each artifact replaces <name>/latest/ on the branch (the branch history keeps the older ones), and README.md
-# shows every latest PNG. Nothing to publish is not an error. The branch is an orphan: no source code on it.
+# shows every latest PNG; a folder holding the end-to-end walkthrough (walkthrough.html, walkthrough.pdf; issue #57)
+# links the document first. Nothing to publish is not an error. The branch is an orphan: no source code on it.
 set -euo pipefail
 src="$1"
 if [ ! -d "$src" ] || [ -z "$(ls -A "$src" 2>/dev/null)" ]; then
@@ -39,6 +40,11 @@ done
   for d in "$work"/*/latest; do
     name="$(basename "$(dirname "$d")")"
     echo; echo "## $name"; echo
+    if [ -f "$d/walkthrough.html" ]; then
+      echo "The end-to-end walkthrough: [walkthrough.html]($name/latest/walkthrough.html) · [walkthrough.pdf]($name/latest/walkthrough.pdf)"
+      echo "(data: [results.json]($name/latest/results.json), [integrity.jsonl]($name/latest/integrity.jsonl), [env.json]($name/latest/env.json))."
+      echo
+    fi
     [ -f "$d/summary.md" ] && echo "[Summary]($name/latest/summary.md)" && echo
     for png in "$d"/*.png; do [ -f "$png" ] && echo "![$name]($name/latest/$(basename "$png"))"; done
   done

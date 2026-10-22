@@ -80,6 +80,16 @@ jobs:
           name: captures-${{ github.sha }}
           path: ${{ runner.temp }}/captures
           retention-days: 14
+      - name: End-to-end walkthrough (issue #57; the real MCP client flow, pictured and checked; docs/walkthrough.md)
+        if: matrix.python == '3.14'
+        run: scripts/ci-run.sh walkthrough scripts/dev/walkthrough/run_walk.sh --out "$RUNNER_TEMP/walkthrough"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && matrix.python == '3.14'
+        with:
+          name: walkthrough-${{ github.sha }}
+          path: ${{ runner.temp }}/walkthrough
+          if-no-files-found: warn
+          retention-days: 14
 
   authz:
     # The OpenFGA authorization model (authz/): valid, its tests pass, and the compiled JSON is current.

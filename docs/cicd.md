@@ -19,7 +19,8 @@
 ```
 pull request ─► ci.yml ──────────────────────────────────────────────────────────────┐
                  lint (ruff, vendored-asset lock)                                    │ required
-                 test (py3.12–3.15; unit + e2e with fakes + real-browser docs check)  │ checks
+                 test (py3.12–3.15; unit + e2e with fakes + real-browser docs check;  │ checks
+                       the end-to-end walkthrough on 3.14, see walkthrough.md)          │
                  manifests (render every overlay/environment)                         │
                  image (build + Grype scan → code scanning)                           │
                  kind (deploy real image + manifests under PSS restricted, smoke)     │
@@ -38,7 +39,7 @@ tag vX.Y.Z ────► publish.yml (same) ► release: GitHub Release + mani
 | Workflow | Trigger | Writes |
 |---|---|---|
 | `ci.yml` | PRs, weekly schedule, called by publish | code-scanning results only |
-| `publish.yml` | push to main, `v*.*.*` tags, manual | registry (build job), signatures and attestations (attest job), releases (release job) |
+| `publish.yml` | push to main, `v*.*.*` tags, manual | registry (build job), signatures and attestations (attest job), releases (release job), the `ci-captures` branch (captures job: dashboard screenshots and the [walkthrough](walkthrough.md)) |
 | `promote.yml` | publish succeeded on main, or manual | a branch + PR in this repo |
 
 ## Environments and promotion
