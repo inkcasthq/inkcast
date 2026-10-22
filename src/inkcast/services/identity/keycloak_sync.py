@@ -349,6 +349,8 @@ class KeycloakSync:
                 own_deletion = False
             gone.append((user, keycloak_id, own_deletion))
         held = self._breaker(gone, len(read))
+        if held:                                     # Keycloak has them again: a confirmation no longer applies to them
+            self.store.release_breaker_people([str(user["id"]) for user, _, state in read if state != "deleted"])
         for user, keycloak_id, state in read:
             if state != "deleted":                   # present, enabled or not: never erased
                 if user.get("deleted_at") is not None:
