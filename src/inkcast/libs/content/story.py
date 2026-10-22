@@ -18,8 +18,9 @@ from urllib.parse import urljoin, urlparse
 import yaml
 
 _FRONT_MATTER = re.compile(r"\A﻿?---[ \t]*\r?\n(.*?)\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|\Z)", re.S)
-_H1 = re.compile(r"^#\s+(.+?)\s*#*\s*$")
-_H2 = re.compile(r"^##\s+(.+?)\s*#*\s*$")
+# The closing #s are trimmed by _heading, not here: a lazy group before \s*#*\s*$ backtracks cubically on spaces.
+_H1 = re.compile(r"^#\s+(.+)$")
+_H2 = re.compile(r"^##\s+(.+)$")
 # Alt text stops at '[', the URL at '(', a tag at '<': otherwise one attempt can scan to the end of the body from every
 # start, which is quadratic or worse (a 1 MB body took hours).
 _MD_IMAGE = re.compile(r"(!\[[^\[\]]*\]\()\s*<?([^()\s>]+)>?((?:\s+[\"'][^\"']*[\"'])?\s*\))")
@@ -152,6 +153,11 @@ def parse_when(value: Any, now: datetime, past_is_now: bool = False) -> datetime
     return when
 
 
+def _heading(match: re.Match) -> str:
+    """A heading's text without its closing #s."""
+    return match.group(1).rstrip().rstrip("#").strip()
+
+
 def _strip_title_block(body: str, subtitle: str | None) -> tuple[str | None, str]:
     """Remove a leading `# Title` (returned) and a following `## Subtitle` that matches."""
     lines = body.replace("\r\n", "\n").split("\n")
@@ -160,12 +166,12 @@ def _strip_title_block(body: str, subtitle: str | None) -> tuple[str | None, str
         i += 1
     if i >= len(lines) or not (m := _H1.match(lines[i])):
         return None, "\n".join(lines[i:])
-    h1 = m.group(1).strip()
+    h1 = _heading(m)
     rest = lines[i + 1:]
     j = 0
     while j < len(rest) and not rest[j].strip():
         j += 1
-    if subtitle and j < len(rest) and (m2 := _H2.match(rest[j])) and m2.group(1).strip().lower() == subtitle.lower():
+    if subtitle and j < len(rest) and (m2 := _H2.match(rest[j])) and _heading(m2).lower() == subtitle.lower():
         rest = rest[j + 1:]
     return h1, "\n".join(rest)
 

@@ -123,6 +123,20 @@ class ImageRewriteCost(unittest.TestCase):
         self.assertIn('src="https://blog.example.com/post/img/b.png"', story.body)
 
 
+class HeadingCost(unittest.TestCase):
+    def test_a_long_first_heading_is_read_in_linear_time(self):
+        """The `# Title` and `## Subtitle` patterns end in \\s*#*\\s*$ after a lazy group: a run of spaces in the
+        first heading line has cubically many ways to split. 1 KB of spaces took 1.5 s, 4 KB 89 s, on the event loop."""
+        for markdown in ("# a" + " " * 1500 + "b\n\nBody.\n", "# Title\n\n## a" + " " * 1500 + "b\n\nBody.\n"):
+            with self.subTest(markdown=markdown[:12]):
+                start = time.perf_counter()
+                parse_story(markdown, known_platforms=["devto"], subtitle="Sub")
+                self.assertLess(time.perf_counter() - start, 1.0)
+        # Headings still read as before, closing #s and all.
+        story = parse_story("# C# in depth ##\n\n## The sequel #\n\nBody.\n", known_platforms=["devto"], subtitle="the SEQUEL")
+        self.assertEqual((story.title, story.body), ("C# in depth", "Body.\n"))
+
+
 class PlatformBlockUrls(unittest.TestCase):
     def test_urls_in_a_platform_block_are_checked_like_the_top_level_ones(self):
         """canonical_url and cover_image must be full http(s) URLs, but only the top-level ones were checked: the
