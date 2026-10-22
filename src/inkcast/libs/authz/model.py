@@ -157,9 +157,20 @@ class Evaluator:
                 not self._node(d["subtract"], user, relation, obj, depth, path)
         raise EngineError(f"unknown rewrite {sorted(node)} on {relation}")
 
+    def _allowed(self, stored: str, relation: str, obj: str) -> bool:
+        """OpenFGA's read-time filter (ValidateTupleForRead): a stored tuple counts only while the current model
+        still allows it, so a model version that drops a user type revokes those grants."""
+        try:
+            self.model.validate_tuple(Tuple(stored, relation, obj))
+        except InvalidRequest:
+            return False
+        return True
+
     def _direct(self, user: str, relation: str, obj: str, depth: int, path: frozenset) -> bool:
         utype, _, urel = parse_user(user)
         for stored in self.source.users_of(obj, relation):
+            if not self._allowed(stored, relation, obj):
+                continue
             if stored == user:
                 return True
             stype, sid, srel = parse_user(stored)
@@ -175,6 +186,8 @@ class Evaluator:
         tupleset = node["tupleset"]["relation"]
         computed = node["computedUserset"]["relation"]
         for parent in self.source.users_of(obj, tupleset):
+            if not self._allowed(parent, tupleset, obj):
+                continue
             ptype, pid, prel = parse_user(parent)
             if prel or pid == "*" or not self.model.has_relation(ptype, computed):
                 continue  # a tupleset names plain objects; a type without the relation contributes nothing
