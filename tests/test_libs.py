@@ -163,7 +163,8 @@ class ConfigGate(unittest.TestCase):
             with open(os.path.join(d, "mnt", "secret-key"), "w") as f:
                 f.write("s" * 40)
             env = {"INKCAST_CONFIG_FILE": os.path.join(d, "config.env"), "INKCAST_PUBLIC_URL": "https://env.example.com",
-                   "INKCAST_SECRETS_DIR": os.path.join(d, "mnt"), "INKCAST_LOGIN": "password", "INKCAST_PASSWORD": "p" * 12}
+                   "INKCAST_SECRETS_DIR": os.path.join(d, "mnt"), "INKCAST_LOGIN": "password", "INKCAST_PASSWORD": "p" * 12,
+                   "INKCAST_AUTHZ_ALLOW_LOCAL": "true"}   # staging refuses the local engine otherwise (not this test's subject)
             cfg = load_config(env)
             self.assertEqual(cfg.public_url, "https://env.example.com")      # the real environment wins over the file
             self.assertEqual((cfg.metrics_port, cfg.environment), (0, "staging"))

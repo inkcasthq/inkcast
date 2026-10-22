@@ -463,7 +463,13 @@ class Selection(unittest.TestCase):
         self.assertEqual(cfg.authz_engine, "local")
         cfg.validate(("login", "secret_key", "authz"))
         self.cfg(INKCAST_ENV="ci").validate()
-        self.cfg(INKCAST_ENV="staging").validate()
+
+    def test_staging_refuses_local_like_production(self):
+        """Owner's decision (PR #70 review): staging rehearses production, so the posture rule covers it too."""
+        for env in ("staging", "production"):
+            with self.subTest(env=env), self.assertRaisesRegex(ConfigError, f"refused in {env}"):
+                self.cfg(INKCAST_ENV=env).validate()
+        self.cfg(INKCAST_ENV="staging", INKCAST_AUTHZ_ALLOW_LOCAL="true").validate()
 
     def test_production_refuses_local_unless_a_self_host_opts_in(self):
         with self.assertRaisesRegex(ConfigError, "INKCAST_AUTHZ_ALLOW_LOCAL=true"):
@@ -635,6 +641,7 @@ class Overlays(unittest.TestCase):
         for overlay in ("overlays/openshift", "overlays/kubernetes"):
             self.assertIn("INKCAST_AUTHZ_ALLOW_LOCAL=true", self.literals(overlay), overlay)
 
-    def test_the_hosted_environment_refuses_it(self):
-        self.assertIn("INKCAST_AUTHZ_ALLOW_LOCAL=false", self.literals("environments/production"))
+    def test_the_hosted_environments_refuse_it(self):
+        for env in ("environments/production", "environments/staging"):
+            self.assertIn("INKCAST_AUTHZ_ALLOW_LOCAL=false", self.literals(env), env)
 
