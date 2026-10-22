@@ -144,6 +144,8 @@ class GitSync:
             except PlatformError:  # it went out, or another sync replaced it, a moment ago
                 return SyncResult(**base, action="skipped", status=entry["status"], post_id=post["id"],
                                   message="The scheduled post changed state during this sync; run the sync again.")
+            # Ours to replace now: hold it as a claim, or a concurrent sync sees the cancelled post and creates one too.
+            self.store.put_entry(user_id, src, path, pid, status="syncing")
             return await self._create(user_id, req, path, story, platform, prepared, digest, entry, replace=True)
 
         if "update" not in platform.capabilities or not entry["remote_id"]:

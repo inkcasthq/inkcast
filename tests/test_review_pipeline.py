@@ -8,6 +8,7 @@ import asyncio
 import tempfile
 import time
 import unittest
+from datetime import datetime, timedelta, timezone
 
 import httpx2
 
@@ -16,7 +17,7 @@ from inkcast.libs.contracts.models import SyncFile, SyncRequest
 from inkcast.libs.db import Store
 from inkcast.libs.db.ledger import CLAIM_TTL
 from inkcast.libs.pipeline import STUCK_AFTER, Publisher
-from inkcast.libs.platforms import Account, Platform, Prepared, PublishResult
+from inkcast.libs.platforms import Account, Destination, Platform, Prepared, PublishResult
 from inkcast.services.publishing.sync import GitSync
 
 
@@ -48,6 +49,10 @@ class Fake(Platform):
         if prepared.title in self.sent:
             return PublishResult(url="https://fake/found", remote_id="found", status="published")
         return None
+
+    async def resolve_destination(self, creds, account, wanted):
+        await asyncio.sleep(0)            # a network round trip: other requests run meanwhile
+        return Destination(id=wanted, name=wanted)
 
 
 def shared_db() -> str:
@@ -167,6 +172,29 @@ class SyncDiedMidSend(SyncHarness, unittest.TestCase):
         self.sync(story_md())                                     # a CI run before the next scheduler tick
         asyncio.run(self.publisher.run_due())
         self.assertEqual(self.fake.sent, ["Hello"], "the re-queued post and a second create both went out")
+
+
+class ConcurrentResync(SyncHarness, unittest.TestCase):
+    def test_two_syncs_of_an_edited_scheduled_file_leave_one_scheduled_post(self):
+        """Two CI runs of the same commit (a push and a re-run): the first cancels the scheduled post and, while it
+        resolves the destination, the second sees the post cancelled, so it creates one too. Both go out."""
+        self.make()
+        when = (datetime.now(timezone.utc) + timedelta(days=2)).replace(microsecond=0).isoformat()
+        extra = f"publish_at: {when}\nfake:\n  destination: team\n"
+        (first,) = self.sync(story_md(extra=extra))
+        self.assertEqual((first.action, first.status), ("create", "scheduled"))
+        req = SyncRequest(source="github.com/acme/blog",
+                          files=[SyncFile(path="posts/p.md", markdown=story_md(body="Better body.", extra=extra))])
+
+        async def two_ci_runs():
+            return await asyncio.gather(self.git.sync(self.user, req), self.git.sync(self.user, req))
+
+        actions = sorted(r.results[0].action for r in asyncio.run(two_ci_runs()))
+        scheduled = [r["id"] for r in self.store._all("SELECT id FROM posts WHERE status = 'scheduled'")]
+        self.assertEqual(len(scheduled), 1, f"scheduled twice ({actions})")
+        self.assertEqual(self.store.get_entry(self.user, "github.com/acme/blog", "posts/p.md", "fake")["post_id"],
+                         scheduled[0])
+        self.assertEqual(actions, ["skipped", "update"])
 
 
 if __name__ == "__main__":
