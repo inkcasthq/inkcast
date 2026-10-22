@@ -176,5 +176,31 @@ class IdentifierLengths(unittest.TestCase):
             parse_user("user:" + "é" * 254)   # 259 characters, 513 bytes
 
 
+class DifferenceAndCycles(unittest.TestCase):
+    """``viewer but not blocked``: OpenFGA's exclusion (internal/graph/check.go) answers false when the
+    subtracted branch detects a cycle (``if res.resp.GetCycleDetected() || res.resp.GetAllowed()``). The evaluator
+    turned a cycle into a plain False, so ``not blocked`` became True and a user OpenFGA denies was allowed."""
+
+    def test_a_cycle_while_resolving_the_subtraction_denies(self):
+        group = {"type": "group", "relations": {"member": {"this": {}}},
+                 "metadata": {"relations": {"member": {"directly_related_user_types": [
+                     {"type": "user"}, {"type": "group", "relation": "member"}]}}}}
+        doc = {"type": "doc", "relations": {
+            "viewer": {"this": {}}, "blocked": {"this": {}},
+            "can_view": {"difference": {"base": {"computedUserset": {"relation": "viewer"}},
+                                        "subtract": {"computedUserset": {"relation": "blocked"}}}}},
+            "metadata": {"relations": {
+                "viewer": {"directly_related_user_types": [{"type": "user"}]},
+                "blocked": {"directly_related_user_types": [{"type": "user"}, {"type": "group", "relation": "member"}]}}}}
+        model = Model({"schema_version": "1.1", "type_definitions": [{"type": "user"}, group, doc]})
+        tuples = [("user:u", "viewer", "doc:1"), ("user:v", "viewer", "doc:2"),
+                  ("group:a#member", "blocked", "doc:1"),
+                  ("group:b#member", "member", "group:a"), ("group:a#member", "member", "group:b")]
+        ev = Evaluator(model, Memory(tuples))
+        self.assertFalse(ev.check("user:u", "can_view", "doc:1"))   # the blocked group's membership loops
+        self.assertTrue(ev.check("user:v", "can_view", "doc:2"))    # no cycle: the subtraction still works
+        self.assertEqual(ev.list_objects("user:u", "can_view", "doc"), [])
+
+
 if __name__ == "__main__":
     unittest.main()

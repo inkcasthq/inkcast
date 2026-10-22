@@ -117,6 +117,7 @@ class Evaluator:
 
     def __init__(self, model: Model, source: TupleSource):
         self.model, self.source = model, source
+        self._cycles = 0  # cycles met so far: a subtraction that meets one denies, as OpenFGA's exclusion does
 
     # ---- check --------------------------------------------------------------------------------------------
 
@@ -136,6 +137,7 @@ class Evaluator:
                               f"resolving {relation} on {obj}")
         key = (user, relation, obj)
         if key in path:
+            self._cycles += 1
             return False
         rewrite = self.model.rewrite(Ref.parse(obj).type, relation)
         return self._node(rewrite, user, relation, obj, depth, path | {key})
@@ -153,8 +155,10 @@ class Evaluator:
             return all(self._node(c, user, relation, obj, depth, path) for c in node["intersection"]["child"])
         if "difference" in node:
             d = node["difference"]
-            return self._node(d["base"], user, relation, obj, depth, path) and \
-                not self._node(d["subtract"], user, relation, obj, depth, path)
+            if not self._node(d["base"], user, relation, obj, depth, path):
+                return False
+            cycles = self._cycles
+            return not self._node(d["subtract"], user, relation, obj, depth, path) and self._cycles == cycles
         raise EngineError(f"unknown rewrite {sorted(node)} on {relation}")
 
     def _allowed(self, stored: str, relation: str, obj: str) -> bool:
