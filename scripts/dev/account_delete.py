@@ -36,6 +36,7 @@ import os
 import re
 import secrets
 import sys
+import time
 from urllib.parse import urljoin, urlparse
 
 import httpx2
@@ -117,6 +118,9 @@ def through_inkcast(b: Browser, base: str, user: str, password: str, tokens: lis
         fail(f"Continue did not send the browser to Keycloak's delete_account action: HTTP {r.status_code} {r.headers.get('location')}")
     if "inkcast_deletion=" not in r.headers.get("set-cookie", ""):
         fail("no return cookie set with the redirect to Keycloak")
+    # delete_account re-authenticates when the sign-in is older than 0 s, counted in whole seconds: a sign-in
+    # in the same second as this request counts as fresh. A person always takes longer; the driver waits.
+    time.sleep(1.5)
     r = c.get(r.headers["location"])
     r = b.sign_in_at_keycloak(r, user, password)                      # delete_account always re-authenticates
     print("4. Keycloak asked for the password again; its confirmation page is up")
