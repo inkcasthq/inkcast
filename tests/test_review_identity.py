@@ -156,5 +156,41 @@ class ResourceIndicators(unittest.TestCase):
                 self.assertEqual(self.sign_in(c, resource), 200, resource)
 
 
+class RevocationReachesRequestsInFlight(unittest.TestCase):
+    """Revoking a token (or Keycloak cutting the person off) must stop what it can do. A REST request whose body is
+    still arriving when the token is revoked must not act afterwards: the caller controls how slowly the body comes,
+    so "checked at the first byte" is a window they can hold open for as long as they like."""
+
+    def test_a_pat_cannot_be_minted_with_a_token_revoked_while_the_body_was_arriving(self):
+        cfg = password_config()
+        app, ctx = in_process("IdentityService", cfg)
+        store = ctx.store
+        user = store.upsert_user("local:owner", "owner", None, None)
+        access = "ic_at_" + "a" * 43
+        store.save_token(access, "access", "c1", user["id"], ["inkcast"], None, "family-1", 3600)
+
+        async def run():
+            parked, go = asyncio.Event(), asyncio.Event()
+
+            async def slow_body():
+                yield b'{"name": "keep-access", '
+                parked.set()                                   # the handler is waiting for the rest
+                await go.wait()
+                yield b'"scopes": ["posts:write"], "expires_in_days": null}'
+
+            async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app=app), base_url=cfg.public_url) as c:
+                sent = asyncio.create_task(c.post("/api/v1/tokens", content=slow_body(), headers={
+                    "Authorization": f"Bearer {access}", "Content-Type": "application/json"}))
+                await parked.wait()
+                store.revoke_family("family-1")                 # the person revokes the stolen token
+                self.assertIsNone(ctx.verifier.principal(access))
+                go.set()
+                return await sent
+
+        r = asyncio.run(run())
+        self.assertEqual(store.list_api_tokens(user["id"]), [], "a never-expiring PAT outlived the revocation")
+        self.assertEqual(r.status_code, 401)
+
+
 if __name__ == "__main__":
     unittest.main()
