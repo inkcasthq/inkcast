@@ -322,7 +322,7 @@ def start_stack(out: pathlib.Path, state: pathlib.Path, base: str, fakes: str, p
                 "INKCAST_KEYCLOAK_SYNC_CLIENT_ID": "inkcast-sync", "INKCAST_KEYCLOAK_SYNC_SECRET": "sync-secret",
                 "INKCAST_KEYCLOAK_SYNC_INTERVAL": "2",
                 "FAKES_KC_ACCOUNT_EMAIL": PERSON, "FAKES_KC_ACCOUNT_PASSWORD": password,
-                "FAKES_KC_BASE_URL": f"{base}/account/deleted",
+                "FAKES_KC_BASE_URL": f"{base}/account/return",
                 "INKCAST_SECRET_KEY": os.environ.get("INKCAST_SECRET_KEY") or secrets.token_urlsafe(48),
                 "INKCAST_PUBLIC_URL": base, "INKCAST_PORT": str(ports["inkcast"]), "INKCAST_METRICS_PORT": str(ports["metrics"]),
                 "INKCAST_DATABASE": str(state / "inkcast.db"),
@@ -696,7 +696,7 @@ async def journey(w: Walk, base: str, fakes: str, callback: Callback, facts: dic
             await page.click("input[value='Confirm deletion']")
         await page.wait_for_selector("#kc-info-message")
         await w.browser("provider deleted page", "The provider deleted the account on the person's own authority and shows its own page; "
-                        "its Back to Application link is Inkcast's /account/deleted.",
+                        "its Back to Application link is Inkcast's /account/return, which finishes the deletion.",
                         ("deleted, with a link back", has("User deleted successfully", "Back to Application")))
         async with page.expect_navigation():
             await page.click("text=Back to Application")
@@ -712,17 +712,21 @@ async def journey(w: Walk, base: str, fakes: str, callback: Callback, facts: dic
     metrics_url = f"http://localhost:{os.environ.get('WALK_METRICS_PORT', '9090')}/metrics"
     scraped = await api.get(metrics_url)
     lines = [ln for ln in scraped.text.splitlines() if "inkcast_identity_users_deleted_total" in ln]
-    counted = 'inkcast_identity_users_deleted_total{via="return"} 1' in lines
-    narration = "Operations see it as a number, never a name: one person erased, learnt of on the visit back from the provider."
+    # Exactly one erasure, learnt of either on the visit back (via=return) or, when the sync's DELETE_ACCOUNT pass ran
+    # first (every 2 s here), from the event (via=event): either way the person saw "deleted" and nothing counts twice.
+    series = [ln for ln in lines if ln.startswith("inkcast_identity_users_deleted_total{")]
+    counted = len(series) == 1 and series[0].endswith(" 1") and ('via="return"' in series[0] or 'via="event"' in series[0])
+    narration = ("Operations see it as a number, never a name: one person erased, learnt of on the visit back from the provider "
+                 "(via=return) or from its DELETE_ACCOUNT event when the sync read that first (via=event).")
     w.record("metric inkcast_identity_users_deleted_total", "rest", counted,
-             f"HTTP {scraped.status_code}; " + ("the counter says 1 via=return" if counted else "expected the via=return counter at 1"),
+             f"HTTP {scraped.status_code}; " + (f"the counter says 1 ({series[0].split('{')[1].split('}')[0]})" if counted
+                                                else "expected exactly one erasure counted, via=return or via=event"),
              narration, await w.panel("HTTP request and response", rest_panel_title("get", "/metrics (the metrics port)"),
                                       f"GET {metrics_url}", f"HTTP {scraped.status_code}\n\n" + "\n".join(lines) + "\n(the other series not shown)",
                                       narration, counted),
              call={"method": "GET", "url": metrics_url, "headers": {}, "body": None}, reply={"status": scraped.status_code, "body": lines},
-             checked="inkcast_identity_users_deleted_total{via=\"return\"} is 1")
-    facts["deletion"] = {"link": bool(delete_link), "me_after": [status_oauth, status_pat],
-                         "metric": next((ln for ln in lines if ln.startswith("inkcast_identity_users_deleted_total{")), None)}
+             checked="inkcast_identity_users_deleted_total is 1, via=return or via=event, and nothing else")
+    facts["deletion"] = {"link": bool(delete_link), "me_after": [status_oauth, status_pat], "metric": series}
     status, after = await w.rest(api, "GET", f"{fakes}/devto/api/articles/me/all",
                                  "What stays: the fake DEV still holds both articles after the account is gone.",
                                  ("the same two articles as before", lambda s, b: s == 200 and isinstance(b, list)

@@ -241,7 +241,6 @@ class UserErasureTests(unittest.TestCase):
         store.save_code(f"code-{name}", "c1", uid, "{}")
         store.set_pending_user(store.create_pending("c1", "{}"), uid)
         pat, _ = store.create_api_token(uid, "ci", ["posts:read"], None)
-        store.create_deletion_request(uid, 900)
         store.apply(f"evt-{uid}", time.time(), [Increment("posts_published", "user", uid, {"platform": "fake"})])
         store.authz_write([(f"user:{uid}", "owner", "organization:acme")])
         store.enqueue(DomainEvent("post.cancelled", user_id=uid, subject="pst_x", attrs={"platform": "fake"}))
@@ -277,6 +276,19 @@ class UserErasureTests(unittest.TestCase):
         self.assertEqual(store.connected_accounts(ada), {})
         self.assertEqual(list(store.connected_accounts(bob)), ["fake"])
         self.assertEqual([r["user_id"] for r in store.claim_due_posts(time.time())], [bob], "only bob's post is due")
+
+    def test_the_pending_deletion_record_outlives_the_erasure(self):
+        """The visit back from Keycloak must still find the record when the sync's event pass erased first."""
+        store = Store(":memory:", "k" * 40)
+        ada, _ = self.seed(store, "ada")
+        ticket = store.create_deletion_request(ada, 900)
+        req = store.open_deletion_link(ticket)
+        cookie = store.arm_deletion_return(req["id"], "kc-ada", 1800)
+        store.erase_user(ada)
+        self.assertEqual(store.deletion_request_by_cookie(cookie)["user_id"], ada, "kept: user id and hashes only")
+        self.assertEqual(set(store.erase_user(ada).values()), {0})
+        store.delete_deletion_request(req["id"])
+        self.assertIsNone(store.deletion_request_by_cookie(cookie))
 
     def test_idempotent_unknown_and_already_erased_return_zeros_and_leave_no_record(self):
         store = Store(":memory:", "k" * 40)

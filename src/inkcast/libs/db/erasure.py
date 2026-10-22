@@ -28,6 +28,9 @@ CREATE TABLE IF NOT EXISTS user_erasures (
 
 # (table, the condition that picks the person's rows). Deleted together in one transaction under the write lock
 # a scheduler claim (``claim_due_posts``) also takes, so a claim runs either before every row or after none is left.
+# Not here on purpose: ``deletion_requests`` (the pending "delete my account" record) outlives the erasure so the
+# visit back from Keycloak can still be answered; it holds the user id and hashes only, expires, and is purged by
+# housekeeping and deleted once answered (tests/test_architecture.py lists it with that reason).
 USER_TABLES: tuple[tuple[str, str], ...] = (
     ("posts", "user_id = :user_id"),
     ("outbox", "user_id = :user_id"),
@@ -39,7 +42,6 @@ USER_TABLES: tuple[tuple[str, str], ...] = (
     ("auth_codes", "user_id = :user_id"),
     ("pending_auth", "user_id = :user_id"),
     ("api_tokens", "user_id = :user_id"),
-    ("deletion_requests", "user_id = :user_id"),
     ("kpi_rollups", "scope_kind = 'user' AND scope_id = :user_id"),
     ("authz_tuples", "subject = 'user:' || :user_id"),
     ("users", "id = :user_id"),

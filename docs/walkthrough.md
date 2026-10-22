@@ -30,8 +30,9 @@ local listener on the callback port, the token exchange.
 10. Delete my account (E9.F9.5.S4): `inkcast_delete_account` (a one-time link, nothing deleted), the REST endpoint
     refusing the CI token, the fresh sign-in, Inkcast's page (what goes, what stays, the export coming soon), the
     provider's re-authentication and confirmation, its "deleted" page linking back, Inkcast's "account deleted"
-    page; then both tokens answer 401, the erasure counter reads 1 (`via="return"`), and the fake DEV still holds
-    both articles: what was published stays.
+    page; then both tokens answer 401, the erasure counter reads exactly 1 (`via="return"`, or `via="event"` when the
+    sync read the DELETE_ACCOUNT event before the visit back), and the fake DEV still holds both articles: what was
+    published stays.
 
 The panels are plainly labelled as MCP tool calls or REST requests; they don't imitate any client's interface.
 Generated credentials (OAuth tokens, the personal access token, the authorization code) are masked in every

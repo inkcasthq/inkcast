@@ -12,11 +12,12 @@ Plays the browser:
 3. Continue: Inkcast sends the browser to Keycloak's ``delete_account`` application-initiated action; Keycloak asks
    for the password once more (the action always re-authenticates) and shows its confirmation page.
 4. Confirm: Keycloak deletes the account and shows its "deleted" page, whose "Back to Application" link (the
-   client's baseUrl) is Inkcast's ``/account/deleted``.
+   client's baseUrl) is Inkcast's ``/account/return``.
 5. Follows it: Inkcast confirms the person is gone through the user sync's read-only view-users, erases, and says so.
 
 What counts as passing: Inkcast's page says the account is deleted; both saved tokens answer 401; the metric
-``inkcast_identity_users_deleted_total{via="return"}`` is up. (The caller checks Keycloak and the database.)
+``inkcast_identity_users_deleted_total`` counts exactly one erasure, ``via="return"`` (this visit) or ``via="event"``
+(the sync read her DELETE_ACCOUNT event first; the page still said deleted). The caller checks Keycloak and the database.
 
 ``KC_MODE=console`` instead deletes from Keycloak's side only, as the account console does it: the account
 console's own ``kc_action=delete_account`` for the ``account-console`` client, with no Inkcast page involved
@@ -139,9 +140,9 @@ def through_inkcast(b: Browser, base: str, user: str, password: str, tokens: lis
         fail(f"the saved tokens answer {codes}, expected all 401")
     print("7. both saved tokens answer 401")
     metrics = httpx2.get(os.environ.get("METRICS_URL", "http://localhost:9090/metrics")).text
-    line = [ln for ln in metrics.splitlines() if ln.startswith("inkcast_identity_users_deleted_total") and 'via="return"' in ln]
-    if not line:
-        fail("inkcast_identity_users_deleted_total{via=\"return\"} is not on the metrics page")
+    line = [ln for ln in metrics.splitlines() if ln.startswith("inkcast_identity_users_deleted_total{")]
+    if len(line) != 1 or not line[0].endswith(" 1") or not ('via="return"' in line[0] or 'via="event"' in line[0]):
+        fail(f"expected exactly one erasure counted (via=return or via=event), got {line}")
     print("   ", *line)
     print("PASS: deleted through the Inkcast flow on the real Keycloak")
 

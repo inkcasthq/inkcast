@@ -8,7 +8,9 @@ Routes
   /tokens/new                                      browser flow that shows a new token once
   /api/v1/tokens, /api/v1/tokens/{id}              REST token management (OAuth tokens only)
   /api/v1/account/deletion-link                    REST: a one-time link to the deletion page (OAuth tokens only)
-  /account/delete/{ticket}, /account/deleted       delete my account: the page, and the visit back from Keycloak
+  /account/delete/{ticket}                         delete my account: the page (after a fresh sign-in)
+  /account/return                                  where Keycloak's info pages link back (the client's baseUrl);
+                                                   finishes a deletion when the visit carries its cookie
 """
 
 from __future__ import annotations
@@ -169,7 +171,7 @@ def _routes(ctx: Context) -> list[Route]:
     # The link (MCP inkcast_delete_account, POST /api/v1/account/deletion-link) opens a fresh sign-in; the confirm
     # page's Continue sends the browser to Keycloak with kc_action=delete_account. Keycloak asks for the password
     # again, confirms, deletes the account on the person's own authority and shows its own "deleted" page, whose
-    # "Back to application" link (the client's baseUrl) is /account/deleted. That visit is matched to the request
+    # "Back to application" link (the client's baseUrl) is /account/return. That visit is matched to the request
     # by a cookie, confirmed through the sync's read-only view-users (the person must be gone), and only then
     # erased (via=return). Cancel and errors come back through /auth/callback with nothing deleted. The sync's
     # DELETE_ACCOUNT reader (via=event) erases anyone the return visit never confirmed.
@@ -218,19 +220,32 @@ def _routes(ctx: Context) -> list[Route]:
         q = request.query_params
         status = q.get("kc_action_status", "")
         if status == "cancelled":
-            return pages.message("Nothing was deleted", "You cancelled at the sign-in provider. Your account and your "
-                                 "data are untouched.")
-        if q.get("error") or status == "error":
-            return pages.message("Nothing was deleted", "The sign-in provider could not delete your account, so Inkcast "
-                                 "has not erased anything. Try again later, or ask the operator.", error=True)
-        return pages.message("Nothing was deleted", "The sign-in provider came back without deleting your account. "
-                             "Your data is untouched; start again if you still want to delete it.")
+            response = pages.message("Nothing was deleted", "You cancelled at the sign-in provider. Your account and your "
+                                     "data are untouched.")
+        elif q.get("error") or status == "error":
+            response = pages.message("Nothing was deleted", "The sign-in provider could not delete your account, so Inkcast "
+                                     "has not erased anything. Try again later, or ask the operator.", error=True)
+        else:
+            response = pages.message("Nothing was deleted", "The sign-in provider came back without deleting your account. "
+                                     "Your data is untouched; start again if you still want to delete it.")
+        response.delete_cookie(COOKIE, path="/account")      # so a later "Back to Application" is the neutral page
+        return response
 
-    async def account_deleted(request: Request) -> Response:
+    async def account_return(request: Request) -> Response:
+        """Where Keycloak's info pages send the browser "Back to Application" (the client's baseUrl): after an
+        email verification, a password reset, a deletion... Without a pending-deletion cookie it is a neutral page
+        that says nothing about deletion. With one, the pending record outlives the erasure (the sync's
+        DELETE_ACCOUNT pass may get there first), so the person always gets the right answer: gone at Keycloak →
+        erased (idempotent; counted as via=return only when this visit erased rows) and "deleted"; Keycloak still
+        has them, or the record is unknown → nothing erased, "being finished"."""
+        cookie = request.cookies.get(COOKIE, "")
+        if not cookie:
+            return pages.message("Back at Inkcast", "You're back at Inkcast. You can close this tab and return to your "
+                                 "assistant or your MCP client.")
         finishing = pages.message("Deletion in progress", "Your account deletion is being finished: once the sign-in "
                                   "provider confirms the account is gone, Inkcast erases your data within about a "
                                   "minute. Nothing of yours remains after that.")
-        req = store.deletion_request_by_cookie(request.cookies.get(COOKIE, ""))
+        req = store.deletion_request_by_cookie(cookie)
         if not req or not req.get("keycloak_id") or not config.keycloak_sync_client_id:
             return finishing
         from .keycloak_sync import KeycloakSync, SyncError, erase_person
@@ -276,7 +291,7 @@ def _routes(ctx: Context) -> list[Route]:
         Route("/auth/consent", auth_consent, methods=["GET", "POST"]),
         Route("/tokens/new", limited(tokens_new, ctx.limiter, "tokens-new", {"GET"}), methods=["GET"]),  # a GET that writes
         Route("/account/delete/{ticket}", limited(account_delete, ctx.limiter, "account-delete", {"GET"}), methods=["GET"]),
-        Route("/account/deleted", account_deleted, methods=["GET"]),
+        Route("/account/return", account_return, methods=["GET"]),
         Route("/api/v1/account/deletion-link", authed(None, account_deletion_link, oauth_only=True), methods=["POST"]),
         Route("/api/v1/tokens", authed(None, list_tokens, oauth_only=True), methods=["GET"]),
         Route("/api/v1/tokens", authed(None, create_token, oauth_only=True), methods=["POST"]),

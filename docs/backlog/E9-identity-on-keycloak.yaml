@@ -95,7 +95,7 @@ features:
     change: 'built in PR #69 (issue #41): Inkcast-led, Keycloak deletes through its delete_account application-initiated
       action (fine-grained admin permissions have no delete-only scope: manage also allows email change and action emails);
       Keycloak 26 never redirects back after a successful deletion, so the client baseUrl links its "deleted" page to
-      /account/deleted, where the visit is matched by a cookie and confirmed through view-users before erasing (via=return);
+      /account/return, where the visit is matched by a cookie and confirmed through view-users before erasing (via=return);
       the sync reads DELETE_ACCOUNT user events as the backstop (via=event); erase_user from #65'
     acceptance:
     - MCP inkcast_delete_account and REST POST /api/v1/account/deletion-link (OAuth only) return a one-time link

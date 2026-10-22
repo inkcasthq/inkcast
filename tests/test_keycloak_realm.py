@@ -91,8 +91,8 @@ class Realm(unittest.TestCase):
         """E9.F9.5.S4 (issue #41): the person deletes the account themselves through Keycloak's delete_account
         application-initiated action, so the action is enabled, every account may use it (the account client's
         delete-account role is a default role), the DELETE_ACCOUNT user event is recorded for the sync's backstop,
-        and Keycloak's "deleted" page links back to Inkcast (the client's baseUrl: Keycloak 26 never redirects after
-        a successful delete_account). The sync still reads only: view-users and view-events."""
+        and Keycloak's info pages link back to Inkcast (the client's baseUrl, which every info page uses, not only
+        the "deleted" one; Keycloak 26 never redirects after a successful delete_account). The sync still reads only: view-users and view-events."""
         actions = {a["alias"]: a for a in self.realm["requiredActions"]}
         self.assertTrue(actions["delete_account"]["enabled"])
         self.assertEqual(actions["delete_account"]["providerId"], "delete_account")
@@ -101,7 +101,8 @@ class Realm(unittest.TestCase):
         self.assertEqual(default["composites"]["client"], {"account": ["delete-account"]})
         self.assertIn("DELETE_ACCOUNT", self.realm["enabledEventTypes"])
         self.assertTrue(self.realm["eventsEnabled"])
-        self.assertEqual(self.client["baseUrl"], "${INKCAST_PUBLIC_URL}/account/deleted")
+        self.assertEqual(self.client["baseUrl"], "${INKCAST_PUBLIC_URL}/account/return",
+                         "Keycloak's info pages all link here: the page is neutral unless a deletion is pending")
         account = next(u for u in self.realm["users"] if u.get("serviceAccountClientId") == "inkcast-sync")
         self.assertEqual(account["clientRoles"], {"realm-management": ["view-users", "view-events"]},
                          "Inkcast holds no admin right over users: deletion is the person's own act")

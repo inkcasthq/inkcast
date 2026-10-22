@@ -44,7 +44,8 @@ CREATE INDEX IF NOT EXISTS api_tokens_user ON api_tokens(user_id);
 -- Small named values a worker keeps between runs (the Keycloak sync's event cursor).
 CREATE TABLE IF NOT EXISTS sync_state (name TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at REAL NOT NULL);
 -- Delete my account (E9.F9.5.S4): one row per request. link_hash is the one-time link (NULL once opened);
--- cookie_hash and keycloak_id are set when the person continues to Keycloak, for the visit that comes back.
+-- cookie_hash and keycloak_id are set when the person continues to Keycloak, for the visit that comes back. The row
+-- outlives erase_user (the sync may erase first) and goes when that visit is answered, or with its TTL.
 CREATE TABLE IF NOT EXISTS deletion_requests (
   id TEXT PRIMARY KEY, user_id TEXT NOT NULL, link_hash TEXT UNIQUE, cookie_hash TEXT UNIQUE, keycloak_id TEXT,
   created_at REAL NOT NULL, expires_at REAL NOT NULL

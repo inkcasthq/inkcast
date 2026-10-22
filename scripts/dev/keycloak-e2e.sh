@@ -54,8 +54,8 @@ kcadm get authentication/required-actions/delete_account -r inkcast | grep -q '"
 kcadm get-roles -r inkcast --rname default-roles-inkcast --cclientid account | grep -q '"delete-account"' \
   || { echo "default-roles-inkcast lacks the account client's delete-account role" >&2; exit 1; }
 kcadm get events/config -r inkcast | grep -q '"DELETE_ACCOUNT"' || { echo "DELETE_ACCOUNT is not an enabled event type" >&2; exit 1; }
-kcadm get clients -r inkcast -q clientId=inkcast-identity --fields baseUrl | grep -q 'http://localhost:8787/account/deleted' \
-  || { echo "the inkcast-identity client's baseUrl must be Inkcast's /account/deleted" >&2; exit 1; }
+kcadm get clients -r inkcast -q clientId=inkcast-identity --fields baseUrl | grep -q 'http://localhost:8787/account/return' \
+  || { echo "the inkcast-identity client's baseUrl must be Inkcast's /account/return" >&2; exit 1; }
 
 echo "== Two people: one with inkcast-user, one without"
 ok_pw="$(rand)A1!"; no_pw="$(rand)B2!"
@@ -112,6 +112,14 @@ echo "-- $newcomer signs up (E9.F9.2.S1): register, verify the emailed link, acc
 drive "$newcomer" "$(rand)C3!" allowed 1
 echo "-- unverified-$newcomer signs up but never verifies: must not reach Inkcast"
 drive "unverified-$newcomer" "$(rand)D4!" unverified 1
+echo "-- Keycloak's Back to Application link (the client's baseUrl) without a pending deletion: a neutral page"
+$k -n "$ns" exec -i "$browser" -- python - <<'PY'
+import sys, httpx2
+r = httpx2.get("http://localhost:8787/account/return")
+ok = r.status_code == 200 and "back at Inkcast" in r.text and "delet" not in r.text.lower()
+print("PASS: /account/return is neutral" if ok else f"FAIL: HTTP {r.status_code}: {r.text[:300]}")
+sys.exit(0 if ok else 1)
+PY
 
 echo "== E9.F9.5.S4: Delete my account"
 dee_pw="$(rand)F6!"; bob_pw="$(rand)G7!"

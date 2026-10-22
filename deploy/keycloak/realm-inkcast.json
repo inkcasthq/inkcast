@@ -84,7 +84,7 @@
       "redirectUris": [
         "${INKCAST_PUBLIC_URL}/auth/callback"
       ],
-      "baseUrl": "${INKCAST_PUBLIC_URL}/account/deleted",
+      "baseUrl": "${INKCAST_PUBLIC_URL}/account/return",
       "webOrigins": [
         "${INKCAST_PUBLIC_URL}"
       ],

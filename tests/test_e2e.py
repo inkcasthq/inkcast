@@ -689,7 +689,7 @@ class AccountDeletion(Harness):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.fakes.kc_base_url = f"{cls.config.public_url}/account/deleted"   # the inkcast-identity client's baseUrl
+        cls.fakes.kc_base_url = f"{cls.config.public_url}/account/return"    # the inkcast-identity client's baseUrl
 
     def setUp(self):
         from inkcast.libs.db.erasure import USER_TABLES
@@ -726,6 +726,9 @@ class AccountDeletion(Harness):
         with store._lock:
             return {t: int(store._conn.execute(f"SELECT COUNT(*) AS n FROM {t} WHERE {c}", {"user_id": user_id}).fetchone()["n"])
                     for t, c in self.USER_TABLES}
+
+    def requests(self, user_id: str) -> int:
+        return len(self.app.store._all("SELECT 1 FROM deletion_requests WHERE user_id = ?", user_id))
 
     def link(self, who: dict) -> str:
         """The one-time link, from the MCP tool (the REST endpoint gives the same)."""
@@ -795,10 +798,14 @@ class AccountDeletion(Harness):
         self.assertEqual(home.status_code, 200)
         self.assertIn("Your account is deleted and your data on Inkcast is erased", home.text)
         self.assertRegex(home.headers["set-cookie"], r'inkcast_deletion=""?;.*(Max-Age=0|expires=)', "the cookie is cleared")
-        self.assertIn("being finished", again.text, "a replay of the visit: the record is gone, nothing to erase")
+        self.assertIn("back at Inkcast", again.text, "the cookie was cleared: a second visit is the neutral page")
+        self.assertNotIn("delet", again.text.lower())
 
         self.assertEqual(self.statuses(ada), [401, 401], "her tokens answer 401")
         self.assertEqual(set(self.rows(ada["id"]).values()), {0}, "her rows are gone")
+        left = self.app.store._all("SELECT link_hash, cookie_hash FROM deletion_requests WHERE user_id = ?", ada["id"])
+        self.assertEqual([(r["link_hash"] is not None, r["cookie_hash"]) for r in left], [(True, None)],
+                         "the answered record is gone; only the REST link never opened remains, until its TTL purges it")
         self.assertIn("kc-del-ada", self.fakes.kc_deleted, "her Keycloak user is gone")
         self.assertEqual(self.statuses(bob), [200, 200])
         self.assertEqual(self.rows(bob["id"]), before_bob, "bob is untouched")
@@ -810,18 +817,18 @@ class AccountDeletion(Harness):
         self.assertEqual(self.sync_tick()["erased"], 0)
         self.assertEqual(self.statuses(bob), [200, 200])
 
-    def sync_tick(self) -> dict:
+    async def async_sync_tick(self) -> dict:
         from inkcast.services.identity.keycloak_sync import KeycloakSync
         sync = self.app.extras.get("keycloak_sync") or KeycloakSync(self.config, self.app.store, None, self.app.metrics)
+        async with httpx2.AsyncClient(timeout=10) as http:
+            sync.http = http
+            try:
+                return await sync.tick()
+            finally:
+                sync.http = self.app.http
 
-        async def tick():
-            async with httpx2.AsyncClient(timeout=10) as http:
-                sync.http = http
-                try:
-                    return await sync.tick()
-                finally:
-                    sync.http = self.app.http
-        return asyncio.run(tick())
+    def sync_tick(self) -> dict:
+        return asyncio.run(self.async_sync_tick())
 
     def test_cancel_at_keycloak_or_an_error_there_deletes_nothing(self):
         ada = self.person("kc-del-cancel")
@@ -835,7 +842,7 @@ class AccountDeletion(Harness):
                 self.assertTrue(r.headers["location"].startswith(f"{self.base}/auth/callback?"), r.headers["location"])
                 query = parse_qs(urlparse(r.headers["location"]).query)
                 back = await c.get(r.headers["location"])
-                stale = await c.get(f"{self.base}/account/deleted")
+                stale = await c.get(f"{self.base}/account/return")
             return query, back, stale
         link = self.link(ada)
         before = self.rows(ada["id"])
@@ -843,8 +850,9 @@ class AccountDeletion(Harness):
         self.assertEqual(query["kc_action_status"], ["cancelled"])
         self.assertIn("Nothing was deleted", back.text)
         self.assertIn("You cancelled", back.text)
-        self.assertEqual(stale.status_code, 200)
-        self.assertEqual(self.rows(ada["id"]), {**before, "deletion_requests": 0}, "nothing erased on cancel; the request is over")
+        self.assertIn("back at Inkcast", stale.text, "the cookie went with the cancel: Back to Application is neutral again")
+        self.assertEqual(self.rows(ada["id"]), before, "nothing erased on cancel")
+        self.assertEqual(self.requests(ada["id"]), 0, "the request is over")
         self.assertEqual(self.statuses(ada), [200, 200])
 
         self.fakes.kc_delete_fails = True
@@ -854,7 +862,8 @@ class AccountDeletion(Harness):
         self.assertEqual(query["error"], ["access_denied"])
         self.assertIn("Nothing was deleted", back.text)
         self.assertIn("could not delete your account", back.text)
-        self.assertEqual(self.rows(ada["id"]), {**before, "deletion_requests": 0}, "nothing erased on an error")
+        self.assertEqual(self.rows(ada["id"]), before, "nothing erased on an error")
+        self.assertEqual(self.requests(ada["id"]), 0)
         self.assertEqual(self.statuses(ada), [200, 200])
         self.assertNotIn("kc-del-cancel", self.fakes.kc_deleted)
         self.assertNotIn('via="return"} 2', self.app.metrics.render())
@@ -868,19 +877,48 @@ class AccountDeletion(Harness):
             async with httpx2.AsyncClient(follow_redirects=False, timeout=20) as c:
                 page = await self.to_confirm_page(c, link)
                 armed = await self.continue_to_keycloak(c, page)             # the cookie is set; Keycloak still has her
-                not_yet = await c.get(f"{self.base}/account/deleted")        # a visit before Keycloak deleted anything
+                not_yet = await c.get(f"{self.base}/account/return")         # a visit before Keycloak deleted anything
                 async with httpx2.AsyncClient(follow_redirects=False, timeout=20) as other:
-                    no_cookie = await other.get(f"{self.base}/account/deleted")
-                    forged = await other.get(f"{self.base}/account/deleted", cookies={"inkcast_deletion": "x" * 43})
+                    no_cookie = await other.get(f"{self.base}/account/return")
+                    forged = await other.get(f"{self.base}/account/return", cookies={"inkcast_deletion": "x" * 43})
                 self.assertIn("Delete account confirmation", armed.text)
             return not_yet, no_cookie, forged
         not_yet, no_cookie, forged = asyncio.run(run())
-        for r in (not_yet, no_cookie, forged):
+        for r in (not_yet, forged):
             self.assertEqual(r.status_code, 200)
             self.assertIn("being finished", r.text)
+        self.assertEqual(no_cookie.status_code, 200)
+        self.assertIn("back at Inkcast", no_cookie.text, "Keycloak's other info pages link here too: no deletion wording")
+        self.assertNotIn("delet", no_cookie.text.lower())
         self.assertEqual(self.rows(ada["id"]), before, "nothing erased without Keycloak's 404")
         self.assertEqual(self.statuses(ada), [200, 200])
         self.assertNotIn("kc-del-forged", self.fakes.kc_deleted)
+
+    def test_the_visit_back_after_the_sync_already_erased_still_says_deleted_and_counts_once(self):
+        ada = self.person("kc-del-raced")
+        link = self.link(ada)
+        before = self.app.metrics.render()
+
+        async def run():
+            async with httpx2.AsyncClient(follow_redirects=False, timeout=20) as c:
+                page = await self.to_confirm_page(c, link)
+                confirm = await self.continue_to_keycloak(c, page)
+                deleted = await c.post(self.keycloak_form(confirm), data={})
+                back = re.search(r'href="([^"]+)"[^>]*>[^<]*Back to Application', deleted.text).group(1)
+                self.assertEqual((await self.async_sync_tick())["erased"], 1, "the sync's event pass got there first")
+                self.assertEqual(set(self.rows(ada["id"]).values()), {0})
+                home = await c.get(back)
+                again = await c.get(back)
+            return home, again
+        home, again = asyncio.run(run())
+        self.assertEqual(home.status_code, 200)
+        self.assertIn("Your account is deleted and your data on Inkcast is erased", home.text)
+        self.assertRegex(home.headers["set-cookie"], r'inkcast_deletion=""?;.*(Max-Age=0|expires=)')
+        self.assertIn("back at Inkcast", again.text, "the record went with the answer; the cookie with it")
+        count = lambda text, via: next((ln for ln in text.splitlines() if f'inkcast_identity_users_deleted_total{{via="{via}"}}' in ln), None)
+        self.assertEqual(count(self.app.metrics.render(), "return"), count(before, "return"), "not counted again on the return")
+        self.assertNotEqual(count(self.app.metrics.render(), "event"), count(before, "event"))
+        self.assertEqual(self.statuses(ada), [401, 401])
 
     def test_a_link_opened_by_another_person_is_refused(self):
         ada, bob = self.person("kc-del-link-ada"), self.person("kc-del-link-bob")
@@ -921,7 +959,7 @@ class AccountDeletion(Harness):
                 deletion_link(config, self.app.store, ada["id"])
             self.assertEqual(refused.exception.status, 409)
             self.assertIn("not available", refused.exception.message.lower())
-        self.assertEqual(self.rows(ada["id"])["deletion_requests"], 0, "no request row without a link")
+        self.assertEqual(self.requests(ada["id"]), 0, "no request row without a link")
 
 
 if __name__ == "__main__":

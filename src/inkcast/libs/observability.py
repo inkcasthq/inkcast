@@ -181,7 +181,7 @@ _ROUTE_TEMPLATES: tuple[tuple[re.Pattern[str], str], ...] = tuple(
         "/authorize", "/token", "/register", "/revoke",
         "/auth/login", "/auth/callback", "/auth/consent", "/auth/logout",
         "/tokens/new",
-        "/account/delete/{ticket}", "/account/deleted",
+        "/account/delete/{ticket}", "/account/return",
         "/connect/{ticket}",
         "/api", "/api/docs", "/api/redoc", "/api/openapi.json", "/api/static/{asset}",
         "/api/v1/me",
