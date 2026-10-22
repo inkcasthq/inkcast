@@ -122,5 +122,19 @@ class Realm(unittest.TestCase):
         self.assertLessEqual(r["accessTokenLifespan"], 300)
 
 
+
+class E2eRandomValues(unittest.TestCase):
+    """keycloak-e2e.sh's rand() never starts with '-', which kcadm reads as an option (issue #117)."""
+
+    def test_rand_never_starts_with_a_dash(self):
+        import subprocess
+        script = (pathlib.Path(__file__).resolve().parents[1] / "scripts" / "dev" / "keycloak-e2e.sh").read_text()
+        definition = next(line for line in script.splitlines() if line.startswith("rand()"))
+        out = subprocess.run(["bash", "-c", definition + "\nfor i in $(seq 500); do rand; echo; done"],
+                             capture_output=True, text=True, check=True).stdout.split()
+        self.assertEqual(len(out), 500)
+        self.assertEqual([v for v in out if v.startswith("-")], [])
+
+
 if __name__ == "__main__":
     unittest.main()

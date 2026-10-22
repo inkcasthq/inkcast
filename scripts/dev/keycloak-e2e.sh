@@ -22,7 +22,8 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 KC="$ROOT/deploy/keycloak"
 S="$KC/.secrets"
 k="${KUBECTL:-kubectl}"
-rand() { python3 -c 'import secrets; print(secrets.token_urlsafe(24), end="")'; }
+# Starts with a letter: token_urlsafe can begin with '-', which kcadm then reads as an option (issue #117).
+rand() { python3 -c 'import secrets; print("k" + secrets.token_urlsafe(24), end="")'; }
 
 mkdir -p "$S"
 for name in admin-password inkcast-client-secret inkcast-sync-secret smtp-password; do [ -s "$S/$name" ] || rand > "$S/$name"; done
