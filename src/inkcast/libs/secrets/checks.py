@@ -272,6 +272,27 @@ def _check_publish_retry_window(ctx: _Ctx) -> Check:
                  f"({policy.max_attempts} sends).")
 
 
+def _check_pat_expiry(ctx: _Ctx) -> Check:
+    """F1.10.S2 (issue #90): a personal access token lasts INKCAST_PAT_DEFAULT_DAYS unless asked otherwise, at most
+    INKCAST_PAT_MAX_DAYS, and never only while INKCAST_PAT_ALLOW_NO_EXPIRY. Allowing one that never expires is a
+    choice production and staging should see on the table, not a problem: ``info`` there. Tokens already issued keep
+    their expiry whatever the settings say now."""
+    policy = getattr(ctx.config, "pat", None)
+    title = "Personal access tokens expire"
+    if policy is None:
+        return Check("pat-expiry", title, "skip", "No token policy on this Config.")
+    settings = (f"INKCAST_PAT_DEFAULT_DAYS={policy.default_days}, INKCAST_PAT_MAX_DAYS={policy.max_days}, "
+                f"INKCAST_PAT_ALLOW_NO_EXPIRY={'true' if policy.allow_no_expiry else 'false'}")
+    if policy.allow_no_expiry:
+        hosted = getattr(ctx.config, "environment", "development") in ("production", "staging")
+        return Check("pat-expiry", title, "info" if hosted else "pass",
+                     f"{settings}: a person may create a token that never expires (the API's null, the page's never), "
+                     "to revoke when no longer needed. Set INKCAST_PAT_ALLOW_NO_EXPIRY=false to require an expiry; "
+                     "tokens already issued keep theirs.")
+    return Check("pat-expiry", title, "pass",
+                 f"{settings}: every new token expires, within {policy.max_days} days ({policy.default_days} unless asked).")
+
+
 def _check_database_file(ctx: _Ctx) -> Check:
     path = ctx.config.database_path
     if path == ":memory:" or not os.path.exists(path):
@@ -295,8 +316,8 @@ def _check_secrets_source(ctx: _Ctx) -> Check:
 CHECKS: tuple[Callable[[_Ctx], Check], ...] = (
     _check_public_url, _check_secret_key, _check_reveal_flag, _check_debug_flags, _check_log_format,
     _check_secret_files, _check_env_scrubbed, _check_redaction, _check_non_root, _check_core_dumps,
-    _check_forwarded_ips, _check_login, _check_erase_after, _check_publish_retry_window, _check_database_file,
-    _check_secrets_source,
+    _check_forwarded_ips, _check_login, _check_erase_after, _check_publish_retry_window, _check_pat_expiry,
+    _check_database_file, _check_secrets_source,
 )
 
 

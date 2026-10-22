@@ -106,7 +106,7 @@ Designed cloud-native, on CNCF building blocks: Kubernetes/OpenShift, Keycloak, 
 >    - first-broker-login configured to link accounts by verified email
 > 2. Move storage to Postgres with migrations. Add `workspaces` and `memberships`, and scope every query by workspace.
 > 3. On first sign-in, create a personal workspace and issue an API token, shown once on a one-time page:
->    - prefix `ink_pat_`, stored as a SHA-256 hash, scopes `publish`/`read`, 90-day expiry
+>    - prefix `ink_pat_`, stored as a SHA-256 hash, scopes `publish`/`read`, 90-day expiry (now the setting `INKCAST_PAT_DEFAULT_DAYS`; at most `INKCAST_PAT_MAX_DAYS`, 366; never only with `INKCAST_PAT_ALLOW_NO_EXPIRY`, true by default. Tokens already issued keep their expiry when a maximum is lowered)
 >    - accepted as a Bearer token on `/mcp` and on a new REST API
 > 4. Split the scheduler into its own worker process, using `SELECT … FOR UPDATE SKIP LOCKED`.
 > 5. Replace the local Fernet key with envelope encryption: a KMS interface, a local-dev implementation and a key-rotation command.

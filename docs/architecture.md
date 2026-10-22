@@ -84,8 +84,8 @@ Every route, MCP tool and job goes through one `authz.require()`: token scope, t
 
 - Platform credentials are encrypted with a Fernet key derived from `INKCAST_SECRET_KEY`. Rotating that key requires reconnecting platforms; a KMS-backed envelope is planned (issue 09).
 - OAuth codes and access/refresh tokens are stored only as SHA-256 hashes.
-- Access tokens last 1 hour and refresh tokens 30 days. A refresh revokes the whole token family.
-- Personal access tokens (`ink_pat_…`) are stored as hashes, carry only the scopes they were created with, expire (90 days by default), and can't create or revoke tokens. A new token is shown once: in the API response, or on the `/tokens/new` page after a fresh sign-in. It never appears in an AI transcript ([ADR-0005](adr/0005-personal-access-tokens.md)).
+- Access tokens last 1 hour, fixed on purpose: they are opaque tokens checked in the database on every call, so cutting someone off is immediate whatever the lifetime, and a longer one would only widen a leak. A newly issued refresh token lasts `INKCAST_REFRESH_TOKEN_DAYS` (30 by default, 1 to 90); each refresh rotates and issues a new one with the full lifetime, so it is an idle timeout, and a change applies to newly issued tokens only. A refresh revokes the whole token family.
+- Personal access tokens (`ink_pat_…`) are stored as hashes, carry only the scopes they were created with, expire (`INKCAST_PAT_DEFAULT_DAYS`, 90 by default, when the request doesn't say; at most `INKCAST_PAT_MAX_DAYS`, 366; never only while `INKCAST_PAT_ALLOW_NO_EXPIRY` is true, the default), and can't create or revoke tokens. Every entry point (REST, `/tokens/new`, the MCP tool) enforces the limit where the token is made, with a 422 naming it; a lower maximum doesn't shorten tokens already issued. A new token is shown once: in the API response, or on the `/tokens/new` page after a fresh sign-in. It never appears in an AI transcript ([ADR-0005](adr/0005-personal-access-tokens.md)).
 - Platform keys never pass through the AI. `inkcast_connect` returns a one-time, 15-minute link instead. The key is verified against the platform before it is stored.
 
 **Authorization**

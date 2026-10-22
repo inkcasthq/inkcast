@@ -16,6 +16,12 @@ configMapGenerator:
       # is cut off at once and erased this many days later (E9.F9.5.S6). 0 erases at the first reconcile; off never
       # erases on a 404, which the posture check warns about here. The default is 30: stated so it is a choice.
       - INKCAST_KEYCLOAK_ERASE_AFTER_DAYS=30
+      # Personal access tokens (F1.10.S2): the lifetime when a request doesn't say, the most a request may ask for
+      # (366 is the ceiling), and whether one may never expire (the posture check reports it as info here). The
+      # defaults, stated so they are a choice; a lower maximum would not shorten tokens already issued.
+      - INKCAST_PAT_DEFAULT_DAYS=90
+      - INKCAST_PAT_MAX_DAYS=366
+      - INKCAST_PAT_ALLOW_NO_EXPIRY=true
 images:
   - name: ghcr.io/inkcasthq/inkcast
     digest: sha256:0000000000000000000000000000000000000000000000000000000000000000

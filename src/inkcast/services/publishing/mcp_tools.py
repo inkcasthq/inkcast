@@ -24,6 +24,7 @@ from mcp.types import ToolAnnotations
 from ... import __version__
 from ...libs.account import deletion_link
 from ...libs.auth import SCOPE, SCOPES, Principal
+from ...libs.config import PAT_DAYS_CEILING
 from ...libs.content.story import SCHEDULE_HORIZON_DAYS
 from ...libs.contracts.models import PublishRequest, PublishResponse, SyncFile, SyncRequest, SyncResponse
 from ...libs.runtime import Context
@@ -234,21 +235,39 @@ def build_mcp(ctx: Context, service: InkcastService, sync: GitSync) -> MCPServer
         post = await call("posts:write", service.cancel, post_id)
         return f"Cancelled “{post.title}” (post `{post.id}`)."
 
-    @mcp.tool(title="Create a personal access token", annotations=ToolAnnotations(read_only_hint=True))
+    # This server's policy for personal access tokens (F1.10.S2, issue #90): the tool states it (its description and
+    # the parameter's default; the annotations themselves must be module-level names, the SDK evaluates them without
+    # this closure) and enforces it, so the link handed out is never one the page would refuse. The schema's ceiling
+    # stays 366, like the API document's; the configured maximum may be lower.
+    pat = config.pat
+    never = ("null = never, which the person confirms on the page." if pat.allow_no_expiry
+             else "Every token expires on this server: null (never) is refused.")
+
+    @mcp.tool(title="Create a personal access token", annotations=ToolAnnotations(read_only_hint=True), description=(
+        "Give the person a link where they sign in and get a token for CI (e.g. the GitHub Action). You never see the "
+        f"token. On this server a token lasts {pat.default_days} days unless expires_in_days says otherwise, at most "
+        f"{pat.max_days}. {never}"))
     async def inkcast_create_token(
         name: Annotated[str, Field(min_length=1, max_length=80, description="What it's for, e.g. 'blog repo CI'.")],
         scopes: Annotated[list[str], Field(description=f"Scopes; one or more of {', '.join(SCOPES)}. CI sync needs 'stories:sync'.")] = ["stories:sync"],  # noqa: B006
-        expires_in_days: Annotated[int, Field(ge=1, le=366, description="Days until it stops working.")] = 90,
+        expires_in_days: Annotated[int | None, Field(ge=1, le=PAT_DAYS_CEILING, description=(
+            "Days until it stops working; omit for this server's default. The server's maximum may be lower than 366 "
+            "(the tool description states it; a refusal names it). null = never, where the server allows it."))] = pat.default_days,
     ) -> str:
-        """Give the person a link where they sign in and get a token for CI (e.g. the GitHub Action). You never see the token."""
+        """The link to /tokens/new (the description above, with this server's lifetimes, is what the client sees)."""
         who = principal("posts:read")
         if who.kind != "oauth":
             raise ToolError("A personal access token can't create tokens; sign in with OAuth (/mcp in Claude Code).")
         unknown = [s for s in scopes if s not in SCOPES]
         if unknown:
             raise ToolError(f"Unknown scope(s): {', '.join(unknown)}. Choose from: {', '.join(SCOPES)}.")
-        query = urlencode({"name": name, "scopes": " ".join(scopes), "days": expires_in_days})
-        return (f"Open this link to create the token “{name}” ({', '.join(scopes)}; {expires_in_days} days). "
+        why = pat.refusal(expires_in_days)
+        if why:
+            raise ToolError(why)
+        lifetime = "never expires" if expires_in_days is None else f"{expires_in_days} days"
+        query = urlencode({"name": name, "scopes": " ".join(scopes),
+                           "days": "never" if expires_in_days is None else expires_in_days})
+        return (f"Open this link to create the token “{name}” ({', '.join(scopes)}; {lifetime}). "
                 f"You'll sign in, confirm, and see the token once — store it as a CI secret named INKCAST_TOKEN:\n"
                 f"{config.public_url}/tokens/new?{query}")
 
