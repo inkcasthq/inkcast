@@ -139,5 +139,25 @@ class ReasonUncapped(Api):
         self.assertLess(len(message), 500)
 
 
+class LongNumberInAnotherBase(Api):
+    """int()'s 4300-digit limit, which the PR relies on for a long number, is on decimal text. PyYAML builds 0x...,
+    0... (octal), 0b... and 1:2:3 (base 60) ints with int(text, 16/8/2) and arithmetic, which have no limit, so the
+    load succeeds; then parse_story's str() of the subtitle, _as_tags' of a tag or for_platform's of a platform's
+    title raises a plain ValueError: REST publish answers 500, and so does the whole sync."""
+
+    def test_a_number_too_long_to_print_is_refused_whatever_its_base(self):
+        cases = {
+            "hex subtitle": ("subtitle: 0x" + "f" * 3600 + "\n", "subtitle"),          # 3600 characters, 4335 digits
+            "octal tag": ("tags: [0" + "7" * 4800 + "]\n", "line 5"),
+            "binary platform title": ("devto:\n  title: 0b" + "1" * 14400 + "\n", "title"),
+            "base 60 subtitle": ("subtitle: " + ":".join(["1"] * 2500) + "\n", "subtitle"),
+        }
+        for name, (extra, where) in cases.items():
+            with self.subTest(name):
+                message = self.assert_refused(extra)
+                self.assertIn(where, message)
+                self.assertIn("isn't a valid int", message)
+
+
 if __name__ == "__main__":
     unittest.main()

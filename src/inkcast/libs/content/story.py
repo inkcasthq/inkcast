@@ -66,8 +66,11 @@ def _guarded(construct):
         if not isinstance(node, yaml.ScalarNode):
             raise yaml.constructor.ConstructorError(None, None, f"expected a scalar, but found a {node.id}", node.start_mark)
         try:
-            return construct(loader, node)
-        # Only PyYAML's conversion of this one scalar runs in the try, so nothing unrelated is caught. It lets out
+            value = construct(loader, node)
+            if type(value) is int:
+                str(value)  # int() limits decimal text to 4300 digits; 0x..., 0..., 0b... and 1:2:3 skip it, str() doesn't
+            return value
+        # Only the conversion of this one scalar runs in the try, so nothing unrelated is caught. It lets out
         # ValueError (datetime: 29 Feb 2027, an offset of 24 hours or more; int: 4301 digits, `!!int x`; float:
         # `!!float x`), KeyError (`!!bool x`), AttributeError (`!!timestamp x`: no regexp match, so None has
         # no groupdict) and IndexError (`!!int ''`, `!!float ''`: the sign check reads the first character); a
