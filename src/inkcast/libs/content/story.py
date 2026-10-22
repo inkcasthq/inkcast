@@ -76,6 +76,10 @@ def split_front_matter(markdown: str) -> tuple[dict[str, Any], str]:
     if not match:
         return {}, markdown
     try:
+        # An alias (*name) repeats a whole value: nested ones turn a few hundred bytes into gigabytes once the value
+        # is made text (tags, titles, previews). Front matter doesn't need them, so they are refused before loading.
+        if any(isinstance(e, yaml.AliasEvent) for e in yaml.parse(match.group(1), Loader=yaml.SafeLoader)):
+            raise StoryError("The front matter uses a YAML alias (*name); write the value out instead.")
         data = yaml.safe_load(match.group(1)) or {}
     except yaml.YAMLError as exc:
         raise StoryError(f"The front matter isn't valid YAML: {exc}") from exc
