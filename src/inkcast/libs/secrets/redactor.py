@@ -31,8 +31,8 @@ SENSITIVE_KEYS = frozenset({
     "x-aws-parameters-secrets-token", "x-vault-token", "code_verifier", "ticket",
 })
 
-# scheme://user:password@host  ->  scheme://user:[REDACTED]@host
-_URL_CREDENTIALS = re.compile(r"(\b[a-z][a-z0-9+.-]*://[^:/\s@]+:)[^@\s/]+@", re.I)
+# scheme://user:password@host  ->  scheme://user:[REDACTED]@host (the user may be empty: redis://:password@host)
+_URL_CREDENTIALS = re.compile(r"(\b[a-z][a-z0-9+.-]*://[^:/\s@]*:)[^@\s/]+@", re.I)
 
 
 # Names that mention a secret but hold a pointer or a setting, not the value: INKCAST_SECRET_KEY_FILE,
@@ -66,7 +66,8 @@ class Redactor:
         """Remember a secret value (and the ways it is commonly encoded) so it is masked everywhere."""
         if not isinstance(value, str) or len(value) < MIN_SECRET_LENGTH:
             return
-        variants = {value, json.dumps(value)[1:-1], quote(value, safe="")}
+        # JSON-escaped both ways: ASCII escapes (json.dumps' default) and as the JSON log formatter writes it.
+        variants = {value, json.dumps(value)[1:-1], json.dumps(value, ensure_ascii=False)[1:-1], quote(value, safe="")}
         with self._lock:
             for v in variants:
                 self._values.pop(v, None)

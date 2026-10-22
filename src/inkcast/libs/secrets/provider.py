@@ -236,7 +236,7 @@ class SecretsProvider:
         age = self._clock() - prev.fetched_at if prev else float("inf")
         servable = not force and prev is not None and age < self.max_stale
         if prev:
-            prev.last_error = f"{type(exc).__name__}: {exc}"
+            prev.last_error = self._redactor.scrub(f"{type(exc).__name__}: {exc}")  # served on /secrets, not only logged
         if servable:
             log.warning("Could not re-read secret %s (%s); using the cached value (%ds old)", name, exc, int(age),
                         extra={"event": "secrets.fetch.stale", "secret_name": name, "age_seconds": int(age)})
