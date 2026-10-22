@@ -12,6 +12,10 @@ configMapGenerator:
     behavior: merge
     literals:
       - INKCAST_AUTHZ_ALLOW_LOCAL=false
+      # A person gone from Keycloak (deleted by an administrator, or a self-deletion whose event the sync never saw)
+      # is cut off at once and erased this many days later (E9.F9.5.S6). 0 erases at the first reconcile; off never
+      # erases on a 404, which the posture check warns about here. The default is 30: stated so it is a choice.
+      - INKCAST_KEYCLOAK_ERASE_AFTER_DAYS=30
 images:
   - name: ghcr.io/inkcasthq/inkcast
     digest: sha256:0000000000000000000000000000000000000000000000000000000000000000

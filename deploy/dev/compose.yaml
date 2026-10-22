@@ -36,6 +36,7 @@ services:
       INKCAST_API_URL_MEDIUM: http://fakes:8999/medium/v1
       INKCAST_SCHEDULER_INTERVAL: "5"
       INKCAST_INSIGHTS_INTERVAL: "5"
+      INKCAST_KEYCLOAK_ERASE_AFTER_DAYS: "30"    # inert with password sign-in; stated as the environments state it
     secrets: [inkcast_password, inkcast_secret_key]
     volumes: [inkcast-data:/data]
 
