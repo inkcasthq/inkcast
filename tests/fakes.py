@@ -300,7 +300,8 @@ class Fakes:
         if not self._devto_ok(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         return JSONResponse([{"id": 1000 + i, "title": a["title"], "canonical_url": a.get("canonical_url"),
-                              "url": f"https://dev.to/ada/article-{i}", "published": a["published"]}
+                              "url": f"https://dev.to/ada/article-{i}", "published": a["published"],
+                              "body_markdown": a.get("body_markdown")}  # as DEV's API: the walkthrough's integrity check reads it
                              for i, a in enumerate(self.devto_articles, 1)])
 
     # ---- OpenFGA REST API ----------------------------------------------------------------------------------

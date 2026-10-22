@@ -81,6 +81,24 @@ features:
     - Both Dockerfile stages on python:3.15-slim (digest-pinned, F1.8.S2); the image job, grype and kind pass
     - Every dependency installs from wheels on 3.15 (no source builds in the image build log)
     - Workflows.test_the_image_runs_a_python_the_tests_run_on still passes; README states the image's Python
+  - id: F1.6.S4
+    title: 'End-to-end walkthrough built and checked in CI: the MCP client flow, the browser pages and the REST calls, pictured'
+    status: done
+    change: 'new; issue #57, built in PR #<n>'
+    acceptance:
+    - 'scripts/dev/walkthrough/run_walk.sh drives the whole journey for real against the fake platforms: the real SDK OAuth
+      flow (discovery, registration, PKCE, sign-in and consent in the browser, the code at a local listener), platforms,
+      connect DEV, destinations, dry run, draft, schedule, list, cancel, a personal access token, a git sync with it as the
+      GitHub Action sends it, the ledger, the insights summary, the API reference pages'
+    - Every step is recorded (time, verdict, detail, the call and the reply) and pictured (a screenshot or a plainly labelled
+      panel of the MCP tool call or REST request); a reply missing what the step expects fails the step, a broken page is refused
+    - Generated credentials are masked in every picture and in results.json; the password comes from the environment only
+    - 'integrity_check.py: the DEV article matches the published story (title, body hash), the ledger hash equals the hash
+      the server computes for the synced file, the cancelled schedule never published, no credential in full in any output'
+    - 'build_doc.py: walkthrough.html and walkthrough.pdf from results.json, integrity.jsonl and env.json, every number read
+      from the files, images downscaled and tall ones cropped with a note, findings.json as the Findings section'
+    - 'CI: the 3.14 test job runs it and uploads walkthrough-<sha>; on main the captures job publishes it to ci-captures
+      (walkthrough/latest/) and the branch README links the document; tests/test_walkthrough.py covers the helpers'
 - id: F1.7
   title: Docs
   stories:
