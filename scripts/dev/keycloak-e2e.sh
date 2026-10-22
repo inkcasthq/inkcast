@@ -49,10 +49,18 @@ for role in view-users view-events; do
 done
 echo "$sync_roles" | grep -q '"manage-users"' && { echo "the inkcast-sync service account must not manage users" >&2; exit 1; }
 echo "-- E9.F9.5.S4: delete_account enabled, delete-account a default role, DELETE_ACCOUNT recorded, the client links back"
-kcadm get authentication/required-actions/delete_account -r inkcast | grep -q '"enabled" : true' \
-  || { echo "the delete_account required action is not enabled" >&2; exit 1; }
-kcadm get-roles -r inkcast --rname default-roles-inkcast --cclientid account | grep -q '"delete-account"' \
-  || { echo "default-roles-inkcast lacks the account client's delete-account role" >&2; exit 1; }
+# Parsed as JSON and printed, not grepped: kcadm's formatting is not a contract (see the event-retention check above).
+kcadm get authentication/required-actions -r inkcast | python3 -c '
+import json, sys
+actions = {a.get("alias"): a for a in json.load(sys.stdin)}
+got = actions.get("delete_account")
+print("delete_account required action:", {k: (got or {}).get(k) for k in ("alias", "providerId", "enabled", "defaultAction")})
+sys.exit(0 if got and got.get("enabled") is True else "the delete_account required action is not enabled")'
+kcadm get roles/default-roles-inkcast/composites -r inkcast | python3 -c '
+import json, sys
+names = sorted(r.get("name") for r in json.load(sys.stdin))
+print("default-roles-inkcast composites:", names)
+sys.exit(0 if "delete-account" in names else "default-roles-inkcast lacks the account client'"'"'s delete-account role")'
 kcadm get events/config -r inkcast | grep -q '"DELETE_ACCOUNT"' || { echo "DELETE_ACCOUNT is not an enabled event type" >&2; exit 1; }
 kcadm get clients -r inkcast -q clientId=inkcast-identity --fields baseUrl | grep -q 'http://localhost:8787/account/return' \
   || { echo "the inkcast-identity client's baseUrl must be Inkcast's /account/return" >&2; exit 1; }

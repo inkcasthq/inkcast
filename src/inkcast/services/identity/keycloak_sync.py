@@ -41,6 +41,14 @@ class SyncError(Exception):
     pass
 
 
+def _user_not_found(r: httpx2.Response) -> bool:
+    try:
+        body = r.json()
+    except ValueError:
+        return False
+    return isinstance(body, dict) and body.get("error") == "User not found"
+
+
 def erase_person(store: Any, metrics: Any, user_id: str, via: str) -> dict[str, int]:
     """Erase one person whose account is gone (``via`` ``return`` for the visit back from Keycloak, ``event`` for
     the DELETE_ACCOUNT event); logs ``identity.user.deleted`` with ids and counts only. Nothing to erase is not an
@@ -100,9 +108,11 @@ class KeycloakSync:
         return r
 
     async def person(self, keycloak_id: str) -> str:
-        """'active', 'disabled' or 'deleted', as Keycloak sees them now."""
+        """'active', 'disabled' or 'deleted', as Keycloak sees them now. Only Keycloak's own answer for a missing
+        user (404 ``{"error": "User not found"}``, UsersResource) means 'deleted': a 404 from anything else (a proxy
+        that doesn't expose /admin/, a wrong URL) is an error, never a reason to erase or cut anyone off."""
         r = await self._get(f"users/{keycloak_id}")
-        if r.status_code == 404:
+        if r.status_code == 404 and _user_not_found(r):
             return "deleted"
         if r.status_code != 200:
             raise SyncError(f"reading users/{keycloak_id} answered HTTP {r.status_code}")
@@ -129,9 +139,10 @@ class KeycloakSync:
         self.store.set_sync_state(CURSOR, str(newest))
         return list(dict.fromkeys(ids))
 
-    async def deleted_accounts(self) -> list[str]:
+    async def deleted_accounts(self) -> tuple[list[str], int]:
         """Keycloak ids from DELETE_ACCOUNT user events at or after their own cursor (the person deleted the account
-        themselves); moves that cursor. Same shape as ``changed_people``: newest first, at most 500."""
+        themselves), and the newest event time: ``tick`` moves the cursor there only once every one of them is
+        erased, so an erasure that failed is read again. Same shape as ``changed_people``: newest first, at most 500."""
         cursor = int(self.store.get_sync_state(USER_EVENTS_CURSOR) or self.clock() * 1000)
         day = datetime.fromtimestamp(cursor / 1000 - 86400, timezone.utc).strftime("%Y-%m-%d")
         r = await self._get("events", params=[("type", "DELETE_ACCOUNT"), ("dateFrom", day), ("first", "0"), ("max", "500")])
@@ -143,8 +154,7 @@ class KeycloakSync:
             if at >= cursor and event.get("type") == "DELETE_ACCOUNT" and event.get("userId"):
                 ids.append(str(event["userId"]))
             newest = max(newest, at)
-        self.store.set_sync_state(USER_EVENTS_CURSOR, str(newest))
-        return list(dict.fromkeys(ids))
+        return list(dict.fromkeys(ids)), newest
 
     # ---- what Inkcast does about it ------------------------------------------------------------------------
 
@@ -175,9 +185,11 @@ class KeycloakSync:
     async def tick(self) -> dict[str, int]:
         """One pass: the events since the cursor, then a reconcile when it is due. Returns what it did."""
         done = {"checked": 0, "disabled": 0, "erased": 0}
-        for keycloak_id in await self.deleted_accounts():
+        deleted, newest = await self.deleted_accounts()
+        for keycloak_id in deleted:
             if self._erase(keycloak_id):
                 done["erased"] += 1
+        self.store.set_sync_state(USER_EVENTS_CURSOR, str(newest))
         for keycloak_id in await self.changed_people():
             done["checked"] += 1
             state = await self.person(keycloak_id)
