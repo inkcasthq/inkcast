@@ -12,9 +12,12 @@ import unittest
 import httpx2
 
 from inkcast.libs.content.story import StoryError, parse_story
+from inkcast.libs.contracts.models import SyncFile, SyncRequest
 from inkcast.libs.db import Store
+from inkcast.libs.db.ledger import CLAIM_TTL
 from inkcast.libs.pipeline import STUCK_AFTER, Publisher
 from inkcast.libs.platforms import Account, Platform, Prepared, PublishResult
+from inkcast.services.publishing.sync import GitSync
 
 
 class Fake(Platform):
@@ -50,6 +53,36 @@ class Fake(Platform):
 def shared_db() -> str:
     """One SQLite file that several Store connections (several replicas) open."""
     return tempfile.mkdtemp() + "/inkcast.db"
+
+
+class Died(BaseException):
+    """The process stopped right here (OOM kill, node drain, deploy): nothing after this line runs."""
+
+
+def story_md(title: str = "Hello", body: str = "Body.", extra: str = "") -> str:
+    return f"---\ntitle: {title}\nplatforms: [fake]\n{extra}---\n\n{body}\n"
+
+
+class SyncHarness:
+    """A store with one user connected to the fake platform, its publisher and Git sync."""
+
+    def make(self, platform: Platform | None = None):
+        self.store = Store(shared_db(), "k" * 40)
+        self.store.upsert_user("local:usr", "usr", None, None)
+        self.user = self.store._one("SELECT id FROM users")["id"]
+        self.fake = platform or Fake()
+        self.store.save_credentials(self.user, "fake", {"k": "v"}, {"id": "1", "name": "fake"})
+        self.publisher = Publisher(self.store, {"fake": self.fake})
+        self.git = GitSync(self.store, {"fake": self.fake}, self.publisher)
+
+    def sync(self, markdown: str, path: str = "posts/p.md"):
+        req = SyncRequest(source="github.com/acme/blog", files=[SyncFile(path=path, markdown=markdown)])
+        return asyncio.run(self.git.sync(self.user, req)).results
+
+    def age(self):
+        """Ten minutes and a second later: claims and 'publishing' rows from before now look abandoned."""
+        self.store._exec("UPDATE ledger SET synced_at = synced_at - ?", CLAIM_TTL + 1)
+        self.store._exec("UPDATE posts SET updated_at = updated_at - ?", STUCK_AFTER + 1)
 
 
 class FrontMatterAliasBomb(unittest.TestCase):
@@ -92,6 +125,48 @@ class SchedulerReplicas(unittest.TestCase):
         self.assertEqual(fake.sent.count("slow"), 1)
         self.assertEqual(fake.sent.count("tail"), 1, fake.sent)
         self.assertEqual({r["status"] for r in one._all("SELECT status FROM posts")}, {"published"})
+
+
+class SyncDiedMidSend(SyncHarness, unittest.TestCase):
+    """A sync claims the ledger entry ('syncing', no post id), creates the post and sends it. If the process stops
+    before the result is recorded, the post row is recovered by the scheduler, but the ledger never learnt its id:
+    after CLAIM_TTL the next sync takes the claim over and creates the post again, without asking anyone."""
+
+    def test_the_request_reached_the_platform_and_cant_be_checked(self):
+        self.make()
+        self.fake.capabilities = frozenset()                      # like Medium: no find_existing
+
+        async def died(prepared):
+            raise Died()
+
+        self.fake.on_publish = died
+        with self.assertRaises(Died):
+            self.sync(story_md())
+        self.fake.on_publish = None
+        self.age()
+        self.sync(story_md())                                     # the next CI run, before the scheduler's recovery
+        self.assertEqual(self.fake.sent, ["Hello"], "created again by the claim takeover")
+        asyncio.run(self.publisher.run_due())                     # recovery: can't be checked → unconfirmed
+        (result,) = self.sync(story_md())
+        self.assertEqual((result.action, result.status), ("skipped", "unconfirmed"))
+        self.assertEqual(self.fake.sent, ["Hello"])
+
+    def test_the_request_never_left_and_the_scheduler_re_queued_it(self):
+        self.make()
+
+        async def died_before_sending(prepared):
+            self.fake.sent.pop()                                   # the request never reached the platform
+            raise Died()
+
+        self.fake.on_publish = died_before_sending
+        with self.assertRaises(Died):
+            self.sync(story_md())
+        self.fake.on_publish = None
+        self.age()
+        asyncio.run(self.publisher.run_due())                     # recovery: find_existing says missing → re-queued
+        self.sync(story_md())                                     # a CI run before the next scheduler tick
+        asyncio.run(self.publisher.run_due())
+        self.assertEqual(self.fake.sent, ["Hello"], "the re-queued post and a second create both went out")
 
 
 if __name__ == "__main__":
