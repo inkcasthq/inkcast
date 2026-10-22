@@ -93,6 +93,13 @@ class PostsRepo(Database):
                 )
         return [{**dict(r), "attempts": r["attempts"] + 1} for r in rows]
 
+    def renew_claim(self, post_id: str, attempts: int) -> bool:
+        """Just before a claimed post is sent: restart its 'publishing' clock. A batch is sent one post at a time,
+        so its tail can wait long enough to look stuck to another worker. False when that worker took the post
+        over (``claim_stuck``, or a later claim: ``attempts`` changed), so it must not be sent from here."""
+        return self._exec("UPDATE posts SET updated_at = ? WHERE id = ? AND status = 'publishing' AND attempts = ?",
+                          time.time(), post_id, attempts) == 1
+
     def claim_stuck(self, older_than: float) -> list[dict[str, Any]]:
         """Posts left 'publishing' by a crash or restart, moved atomically to 'recovering' so one worker resolves
         each. The caller decides what they become: a send may or may not have reached the platform, so they

@@ -241,6 +241,8 @@ class Publisher:
         now = now or time.time()
         outcomes = [await self.recover(row) for row in self.store.claim_stuck(older_than=now - STUCK_AFTER)]
         for row in self.store.claim_due_posts(now):
+            if not self.store.renew_claim(row["id"], row["attempts"]):
+                continue  # another worker took it over as stuck while this batch was being sent: it is theirs now
             lag = max(0.0, now - float(row["run_at"]))
             self._observe("inkcast_publish_lag_seconds", lag, platform=row["platform"])
             platform = self.platforms.get(row["platform"])
