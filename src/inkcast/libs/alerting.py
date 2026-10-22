@@ -167,6 +167,16 @@ ALERTS: tuple[Alert, ...] = (
           "answers an error about one person (users/{id} or their events), so they are neither cut off nor erased "
           "while everyone else is. The identity.sync.person.failed log lines name the Inkcast user id, the read and "
           "the HTTP status. If InkcastIdentitySyncFailing fires too, follow it first.", "identity", for_="1h"),
+    # #105: the gauge is read from the database (1 while a pass is pending), so it needs no hold and survives restarts.
+    Alert("InkcastIdentitySyncBreakerOpen", "max(inkcast_identity_sync_breaker_open) > 0", "critical",
+          "The Keycloak user sync holds a mass deletion for an operator",
+          "A reconcile found at least INKCAST_KEYCLOAK_BREAKER_MIN people, and more than INKCAST_KEYCLOAK_BREAKER_PERCENT "
+          "of those it read, gone from Keycloak at once (404 User not found). Nobody is cut off or erased and no grace "
+          "period starts until an operator decides: a Keycloak restored from an older backup, the issuer pointing at the "
+          "wrong Keycloak, or a user-storage provider disabled for maintenance all look like this. Check Keycloak, then "
+          "`inkcast identity confirm-deletions --pass <id>` (the people really are gone) or `dismiss-deletions` (Keycloak "
+          "was wrong, and is fixed); the identity.sync.breaker.tripped log line and `inkcast identity trips` name the pass.",
+          "identity", for_="0m"),
     # E3.F3.6.S5: an engine error is a 503 for the person asking (fail closed), so any sustained rate pages.
     Alert("InkcastAuthzErrors", 'sum(rate(inkcast_authz_checks_total{result="error"}[5m])) > 0', "critical",
           "The authorization engine is failing; requests are refused (503)",

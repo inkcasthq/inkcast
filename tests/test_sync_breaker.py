@@ -343,10 +343,13 @@ class AtAndAboveTheThreshold(Scenario):
         done = self.tick(worker, T0 + 2)
         self.assertEqual((done["checked"], done["disabled"]), (1, 0), "read, held")
         self.assert_untouched(bob)
+        self.assertEqual(self.tick(worker, T0 + 32)["disabled"], 0, "the look-back reads his event again: still held")
+        self.assert_untouched(bob)
         self.assertEqual(self.operator("dismiss-deletions", "--pass", self.trips()[0]["id"])[0], 0)
         done = self.reconcile(worker, T0 + 600)
-        self.assertEqual(done["disabled"], 0, "six gone at once: the breaker trips again, bob among them")
-        self.assertEqual(self.trips()[1]["gone"], 6)
+        self.assertEqual(done["disabled"], 1, "closed: his event, read again, cuts him off; the five trip again")
+        self.assert_cut_off(bob, deleted_at=T0 + 600)
+        self.assertEqual(self.trips()[1]["gone"], 5, "bob, acted on by the events pass, is not newly gone")
 
     def test_off_cuts_everyone_off_as_before_and_records_nothing(self):
         people = self.people(20)
@@ -366,9 +369,9 @@ class AcrossARestart(Scenario):
         self.store.close()                                          # the process restarts
         self.store = Store(self.database, KEY)
         self.addCleanup(self.store.close)
-        worker = self.sync(0)                                       # a new worker, new metrics, the reconcile due at start
+        worker = self.sync(0)                                       # a new worker, new metrics; the reconcile is due at start
         self.assertEqual(self.gauge(), 1, "the gauge is read from the database: 1 before any pass")
-        done = self.tick(worker)
+        done = self.reconcile(worker)
         self.assertEqual((done["checked"], done["disabled"], done["erased"]), (20, 0, 0))
         for user in people:
             self.assert_untouched(user)
@@ -414,17 +417,18 @@ class Confirmation(Scenario):
                 # five confirmed with their grace period running, and acts on each as the policy says.
                 done = self.reconcile(worker, T0 + 3600 + 600)
                 self.assertEqual(done["disabled"], 1)
-                self.assert_cut_off(later, deleted_at=T0 + 3600 + 600)
                 self.assertEqual(len(self.trips()), 1, "no new trip")
                 if days is None:
                     self.assertEqual(done["erased"], 0)
+                    self.assert_cut_off(later, deleted_at=T0 + 3600 + 600)
                     self.assertEqual(self.reconcile(worker, T0 + 400 * DAY)["erased"], 0, "off: never erased")
                 elif days == 0:
-                    self.assertEqual(done["erased"], 5, "0 days: erased at the first reconcile after the confirmation")
-                    for user in held:
+                    self.assertEqual(done["erased"], 6, "0 days: the five at the first reconcile after the confirmation, "
+                                                        "and the one newly found gone at once, as before")
+                    for user in held + [later]:
                         self.assert_erased(user)
-                    self.assertIsNotNone(self.row(later), "cut off at this reconcile; erased at the next")
                 else:
+                    self.assert_cut_off(later, deleted_at=T0 + 3600 + 600)
                     self.assertEqual(done["erased"], 0)
                     self.assertEqual(self.reconcile(worker, T0 + 3600 + days * DAY - 1)["erased"], 0, "a second short")
                     self.assertEqual(self.reconcile(worker, T0 + 3600 + days * DAY)["erased"], 5, "exactly N days after")
@@ -432,7 +436,7 @@ class Confirmation(Scenario):
                         self.assert_erased(user)
                     self.assertIsNotNone(self.row(later))
                 self.assertEqual(self.counted("inkcast_identity_users_deleted_total").get("reconcile", 0),
-                                 0 if days is None else 5, "each erasure counted once, by the reconcile")
+                                 {None: 0, 0: 6}.get(days, 5), "each erasure counted once, by the reconcile")
 
     def test_a_person_who_signed_in_since_the_trip_is_spared_and_one_erased_meanwhile_is_skipped(self):
         people = self.people(20)

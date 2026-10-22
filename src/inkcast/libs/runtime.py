@@ -86,6 +86,10 @@ def build_metrics(store: Store | None, registry: dict[str, Platform], config: Co
             lambda: {(("consumer", c),): n for c, (n, _) in store.outbox_lag().items()})
     m.gauge("inkcast_outbox_oldest_age_seconds", "Age of the oldest unhandled event, by consumer (consumer lag).",
             lambda: {(("consumer", c),): age for c, (_, age) in store.outbox_lag().items()})
+    # Read from the database, so it is 1 from the moment a pass trips until an operator resolves it, restarts included.
+    m.gauge("inkcast_identity_sync_breaker_open", "1 while the Keycloak user sync holds a pass that found too many people "
+            "gone at once, for an operator to confirm or dismiss (inkcast identity); 0 otherwise.",
+            lambda: {(): 1 if store.pending_breaker_trip() else 0})
     return m
 
 

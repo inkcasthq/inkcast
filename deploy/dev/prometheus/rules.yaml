@@ -198,6 +198,22 @@ groups:
         else is. The identity.sync.person.failed log lines name the Inkcast user id, the read and the HTTP status. If InkcastIdentitySyncFailing
         fires too, follow it first.'
       runbook_url: https://github.com/inkcasthq/inkcast/blob/main/docs/runbooks/alerts.md#inkcastidentitysyncpersonfailing
+  - alert: InkcastIdentitySyncBreakerOpen
+    expr: max(inkcast_identity_sync_breaker_open) > 0
+    for: 0m
+    labels:
+      severity: critical
+      team: inkcast
+      service: identity
+    annotations:
+      summary: The Keycloak user sync holds a mass deletion for an operator
+      description: 'A reconcile found at least INKCAST_KEYCLOAK_BREAKER_MIN people, and more than INKCAST_KEYCLOAK_BREAKER_PERCENT
+        of those it read, gone from Keycloak at once (404 User not found). Nobody is cut off or erased and no grace period
+        starts until an operator decides: a Keycloak restored from an older backup, the issuer pointing at the wrong Keycloak,
+        or a user-storage provider disabled for maintenance all look like this. Check Keycloak, then `inkcast identity confirm-deletions
+        --pass <id>` (the people really are gone) or `dismiss-deletions` (Keycloak was wrong, and is fixed); the identity.sync.breaker.tripped
+        log line and `inkcast identity trips` name the pass.'
+      runbook_url: https://github.com/inkcasthq/inkcast/blob/main/docs/runbooks/alerts.md#inkcastidentitysyncbreakeropen
   - alert: InkcastAuthzErrors
     expr: sum(rate(inkcast_authz_checks_total{result="error"}[5m])) > 0
     for: 5m

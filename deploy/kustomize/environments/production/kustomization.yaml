@@ -16,6 +16,12 @@ configMapGenerator:
       # is cut off at once and erased this many days later (E9.F9.5.S6). 0 erases at the first reconcile; off never
       # erases on a 404, which the posture check warns about here. The default is 30: stated so it is a choice.
       - INKCAST_KEYCLOAK_ERASE_AFTER_DAYS=30
+      # The sync's circuit breaker (E9.F9.5.S7): a reconcile that finds at least BREAKER_MIN people, and more than
+      # BREAKER_PERCENT of those it read, gone from Keycloak at once holds them all for an operator (inkcast identity
+      # confirm-deletions) instead of cutting everyone off. off is a posture warning here. The defaults: stated as a choice.
+      - INKCAST_KEYCLOAK_BREAKER=on
+      - INKCAST_KEYCLOAK_BREAKER_PERCENT=10
+      - INKCAST_KEYCLOAK_BREAKER_MIN=5
 images:
   - name: ghcr.io/inkcasthq/inkcast
     digest: sha256:0000000000000000000000000000000000000000000000000000000000000000

@@ -50,7 +50,19 @@ CREATE TABLE IF NOT EXISTS deletion_requests (
   id TEXT PRIMARY KEY, user_id TEXT NOT NULL, link_hash TEXT UNIQUE, cookie_hash TEXT UNIQUE, keycloak_id TEXT,
   created_at REAL NOT NULL, expires_at REAL NOT NULL
 );
+-- The Keycloak sync's circuit breaker (E9.F9.5.S7, issue #105): one row per reconcile pass that found too many people
+-- gone at once (gone of read), with its status (pending, confirmed, dismissed) and who resolved it; the people it
+-- held are in sync_breaker_people, with last_login_at as the pass read it (a later sign-in proves Keycloak has them),
+-- erased with the person and removed when the pass is resolved.
+CREATE TABLE IF NOT EXISTS sync_breaker_trips (
+  id TEXT PRIMARY KEY, tripped_at REAL NOT NULL, gone INTEGER NOT NULL, read INTEGER NOT NULL, status TEXT NOT NULL,
+  resolved_at REAL, resolved_by TEXT
+);
+CREATE TABLE IF NOT EXISTS sync_breaker_people (
+  pass_id TEXT NOT NULL, user_id TEXT NOT NULL, last_login_at REAL NOT NULL, PRIMARY KEY (pass_id, user_id)
+);
 """
+BREAKER_PENDING, BREAKER_CONFIRMED, BREAKER_DISMISSED = "pending", "confirmed", "dismissed"
 # disabled_at: set when the identity provider disabled or deleted the person (E9.F9.5); cleared at their next
 # successful sign-in, which the provider only allows once they are enabled again.
 # deleted_at: when the identity provider was first found to have no such person any more (Keycloak's 404, whether an
@@ -142,6 +154,47 @@ class IdentityRepo(Database):
     def get_user(self, user_id: str) -> dict[str, Any] | None:
         row = self._one("SELECT * FROM users WHERE id = ?", user_id)
         return dict(row) if row else None
+
+    # ---- the sync's circuit breaker (E9.F9.5.S7): a pass that found too many people gone, held for an operator ----
+
+    def record_breaker_trip(self, now: float, gone: int, read: int, people: list[tuple[str, float]]) -> str:
+        """A reconcile pass that tripped the breaker: ``gone`` of ``read`` people newly found gone, and for each of
+        them the Inkcast id and ``last_login_at`` as the pass read it. Returns the pass id."""
+        pass_id = "pass_" + uuid.uuid4().hex[:12]
+        with self._tx() as c:
+            c.execute("INSERT INTO sync_breaker_trips (id, tripped_at, gone, read, status) VALUES (?, ?, ?, ?, ?)",
+                      (pass_id, now, gone, read, BREAKER_PENDING))
+            c.executemany("INSERT INTO sync_breaker_people VALUES (?, ?, ?)",
+                          [(pass_id, user_id, last_login_at) for user_id, last_login_at in people])
+        return pass_id
+
+    def pending_breaker_trip(self) -> dict[str, Any] | None:
+        """The pass an operator has not resolved yet (the oldest, should there be several): the breaker is open."""
+        row = self._one("SELECT * FROM sync_breaker_trips WHERE status = ? ORDER BY tripped_at, id LIMIT 1", BREAKER_PENDING)
+        return dict(row) if row else None
+
+    def get_breaker_trip(self, pass_id: str) -> dict[str, Any] | None:
+        row = self._one("SELECT * FROM sync_breaker_trips WHERE id = ?", pass_id)
+        return dict(row) if row else None
+
+    def breaker_trips(self) -> list[dict[str, Any]]:
+        """Every pass that tripped, oldest first."""
+        return [dict(r) for r in self._all("SELECT * FROM sync_breaker_trips ORDER BY tripped_at, id")]
+
+    def breaker_trip_people(self, pass_id: str) -> list[dict[str, Any]]:
+        """The people a pass holds (``user_id``, ``last_login_at`` as read then), in id order; none once resolved."""
+        rows = self._all("SELECT user_id, last_login_at FROM sync_breaker_people WHERE pass_id = ? ORDER BY user_id", pass_id)
+        return [dict(r) for r in rows]
+
+    def resolve_breaker_trip(self, pass_id: str, status: str, now: float, by: str) -> bool:
+        """Claim a pending pass for ``status`` (confirmed or dismissed): True once, for the first caller; False when
+        the pass is unknown or already resolved, so a second confirmation does nothing."""
+        return self._exec("UPDATE sync_breaker_trips SET status = ?, resolved_at = ?, resolved_by = ? WHERE id = ? AND status = ?",
+                          status, now, by, pass_id, BREAKER_PENDING) == 1
+
+    def forget_breaker_trip_people(self, pass_id: str) -> int:
+        """A resolved pass keeps its counts and status, not the ids."""
+        return self._exec("DELETE FROM sync_breaker_people WHERE pass_id = ?", pass_id)
 
     # ---- OAuth clients -------------------------------------------------------
 

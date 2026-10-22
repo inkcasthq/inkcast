@@ -164,6 +164,8 @@ class Architecture(unittest.TestCase):
             "oauth_clients": "client registrations, not people",
             "heartbeats": "liveness of background loops",
             "sync_state": "the Keycloak sync's cursors",
+            "sync_breaker_trips": "the Keycloak sync's breaker: when a pass tripped, counts, status and who resolved it "
+                                  "(the people it held are in sync_breaker_people, erased with the person)",
             "outbox_cursors": "consumer positions in the outbox",
             "kpi_applied": "event ids already folded into rollups (opaque)",
             "user_erasures": "the audit record: a salted hash, the time and counts",
