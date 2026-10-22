@@ -18,6 +18,7 @@ class ReviewAccountDeletion(Harness):
     person, call, statuses, rows, link = _AD.person, _AD.call, _AD.statuses, _AD.rows, _AD.link
     to_confirm_page, continue_to_keycloak = _AD.to_confirm_page, _AD.continue_to_keycloak
     keycloak_form = staticmethod(_AD.keycloak_form)
+    sync_tick, async_sync_tick = _AD.sync_tick, _AD.async_sync_tick
     setUp = _AD.setUp
 
     @classmethod
@@ -49,6 +50,33 @@ class ReviewAccountDeletion(Harness):
         self.assertEqual(self.rows(ada["id"]), before, "nothing erased on a 404 that is not Keycloak's 'User not found'")
         self.assertEqual(self.statuses(ada), [200, 200])
         self.assertNotIn("Your account is deleted", back.text)
+
+    def test_a_failed_erasure_in_the_event_pass_is_read_again(self):
+        """Two people delete their accounts from the account console; the database refuses the first erasure (locked,
+        a failover). The next pass must erase both: the DELETE_ACCOUNT cursor may only move past an event once the
+        erasure it calls for is done, or the person keeps every row (the reconcile only disables a 404)."""
+        import sqlite3
+        import time
+        from unittest import mock
+        carol, dave = self.person("kc-rev-carol"), self.person("kc-rev-dave")
+        self.assertEqual(self.sync_tick()["erased"], 0, "the cursor is set")
+        self.fakes.kc_account_console_delete("kc-rev-carol")
+        time.sleep(0.01)
+        self.fakes.kc_account_console_delete("kc-rev-dave")                     # newer: Keycloak lists it first
+        store, real, calls = self.app.store, self.app.store.erase_user, []
+
+        def flaky(user_id):
+            calls.append(user_id)
+            if len(calls) == 1:
+                raise sqlite3.OperationalError("database is locked")
+            return real(user_id)
+        with mock.patch.object(store, "erase_user", flaky):
+            with self.assertRaises(sqlite3.OperationalError):
+                self.sync_tick()
+        self.sync_tick()
+        for who in (carol, dave):
+            self.assertEqual(set(self.rows(who["id"]).values()), {0}, f"{who['sub']} is erased on the next pass")
+            self.assertEqual(self.statuses(who), [401, 401])
 
 
 del _AD
