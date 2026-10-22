@@ -18,7 +18,9 @@ ROUTES: dict[str, tuple[str, ...]] = {
         "/authorize", "/token", "/register", "/revoke",
         "/auth/",
         "/api/v1/tokens",
+        "/api/v1/account",
         "/tokens/",
+        "/account/",
     ),
     "PublishingApi": (
         "/mcp",

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 # Copyright 2026 ScalarOps Technologies LLC
-"""The few HTML pages Inkcast serves: sign-in, consent, connect a platform."""
+"""The few HTML pages Inkcast serves: sign-in, consent, connect a platform, create a token, delete the account."""
 
 from __future__ import annotations
 
@@ -104,3 +104,23 @@ def token_created(token: str, name: str) -> HTMLResponse:
 <p><code id=token style="word-break:break-all;display:block;padding:10px">{escape(token)}</code></p>
 <p class=muted>In GitHub: Settings → Secrets and variables → Actions → New repository secret, name
 <code>INKCAST_TOKEN</code>. Don't paste it into a chat with an AI assistant.</p>""")
+
+
+def deletion_confirm(pending_id: str, csrf: str, user_display: str) -> HTMLResponse:
+    """What goes, what stays, and Continue to Keycloak (E9.F9.5.S4). The export (E3.F3.3.S7) is not built yet."""
+    return _page("Delete your account", f"""
+<h1>Delete your Inkcast account?</h1>
+<p>Signed in as <strong>{escape(user_display)}</strong>.</p>
+<p><strong>What goes</strong>, for good: your posts and schedules (a scheduled post can no longer go out), the Git
+publishing ledger, your connected platforms and the credentials stored for them, your OAuth grants and personal
+access tokens, and your usage numbers.</p>
+<p><strong>What stays:</strong> articles already published on the platforms. Inkcast never deletes anything on
+DEV, Medium or any other platform; remove those there if you want them gone.</p>
+<p class=muted>Export my data (a copy of everything above) is coming soon; if you want a copy, wait for it before
+deleting.</p>
+<p>Continue takes you to the sign-in provider, which asks you to sign in once more and to confirm. It deletes your
+account there; Inkcast then erases your data here.</p>
+<form method=post action=/auth/consent>
+<input type=hidden name=pending value="{escape(pending_id)}"><input type=hidden name=csrf value="{escape(csrf)}">
+<div class=row><button name=decision value=deny>Keep my account</button><button class=primary name=decision value=approve>Continue</button></div>
+</form>""")

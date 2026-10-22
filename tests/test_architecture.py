@@ -156,6 +156,9 @@ class Architecture(unittest.TestCase):
         from inkcast.libs.db.erasure import USER_TABLES
         # Tables without a user_id column that still hold a person's rows, and the column that holds the key.
         user_keyed = {"kpi_rollups": "scope_id", "authz_tuples": "subject", "users": "id"}
+        # Tables with a user_id column that erase_user leaves alone on purpose, each with the reason.
+        kept = {"deletion_requests": "the pending 'delete my account' record outlives the erasure so the visit back from "
+                                     "Keycloak can be answered; user id and hashes only; expires and is purged, deleted once answered"}
         # Tables that hold no personal data at all, each with the reason (review when adding one).
         impersonal = {
             "oauth_clients": "client registrations, not people",
@@ -172,7 +175,10 @@ class Architecture(unittest.TestCase):
         covered = dict(USER_TABLES)
         for table in tables:
             columns = {r["name"] for r in store._all(f"PRAGMA table_info({table})")}
-            if "user_id" in columns:
+            if table in kept:
+                self.assertIn("user_id", columns)
+                self.assertNotIn(table, covered, f"{table} is kept through the erasure on purpose: {kept[table]}")
+            elif "user_id" in columns:
                 self.assertIn(table, covered, f"{table} has a user_id column: add it to erasure.USER_TABLES")
                 self.assertIn("user_id = :user_id", covered[table], table)
             elif table in user_keyed:

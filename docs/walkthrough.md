@@ -9,10 +9,11 @@ if anything failed.
 
 ## What it walks through
 
-Both apps run in development mode (password sign-in) against the fake DEV and Medium APIs from `tests/fakes.py`.
-The MCP side is the real Python SDK client, so the sign-in is the OAuth flow any MCP client performs: discovery,
-dynamic registration, PKCE, the authorization URL opened in a browser, the code delivered to a real local
-listener on the callback port, the token exchange.
+Both apps run in development mode against the fake DEV and Medium APIs and the fake Keycloak from `tests/fakes.py`
+(OIDC sign-in through the fake's login form, which stands in for Keycloak's, and the user sync against its admin
+API). The MCP side is the real Python SDK client, so the sign-in is the OAuth flow any MCP client performs:
+discovery, dynamic registration, PKCE, the authorization URL opened in a browser, the code delivered to a real
+local listener on the callback port, the token exchange.
 
 1. Add Inkcast to an MCP client: discovery, registration, sign-in and consent in the browser, the callback, the
    token exchange, `initialize` and the tool list.
@@ -25,11 +26,17 @@ listener on the callback port, the token exchange.
    repository id, an `Idempotency-Key`); `GET /api/v1/ledger`.
 7. `GET /api/v1/insights/summary`, once the insights worker has folded the run's events.
 8. The API reference pages, `/api` and `/api/redoc`.
-9. What the fake DEV holds at the end, read back for the integrity check.
+9. What the fake DEV holds, read back for the integrity check.
+10. Delete my account (E9.F9.5.S4): `inkcast_delete_account` (a one-time link, nothing deleted), the REST endpoint
+    refusing the CI token, the fresh sign-in, Inkcast's page (what goes, what stays, the export coming soon), the
+    provider's re-authentication and confirmation, its "deleted" page linking back, Inkcast's "account deleted"
+    page; then both tokens answer 401, the erasure counter reads exactly 1 (`via="return"`, or `via="event"` when the
+    sync read the DELETE_ACCOUNT event before the visit back), and the fake DEV still holds both articles: what was
+    published stays.
 
 The panels are plainly labelled as MCP tool calls or REST requests; they don't imitate any client's interface.
 Generated credentials (OAuth tokens, the personal access token, the authorization code) are masked in every
-picture and in `results.json`; the password is never written.
+picture and in `results.json`; the password (the fake Keycloak account's) is never written.
 
 ## Running it
 

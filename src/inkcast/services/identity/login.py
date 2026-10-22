@@ -91,6 +91,12 @@ class OIDCIdentity(IdentityProvider):
         return self._discovery
 
     async def start(self, request: Request, pending_id: str) -> Response:
+        return await self.start_action(request, pending_id, None)
+
+    async def start_action(self, request: Request, pending_id: str, kc_action: str | None) -> Response:
+        """Send the browser to the provider's authorization endpoint; with ``kc_action`` set, to Keycloak's
+        application-initiated action of that name (E9.F9.5.S4: ``delete_account``), with the same state and PKCE
+        as a sign-in, so the return comes back through /auth/callback like any other."""
         meta = await self.discovery()
         verifier = self._derived("pkce", pending_id) + self._derived("pkce2", pending_id)
         challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
@@ -104,6 +110,8 @@ class OIDCIdentity(IdentityProvider):
             "code_challenge": challenge,
             "code_challenge_method": "S256",
         }
+        if kc_action:
+            params["kc_action"] = kc_action
         return RedirectResponse(f"{meta['authorization_endpoint']}?{urlencode(params)}", status_code=302)
 
     async def finish(self, request: Request) -> tuple[str, Identity]:
