@@ -17,15 +17,17 @@ OutboxRepo         (the row's owner)   outbox, outbox_cursors (events written wi
                                        drained by InsightsService)
 KpiRepo            InsightsService     kpi_rollups, kpi_applied
 AuthzRepo          LocalEngine         authz_tuples (only with INKCAST_AUTHZ_ENGINE=local)
+ErasureRepo        IdentityService     user_erasures (erase_user: every table above, one transaction)
 =================  ==================  =============================================
 """
 
 from __future__ import annotations
 
-from ..secrets import Sealer, SecretValue, new_secret, token_hash
-from . import authz, identity, kpi, ledger, outbox, posts, vault
+from ..secrets import Sealer, SecretValue, derive_key, new_secret, token_hash
+from . import authz, erasure, identity, kpi, ledger, outbox, posts, vault
 from .authz import AuthzRepo, TupleConflict
 from .database import Database
+from .erasure import ErasureRepo
 from .identity import IdentityRepo
 from .kpi import KpiRepo
 from .ledger import LedgerRepo
@@ -34,13 +36,15 @@ from .posts import PostsRepo
 from .vault import VaultRepo
 
 
-class Store(IdentityRepo, VaultRepo, PostsRepo, LedgerRepo, OutboxRepo, KpiRepo, AuthzRepo):
-    SCHEMAS = (identity.SCHEMA, vault.SCHEMA, posts.SCHEMA, ledger.SCHEMA, outbox.SCHEMA, kpi.SCHEMA, authz.SCHEMA)
+class Store(IdentityRepo, VaultRepo, PostsRepo, LedgerRepo, OutboxRepo, KpiRepo, AuthzRepo, ErasureRepo):
+    SCHEMAS = (identity.SCHEMA, vault.SCHEMA, posts.SCHEMA, ledger.SCHEMA, outbox.SCHEMA, kpi.SCHEMA, authz.SCHEMA,
+               erasure.SCHEMA)
     COLUMNS = identity.COLUMNS
 
     def __init__(self, path: str, secret_key: "str | SecretValue"):
         super().__init__(path)
         self.sealer = Sealer(secret_key)
+        self._erasure_salt = derive_key(secret_key, "erasure")
 
     def purge_expired(self) -> None:
         self.purge_expired_identity()
@@ -49,5 +53,5 @@ class Store(IdentityRepo, VaultRepo, PostsRepo, LedgerRepo, OutboxRepo, KpiRepo,
         self.purge_kpis()
 
 
-__all__ = ["AuthzRepo", "Database", "IdentityRepo", "KpiRepo", "LedgerRepo", "OutboxRepo", "PostsRepo", "Sealer", "Store",
-           "TupleConflict", "VaultRepo", "new_secret", "token_hash"]
+__all__ = ["AuthzRepo", "Database", "ErasureRepo", "IdentityRepo", "KpiRepo", "LedgerRepo", "OutboxRepo", "PostsRepo",
+           "Sealer", "Store", "TupleConflict", "VaultRepo", "new_secret", "token_hash"]

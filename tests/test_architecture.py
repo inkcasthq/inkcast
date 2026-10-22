@@ -7,6 +7,7 @@
 5. ``libs.secrets`` is the bottom layer: it imports nothing else from ``inkcast`` (logging, config and HTTP
    all depend on it, never the reverse), and every ``reveal()`` lives in a file that is allowed to use one.
 6. Every source file carries the licence header.
+7. ``Store.erase_user`` covers every table that holds a person's rows (issue #65): the live schema is scanned.
 """
 
 import ast
@@ -147,6 +148,42 @@ class Architecture(unittest.TestCase):
         expected = {"inkcast-" + full_name(svc): {p.rstrip("/") or "/" for p in paths} for svc, paths in ROUTES.items()}
         self.assertEqual(declared, expected)
 
+
+    def test_erase_user_covers_every_table_that_holds_a_person(self):
+        """Issue #65: a new table with a ``user_id`` column, or one keyed by a user some other way, fails the build
+        until ``libs/db/erasure.USER_TABLES`` names it (and the test in test_units seeds it)."""
+        from inkcast.libs.db import Store
+        from inkcast.libs.db.erasure import USER_TABLES
+        # Tables without a user_id column that still hold a person's rows, and the column that holds the key.
+        user_keyed = {"kpi_rollups": "scope_id", "authz_tuples": "subject", "users": "id"}
+        # Tables that hold no personal data at all, each with the reason (review when adding one).
+        impersonal = {
+            "oauth_clients": "client registrations, not people",
+            "heartbeats": "liveness of background loops",
+            "sync_state": "the Keycloak sync's cursors",
+            "outbox_cursors": "consumer positions in the outbox",
+            "kpi_applied": "event ids already folded into rollups (opaque)",
+            "user_erasures": "the audit record: a salted hash, the time and counts",
+        }
+        store = Store(":memory:", "k" * 40)
+        tables = [r["name"] for r in store._all("SELECT name FROM sqlite_master WHERE type = 'table'")
+                  if not r["name"].startswith("sqlite_")]
+        self.assertGreater(len(tables), 15, "the scan must see the schema, not silently nothing")
+        covered = dict(USER_TABLES)
+        for table in tables:
+            columns = {r["name"] for r in store._all(f"PRAGMA table_info({table})")}
+            if "user_id" in columns:
+                self.assertIn(table, covered, f"{table} has a user_id column: add it to erasure.USER_TABLES")
+                self.assertIn("user_id = :user_id", covered[table], table)
+            elif table in user_keyed:
+                self.assertIn(table, covered, f"{table} is keyed by a user ({user_keyed[table]}): add it to USER_TABLES")
+                self.assertIn(user_keyed[table], covered[table], table)
+            else:
+                self.assertIn(table, impersonal, f"{table}: say here why it holds nothing about a person, or erase it")
+        self.assertEqual(set(covered) - set(tables), set(), "USER_TABLES names a table the schema doesn't have")
+        self.assertEqual(set(impersonal) & set(covered), set())
+        self.assertEqual(set(impersonal) - set(tables), set(), "an impersonal table that no longer exists")
+        store.close()
 
     def test_generated_manifests_are_current(self):
         import subprocess

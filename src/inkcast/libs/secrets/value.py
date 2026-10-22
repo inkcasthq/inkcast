@@ -32,6 +32,12 @@ def new_secret(prefix: str) -> str:
     return prefix + secrets.token_urlsafe(32)
 
 
+def derive_key(secret_key: "str | SecretValue", purpose: str) -> bytes:
+    """A 32-byte key for one ``purpose`` derived from INKCAST_SECRET_KEY, so no two uses share a key (the
+    credential sealer uses ``credentials``; the erasure audit's salted user-id hash uses ``erasure``)."""
+    return hashlib.sha256((f"inkcast-{purpose}:" + as_str(secret_key)).encode()).digest()
+
+
 class SecretValue:
     """A secret that prints as ``***``. Call ``reveal()`` at the one place it is really needed.
 
@@ -95,8 +101,7 @@ class Sealer:
     """Encrypts platform credentials at rest with a key derived from INKCAST_SECRET_KEY."""
 
     def __init__(self, secret_key: "str | SecretValue"):
-        key = hashlib.sha256(("inkcast-credentials:" + as_str(secret_key)).encode()).digest()
-        self._fernet = Fernet(base64.urlsafe_b64encode(key))
+        self._fernet = Fernet(base64.urlsafe_b64encode(derive_key(secret_key, "credentials")))
 
     def seal(self, data: dict[str, Any]) -> str:
         return self._fernet.encrypt(json.dumps(data).encode()).decode()
@@ -110,4 +115,4 @@ class Sealer:
             ) from exc
 
 
-__all__ = ["SecretValue", "Sealer", "as_str", "new_secret", "token_hash"]
+__all__ = ["SecretValue", "Sealer", "as_str", "derive_key", "new_secret", "token_hash"]
