@@ -19,11 +19,13 @@ from mcp.server.auth.provider import (
     AccessToken,
     AuthorizationCode,
     AuthorizationParams,
+    AuthorizeError,
     RefreshToken,
     TokenError,
     construct_redirect_uri,
 )
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
+from mcp.shared.auth_utils import check_resource_allowed
 
 from ...libs.auth import SCOPE, TokenVerifier
 from ...libs.config import Config
@@ -49,6 +51,9 @@ class InkcastOAuthProvider:
     # ---- authorization --------------------------------------------------
 
     async def authorize(self, client: OAuthClientInformationFull, params: AuthorizationParams) -> str:
+        # RFC 8707: Inkcast's resource servers accept any Inkcast token, so never mint one for another audience.
+        if params.resource and not check_resource_allowed(params.resource, self.config.public_url):
+            raise AuthorizeError("invalid_target", "This authorization server only issues tokens for Inkcast.")
         pending_id = self.store.create_pending(client.client_id, params.model_dump_json())
         return f"{self.config.public_url}/auth/login?pending={pending_id}"
 
@@ -58,7 +63,7 @@ class InkcastOAuthProvider:
         name = (json.loads(info).get("client_name") if info else None) or "An MCP client"
         params = AuthorizationParams.model_validate_json(pending["params"])
         parsed = urlparse(str(params.redirect_uri))
-        return name, parsed.netloc or parsed.scheme
+        return name, parsed.netloc.rpartition("@")[2] or parsed.scheme   # the host, never userinfo posing as one
 
     def approve(self, pending: dict) -> str:
         """Issue an authorization code for an approved pending request; return the client redirect."""

@@ -34,7 +34,7 @@ from ...libs.auth import SCOPE, SCOPES, Principal
 from ...libs.contracts.models import TokenCreate, TokenCreated, TokenInfo
 from ...libs.contracts.routes import ROUTES
 from ...libs.http import pages
-from ...libs.http.ratelimit import limited
+from ...libs.http.ratelimit import WRITE_METHODS, limited
 from ...libs.http.rest import ApiError, Authed, json_body
 from ...libs.runtime import Context
 from ...libs.service import ServiceSpec
@@ -58,6 +58,18 @@ def _info(row: dict) -> TokenInfo:
 def _csrf_ok(data, pending: dict) -> bool:
     """The consent form's CSRF token, compared in constant time (never with ``!=``)."""
     return hmac.compare_digest(str(data.get("csrf", "")).encode(), str(pending["csrf"]).encode())
+
+
+def _consent_cookie(identity, pending_id: str, user_id: str) -> tuple[str, str]:
+    """(name, value) of the cookie that binds a pending consent to the browser that signed in, as that person: the
+    pending id alone travels in URLs (it is the OIDC state), so it must not be enough to answer the consent."""
+    return (f"inkcast_consent_{identity._derived('consent-cookie', pending_id)[:16]}",
+            identity._derived("consent", f"{pending_id}:{user_id}"))
+
+
+def _same_browser(request: Request, identity, pending: dict) -> bool:
+    name, value = _consent_cookie(identity, pending["id"], pending["user_id"])
+    return hmac.compare_digest(request.cookies.get(name, "").encode(), value.encode())
 
 
 def _check_scopes(scopes: list[str]) -> list[str]:
@@ -86,9 +98,11 @@ def _routes(ctx: Context) -> list[Route]:
         client_registration_options=settings.client_registration_options,
         revocation_options=settings.revocation_options,
     )
-    # Anyone can register a client (RFC 7591) and each registration is a row: bound it per client address.
-    routes = [Route(r.path, limited(r.endpoint, ctx.limiter, "register"), methods=sorted(r.methods or []))
-              if r.path == "/register" else r for r in routes]
+    # Anyone can register a client (RFC 7591) and each registration is a row: bound it per client address. So is each
+    # /authorize request (a pending row), GET included.
+    guarded = {"/register": WRITE_METHODS, "/authorize": {"GET", "POST"}}
+    routes = [Route(r.path, limited(r.endpoint, ctx.limiter, r.path.strip("/"), guarded[r.path]), methods=sorted(r.methods or []))
+              if r.path in guarded else r for r in routes]
 
     # ---- browser sign-in and consent ----------------------------------------------
 
@@ -116,13 +130,20 @@ def _routes(ctx: Context) -> list[Route]:
             return pages.message("Link expired", "This sign-in took too long. Start again from your MCP client.", error=True, status=400)
         user = store.upsert_user(who.key, who.display, who.email, who.name)
         store.set_pending_user(pending_id, user["id"])
-        return RedirectResponse(f"/auth/consent?pending={pending_id}", status_code=303)
+        response = RedirectResponse(f"/auth/consent?pending={pending_id}", status_code=303)
+        name, value = _consent_cookie(identity, pending_id, user["id"])
+        response.set_cookie(name, value, max_age=900, httponly=True, samesite="lax",
+                            secure=config.public_url.startswith("https://"))
+        return response
 
     async def auth_consent(request: Request) -> Response:
         data = request.query_params if request.method == "GET" else await request.form()
         pending = store.get_pending(str(data.get("pending", "")))
         if not pending or not pending["user_id"]:
             return pages.message("Link expired", "This request expired. Start again from your MCP client.", error=True, status=400)
+        if not _same_browser(request, identity, pending):
+            return pages.message("Request rejected", "This request was not signed in from this browser. Start again "
+                                 "from your own MCP client.", error=True, status=400)
         user = store.get_user(pending["user_id"]) or {}
         if pending["client_id"] == TOKEN_REQUEST:
             return await token_consent(request, data, pending, user)
@@ -291,8 +312,9 @@ def _routes(ctx: Context) -> list[Route]:
     return [
         *routes,
         Route("/auth/login", auth_login, methods=["GET"]),
-        # POST is the password form: a guess per request, so it is rate limited per client address.
-        Route("/auth/callback", limited(auth_callback, ctx.limiter, "login"), methods=["GET", "POST"]),
+        # POST is the password form: a guess per request, so it is rate limited per client address. GET too: a GET
+        # can carry the same form, and for an IdP each callback is a code exchange with it.
+        Route("/auth/callback", limited(auth_callback, ctx.limiter, "login", {"GET", "POST"}), methods=["GET", "POST"]),
         Route("/auth/consent", auth_consent, methods=["GET", "POST"]),
         Route("/tokens/new", limited(tokens_new, ctx.limiter, "tokens-new", {"GET"}), methods=["GET"]),  # a GET that writes
         Route("/account/delete/{ticket}", limited(account_delete, ctx.limiter, "account-delete", {"GET"}), methods=["GET"]),
