@@ -58,7 +58,6 @@ stop_job() {
   echo "Deleting job $job and its pod."
   $k -n "$ns" delete job "$job" --cascade=foreground --wait=true --timeout=120s --ignore-not-found || true
   $k -n "$ns" wait --for=delete pod -l "job-name=$job" --timeout=60s 2>/dev/null || true
-  applied=false
   local left
   left="$($k -n "$ns" get pod -l "job-name=$job" -o name)" || left="(could not list the pods of job $job)"
   # A Job still there (its delete refused or failed) can still start a pod: it counts as left too.
@@ -69,6 +68,7 @@ stop_job() {
          "--replicas=$replicas" >&2
     return 1
   fi
+  applied=false               # only now: interrupted before this, the exit trap looks again
 }
 
 scale_back() {

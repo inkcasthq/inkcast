@@ -142,5 +142,18 @@ class AJobThatCouldNotBeDeleted(_Script):
         self.assertNotIn("nothing was replaced", run.out.lower())
 
 
+class AnInterruptWhileTheJobIsBeingStopped(_Script):
+    """stop_job cleared ``applied`` before it had looked for the Job's pod. On the main path (the Job did not complete
+    within the wait), Ctrl-C during that look (after minutes of waiting on the delete) ran the exit trap with
+    ``applied`` false: it skipped the Job and scaled the server back up beside the pod that would not go."""
+
+    def test_ctrl_c_during_the_pod_check_keeps_the_server_down_beside_a_surviving_pod(self):
+        run = self.run_script(FAKE_JOB="stuck", INTERRUPT_ON="get pod -l job-name=")
+        self.assertNotEqual(run.code, 0, run.out)
+        self.assertTrue(run.has(DELETE), run.calls)
+        self.assertFalse(run.has(SCALE_UP), f"the server came back beside a live restore pod: {run.calls}")
+        self.assertIn("stays at 0 replicas", run.out)
+
+
 if __name__ == "__main__":
     unittest.main()
