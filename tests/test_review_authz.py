@@ -9,7 +9,9 @@ import asyncio
 import json
 import unittest
 
-from inkcast.libs.authz import Evaluator, LocalEngine, Model, Ref, Tuple
+import httpx2
+
+from inkcast.libs.authz import EngineError, Evaluator, LocalEngine, Model, OpenFgaEngine, Ref, Tuple
 from inkcast.libs.authz.model import PACKAGED_MODEL
 from inkcast.libs.db import Store
 
@@ -75,6 +77,23 @@ class StaleTuplesAfterAModelChange(unittest.TestCase):
         self.assertTrue(Evaluator(model("folder"), tuples).check("user:u", "viewer", "doc:d"))
         # The next version moves documents under teams; the old folder link no longer counts.
         self.assertFalse(Evaluator(model("team"), tuples).check("user:u", "viewer", "doc:d"))
+
+
+def fga(handler) -> OpenFgaEngine:
+    return OpenFgaEngine("http://fga.test", "s1", "m1", "k", httpx2.AsyncClient(transport=httpx2.MockTransport(handler)))
+
+
+class BatchCheckAnswers(unittest.TestCase):
+    """``check`` refuses an ``allowed`` that is not a JSON boolean (``{"allowed": "yes"}`` is an EngineError);
+    ``batch_check`` must too, rather than read ``"false"`` as allowed."""
+
+    def test_a_non_boolean_allowed_is_an_engine_error_never_an_allow(self):
+        for allowed in ("false", "no", 1, [0], None):
+            def answer(request, allowed=allowed):
+                return httpx2.Response(200, json={"result": {"0": {"allowed": allowed}}})
+
+            with self.subTest(allowed=allowed), self.assertRaises(EngineError):
+                run(fga(answer).batch_check([("user:a", "can_publish", Ref("channel", "1"))]))
 
 
 if __name__ == "__main__":

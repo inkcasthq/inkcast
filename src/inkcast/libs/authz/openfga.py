@@ -107,7 +107,7 @@ class OpenFgaEngine:
                     error = (one or {}).get("error") or {} if isinstance(one, dict) else {}
                     raise InvalidRequest(f"OpenFGA batch-check item {start + i} failed: "
                                          f"{error.get('input_error', 'no answer')}: {error.get('message', '')}")
-                out.append(bool(one["allowed"]))
+                out.append(_flag(one, "allowed", "batch-check"))
         return out
 
     async def list_objects(self, user: str, relation: str, type_: str, *,
