@@ -115,7 +115,12 @@ class PostInfo(BaseModel):
 class TokenCreate(BaseModel):
     name: str = Field(min_length=1, max_length=80, description="What the token is for, e.g. `blog repo CI`.")
     scopes: list[str] = Field(min_length=1, description="Scopes, e.g. `[\"stories:sync\"]`. See the API description.")
-    expires_in_days: int | None = Field(90, ge=1, le=366, description="Days until it stops working; null = never.")
+    # 366 is the absolute ceiling. The server applies its own policy where the token is made: omitted means its
+    # default (INKCAST_PAT_DEFAULT_DAYS, 90 unless configured), its maximum may be lower (INKCAST_PAT_MAX_DAYS), and
+    # null is refused where tokens must expire (INKCAST_PAT_ALLOW_NO_EXPIRY=false); each refusal is a 422 naming it.
+    expires_in_days: int | None = Field(90, ge=1, le=366, description=(
+        "Days until it stops working. Omit for the server's default (90 unless configured); the server's maximum may "
+        "be lower than 366. null = never, where the server allows it. A refusal is a 422 naming the limit."))
 
 
 class TokenInfo(BaseModel):

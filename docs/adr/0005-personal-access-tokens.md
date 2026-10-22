@@ -11,7 +11,7 @@ CI (the GitHub Action, `inkcast sync`) can't do an interactive OAuth sign-in. It
 - **Scopes:** `posts:read`, `posts:write`, `stories:sync`, `connections:read`, `connections:write`. The OAuth scope `inkcast` implies them all. Every route and MCP tool checks one.
 - **A PAT can't manage tokens.** Token management requires an OAuth session, so a leaked CI token can't mint more tokens or hide itself.
 - **Not through the AI:** the MCP tool `inkcast_create_token` returns a link to `/tokens/new`, never a token. Tokens never enter an AI transcript.
-- **Expiry:** 90 days by default, at most 366, or never (opt-in). The last-used time is recorded at most once a minute.
+- **Expiry:** settings since F1.10.S2 (issue #90), with the original policy as their defaults: `INKCAST_PAT_DEFAULT_DAYS` (90) when the request doesn't say, at most `INKCAST_PAT_MAX_DAYS` (366, the absolute ceiling, which the API document keeps as `TokenCreate`'s), or never (REST `expires_in_days: null`, `/tokens/new?days=never`) only while `INKCAST_PAT_ALLOW_NO_EXPIRY` is true (the default; a posture `info` in production). Every entry point (REST, `/tokens/new`, the MCP tool) enforces the limit where the token is made, with a 422 (a tool error) naming it. A lower maximum doesn't shorten tokens already issued: they keep the expiry they were given. The last-used time is recorded at most once a minute.
 
 ## Consequences
 - **Revocation** is immediate (the lookup checks `revoked_at`).

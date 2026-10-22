@@ -220,6 +220,10 @@ All settings are environment variables; see [.env.example](.env.example). Each s
 | `INKCAST_SECRETS_SOURCE` | `env` | where secrets come from: `env` (`NAME` or `NAME_FILE`), `dir` (a mounted Secret directory, `INKCAST_SECRETS_DIR`), `agent` (the AWS Secrets Manager agent), `aws`, `chain`. See [docs/reference/secrets.md](docs/reference/secrets.md) |
 | `INKCAST_MAX_BODY_BYTES` | 10 MB | larger requests get 413 before any handler runs |
 | `INKCAST_RATE_LIMIT_PER_MINUTE` | `60` | per-client limit on unauthenticated writes (`/register`, `/tokens/new`, sign-in, connect); `0` turns it off |
+| `INKCAST_PAT_DEFAULT_DAYS` | `90` | days a personal access token lasts when the request doesn't say (`1` to `INKCAST_PAT_MAX_DAYS`) |
+| `INKCAST_PAT_MAX_DAYS` | `366` | the most a request may ask for, `1` to `366`. Every entry point (`POST /api/v1/tokens`, `/tokens/new`, `inkcast_create_token`) refuses more with a 422 naming the limit. Lowering it doesn't shorten tokens already issued: they keep the expiry they were given |
+| `INKCAST_PAT_ALLOW_NO_EXPIRY` | `true` | whether a token may never expire (REST `expires_in_days: null`, `/tokens/new?days=never`), to be revoked when no longer needed; `false` refuses it with a 422. Allowing it is a posture `info` in production and staging |
+| `INKCAST_REFRESH_TOKEN_DAYS` | `30` | days a newly issued MCP refresh token lasts, `1` to `90`: an MCP client left unused that long signs in again (each refresh issues a new one with the full lifetime). Applies to tokens issued from then on. The access token's hour is not a setting |
 | `INKCAST_CACHE_URL` | | `redis://host:6379/0` or `rediss://…` (Redis or Valkey) to share rate limits, locks and idempotency markers across replicas; empty keeps them in-process. The password goes in `INKCAST_CACHE_PASSWORD` or `INKCAST_CACHE_PASSWORD_FILE`, never in the URL |
 
 ## Development

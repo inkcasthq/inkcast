@@ -107,7 +107,9 @@ class InkcastOAuthProvider:
         access = new_secret("ic_at_")
         refresh = new_secret("ic_rt_")
         self.store.save_token(access, "access", client_id, user_id, scopes, resource, family, self.config.access_token_seconds)
-        self.store.save_token(refresh, "refresh", client_id, user_id, scopes, resource, family, self.config.refresh_token_seconds)
+        # INKCAST_REFRESH_TOKEN_DAYS applies here, to the token being issued: ones already out keep their lifetime.
+        self.store.save_token(refresh, "refresh", client_id, user_id, scopes, resource, family,
+                              self.config.refresh_token_days * 86400)
         return OAuthToken(access_token=access, token_type="Bearer", expires_in=self.config.access_token_seconds,
                           scope=" ".join(scopes), refresh_token=refresh)
 
