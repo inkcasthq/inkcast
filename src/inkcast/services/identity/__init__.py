@@ -174,8 +174,11 @@ def _routes(ctx: Context) -> list[Route]:
         q = request.query_params
         try:
             days = q.get("days", "").strip()                   # a number of days, "never", or nothing for the default
+            wanted = None if days == "never" else int(days) if days else config.pat.default_days
+            if why := config.pat.refusal(wanted):              # before the schema: its le=366 would name no limit
+                return pages.message("Invalid request", why, error=True, status=422)
             req = TokenCreate(name=q.get("name", ""), scopes=q.get("scopes", "stories:sync").split(),
-                              expires_in_days=None if days == "never" else int(days) if days else config.pat.default_days)
+                              expires_in_days=wanted)
             _check_scopes(req.scopes)
         except (ValidationError, ValueError, ApiError) as exc:
             return pages.message("Invalid request", getattr(exc, "message", None) or "Check the token name, scopes and days.",
