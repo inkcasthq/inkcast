@@ -97,8 +97,9 @@ class LocalEngine:
 
     async def read(self, *, user: str | None = None, relation: str | None = None, obj: Ref | None = None,
                    type_: str | None = None) -> list[Tuple]:
-        if relation is not None and obj is None and type_ is None:
-            raise InvalidRequest("reading by relation needs an object or an object type")
+        # OpenFGA's Read: with any filter, an object type; with no object id, a user.
+        if obj is None and (user, relation, type_) != (None, None, None) and (type_ is None or user is None):
+            raise InvalidRequest("reading needs an object, a user with an object type, or no filter at all")
         try:
             rows = self.store.authz_read(user=user, relation=relation, obj=str(obj) if obj else None, type_=type_)
         except Exception as exc:

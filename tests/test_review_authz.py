@@ -259,5 +259,30 @@ class WriteSizeParity(unittest.TestCase):
             run(engine.write([grants[100]], deletes=grants[:100]))
 
 
+class ReadFilterParity(unittest.TestCase):
+    """OpenFGA's Read (pkg/server/commands/read.go) needs an object type whenever a filter is given, and a user
+    whenever the object id is empty; the Protocol (engine.py) lists the same shapes. LocalEngine also answered a
+    user alone, a type alone, and a type with a relation: the reconciler (E3.F3.8.S3), built and tested on the
+    local engine, would then fail against OpenFGA."""
+
+    def test_the_local_engine_refuses_what_openfga_refuses(self):
+        store = Store(":memory:", "k" * 40)
+        self.addCleanup(store.close)
+        engine = LocalEngine(store)
+        run(engine.write([Tuple("user:erin", "author", "post:p"), Tuple("workspace:w", "workspace", "post:p")]))
+        for name, kwargs in (("user only", {"user": "user:erin"}), ("type only", {"type_": "post"}),
+                             ("type and relation", {"type_": "post", "relation": "author"}),
+                             ("user and relation", {"user": "user:erin", "relation": "author"})):
+            with self.subTest(name), self.assertRaises(InvalidRequest):
+                run(engine.read(**kwargs))
+        # What OpenFGA answers still works.
+        self.assertEqual(len(run(engine.read())), 2)
+        self.assertEqual(len(run(engine.read(obj=Ref("post", "p")))), 2)
+        self.assertEqual(run(engine.read(obj=Ref("post", "p"), relation="author", user="user:erin")),
+                         [Tuple("user:erin", "author", "post:p")])
+        self.assertEqual(run(engine.read(user="user:erin", type_="post", relation="author")),
+                         [Tuple("user:erin", "author", "post:p")])
+
+
 if __name__ == "__main__":
     unittest.main()
