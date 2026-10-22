@@ -8,7 +8,8 @@
 
 The files: .github/rulesets/*.json (one ruleset each, the REST payload) and .github/repo-settings.json (merge
 methods, branch clean-up, secret scanning with push protection, Dependabot security updates, vulnerability alerts,
-private vulnerability reporting). Uses the gh CLI, so it runs with whatever token gh has: the owner's for apply,
+private vulnerability reporting, and the Actions token: read-only by default, allowed to open pull requests, which
+promote.yml needs; issue #80). Uses the gh CLI, so it runs with whatever token gh has: the owner's for apply,
 GITHUB_TOKEN in the scheduled check (.github/workflows/repo-settings.yml).
 """
 
@@ -99,6 +100,11 @@ def check(repo: str) -> list[str]:
     status, pvr = gh("GET", f"repos/{repo}/private-vulnerability-reporting", soft=True)
     if status != -1 and bool((pvr or {}).get("enabled")) != settings["private_vulnerability_reporting"]:
         drift.append(f"private vulnerability reporting is {'on' if (pvr or {}).get('enabled') else 'off'}")
+    status, workflow = gh("GET", f"repos/{repo}/actions/permissions/workflow", soft=True)
+    if status != -1:
+        for key, value in settings["actions_workflow_permissions"].items():
+            if (workflow or {}).get(key) != value:
+                drift.append(f"actions workflow permissions {key} is {(workflow or {}).get(key)!r}, want {value!r}")
     return drift
 
 
@@ -108,6 +114,7 @@ def apply(repo: str) -> None:
         k: {"status": v} for k, v in settings["security_and_analysis"].items()}})
     gh("PUT" if settings["vulnerability_alerts"] else "DELETE", f"repos/{repo}/vulnerability-alerts")
     gh("PUT" if settings["private_vulnerability_reporting"] else "DELETE", f"repos/{repo}/private-vulnerability-reporting")
+    gh("PUT", f"repos/{repo}/actions/permissions/workflow", settings["actions_workflow_permissions"])
     for want in rulesets():
         have = live_ruleset(repo, want["name"])
         if have:

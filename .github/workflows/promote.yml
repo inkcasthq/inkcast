@@ -32,6 +32,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      issues: write          # the deploy label (labels belong to issues)
       packages: read
     env:
       ENVIRONMENT: ${{ inputs.environment || 'staging' }}
@@ -76,7 +77,12 @@ jobs:
           git config user.email "inkcast-release-bot@users.noreply.github.com"
           git switch -c "$branch"
           git commit -am "deploy($ENVIRONMENT): $IMAGE@$DIGEST"
-          git push origin "$branch"
-          gh pr create --title "deploy($ENVIRONMENT): ${DIGEST:0:19}" \
+          git push --force origin "$branch"           # a re-run for the same digest replaces its own bot branch
+          if [ -n "$(gh pr list --head "$branch" --state open --json number --jq '.[].number')" ]; then
+            echo "A promotion pull request for $DIGEST is already open"; exit 0
+          fi
+          gh label create deploy --force --color 0e8a16 --description "Promotes an image digest (promote.yml)"
+          # Needs "Allow GitHub Actions to create and approve pull requests" (.github/repo-settings.json).
+          scripts/ci-run.sh "open the promotion pull request" gh pr create --title "deploy($ENVIRONMENT): ${DIGEST:0:19}" \
             --body "Promotes \`$IMAGE@$DIGEST\` to **$ENVIRONMENT**. Signature (publish.yml) and SLSA provenance verified by this workflow." \
             --label deploy
