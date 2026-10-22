@@ -5,6 +5,7 @@
 Each test failed on the PR head before the fix committed with it."""
 
 import asyncio
+import pathlib
 import tempfile
 import time
 import unittest
@@ -20,6 +21,7 @@ from inkcast.libs.platforms import Account, Platform, PlatformError, Prepared
 from inkcast.services.publishing.sync import GitSync
 
 SOURCE = "github.com/acme/blog"
+ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
 class RateLimited(Platform):
@@ -98,6 +100,24 @@ class GitSyncFollowsTheRetryPolicy(unittest.TestCase):
         self.assertAlmostEqual(self.store.get_post(moved.post_id)["run_at"], later.replace(microsecond=0).timestamp(),
                                delta=1)
         self.assertEqual(self.store.get_post(created.post_id)["status"], "cancelled")
+
+
+def doc_section(path: str, heading: str) -> str:
+    """The text under a ``## heading`` of a Markdown file, up to the next one."""
+    text = (ROOT / path).read_text(encoding="utf-8")
+    start = text.index(f"\n## {heading}\n")
+    end = text.find("\n## ", start + 1)
+    return text[start:end if end != -1 else None]
+
+
+class DocsStateThePolicy(unittest.TestCase):
+    def test_the_failure_rate_runbook_names_the_settings_not_the_old_fixed_delays(self):
+        """docs/runbooks/alerts.md told the person on call, during a platform outage, to "watch retries (60 s, 5 m,
+        30 m)": the constants this PR turned into settings. With any other INKCAST_PUBLISH_RETRY_DELAYS they wait for
+        retries that never come at those times, or miss the ones that do."""
+        section = doc_section("docs/runbooks/alerts.md", "InkcastPublishFailureRateHigh")
+        self.assertIn("INKCAST_PUBLISH_MAX_ATTEMPTS", section)
+        self.assertIn("INKCAST_PUBLISH_RETRY_DELAYS", section)
 
 
 if __name__ == "__main__":
