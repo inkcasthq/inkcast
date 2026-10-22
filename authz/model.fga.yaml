@@ -193,3 +193,23 @@ tests:
       - user: "user:bob"
         object: "channel:acme-x"
         assertions: {publisher: false, can_publish: false}
+
+  # Acme's own role assigned to Acme's members grants each member, and the members userset itself: OpenFGA's check
+  # holds a userset to be in itself (organization:acme#member is a member of organization:acme), so the userset
+  # passes member_assignee's "member from org" too. A foreign role's guard still holds for it.
+  - name: an organization's own custom role assigned to its members grants them, and the members userset
+    tuples:
+      - {user: "organization:acme#member", relation: assignee, object: "role:acme-copy-editor"}
+    check:
+      - user: "user:bob"
+        object: "workspace:acme-blog"
+        assertions: {editor: true, manager: false}
+      - user: "organization:acme#member"
+        object: "role:acme-copy-editor"
+        assertions: {member_assignee: true}
+      - user: "organization:acme#member"
+        object: "workspace:acme-blog"
+        assertions: {editor: true, manager: false}
+      - user: "organization:acme#member"
+        object: "role:globex-ghost"
+        assertions: {member_assignee: false}
