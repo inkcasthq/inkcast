@@ -334,6 +334,53 @@ class KeycloakSyncKeepsGoing(unittest.TestCase):
         self.assertEqual(counted[:2], ["error", "ok"])
 
 
+class KeycloakSyncSeesLateEvents(unittest.TestCase):
+    """E9.F9.5.S2: "her OAuth token and PAT answer 401 within 60 s". Keycloak stamps an admin event when the request
+    starts and stores it when the request commits, and replicas have their own clocks, so events don't become
+    visible in time order: one stamped a little before the newest event already seen can turn up on a later pass."""
+
+    def test_an_event_that_shows_up_after_a_newer_one_still_cuts_the_person_off(self):
+        from inkcast.libs.db import Store
+        from inkcast.libs.secrets import SecretValue
+        from inkcast.services.identity.keycloak_sync import KeycloakSync
+        issuer = "https://kc.example/realms/inkcast"
+        cfg = Config(public_url="http://localhost:8787", secret_key="k" * 40, database_path=":memory:", login="oidc",
+                     oidc_issuer=issuer, oidc_client_id="inkcast", oidc_client_secret=SecretValue("s"),
+                     oidc_required_role="inkcast-user", keycloak_sync_client_id="inkcast-sync",
+                     keycloak_sync_secret=SecretValue("sync-secret"))
+        store = Store(":memory:", "k" * 40)
+        ada = store.upsert_user(f"oidc:{issuer}#kc-ada", "ada", None, None)
+        store.save_token("ic_at_" + "a" * 43, "access", "c1", ada["id"], ["inkcast"], None, "f1", 3600)
+        now = 1_000_000.0
+        bob_at, ada_at = int(now * 1000) + 10_000, int(now * 1000) + 9_995          # ada's, 5 ms earlier
+        events = [{"time": bob_at, "resourceType": "USER", "operationType": "UPDATE", "resourcePath": "users/kc-bob"}]
+        disabled = {"kc-ada"}
+
+        def keycloak(request: httpx2.Request) -> httpx2.Response:
+            path = request.url.path
+            if path.endswith("/token"):
+                return httpx2.Response(200, json={"access_token": "t", "expires_in": 300})
+            if path.endswith("/admin-events"):
+                return httpx2.Response(200, json=sorted(events, key=lambda e: -e["time"]))   # newest first
+            if path.endswith("/events"):                                                    # no DELETE_ACCOUNT
+                return httpx2.Response(200, json=[])
+            return httpx2.Response(200, json={"enabled": path.rsplit("/", 1)[1] not in disabled})
+
+        async def two_passes():
+            async with httpx2.AsyncClient(transport=httpx2.MockTransport(keycloak)) as http:
+                sync = KeycloakSync(cfg, store, http, clock=lambda: now)
+                sync.last_reconcile = now                       # the reconcile isn't due: the events path alone
+                first = await sync.tick()                       # sees bob's event; ada's isn't committed yet
+                events.append({"time": ada_at, "resourceType": "USER", "operationType": "UPDATE",
+                               "resourcePath": "users/kc-ada"})
+                return first, await sync.tick()
+
+        first, second = asyncio.run(two_passes())
+        self.assertEqual(first, {"checked": 1, "disabled": 0, "erased": 0})
+        self.assertEqual(second["disabled"], 1, "ada stays signed in until the next reconcile (10 minutes)")
+        self.assertIsNone(store.get_token("ic_at_" + "a" * 43, "access"))
+
+
 class NoBearerLinksInLogs(unittest.TestCase):
     """A connect ticket is a bearer secret for 15 minutes: whoever has /connect/<ticket> attaches platform
     credentials to that person's account. The access log keeps paths (never query strings, for OAuth codes)."""
