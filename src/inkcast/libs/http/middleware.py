@@ -38,6 +38,8 @@ QUIET_PATHS = ("/livez", "/readyz", "/healthz", "/metrics")
 HTTP_DURATION = "inkcast_http_request_duration_seconds"
 DEFAULT_MAX_BODY = 10 * 1024 * 1024
 TOO_LARGE = "The request body is too large."
+# Metric labels come from a closed set: h11 accepts any token as a method, so anything else is "other".
+_METHODS = frozenset({"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"})
 
 
 def new_request_id() -> str:
@@ -107,7 +109,8 @@ class RequestContext:
             elapsed = time.perf_counter() - started
             ms = round(elapsed * 1000, 1)
             if self.metrics is not None and path not in QUIET_PATHS:
-                self.metrics.observe(HTTP_DURATION, elapsed, route=route_label(path), method=method,
+                self.metrics.observe(HTTP_DURATION, elapsed, route=route_label(path),
+                                     method=method if method in _METHODS else "other",
                                      code=f"{status // 100}xx" if status else "none")
             level = logging.DEBUG if path in QUIET_PATHS else logging.INFO
             log.log(level, "%s %s -> %s (%sms)", method, path, status or "-", ms,

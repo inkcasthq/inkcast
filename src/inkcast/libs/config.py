@@ -316,9 +316,10 @@ def secrets_provider(settings: Mapping[str, str], service: str = "inkcast") -> S
         fetcher = fetcher_from_environ(settings, service=service)
     except (SecretFetchError, NamingError) as exc:
         raise ConfigError(str(exc)) from exc
+    # Never in production, not even for the lines written while the configuration loads (before validate() refuses).
+    reveal = env.bool("INKCAST_LOG_REVEAL_SECRETS") and env.get("INKCAST_ENV", "development").lower() != "production"
     return SecretsProvider(fetcher, ttl=env.float("INKCAST_SECRETS_TTL", "300"),
-                           max_stale=env.float("INKCAST_SECRETS_MAX_STALE", "3600"),
-                           reveal_in_logs=env.bool("INKCAST_LOG_REVEAL_SECRETS"))
+                           max_stale=env.float("INKCAST_SECRETS_MAX_STALE", "3600"), reveal_in_logs=reveal)
 
 
 def load_config(environ: Mapping[str, str] | None = None) -> Config:

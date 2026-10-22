@@ -34,6 +34,12 @@ if ! $listing; then
   echo "Scaling the server to 0 (it was $replicas)."
   $k -n "$ns" scale deploy/inkcast --replicas=0
   $k -n "$ns" wait --for=delete pod -l app.kubernetes.io/component=server --timeout=180s || true
+  # `|| true` covers "no pods to wait for"; what --force relies on is that none is left.
+  if [ -n "$($k -n "$ns" get pod -l app.kubernetes.io/component=server -o name)" ]; then
+    echo "The server's pod is still there: not restoring under a live server. Scaling back to $replicas." >&2
+    $k -n "$ns" scale deploy/inkcast --replicas="$replicas"
+    exit 1
+  fi
 fi
 
 echo "Restoring with $image."

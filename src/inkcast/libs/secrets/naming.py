@@ -204,8 +204,10 @@ def load_config_file(path: str) -> dict[str, str]:
 
         try:
             data = yaml.safe_load(text) or {}
-        except yaml.YAMLError as exc:
-            raise ConfigFileError(f"{path}: not valid YAML: {exc}") from exc
+        except yaml.YAMLError as exc:  # its text quotes the offending line, which may hold a credential: position only
+            mark = getattr(exc, "problem_mark", None)
+            where = f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
+            raise ConfigFileError(f"{path}: not valid YAML{where}") from None
     elif suffix == ".json":
         try:
             data = json.loads(text or "{}")
