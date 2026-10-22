@@ -20,8 +20,10 @@ import yaml
 _FRONT_MATTER = re.compile(r"\A﻿?---[ \t]*\r?\n(.*?)\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|\Z)", re.S)
 _H1 = re.compile(r"^#\s+(.+?)\s*#*\s*$")
 _H2 = re.compile(r"^##\s+(.+?)\s*#*\s*$")
-_MD_IMAGE = re.compile(r"(!\[[^\]]*\]\()\s*<?([^)\s>]+)>?((?:\s+[\"'][^\"']*[\"'])?\s*\))")
-_HTML_IMAGE = re.compile(r"(<img\b[^>]*?\bsrc\s*=\s*[\"'])([^\"']+)([\"'])", re.I)
+# Alt text stops at '[', the URL at '(', a tag at '<': otherwise one attempt can scan to the end of the body from every
+# start, which is quadratic or worse (a 1 MB body took hours).
+_MD_IMAGE = re.compile(r"(!\[[^\[\]]*\]\()\s*<?([^()\s>]+)>?((?:\s+[\"'][^\"']*[\"'])?\s*\))")
+_HTML_IMAGE = re.compile(r"(<img\b[^<>]*?\bsrc\s*=\s*[\"'])([^\"']+)([\"'])", re.I)
 
 # Common front-matter spellings mapped to Inkcast's names.
 _ALIASES = {

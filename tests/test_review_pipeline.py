@@ -106,6 +106,23 @@ class FrontMatterAliasBomb(unittest.TestCase):
         self.assertEqual((story.title, story.tags), ("Fine", ["a"]))
 
 
+class ImageRewriteCost(unittest.TestCase):
+    def test_rewriting_image_urls_stays_linear_on_hostile_bodies(self):
+        """The image regexes let one match attempt scan to the end of the body (alt text up to the next ']', a URL
+        through every following '![x](', an <img> tag's attributes through every following '<img'), from every start:
+        tens of kilobytes took seconds to minutes and 1 MB hours, on the event loop, for one posts:read preview."""
+        for body in ("<img src=" * 4000, "![x](" * 4000, "![" * 40000):
+            with self.subTest(shape=body[:9], size=len(body)):
+                start = time.perf_counter()
+                parse_story("# Big\n\n" + body, known_platforms=["devto"], image_base_url="https://blog.example.com/")
+                self.assertLess(time.perf_counter() - start, 1.0)
+        # What the rewriting is for still works, both syntaxes.
+        story = parse_story('# Title\n\n![a](img/a.png "A") <img alt="b" src="img/b.png">\n', known_platforms=["devto"],
+                            image_base_url="https://blog.example.com/post/")
+        self.assertIn('![a](https://blog.example.com/post/img/a.png "A")', story.body)
+        self.assertIn('src="https://blog.example.com/post/img/b.png"', story.body)
+
+
 class PlatformBlockUrls(unittest.TestCase):
     def test_urls_in_a_platform_block_are_checked_like_the_top_level_ones(self):
         """canonical_url and cover_image must be full http(s) URLs, but only the top-level ones were checked: the
