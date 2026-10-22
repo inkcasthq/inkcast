@@ -194,7 +194,10 @@ class KeycloakSync:
         done = {"checked": 0, "disabled": 0, "erased": 0}
         deleted, newest = await self.deleted_accounts()
         for keycloak_id in deleted:
-            if self._erase(keycloak_id):
+            # The look-back reads an event again on later passes, and Keycloak can have the person again under the
+            # same id (restored from a realm export, LDAP without import): erase only once it confirms they are gone.
+            if self.store.find_user_by_identity(self.prefix + keycloak_id) \
+                    and await self.person(keycloak_id) == "deleted" and self._erase(keycloak_id):
                 done["erased"] += 1
         self.store.set_sync_state(USER_EVENTS_CURSOR, str(newest))
         for keycloak_id in await self.changed_people():

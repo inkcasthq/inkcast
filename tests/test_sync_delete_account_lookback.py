@@ -49,6 +49,8 @@ class DeleteAccountEventsSeenLate(unittest.TestCase):
                 return httpx2.Response(200, json=[])
             if path.endswith("/events"):
                 return httpx2.Response(200, json=sorted(events, key=lambda e: -e["time"]))   # newest first
+            if path.endswith(("/users/kc-ada", "/users/kc-bob")):                           # both deleted theirs
+                return httpx2.Response(404, json={"error": "User not found"})
             return httpx2.Response(200, json={"enabled": True})
 
         async def three_passes():
