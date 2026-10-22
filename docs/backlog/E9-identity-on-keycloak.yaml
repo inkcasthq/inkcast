@@ -121,7 +121,7 @@ features:
     title: 'A person gone from Keycloak with no DELETE_ACCOUNT event (an administrator''s deletion, a trimmed event) is
       erased after INKCAST_KEYCLOAK_ERASE_AFTER_DAYS'
     status: done
-    change: 'new; issue #86'
+    change: 'new; issue #86, built in PR #98'
     acceptance:
     - 'INKCAST_KEYCLOAK_ERASE_AFTER_DAYS, default 30: N > 0 erases a person still gone N days after the cut-off (exactly
       N counts); 0 erases at the first reconcile that finds them gone; off never erases on a 404 (cut off only)'
