@@ -142,7 +142,7 @@ def build(run: pathlib.Path, env: dict) -> tuple[pathlib.Path, dict]:
           f"<style>{CSS}</style></head><body><main>")
         P(f"<h1>{title}</h1>")
         P(f"<p class='lede'>Inkcast {e(env.get('inkcast_version'))} (commit {e(env.get('git_sha'))}, {e(env.get('git_ref'))}) run in development mode "
-          f"against the fake DEV and Medium APIs, driven by a real MCP client (the Python SDK, OAuth with PKCE) and Playwright "
+          f"against the fake DEV and Medium APIs and the stand-in Keycloak from the test suite, driven by a real MCP client (the Python SDK, OAuth with PKCE) and Playwright "
           f"(Chromium {e(env.get('chromium'))}, Playwright {e(env.get('playwright'))}, Python {e(env.get('python'))}) through "
           f"<span class='mono'>{e(res.get('base'))}</span>. Run {e(res.get('started'))} → {e(res.get('finished'))}. "
           f"Every number in this document is read from results.json, integrity.jsonl and env.json; nothing is typed in. "

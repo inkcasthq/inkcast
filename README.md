@@ -53,6 +53,7 @@ More detail on the design is in [docs/architecture.md](docs/architecture.md).
 | `inkcast_cancel` | Cancels a scheduled post. |
 | `inkcast_sync` | Syncs files from a repository: publishes new ones, updates changed ones in place, skips the rest. |
 | `inkcast_create_token` | Gives you a link to create a personal access token for CI. You see the token; the AI never does. |
+| `inkcast_delete_account` | Gives you a one-time link to delete your account. You sign in again, read what goes and what stays, and confirm at the sign-in provider (Keycloak); Inkcast then erases your data. The AI deletes nothing. |
 
 ## Publish from Git
 
@@ -120,6 +121,7 @@ Claude reads the file and passes its text to Inkcast. Inkcast never touches your
    - Under *Advanced*, set PKCE method to **S256**.
    - Copy the client secret.
 3. **Realm roles → Create** `inkcast-user`. Assign it to the people who may use Inkcast. For open SaaS sign-up, add it to the realm's **default roles**.
+   For **Delete my account** (`inkcast_delete_account`, `POST /api/v1/account/deletion-link`): enable the `delete_account` required action, add the `account` client's `delete-account` role to the default roles, record the `DELETE_ACCOUNT` event (Realm settings → Events), set the client's *Home URL* (`baseUrl`) to `https://inkcast.example.com/account/return` so Keycloak's info pages (the "deleted" page among them) link back, and run the user sync (`INKCAST_KEYCLOAK_SYNC_CLIENT_ID`, below): Keycloak deletes the account on the person's own authority and Inkcast erases their data once the sync's read-only service account confirms the account is gone. `deploy/keycloak/realm-inkcast.json` has all of it.
 4. Optional social login: **Identity providers → Google / GitHub / Microsoft…**. Keycloak's *first broker login* flow links a social account to an existing user with the same verified email. Inkcast always sees one stable user ID per person.
 
 ### 2. Run Inkcast on OpenShift or Kubernetes
@@ -199,8 +201,8 @@ All settings are environment variables; see [.env.example](.env.example). Each s
 | `INKCAST_UPSTREAM_<SERVICE>` | | Gateway only: e.g. `INKCAST_UPSTREAM_PUBLISHING_API=http://inkcast-publishing-api:8787` |
 | `INKCAST_OVERDUE_GRACE` | `600` | seconds past due before a scheduled post counts as overdue (metric and alert) |
 | `INKCAST_INSIGHTS_INTERVAL` | `10` | seconds between InsightsService passes that fold new events into KPI rollups |
-| `INKCAST_KEYCLOAK_SYNC_CLIENT_ID` | | with `INKCAST_LOGIN=oidc` on Keycloak: the service-account client (`inkcast-sync`) the user sync signs in as, so a person disabled or deleted in Keycloak loses their Inkcast tokens within a minute. Its secret: `INKCAST_KEYCLOAK_SYNC_SECRET(_FILE)` |
-| `INKCAST_KEYCLOAK_SYNC_INTERVAL` | `30` | seconds between reads of Keycloak's USER admin events |
+| `INKCAST_KEYCLOAK_SYNC_CLIENT_ID` | | with `INKCAST_LOGIN=oidc` on Keycloak: the service-account client (`inkcast-sync`, `view-users` and `view-events` only) the user sync signs in as, so a person disabled or deleted in Keycloak loses their Inkcast tokens within a minute, and a person who deletes their own account is erased. Delete my account is refused until this is set. Its secret: `INKCAST_KEYCLOAK_SYNC_SECRET(_FILE)` |
+| `INKCAST_KEYCLOAK_SYNC_INTERVAL` | `30` | seconds between reads of Keycloak's USER admin events and DELETE_ACCOUNT user events |
 | `INKCAST_KEYCLOAK_RECONCILE_INTERVAL` | `600` | seconds between full re-reads of every Keycloak person Inkcast knows (also at start) |
 | `INKCAST_AUTHZ_ENGINE` | `local` | the permission engine ([design](docs/authorization.md)): `local` evaluates the model in-process over tuples in the Inkcast database; `openfga` asks an OpenFGA server. Production refuses `local` unless `INKCAST_AUTHZ_ALLOW_LOCAL=true` (a self-host that accepts it) |
 | `INKCAST_FGA_API_URL`, `INKCAST_FGA_STORE_ID`, `INKCAST_FGA_MODEL_ID` | | with `openfga`: the server, the store and the pinned model version. The preshared key: `INKCAST_FGA_API_TOKEN(_FILE)`; `INKCAST_FGA_TIMEOUT` (`5`) seconds per request |

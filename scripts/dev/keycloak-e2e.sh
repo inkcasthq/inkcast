@@ -12,7 +12,11 @@
 # role is refused by Inkcast after Keycloak accepted their password, a newcomer signs up (registration, the emailed
 # verification link from Mailpit, the terms) and arrives with the default role, and one who never verifies is
 # held back. A person an administrator disables in Keycloak loses their OAuth token and personal access token within
-# a minute (the user sync, E9.F9.5.S2) and signs in again once re-enabled. Secrets are random per run, never committed.
+# a minute (the user sync, E9.F9.5.S2) and signs in again once re-enabled. Delete my account (E9.F9.5.S4): dee deletes
+# her account through Inkcast's page and Keycloak's delete_account action (scripts/dev/account_delete.py), her tokens
+# answer 401, her Keycloak user and her Inkcast rows are gone and bob is untouched; bob then deletes from Keycloak's
+# side as the account console does, and the sync erases him from the DELETE_ACCOUNT event within 60 s. Secrets are
+# random per run, never committed.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 KC="$ROOT/deploy/keycloak"
@@ -43,6 +47,31 @@ sync_roles="$(kcadm get-roles -r inkcast --uusername service-account-inkcast-syn
 for role in view-users view-events; do
   echo "$sync_roles" | grep -q "\"$role\"" || { echo "the inkcast-sync service account lacks $role: $sync_roles" >&2; exit 1; }
 done
+echo "$sync_roles" | grep -q '"manage-users"' && { echo "the inkcast-sync service account must not manage users" >&2; exit 1; }
+echo "-- E9.F9.5.S4: delete_account enabled, delete-account a default role, DELETE_ACCOUNT recorded, the client links back"
+# Parsed as JSON and printed, not grepped: kcadm's formatting is not a contract, and under pipefail `kcadm | grep -q`
+# fails at random when grep exits on its match and kcadm dies of SIGPIPE writing the rest.
+kcadm get authentication/required-actions -r inkcast | python3 -c '
+import json, sys
+actions = {a.get("alias"): a for a in json.load(sys.stdin)}
+got = actions.get("delete_account")
+print("delete_account required action:", {k: (got or {}).get(k) for k in ("alias", "providerId", "enabled", "defaultAction")})
+sys.exit(0 if got and got.get("enabled") is True else "the delete_account required action is not enabled")'
+kcadm get roles/default-roles-inkcast/composites -r inkcast | python3 -c '
+import json, sys
+names = sorted(r.get("name") for r in json.load(sys.stdin))
+print("default-roles-inkcast composites:", names)
+sys.exit(0 if "delete-account" in names else "default-roles-inkcast lacks the account client'"'"'s delete-account role")'
+kcadm get events/config -r inkcast | python3 -c '
+import json, sys
+types = json.load(sys.stdin).get("enabledEventTypes") or []
+print("DELETE_ACCOUNT recorded:", "DELETE_ACCOUNT" in types)
+sys.exit(0 if "DELETE_ACCOUNT" in types else "DELETE_ACCOUNT is not an enabled event type")'
+kcadm get clients -r inkcast -q clientId=inkcast-identity | python3 -c '
+import json, sys
+base = [c.get("baseUrl") for c in json.load(sys.stdin)]
+print("inkcast-identity baseUrl:", base)
+sys.exit(0 if base == ["http://localhost:8787/account/return"] else "the inkcast-identity client'"'"'s baseUrl must be Inkcast'"'"'s /account/return")'
 
 echo "== Two people: one with inkcast-user, one without"
 ok_pw="$(rand)A1!"; no_pw="$(rand)B2!"
@@ -99,6 +128,75 @@ echo "-- $newcomer signs up (E9.F9.2.S1): register, verify the emailed link, acc
 drive "$newcomer" "$(rand)C3!" allowed 1
 echo "-- unverified-$newcomer signs up but never verifies: must not reach Inkcast"
 drive "unverified-$newcomer" "$(rand)D4!" unverified 1
+echo "-- Keycloak's Back to Application link (the client's baseUrl) without a pending deletion: a neutral page"
+$k -n "$ns" exec -i "$browser" -- python - <<'PY'
+import sys, httpx2
+r = httpx2.get("http://localhost:8787/account/return")
+ok = r.status_code == 200 and "back at Inkcast" in r.text and "delet" not in r.text.lower()
+print("PASS: /account/return is neutral" if ok else f"FAIL: HTTP {r.status_code}: {r.text[:300]}")
+sys.exit(0 if ok else 1)
+PY
+
+echo "== E9.F9.5.S4: Delete my account"
+dee_pw="$(rand)F6!"; bob_pw="$(rand)G7!"
+for who in dee bob; do
+  kcadm create users -r inkcast -s "username=$who@example.com" -s "email=$who@example.com" -s emailVerified=true \
+    -s enabled=true -s firstName="${who^}" -s lastName=Example >/dev/null
+done
+kcadm set-password -r inkcast --username dee@example.com --new-password "$dee_pw"
+kcadm set-password -r inkcast --username bob@example.com --new-password "$bob_pw"
+SAVE_TOKENS=/tmp/dee.tokens drive dee@example.com "$dee_pw" allowed
+SAVE_TOKENS=/tmp/bob.tokens drive bob@example.com "$bob_pw" allowed
+inkcast_id() {  # the Inkcast user id behind a saved token file
+  $k -n "$ns" exec -i "$browser" -- python - "$1" <<'PY'
+import sys, httpx2
+token = open(sys.argv[1]).read().split()[0]
+print(httpx2.get("http://localhost:8787/api/v1/me", headers={"Authorization": f"Bearer {token}"}).raise_for_status().json()["id"])
+PY
+}
+rows_left() {  # every table erase_user covers, for one Inkcast user id, from the pod's database (read-only)
+  $k -n "$ns" exec -i "$browser" -- python - "$1" <<'PY'
+import sqlite3, sys
+from inkcast.libs.db.erasure import USER_TABLES
+c = sqlite3.connect("file:/data/inkcast.db?mode=ro", uri=True)
+left = {t: c.execute(f"SELECT COUNT(*) FROM {t} WHERE {cond}", {"user_id": sys.argv[1]}).fetchone()[0] for t, cond in USER_TABLES}
+print({t: n for t, n in left.items() if n})
+PY
+}
+dee_id="$(inkcast_id /tmp/dee.tokens)"; bob_id="$(inkcast_id /tmp/bob.tokens)"
+echo "-- dee ($dee_id) deletes her account through Inkcast's page and Keycloak's delete_account action"
+$k -n "$ns" exec -i "$browser" -- env KC_USER=dee@example.com KC_PASSWORD="$dee_pw" KC_TOKENS=/tmp/dee.tokens \
+  python - < "$ROOT/scripts/dev/account_delete.py"
+[ -z "$(kcadm get users -r inkcast -q username=dee@example.com --fields id --format csv --noquotes)" ] \
+  || { echo "dee's Keycloak user still exists" >&2; exit 1; }
+left="$(rows_left "$dee_id")"; [ "$left" = "{}" ] || { echo "dee's Inkcast rows are still there: $left" >&2; exit 1; }
+echo "   Keycloak user gone, Inkcast rows gone"
+bob_left="$(rows_left "$bob_id")"
+echo "$bob_left" | grep -q "'users': 1" || { echo "bob's rows should be untouched: $bob_left" >&2; exit 1; }
+[ -n "$(kcadm get users -r inkcast -q username=no-role@example.com --fields id --format csv --noquotes)" ] \
+  || { echo "no-role's Keycloak user vanished" >&2; exit 1; }
+echo "   bob and no-role untouched"
+echo "-- bob ($bob_id) deletes from Keycloak's side, as the account console does: erased from the DELETE_ACCOUNT event within 60 s"
+$k -n "$ns" exec -i "$browser" -- env KC_USER=bob@example.com KC_PASSWORD="$bob_pw" KC_MODE=console \
+  KC_ISSUER=http://keycloak.keycloak.svc:8080/realms/inkcast python - < "$ROOT/scripts/dev/account_delete.py"
+$k -n "$ns" exec -i "$browser" -- python - "$bob_id" <<'PY'
+import sqlite3, sys, time, httpx2
+from inkcast.libs.db.erasure import USER_TABLES
+tokens = open("/tmp/bob.tokens").read().split()
+deadline, codes, left = time.time() + 60, [], {}
+while time.time() < deadline:
+    codes = [httpx2.get("http://localhost:8787/api/v1/me", headers={"Authorization": f"Bearer {t}"}).status_code for t in tokens]
+    c = sqlite3.connect("file:/data/inkcast.db?mode=ro", uri=True)
+    left = {t: c.execute(f"SELECT COUNT(*) FROM {t} WHERE {cond}", {"user_id": sys.argv[1]}).fetchone()[0] for t, cond in USER_TABLES}
+    if codes == [401, 401] and not any(left.values()):
+        print(f"PASS: bob's tokens refused and his rows gone {60 - (deadline - time.time()):.0f} s after Keycloak deleted him")
+        metrics = httpx2.get("http://localhost:9090/metrics").text
+        line = [ln for ln in metrics.splitlines() if ln.startswith("inkcast_identity_users_deleted_total")]
+        print("   ", *line)
+        sys.exit(0 if any('via="event"' in ln for ln in line) else "the via=event metric is missing")
+    time.sleep(2)
+sys.exit(f"FAIL: still {codes}, rows left {left} 60 s after Keycloak deleted bob")
+PY
 
 echo "== Split mode (#17): one Deployment per service, the Gateway in front, the same Keycloak"
 $k apply -k "$ROOT/deploy/kustomize/overlays/ci-split-oidc"

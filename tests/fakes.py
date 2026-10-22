@@ -45,6 +45,14 @@ class Fakes:
         self.kc_admin_events: list[dict] = []
         self.kc_admin_calls: list[str] = []
         self._kc_sync_tokens: set[str] = set()
+        # Delete my account (E9.F9.5.S4): kc_action=delete_account shows Keycloak's confirm page after a fresh sign-in;
+        # confirming deletes the person, records a DELETE_ACCOUNT user event and shows Keycloak's own "deleted" page,
+        # which links back to the client's baseUrl (kc_base_url) when it has one. Keycloak 26 never redirects to the
+        # client after a successful deletion; a cancel comes back with kc_action_status=cancelled, a failed deletion
+        # with error=access_denied (what OIDCLoginProtocol.sendError puts on the redirect).
+        self.kc_base_url: str | None = None
+        self.kc_user_events: list[dict] = []
+        self.kc_delete_fails = False
         self.medium_posts: list[tuple[str, dict]] = []
         self.devto_articles: list[dict] = []
         self.devto_fail_next: int | None = None  # e.g. 429 to simulate rate limiting
@@ -73,20 +81,40 @@ class Fakes:
         q = request.query_params
         assert q["client_id"] == self.oidc_client[0] and q["code_challenge_method"] == "S256"
         assert "openid" in q["scope"].split()
-        if self.kc_accounts is not None:                   # the page a person fills in, with Keycloak's markup
+        if self.kc_accounts is not None or q.get("kc_action"):   # the page a person fills in, with Keycloak's markup
             session = secrets.token_hex(8)
             self._kc_sessions[session] = {"q": dict(q), "user": None, "pending": []}
-            return self._kc_login_page(session)
+            if self.kc_accounts is None:                   # no login form: next_user is signed in at once
+                self._kc_sessions[session]["user"] = dict(self.next_user)
+                return self._kc_next(session)
+            return self._kc_login_page(session)            # delete_account always asks for the password again
         code = secrets.token_hex(8)
         self._codes[code] = {"challenge": q["code_challenge"], "redirect_uri": q["redirect_uri"], "user": dict(self.next_user)}
         return RedirectResponse(f"{q['redirect_uri']}?{urlencode({'code': code, 'state': q['state']})}", status_code=302)
 
+    # The look of the fake's pages (the walkthrough pictures them as the stand-in for Keycloak): light only.
+    KC_STYLE = ("<style>body{margin:0;font:16px/1.5 system-ui,sans-serif;background:#f0f0f0;color:#151515}"
+                "main{max-width:420px;margin:8vh auto;background:#fff;border-radius:8px;padding:28px;box-shadow:0 2px 8px #0002}"
+                "h1{font-size:1.3rem;margin:0 0 16px}label{display:block;font-weight:600;margin:12px 0 4px}"
+                "input[type=text],input[type=password]{width:100%;padding:8px;border:1px solid #8a8d90;border-radius:3px;font:inherit}"
+                "input[type=submit],button{margin-top:16px;padding:8px 16px;border-radius:3px;border:1px solid #06c;background:#06c;"
+                "color:#fff;font:inherit;cursor:pointer}button{background:#fff;color:#06c;margin-left:8px}"
+                ".alert{background:#fdf7e7;border-left:3px solid #f0ab00;padding:8px 12px;margin:0 0 12px}"
+                "#input-error{color:#c9190b}.realm{color:#6a6e73;font-size:.9rem;margin-bottom:8px}</style>")
+
+    def _kc_page(self, title: str, body: str) -> HTMLResponse:
+        return HTMLResponse(f'<html><head><meta charset="utf-8"><meta name="color-scheme" content="light"><title>{title}</title>'
+                            f'{self.KC_STYLE}</head><body><main><div class="realm">inkcast</div>{body}</main></body></html>')
+
     def _kc_login_page(self, session: str, error: str = "") -> HTMLResponse:
         action = f"{self.issuer}/login-actions/authenticate?session_code={session}&amp;execution=e1&amp;tab_id=t1"
         register = f"{self.issuer}/login-actions/registration?session_code={session}&amp;tab_id=t1"
-        return HTMLResponse(f'<html><body>{error}<form id="kc-form-login" onsubmit="return true;" action="{action}" '
-                            f'method="post"><input name="username"><input name="password" type="password"></form>'
-                            f'<div id="kc-registration"><a href="{register}">Register</a></div></body></html>')
+        return self._kc_page("Sign in to inkcast", f'<h1 id="kc-page-title">Sign in to your account</h1>{error}'
+                             f'<form id="kc-form-login" onsubmit="return true;" action="{action}" method="post">'
+                             f'<label for="username">Email</label><input id="username" name="username" type="text" autofocus>'
+                             f'<label for="password">Password</label><input id="password" name="password" type="password">'
+                             f'<input type="submit" value="Sign In"></form>'
+                             f'<div id="kc-registration">New user? <a href="{register}">Register</a></div>')
 
     def _kc_next(self, session: str):
         """Keycloak's required actions in order, then back to the client with a code."""
@@ -100,10 +128,48 @@ class Fakes:
                                 f'action="{action}" method="POST"><input name="accept" id="kc-accept" type="submit" '
                                 f'value="Accept"><input name="cancel" type="submit" value="Decline"></form></body></html>')
         q = state["q"]
+        if q.get("kc_action") == "delete_account" and "delete_account" not in state["pending"]:
+            state["pending"].append("delete_account")
+            action = f"{self.issuer}/login-actions/required-action?execution=delete_account&amp;session_code={session}"
+            return self._kc_page("Delete account confirmation", f'<h1 id="kc-page-title">Delete account confirmation</h1>'
+                                 f'<form action="{action}" class="form-vertical" method="post">'
+                                 f'<div class="alert alert-warning">This action is irreversible</div>'
+                                 f'<p>Deleting your account implies:</p><ul class="kc-delete-account-list">'
+                                 f'<li>Logging out immediately</li><li>Erasing all your data</li></ul>'
+                                 f'<p class="delete-account-text">Are you sure you want to delete your account?</p>'
+                                 f'<input type="submit" value="Confirm deletion">'
+                                 f'<button type="submit" name="cancel-aia" value="true">Cancel</button></form>')
         self._kc_sessions.pop(session)
         code = secrets.token_hex(8)
         self._codes[code] = {"challenge": q["code_challenge"], "redirect_uri": q["redirect_uri"], "user": dict(state["user"])}
         return RedirectResponse(f"{q['redirect_uri']}?{urlencode({'code': code, 'state': q['state']})}", status_code=302)
+
+    def _kc_delete_account(self, session: str, form) -> HTMLResponse | RedirectResponse:
+        """The delete_account required action, as DeleteAccount.processAction and LoginActionsService do it."""
+        state = self._kc_sessions.pop(session)
+        q, user = state["q"], state["user"]
+        back = f"{q['redirect_uri']}?"
+        if form.get("cancel-aia"):
+            code = secrets.token_hex(8)
+            self._codes[code] = {"challenge": q["code_challenge"], "redirect_uri": q["redirect_uri"], "user": dict(user)}
+            return RedirectResponse(back + urlencode({"state": q["state"], "kc_action": "delete_account",
+                                                      "kc_action_status": "cancelled", "code": code}), status_code=302)
+        if self.kc_delete_fails:
+            return RedirectResponse(back + urlencode({"error": "access_denied", "state": q["state"]}), status_code=302)
+        self.kc_account_console_delete(user["sub"], client="inkcast")
+        link = f'<p><a href="{self.kc_base_url}">« Back to Application</a></p>' if self.kc_base_url else ""
+        return self._kc_page("User deleted successfully", f'<div id="kc-info-message">'
+                             f'<p class="instruction">User deleted successfully</p>{link}</div>')
+
+    def kc_account_console_delete(self, sub: str, client: str = "account-console") -> None:
+        """What happens when a person deletes their account (through Inkcast's link or the account console): the user
+        is gone (404 to the admin API) and a DELETE_ACCOUNT user event is recorded."""
+        self.kc_deleted.add(sub)
+        for username, (_, claims) in list((self.kc_accounts or {}).items()):
+            if claims.get("sub") == sub:
+                del self.kc_accounts[username]
+        self.kc_user_events.append({"time": int(time.time() * 1000), "type": "DELETE_ACCOUNT", "realmId": "inkcast",
+                                    "clientId": client, "userId": sub, "details": {"username": sub}})
 
     async def kc_authenticate(self, request: Request):
         session = request.query_params.get("session_code", "")
@@ -148,6 +214,8 @@ class Fakes:
     async def kc_required_action(self, request: Request):
         session = request.query_params.get("session_code", "")
         f = await request.form()
+        if session in self._kc_sessions and request.query_params.get("execution") == "delete_account":
+            return self._kc_delete_account(session, f)
         if session not in self._kc_sessions or request.query_params.get("execution") != "TERMS_AND_CONDITIONS":
             return HTMLResponse("expired", status_code=400)
         if f.get("accept") != "Accept":
@@ -184,6 +252,15 @@ class Fakes:
         if sub in self.kc_deleted:
             return JSONResponse({"error": "User not found"}, status_code=404)
         return JSONResponse({"id": sub, "enabled": self.kc_people.get(sub, {}).get("enabled", True)})
+
+    async def kc_user_events_list(self, request: Request):
+        self.kc_admin_calls.append(request.url.path)
+        if not self._kc_admin_ok(request):
+            return JSONResponse({"error": "HTTP 401 Unauthorized"}, status_code=401)
+        q = request.query_params
+        kinds = set(q.getlist("type"))
+        found = [e for e in self.kc_user_events if not kinds or e["type"] in kinds]
+        return JSONResponse(list(reversed(found))[: int(q.get("max", "100"))])   # Keycloak: newest first
 
     async def kc_admin_events_list(self, request: Request):
         self.kc_admin_calls.append(request.url.path)
@@ -464,6 +541,7 @@ class Fakes:
             Route(f"{kc}/protocol/openid-connect/userinfo", self.oidc_userinfo),
             Route("/kc/admin/realms/inkcast/users/{uid}", self.kc_admin_user),
             Route("/kc/admin/realms/inkcast/admin-events", self.kc_admin_events_list),
+            Route("/kc/admin/realms/inkcast/events", self.kc_user_events_list),
             Route("/medium/v1/me", self.medium_me),
             Route("/medium/v1/users/{uid}/publications", self.medium_pubs),
             Route("/medium/v1/publications/{pub}/contributors", self.medium_contributors),

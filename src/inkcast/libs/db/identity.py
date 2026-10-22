@@ -43,15 +43,23 @@ CREATE TABLE IF NOT EXISTS api_tokens (
 CREATE INDEX IF NOT EXISTS api_tokens_user ON api_tokens(user_id);
 -- Small named values a worker keeps between runs (the Keycloak sync's event cursor).
 CREATE TABLE IF NOT EXISTS sync_state (name TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at REAL NOT NULL);
+-- Delete my account (E9.F9.5.S4): one row per request. link_hash is the one-time link (NULL once opened);
+-- cookie_hash and keycloak_id are set when the person continues to Keycloak, for the visit that comes back. The row
+-- outlives erase_user (the sync may erase first) and goes when that visit is answered, or with its TTL.
+CREATE TABLE IF NOT EXISTS deletion_requests (
+  id TEXT PRIMARY KEY, user_id TEXT NOT NULL, link_hash TEXT UNIQUE, cookie_hash TEXT UNIQUE, keycloak_id TEXT,
+  created_at REAL NOT NULL, expires_at REAL NOT NULL
+);
 """
 # disabled_at: set when the identity provider disabled or deleted the person (E9.F9.5); cleared at their next
 # successful sign-in, which the provider only allows once they are enabled again.
 COLUMNS = (("users", "disabled_at", "REAL"),)
 
 
-# Defence in depth behind disable_user(): a token or code minted in the moment a person was being cut off (a sign-in
-# finishing as Keycloak disabled them) is refused anyway while they stay disabled.
-_NOT_DISABLED = " AND user_id NOT IN (SELECT id FROM users WHERE disabled_at IS NOT NULL)"
+# Defence in depth behind disable_user() and erase_user(): a token or code minted in the moment a person was being
+# cut off or erased (a sign-in finishing as Keycloak disabled them, or as their account was deleted) is refused
+# anyway: only a token whose person exists and is not disabled is honoured.
+_ACTIVE_USER = " AND EXISTS (SELECT 1 FROM users WHERE users.id = user_id AND users.disabled_at IS NULL)"  # by key
 
 
 class IdentityRepo(Database):
@@ -148,7 +156,7 @@ class IdentityRepo(Database):
         )
 
     def get_code(self, code: str) -> dict[str, Any] | None:
-        row = self._one("SELECT * FROM auth_codes WHERE code_hash = ?" + _NOT_DISABLED, token_hash(code))
+        row = self._one("SELECT * FROM auth_codes WHERE code_hash = ?" + _ACTIVE_USER, token_hash(code))
         return dict(row) if row else None
 
     def consume_code(self, code: str) -> bool:
@@ -165,7 +173,7 @@ class IdentityRepo(Database):
 
     def get_token(self, value: str, kind: str) -> dict[str, Any] | None:
         row = self._one(
-            "SELECT * FROM tokens WHERE token_hash = ? AND kind = ? AND expires_at > ?" + _NOT_DISABLED,
+            "SELECT * FROM tokens WHERE token_hash = ? AND kind = ? AND expires_at > ?" + _ACTIVE_USER,
             token_hash(value), kind, time.time()
         )
         return dict(row) if row else None
@@ -208,7 +216,7 @@ class IdentityRepo(Database):
         """The active token row for a presented token (not revoked, not expired); records its use."""
         now = time.time()
         row = self._one("SELECT * FROM api_tokens WHERE token_hash = ? AND revoked_at IS NULL"
-                        " AND (expires_at IS NULL OR expires_at > ?)" + _NOT_DISABLED, token_hash(token), now)
+                        " AND (expires_at IS NULL OR expires_at > ?)" + _ACTIVE_USER, token_hash(token), now)
         if not row:
             return None
         if not row["last_used_at"] or now - row["last_used_at"] > 60:  # don't write on every request
@@ -223,8 +231,48 @@ class IdentityRepo(Database):
         return self._exec("UPDATE api_tokens SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL",
                           time.time(), token_id, user_id) == 1
 
+    # ---- delete my account (E9.F9.5.S4): the one-time link, then the visit that comes back from Keycloak ------
+
+    def create_deletion_request(self, user_id: str, ttl: float) -> str:
+        """A one-time link ticket for the person's own deletion page; only its hash is stored."""
+        ticket = secrets.token_urlsafe(32)
+        now = time.time()
+        self._exec("INSERT INTO deletion_requests (id, user_id, link_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+                   "del_" + uuid.uuid4().hex[:16], user_id, token_hash(ticket), now, now + ttl)
+        return ticket
+
+    def open_deletion_link(self, ticket: str) -> dict[str, Any] | None:
+        """The request behind a link, consuming the link (a second visit finds nothing); None when unknown or expired."""
+        with self._tx() as c:
+            row = c.execute("SELECT * FROM deletion_requests WHERE link_hash = ? AND expires_at > ?",
+                            (token_hash(ticket), time.time())).fetchone()
+            if not row:
+                return None
+            c.execute("UPDATE deletion_requests SET link_hash = NULL WHERE id = ?", (row["id"],))
+        return dict(row)
+
+    def get_deletion_request(self, request_id: str) -> dict[str, Any] | None:
+        row = self._one("SELECT * FROM deletion_requests WHERE id = ? AND expires_at > ?", request_id, time.time())
+        return dict(row) if row else None
+
+    def arm_deletion_return(self, request_id: str, keycloak_id: str, ttl: float) -> str:
+        """The person is being sent to Keycloak: remember who, for the visit that comes back. Returns the cookie
+        value (only its hash is stored); the request now lives ``ttl`` more seconds."""
+        cookie = secrets.token_urlsafe(32)
+        self._exec("UPDATE deletion_requests SET cookie_hash = ?, keycloak_id = ?, expires_at = ? WHERE id = ?",
+                   token_hash(cookie), keycloak_id, time.time() + ttl, request_id)
+        return cookie
+
+    def deletion_request_by_cookie(self, cookie: str) -> dict[str, Any] | None:
+        row = self._one("SELECT * FROM deletion_requests WHERE cookie_hash = ? AND expires_at > ?", token_hash(cookie),
+                        time.time())
+        return dict(row) if row else None
+
+    def delete_deletion_request(self, request_id: str) -> None:
+        self._exec("DELETE FROM deletion_requests WHERE id = ?", request_id)
+
     def purge_expired_identity(self) -> None:
         now = time.time()
         with self._tx() as c:
-            for table in ("pending_auth", "auth_codes", "tokens"):
+            for table in ("pending_auth", "auth_codes", "tokens", "deletion_requests"):
                 c.execute(f"DELETE FROM {table} WHERE expires_at < ?", (now,))

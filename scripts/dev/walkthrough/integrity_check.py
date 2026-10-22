@@ -12,6 +12,10 @@
 4. No credential the run created appears in full in any output file: personal access tokens (``ink_pat_…``),
    OAuth access and refresh tokens (``ic_at_…``, ``ic_rt_…``), in results.json, the panels' text, the logs, the
    document, everything under the run directory.
+5. After the account deletion (E9.F9.5.S4): both of the person's tokens answered 401, the erasure was counted exactly
+   once (``inkcast_identity_users_deleted_total``, ``via="return"`` for the visit back or ``via="event"`` when the
+   sync's DELETE_ACCOUNT pass ran first), and the articles on the fake DEV are the same as before it: what was
+   published stays.
 
 Writes <run>/integrity.jsonl, one line per check, and exits 1 if any check fails.
 
@@ -107,6 +111,17 @@ def main() -> int:
     title = scheduled.get("title")
     check("cancelled schedule: nothing on DEV", bool(title) and title not in by_title, "no article titled " + repr(title),
           [a.get("title") for a in articles], f"{len(articles)} article(s) on the fake DEV, none is the cancelled one" if title and title not in by_title else "")
+
+    # 5. The account deletion: tokens dead, counted once, the platform's articles untouched.
+    deletion = res.get("deletion") or {}
+    check("deletion: the OAuth token and the PAT answer 401", deletion.get("me_after") == [401, 401], [401, 401], deletion.get("me_after"))
+    metric = deletion.get("metric") or []
+    check("deletion: counted exactly once (via=return, or via=event when the sync read the event first)",
+          len(metric) == 1 and metric[0].endswith(" 1") and ('via="return"' in metric[0] or 'via="event"' in metric[0]),
+          'inkcast_identity_users_deleted_total{via="return"|"event"} 1, one series', metric)
+    after = [a.get("title") for a in res.get("dev_articles_after_deletion") or []]
+    check("deletion: the articles on DEV outlived the account", bool(after) and after == [a.get("title") for a in articles],
+          [a.get("title") for a in articles], after, f"{len(after)} article(s) on the fake DEV after the account is gone" if after else "")
 
     # 4. No credential in full in any output file (run_walk.sh scans once more, with --leaks-only, once the document exists).
     row = leak_row(run, "no credential in full in any output file")
