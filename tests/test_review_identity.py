@@ -254,6 +254,28 @@ class RateLimitsCannotBeSidestepped(unittest.TestCase):
         self.assertEqual((codes, rows), ([302, 302, 429, 429], 2), "one registered client, unbounded pending rows")
 
 
+class ConsentNamesTheRealHost(unittest.TestCase):
+    """The consent page's one trustworthy signal is where approving sends the code ("Only approve if you just
+    started this from your own tool"); the client name is whatever the registration said."""
+
+    def test_userinfo_in_the_redirect_uri_cannot_pose_as_a_local_client(self):
+        cfg = password_config()
+        app, _ = in_process("IdentityService", cfg)
+        redirect = "http://localhost:53682@evil.example/callback"         # the code goes to evil.example
+        with TestClient(app, base_url=cfg.public_url) as c:
+            client = c.post("/register", json={"client_name": "Claude Code", "redirect_uris": [redirect],
+                                               "token_endpoint_auth_method": "none", "grant_types": ["authorization_code"],
+                                               "response_types": ["code"]}).json()
+            r = c.get("/authorize", params={"client_id": client["client_id"], "response_type": "code",
+                                            "redirect_uri": redirect, "code_challenge": "x" * 43,
+                                            "code_challenge_method": "S256"}, follow_redirects=False)
+            pending = parse_qs(urlparse(r.headers["location"]).query)["pending"][0]
+            r = c.post("/auth/callback", data={"pending": pending, "password": PASSWORD}, follow_redirects=False)
+            page = c.get(r.headers["location"]).text
+        shown = re.search(r"sends you back to <code>([^<]*)</code>", page).group(1)
+        self.assertEqual(shown, "evil.example")
+
+
 class NoBearerLinksInLogs(unittest.TestCase):
     """A connect ticket is a bearer secret for 15 minutes: whoever has /connect/<ticket> attaches platform
     credentials to that person's account. The access log keeps paths (never query strings, for OAuth codes)."""

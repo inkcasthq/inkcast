@@ -63,7 +63,7 @@ class InkcastOAuthProvider:
         name = (json.loads(info).get("client_name") if info else None) or "An MCP client"
         params = AuthorizationParams.model_validate_json(pending["params"])
         parsed = urlparse(str(params.redirect_uri))
-        return name, parsed.netloc or parsed.scheme
+        return name, parsed.netloc.rpartition("@")[2] or parsed.scheme   # the host, never userinfo posing as one
 
     def approve(self, pending: dict) -> str:
         """Issue an authorization code for an approved pending request; return the client redirect."""
