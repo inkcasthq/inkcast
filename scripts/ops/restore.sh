@@ -61,9 +61,11 @@ stop_job() {
   applied=false
   local left
   left="$($k -n "$ns" get pod -l "job-name=$job" -o name)" || left="(could not list the pods of job $job)"
+  # A Job still there (its delete refused or failed) can still start a pod: it counts as left too.
+  [ -n "$left" ] || left="$($k -n "$ns" get job "$job" -o name --ignore-not-found)" || left="(could not read job $job)"
   if [ -n "$left" ]; then
-    echo "A pod of job $job is still there ($left): the server stays at 0 replicas, so the restore cannot swap" \
-         "the database under it. Remove the pod, then scale the server back: $k -n $ns scale deploy/inkcast" \
+    echo "Job $job or its pod is still there ($left): the server stays at 0 replicas, so the restore cannot swap" \
+         "the database under it. Remove it, then scale the server back: $k -n $ns scale deploy/inkcast" \
          "--replicas=$replicas" >&2
     return 1
   fi

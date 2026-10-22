@@ -126,5 +126,21 @@ class AJobThatCompletedAsTheWaitGaveUp(_Script):
         self.assertEqual(run.code, 0, run.out)
 
 
+class AJobThatCouldNotBeDeleted(_Script):
+    """stop_job ignores the delete's exit status (`|| true`) and decides on the pod list alone. When the delete fails
+    (refused: a role that may create Jobs but not delete them, which the script never needed before; or an API
+    error) and the Job has no pod yet (Ctrl-C in its first moments, or a webhook or quota holding its pod back), the
+    list is empty: the server came back while the Job was still there, and its pod then swaps the database under
+    the running server."""
+
+    def test_the_server_stays_down_while_the_job_itself_is_still_there(self):
+        run = self.run_script(FAKE_JOB="pending", DELETE="refused", INTERRUPT_ON="wait --for=condition=complete")
+        self.assertNotEqual(run.code, 0, run.out)
+        self.assertTrue(run.has(DELETE), run.calls)
+        self.assertFalse(run.has(SCALE_UP), f"the server came back beside a Job that was not deleted: {run.calls}")
+        self.assertIn("stays at 0 replicas", run.out)
+        self.assertNotIn("nothing was replaced", run.out.lower())
+
+
 if __name__ == "__main__":
     unittest.main()
