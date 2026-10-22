@@ -15,6 +15,7 @@ Routes (see ``docs_routes``)
 from __future__ import annotations
 
 import hashlib
+import json
 from functools import lru_cache
 from importlib.resources import files
 from typing import Any, Callable
@@ -92,10 +93,30 @@ async def swagger_ui(_: Request) -> Response:
         f"<script src='{asset_url('swagger-init.js')}'></script></body></html>"))
 
 
+# ReDoc draws its right-hand panel (code samples) dark by default; Inkcast's pages are light only (#60). The `theme`
+# attribute is JSON that ReDoc parses itself, so no inline script is needed under the CSP.
+REDOC_THEME = json.dumps({
+    "rightPanel": {"backgroundColor": "#f3f1ea", "textColor": "#1c1b19", "width": "40%"},
+    "codeBlock": {"backgroundColor": "#e9e6dc"},
+    "typography": {"code": {"color": "#7a2e0e", "backgroundColor": "#efece4"}},
+}, separators=(",", ":"))
+# What the theme can't reach: ReDoc's code-sample token colours are fixed for a dark panel (keys are plain white), and
+# the selected tab's background is the panel's text colour. Its styled-component selectors outrank plain classes.
+REDOC_LIGHT_CSS = (
+    ".redoc-json .token.property.string{color:#1d4f73!important}"
+    ".token.string{color:#2f6b2f!important}"
+    ".token.number,.token.property,.token.constant{color:#1d5f8a!important}"
+    ".token.boolean{color:#a8321f!important}"
+    ".token.keyword{color:#8a3b52!important}"
+    ".token.string+a,.token.string+a:visited{color:#0e6b63!important}"
+    ".react-tabs__tab--selected{background:#ffffff!important;color:#1c1b19!important}"
+)
+
+
 async def redoc(_: Request) -> Response:
     return _docs_page("Inkcast API — ReDoc", (
-        "<style>body{margin:0}</style></head><body>"
-        "<redoc spec-url='/api/openapi.json' hide-download-button='false'></redoc>"
+        f"<style>body{{margin:0}}{REDOC_LIGHT_CSS}</style></head><body>"
+        f"<redoc spec-url='/api/openapi.json' hide-download-button='false' theme='{REDOC_THEME}'></redoc>"
         f"<script src='{asset_url('redoc.standalone.js')}'></script></body></html>"))
 
 

@@ -524,6 +524,23 @@ class EndToEnd(Harness):
             page.locator("h2", has_text="Publish, schedule, draft or preview a story").first.wait_for(timeout=20000)
             if shots:
                 page.screenshot(path=os.path.join(shots, "redoc.png"), full_page=False)
+            # #60: light only. ReDoc paints its right-hand panel dark unless themed; no large dark area may remain,
+            # at the top or beside an operation's code samples.
+            dark_areas = """() => {
+                const lum = c => { const m = c.match(/[\\d.]+/g); if (!m || (m.length > 3 && +m[3] === 0)) return null;
+                    const [r, g, b] = m.slice(0, 3).map(Number); return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255; };
+                const area = innerWidth * innerHeight, out = [];
+                for (const el of document.querySelectorAll('body *')) {
+                    const r = el.getBoundingClientRect(), l = lum(getComputedStyle(el).backgroundColor);
+                    if (l !== null && l < 0.35 && r.width * r.height > area * 0.05) out.push(el.tagName + ' ' + l.toFixed(2));
+                }
+                return out; }"""
+            self.assertEqual(page.evaluate(dark_areas), [])
+            page.goto(f"{self.config.public_url}/api/redoc#tag/Posts/operation/publish")
+            page.get_by_text("Request samples").first.wait_for(timeout=20000)
+            self.assertEqual(page.evaluate(dark_areas), [])
+            key = page.locator(".redoc-json .token.property.string").first
+            self.assertNotEqual(key.evaluate("e => getComputedStyle(e).color"), "rgb(255, 255, 255)", "white keys on light")
             browser.close()
         # The only thing the CSP should ever block is ReDoc's "by Redocly" footer logo, which
         # ReDoc hard-codes to its CDN. Blocking it is the point: the page makes no outside calls.
