@@ -8,6 +8,7 @@
 - [Product spec](product-spec.md): vision, users, identity and accounts (Keycloak), phases.
 - [Social platforms epic](design/social-platforms-epic.md): X, Instagram, TikTok design and sequencing.
 - [Research: publishing to TikTok, X and Instagram](research/social-platforms-2026-10.md): official-docs findings, as of 2026-10-18.
+- [Research: OpenFGA behaviour for our model and engines](research/openfga-2026-10.md): self-referential usersets, the new check engine, limits; pinned v1.22.0, as of 2026-10-22.
 
 ## Product strategy
 - [Tiers, subscriptions and entitlements (E10)](epics/E10-tiers-and-billing/design.md): Free, Personal, Team, Business, Enterprise; Agency add-on; billing provider bake-off; offline licences.

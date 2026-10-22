@@ -205,6 +205,7 @@ This list is also in the [definition of done](definition-of-done.md) and the PR 
 - [ ] `fga model test` passes in CI.
 - [ ] New publish-capable features check `can_publish` on the channel, at request time **and** at send time.
 - [ ] Plan limits are checked in the DB (`libs/entitlements`), never as tuples.
+- [ ] The model stays compatible with OpenFGA's next check engine ([research](research/openfga-2026-10.md)): no recursion through `and` or `but not`; every `rel from parent` names a relation that every type `parent` allows defines; no check relies on a group being a member of itself.
 
 ---
 <!-- inkcast-nav -->
