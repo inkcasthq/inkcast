@@ -52,6 +52,8 @@ class Ref:
             raise ValueError(f"invalid object type {self.type!r}")
         if not _ID.match(self.id):
             raise ValueError(f"invalid object id {self.id!r} (no ':', '#' or whitespace; 1-256 characters)")
+        if len(self.type) + 1 + len(self.id) > 256:
+            raise ValueError(f"invalid object {self.type}:{self.id[:32]}...: 'type:id' is at most 256 characters")
 
     def __str__(self) -> str:
         return f"{self.type}:{self.id}"
@@ -73,7 +75,7 @@ def parse_user(user: str) -> tuple[str, str, str | None]:
     """``type:id`` or ``type:id#relation`` (a userset such as ``organization:acme#member``) or ``type:*``;
     returns (type, id, relation or None). Raises ``ValueError`` for anything else."""
     m = _USER.match(user)
-    if not m:
+    if not m or len(user.encode("utf-8")) > 512:  # OpenFGA's user limit is 512 bytes
         raise ValueError(f"invalid user {user!r}: expected 'type:id', 'type:id#relation' or 'type:*'")
     return m.group("type"), m.group("id"), m.group("relation")
 

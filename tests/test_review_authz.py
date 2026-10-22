@@ -157,5 +157,24 @@ class IdentifierCharacters(unittest.TestCase):
             Tuple("user:alice", "viewer", "workspace:w\n")
 
 
+class IdentifierLengths(unittest.TestCase):
+    """OpenFGA's TupleKey (openfga/api openfga/v1/openfga.proto): ``object`` matches ``^[^\\s]{2,256}$`` (the whole
+    ``type:id``), ``user`` has ``max_bytes: 512``. types.py says the same ("an object (type:id) is at most 256
+    characters") but checked the type and the id separately, so a 266-character object passed. Over OpenFGA that
+    is a 400 (counted as an engine error); the local engine stores it."""
+
+    def test_an_object_is_at_most_256_characters_in_all(self):
+        self.assertEqual(len(str(Ref("workspace", "x" * 246))), 256)
+        with self.assertRaises(ValueError):
+            Ref("workspace", "x" * 247)
+        with self.assertRaises(ValueError):
+            Tuple("user:a", "viewer", "workspace:" + "x" * 256)
+
+    def test_a_user_is_at_most_512_bytes(self):
+        parse_user("user:" + "x" * 256)
+        with self.assertRaises(ValueError):
+            parse_user("user:" + "é" * 254)   # 259 characters, 513 bytes
+
+
 if __name__ == "__main__":
     unittest.main()
