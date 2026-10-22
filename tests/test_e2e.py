@@ -887,7 +887,7 @@ class AccountDeletion(Harness):
         for r in (not_yet, forged):
             self.assertEqual(r.status_code, 200)
         self.assertIn("Nothing was deleted", not_yet.text, "Keycloak still has her: no deletion is under way")
-        self.assertIn("being finished", forged.text)
+        self.assertIn("back at Inkcast", forged.text, "a cookie no pending deletion matches proves nothing: neutral")
         self.assertEqual(no_cookie.status_code, 200)
         self.assertIn("back at Inkcast", no_cookie.text, "Keycloak's other info pages link here too: no deletion wording")
         self.assertNotIn("delet", no_cookie.text.lower())

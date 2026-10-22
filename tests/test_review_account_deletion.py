@@ -104,6 +104,18 @@ class ReviewAccountDeletion(Harness):
         self.assertIn("Your account is deleted", home.text, "the record was kept for the real return")
         self.assertEqual(set(self.rows(ada["id"]).values()), {0})
 
+    def test_a_cookie_no_pending_deletion_matches_gets_the_neutral_page(self):
+        """/account/return is Keycloak's Back to Application after an email verification or a password reset too. A
+        cookie that matches no pending deletion (forged, planted from a sibling subdomain, left over) proves nothing:
+        the page must be the neutral one, not "your account deletion is being finished"."""
+        async def run():
+            async with httpx2.AsyncClient(follow_redirects=False, timeout=20) as c:
+                return await c.get(f"{self.base}/account/return", cookies={"inkcast_deletion": "x" * 43})
+        r = asyncio.run(run())
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn("delet", r.text.lower())
+        self.assertIn("back at Inkcast", r.text)
+
 
 del _AD
 

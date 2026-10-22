@@ -233,21 +233,21 @@ def _routes(ctx: Context) -> list[Route]:
 
     async def account_return(request: Request) -> Response:
         """Where Keycloak's info pages send the browser "Back to Application" (the client's baseUrl): after an
-        email verification, a password reset, a deletion... Without a pending-deletion cookie it is a neutral page
-        that says nothing about deletion. With one, the pending record outlives the erasure (the sync's
+        email verification, a password reset, a deletion... Without a cookie that matches a pending deletion it is a
+        neutral page that says nothing about deletion. With one, the pending record outlives the erasure (the sync's
         DELETE_ACCOUNT pass may get there first), so the person always gets the right answer: gone at Keycloak →
         erased (idempotent; counted as via=return only when this visit erased rows) and "deleted"; Keycloak still
         has them → nothing erased, "nothing was deleted" (the record stays for a later confirmation); Keycloak not
-        answering, or the record unknown → nothing erased, "being finished"."""
+        answering → nothing erased, "being finished"."""
         cookie = request.cookies.get(COOKIE, "")
-        if not cookie:
+        req = store.deletion_request_by_cookie(cookie) if cookie else None
+        if not req:                              # no cookie, or one no pending deletion matches: nothing to say
             return pages.message("Back at Inkcast", "You're back at Inkcast. You can close this tab and return to your "
                                  "assistant or your MCP client.")
         finishing = pages.message("Deletion in progress", "Your account deletion is being finished: once the sign-in "
                                   "provider confirms the account is gone, Inkcast erases your data within about a "
                                   "minute. Nothing of yours remains after that.")
-        req = store.deletion_request_by_cookie(cookie)
-        if not req or not req.get("keycloak_id") or not config.keycloak_sync_client_id:
+        if not req.get("keycloak_id") or not config.keycloak_sync_client_id:
             return finishing
         from .keycloak_sync import KeycloakSync, SyncError, erase_person
         sync = ctx.extras.get("keycloak_sync") or ctx.extras.setdefault(
