@@ -112,5 +112,19 @@ class AnInterruptedScaleDownIsUndone(_Script):
         self.assertLess(run.index(SCALE_DOWN), run.index(SCALE_UP), f"the server was left at 0: {run.calls}")
 
 
+class AJobThatCompletedAsTheWaitGaveUp(_Script):
+    """`kubectl wait` gave up (its timeout, or a watch error) and the Job's Complete condition was set by then, in the
+    instant before, or with the watch event still in flight. The exit trap reads the condition for that reason, but
+    the main path never did: it deleted the completed Job and said "Nothing was replaced: the server runs on the
+    database it had" while the server came back on the restored one."""
+
+    def test_a_job_complete_when_the_wait_gives_up_is_reported_as_a_restore(self):
+        run = self.run_script(FAKE_JOB="late")
+        self.assertNotIn("nothing was replaced", run.out.lower())
+        self.assertFalse(run.has(DELETE), f"a completed Job was deleted: {run.calls}")
+        self.assertIn("Restored.", run.out)
+        self.assertEqual(run.code, 0, run.out)
+
+
 if __name__ == "__main__":
     unittest.main()

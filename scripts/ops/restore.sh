@@ -157,8 +157,10 @@ spec:
           emptyDir: {sizeLimit: 64Mi}
 EOF
 # `kubectl wait` exits 0 only once the Job's Complete condition is true: that is the one path that reports a restore.
+# When the wait gives up, the condition is read once more: the Job may have completed in that instant.
 completed=false
-if $k -n "$ns" wait --for=condition=complete "job/$job" --timeout="${timeout}s"; then completed=true; applied=false; fi
+if $k -n "$ns" wait --for=condition=complete "job/$job" --timeout="${timeout}s" ||
+   [ "$(job_condition Complete)" = "True" ]; then completed=true; applied=false; fi
 $k -n "$ns" logs "job/$job" || true
 if $listing; then
   finished=true
