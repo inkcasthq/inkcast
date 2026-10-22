@@ -184,7 +184,7 @@ def _carry_erasures(current: pathlib.Path, incoming: pathlib.Path) -> int:
     try:
         try:
             rows = source.execute("SELECT user_hash, erased_at, counts FROM user_erasures").fetchall()
-        except sqlite3.OperationalError as exc:
+        except sqlite3.DatabaseError as exc:
             if "no such table" in str(exc):
                 return 0
             raise BackupError(f"Couldn't read the current database's erasure records: {exc}") from exc
@@ -195,9 +195,13 @@ def _carry_erasures(current: pathlib.Path, incoming: pathlib.Path) -> int:
     target = sqlite3.connect(incoming)
     try:
         target.executescript(ERASURE_SCHEMA)                # a backup from before the table existed gets it
-        target.executemany("INSERT INTO user_erasures SELECT ?, ?, ? WHERE NOT EXISTS "
-                           "(SELECT 1 FROM user_erasures WHERE user_hash = ? AND erased_at = ?)",
-                           [(h, t, c, h, t) for h, t, c in rows])
+        have = set(target.execute("SELECT user_hash, erased_at FROM user_erasures").fetchall())
+        new = []
+        for h, t, c in rows:                                # one pass: a NOT EXISTS per row is quadratic
+            if (h, t) not in have:
+                have.add((h, t))
+                new.append((h, t, c))
+        target.executemany("INSERT INTO user_erasures VALUES (?, ?, ?)", new)
         target.commit()
         return target.total_changes
     finally:
