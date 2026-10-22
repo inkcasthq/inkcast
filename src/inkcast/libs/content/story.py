@@ -232,6 +232,9 @@ def parse_story(
         block = meta.get(pid)
         if isinstance(block, dict):
             overrides[pid] = dict(block)
+            for key, value in block.items():  # the same rule as the top-level URLs
+                if value and key in _ALIASES["canonical_url"] + _ALIASES["cover_image"]:
+                    overrides[pid][key] = check_url(value, f"{pid}.{key}")
     for pid, dest in (destinations or {}).items():
         pid = pid.strip().lower()
         if pid not in known:

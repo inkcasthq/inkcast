@@ -106,6 +106,21 @@ class FrontMatterAliasBomb(unittest.TestCase):
         self.assertEqual((story.title, story.tags), ("Fine", ["a"]))
 
 
+class PlatformBlockUrls(unittest.TestCase):
+    def test_urls_in_a_platform_block_are_checked_like_the_top_level_ones(self):
+        """canonical_url and cover_image must be full http(s) URLs, but only the top-level ones were checked: the
+        same keys (or their aliases) in a `devto:` or `medium:` block went to the platform as written; DEV's
+        main_image, Medium's canonicalUrl and the `![](...)` cover line Medium's content starts with."""
+        for key, value in (("canonical_url", "javascript:alert(1)"), ("cover_image", "file:///etc/passwd"),
+                           ("canonical", "blog/post"), ("image", "//")):
+            markdown = f"---\ntitle: Urls\nmedium:\n  {key}: '{value}'\n---\n\nBody.\n"
+            with self.subTest(key=key), self.assertRaisesRegex(StoryError, "full http"):
+                parse_story(markdown, known_platforms=["devto", "medium"])
+        fine = parse_story("---\ntitle: Urls\ndevto:\n  canonical_url: https://blog.example.com/x\n---\n\nBody.\n",
+                           known_platforms=["devto", "medium"])
+        self.assertEqual(fine.for_platform("devto")["canonical_url"], "https://blog.example.com/x")
+
+
 class SchedulerReplicas(unittest.TestCase):
     def test_a_batch_post_taken_over_as_stuck_is_not_sent_again_by_the_worker_that_claimed_it(self):
         """``claim_due_posts`` marks a whole batch 'publishing' at once, then sends it one post at a time. When the
