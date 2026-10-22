@@ -16,6 +16,8 @@ Inkcast is an MCP server that lets Claude Code, or any MCP client, publish, cros
   - devto: published → https://dev.to/ada/why-we-built-an-agent-…
 ```
 
+See it in use: [screenshots](docs/screenshots.md), from adding Inkcast to an AI assistant to deleting an account.
+
 ## Why it's built this way
 
 | Principle | What it means in practice |
