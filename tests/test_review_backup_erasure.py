@@ -72,8 +72,8 @@ class TheCarryAtScale(unittest.TestCase):
     """``user_erasures`` is never purged: it holds one row per erasure over the deployment's life, and the newest
     backup (the usual one to restore) already holds nearly all of them. The carry checks each row with a
     ``WHERE NOT EXISTS`` over an unindexed table, so its work grows with the square of that count (measured: 10,000
-    records 2.5 s, 40,000 records 40 s; past ~110,000 it outlasts ``scripts/ops/restore.sh``'s 300 s wait, after which
-    the script scales the server back up while the Job is still about to swap the database under it). Counted here
+    records 2.5 s, 40,000 records 40 s; past ~110,000 it outlasts ``scripts/ops/restore.sh``'s default 300 s wait,
+    after which the script stops the Job and brings the server back without a restore, #111). Counted here
     in SQLite VM steps, which are deterministic: doubling the records must not quadruple the work."""
 
     def steps(self, n: int) -> int:
