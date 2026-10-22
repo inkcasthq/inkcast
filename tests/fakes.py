@@ -258,8 +258,8 @@ class Fakes:
         if not self._kc_admin_ok(request):
             return JSONResponse({"error": "HTTP 401 Unauthorized"}, status_code=401)
         q = request.query_params
-        kinds = set(q.getlist("type"))
-        found = [e for e in self.kc_user_events if not kinds or e["type"] in kinds]
+        kinds, user = set(q.getlist("type")), q.get("user")      # RealmAdminResource.getEvents: type and user filters
+        found = [e for e in self.kc_user_events if (not kinds or e["type"] in kinds) and (not user or e["userId"] == user)]
         return JSONResponse(list(reversed(found))[: int(q.get("max", "100"))])   # Keycloak: newest first
 
     async def kc_admin_events_list(self, request: Request):

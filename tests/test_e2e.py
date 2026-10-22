@@ -611,8 +611,9 @@ class EndToEnd(Harness):
 
     def test_keycloak_disabling_or_deleting_a_person_cuts_off_their_tokens(self):
         """E9.F9.5.S2: a person Keycloak disables loses their OAuth token and personal access tokens on the sync's
-        next pass (admin events), one deleted while no event was seen is caught by the reconcile, and signing in
-        again once Keycloak allows it gives access back."""
+        next pass (admin events), one deleted while no event was seen is caught by the reconcile (cut off at once,
+        erased once INKCAST_KEYCLOAK_ERASE_AFTER_DAYS have passed, E9.F9.5.S6), and signing in again once Keycloak
+        allows it gives access back."""
         import dataclasses
         from inkcast.libs.secrets import SecretValue
         from inkcast.services.identity.keycloak_sync import KeycloakSync
@@ -659,9 +660,20 @@ class EndToEnd(Harness):
         self.fakes.kc_deleted.add("kc-sync-bob")                                # deleted, no admin event seen
         self.assertEqual(asyncio.run(tick(sync))["disabled"], 0, "the reconcile is not due yet")
         sync.last_reconcile = 0
-        self.assertEqual(asyncio.run(tick(sync))["disabled"], 1)
+        done = asyncio.run(tick(sync))
+        self.assertEqual((done["disabled"], done["erased"]), (1, 0))
         self.assertEqual(statuses("kc-sync-bob"), [401, 401])
         self.assertIn('inkcast_identity_users_disabled_total{reason="deleted"} 1', self.app.metrics.render())
+        bob = f"oidc:{self.fakes.issuer}#kc-sync-bob"
+        self.assertIsNotNone(self.app.store.find_user_by_identity(bob),
+                             "no DELETE_ACCOUNT event (an administrator deleted him): cut off, erased after the grace period")
+        sync.clock = lambda: time.time() + self.config.keycloak_erase_after_days * 86400   # 30 days later, still gone
+        sync.last_reconcile = 0
+        done = asyncio.run(tick(sync))
+        self.assertEqual((done["disabled"], done["erased"]), (0, 1))
+        self.assertIsNone(self.app.store.find_user_by_identity(bob), "erased, every row")
+        self.assertIn('inkcast_identity_users_deleted_total{via="reconcile"} 1', self.app.metrics.render())
+        sync.clock, sync.last_reconcile = time.time, time.time()
 
         self.fakes.kc_admin_change("kc-sync-ada", enabled=True)                 # re-enabled: sign in again
         self.fakes.next_user = {**first, "sub": "kc-sync-ada", "preferred_username": "kc-sync-ada",

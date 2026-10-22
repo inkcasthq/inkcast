@@ -117,6 +117,26 @@ features:
     acceptance:
     - ci-split-oidc sets INKCAST_KEYCLOAK_SYNC_* and the secret on the IdentityService Deployment only
     - keycloak-e2e.sh runs the disable, 401, re-enable check through the Gateway as it does in single mode
+  - id: F9.5.S6
+    title: 'A person gone from Keycloak with no DELETE_ACCOUNT event (an administrator''s deletion, a trimmed event) is
+      erased after INKCAST_KEYCLOAK_ERASE_AFTER_DAYS'
+    status: done
+    change: 'new; issue #86, built in PR #98'
+    acceptance:
+    - 'INKCAST_KEYCLOAK_ERASE_AFTER_DAYS, default 30: N > 0 erases a person still gone N days after the cut-off (exactly
+      N counts); 0 erases at the first reconcile that finds them gone; off never erases on a 404 (cut off only)'
+    - 'Validated at start-up: anything but a whole number >= 0 or off is a configuration error naming the variable; off
+      in production or staging is a posture warning (keycloak-erase-after)'
+    - 'The reconcile re-checks cut-off people too; users.deleted_at (added through COLUMNS) records when a person was
+      first found gone, and is cleared when Keycloak has them again or at sign-in, so a restore resets the grace period'
+    - A disabled-but-present Keycloak user is never erased, in any mode; a found DELETE_ACCOUNT event erases at once
+    - 'Each erasure from the reconcile is counted once as inkcast_identity_users_deleted_total{via="reconcile"} and
+      audited once in user_erasures'
+    - 'Set explicitly (30) in deploy/kustomize/environments/{staging,production} and deploy/dev/compose.yaml; the README
+      configuration table, the E9 design and the sync runbook say what an administrator''s deletion means for data'
+    - 'tests/test_erase_after_days.py: each mode, the boundary (N days minus a second; exactly N), present-but-disabled
+      in every mode, counted and audited once across reconciles, configuration errors, the posture warning, the
+      migration, and the fake Keycloak honouring the user filter on events'
 - id: F9.6
   title: Enterprise SSO
   stories:
