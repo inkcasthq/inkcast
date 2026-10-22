@@ -221,5 +221,24 @@ class CutOffCoversSignInsInProgress(unittest.TestCase):
         self.assertEqual(store.list_api_tokens(user_id), [])
 
 
+class RateLimitsCannotBeSidestepped(unittest.TestCase):
+    """The endpoints anyone can call without a token are limited per client (libs/http/ratelimit.py)."""
+
+    FORM = {"Content-Type": "application/x-www-form-urlencoded"}
+
+    def test_the_password_form_sent_as_a_get_is_limited_like_the_post(self):
+        cfg = password_config(rate_limit_per_minute=2)
+        app, _ = in_process("IdentityService", cfg)
+        with TestClient(app, base_url=cfg.public_url) as c:
+            pending = form_fields(c.get("/tokens/new", params={"name": "x", "scopes": "posts:read"}).text)["pending"]
+
+            def guess(password: str) -> int:   # /auth/callback also takes GET (the IdP's redirect), and reads a form
+                return c.request("GET", "/auth/callback", content=f"pending={pending}&password={password}",
+                                 headers=self.FORM, follow_redirects=False).status_code
+
+            self.assertEqual([guess("guess-1"), guess("guess-2")], [403, 403])
+            self.assertEqual(guess(PASSWORD), 429, "password guesses sent as GET are never limited")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -310,8 +310,9 @@ def _routes(ctx: Context) -> list[Route]:
     return [
         *routes,
         Route("/auth/login", auth_login, methods=["GET"]),
-        # POST is the password form: a guess per request, so it is rate limited per client address.
-        Route("/auth/callback", limited(auth_callback, ctx.limiter, "login"), methods=["GET", "POST"]),
+        # POST is the password form: a guess per request, so it is rate limited per client address. GET too: a GET
+        # can carry the same form, and for an IdP each callback is a code exchange with it.
+        Route("/auth/callback", limited(auth_callback, ctx.limiter, "login", {"GET", "POST"}), methods=["GET", "POST"]),
         Route("/auth/consent", auth_consent, methods=["GET", "POST"]),
         Route("/tokens/new", limited(tokens_new, ctx.limiter, "tokens-new", {"GET"}), methods=["GET"]),  # a GET that writes
         Route("/account/delete/{ticket}", limited(account_delete, ctx.limiter, "account-delete", {"GET"}), methods=["GET"]),
