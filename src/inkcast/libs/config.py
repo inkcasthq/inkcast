@@ -187,6 +187,10 @@ class Config:
     upstreams: dict[str, str] = field(default_factory=dict)
     # Scheduled posts this long past due mean the scheduler is behind or stopped (alert + readiness).
     overdue_grace_seconds: float = 600.0
+    # How many daily backups the backup CronJob keeps (its INKCAST_BACKUP_KEEP; libs/db/backup.DEFAULT_KEEP): the
+    # deletion pages tell a person that copies of their data in backups age out within this many days (issue #94).
+    # The server reads the same name, so a changed CronJob value goes in the shared ConfigMap too.
+    backup_keep: int = 14
     # Lab troubleshooting only (INKCAST_LOG_REVEAL_SECRETS): DEBUG lines about consumed secrets also print
     # the real value. Refused in production.
     reveal_secrets: bool = False
@@ -232,6 +236,8 @@ class Config:
             problems.append("INKCAST_LOG_REVEAL_SECRETS must not be enabled in production: it writes secret values to the log.")
         if self.path_prefix != "auto" and not self.path_prefix.startswith("/"):
             problems.append("INKCAST_PATH_PREFIX must be '/', 'auto' or a path starting with '/'.")
+        if self.backup_keep < 1:
+            problems.append("INKCAST_BACKUP_KEEP must be at least 1 (the backup keeps that many daily copies).")
         for name, need in SECRET_SETTINGS.items():
             if need in needs and name in self.secret_errors:
                 problems.append(self.secret_errors[name])
@@ -401,6 +407,7 @@ def load_config(environ: Mapping[str, str] | None = None) -> Config:
         path_prefix=env.get("INKCAST_PATH_PREFIX", "/"),
         upstreams=env.prefixed("INKCAST_UPSTREAM_", lambda k: k.lower().replace("_", "-")),
         overdue_grace_seconds=env.float("INKCAST_OVERDUE_GRACE", "600"),
+        backup_keep=env.int("INKCAST_BACKUP_KEEP", "14"),
         scheduler_interval_seconds=env.float("INKCAST_SCHEDULER_INTERVAL", "20"),
         insights_interval_seconds=env.float("INKCAST_INSIGHTS_INTERVAL", "10"),
         log_format=env.get("INKCAST_LOG_FORMAT", "text").lower(),

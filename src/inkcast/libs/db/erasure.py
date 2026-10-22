@@ -8,7 +8,11 @@ a new table with a ``user_id`` column (or another user-keyed column) fails the b
 
 ``user_erasures`` is the audit record: a salted hash of the user id (HMAC-SHA256 under a key derived from
 INKCAST_SECRET_KEY, so the id can be checked against the record but not read from it), the time, and the
-counts. Nothing else about the person survives.
+counts. Nothing else about the person survives in the database. Copies in backups do, until they age out
+(INKCAST_BACKUP_KEEP daily copies), and a restore brings them back: ``reapply_erasures`` (issue #94), run by every
+process when it opens the store, erases again anyone whose hash is in ``user_erasures`` but who has rows. The
+restore carries the audit rows of the database it replaces into the restored one (libs/db/backup.py), which is
+what makes that possible: a backup taken before the erasure holds the rows and not the record.
 """
 
 from __future__ import annotations
@@ -16,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import sqlite3
 import time
 
 from .database import Database
@@ -56,20 +61,44 @@ def user_hash(salt: bytes, user_id: str) -> str:
 class ErasureRepo(Database):
     _erasure_salt: bytes
 
+    @staticmethod
+    def _delete_person(c: sqlite3.Connection, user_id: str) -> dict[str, int]:
+        """The person's rows out of every table in ``USER_TABLES``, inside the caller's transaction; the counts."""
+        return {table: int(c.execute(f"DELETE FROM {table} WHERE {condition}", {"user_id": user_id}).rowcount)
+                for table, condition in USER_TABLES}
+
     def erase_user(self, user_id: str) -> dict[str, int]:
         """Delete the person's rows from every table in ``USER_TABLES`` in one transaction and record the erasure.
 
         The counts per table, only ever ints; all zeros (and no audit record) for a person who is unknown or was
         already erased, so it is safe to run twice or from two places."""
-        counts: dict[str, int] = {}
         now = time.time()
         with self._tx() as c:
-            for table, condition in USER_TABLES:
-                counts[table] = int(c.execute(f"DELETE FROM {table} WHERE {condition}", {"user_id": user_id}).rowcount)
+            counts = self._delete_person(c, user_id)
             if any(counts.values()):
                 c.execute("INSERT INTO user_erasures VALUES (?, ?, ?)",
                           (user_hash(self._erasure_salt, user_id), now, json.dumps(counts, sort_keys=True)))
         return counts
+
+    def reapply_erasures(self) -> dict[str, dict[str, int]]:
+        """Erase again every person whose hash is in ``user_erasures`` but who has rows: a database restored from a
+        backup taken before their erasure (issue #94). Returns ``{user_id: counts}`` for those erased, in one
+        transaction each; no second audit row (the record of the erasure is the one already there), so the caller
+        logs it and counts nothing as a new deletion. Cheap when there is nothing to do: with no audit rows nothing
+        is hashed; otherwise one HMAC per user and no write."""
+        hashes = {r["user_hash"] for r in self._all("SELECT user_hash FROM user_erasures")}
+        if not hashes:
+            return {}
+        ids = [r["id"] for r in self._all("SELECT id FROM users ORDER BY id")]
+        erased: dict[str, dict[str, int]] = {}
+        for user_id in ids:
+            if user_hash(self._erasure_salt, user_id) not in hashes:
+                continue
+            with self._tx() as c:
+                counts = self._delete_person(c, user_id)
+            if any(counts.values()):
+                erased[user_id] = counts
+        return erased
 
     def user_erasures(self) -> list[dict[str, object]]:
         """The audit records, oldest first: ``user_hash``, ``erased_at`` and the ``counts`` per table."""

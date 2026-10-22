@@ -215,7 +215,7 @@ def _routes(ctx: Context) -> list[Route]:
             return pages.message("Request rejected", "This deletion link belongs to another account, or has expired. "
                                  "Nothing was deleted.", error=True, status=403)
         if request.method == "GET":
-            return pages.deletion_confirm(pending["id"], pending["csrf"], user.get("display", "?"))
+            return pages.deletion_confirm(pending["id"], pending["csrf"], user.get("display", "?"), config.backup_keep)
         if not _csrf_ok(data, pending):
             return pages.message("Request rejected", "The form was invalid. Start again.", error=True, status=400)
         store.delete_pending(pending["id"])
@@ -259,15 +259,14 @@ def _routes(ctx: Context) -> list[Route]:
         DELETE_ACCOUNT pass may get there first), so the person always gets the right answer: gone at Keycloak →
         erased (idempotent; counted as via=return only when this visit erased rows) and "deleted"; Keycloak still
         has them → nothing erased, "nothing was deleted" (the record stays for a later confirmation); Keycloak not
-        answering → nothing erased, "being finished"."""
+        answering → nothing erased, "being finished". The deleted and finishing pages say what stays for a while:
+        copies in backups, until they age out (issue #94)."""
         cookie = request.cookies.get(COOKIE, "")
         req = store.deletion_request_by_cookie(cookie) if cookie else None
         if not req:                              # no cookie, or one no pending deletion matches: nothing to say
             return pages.message("Back at Inkcast", "You're back at Inkcast. You can close this tab and return to your "
                                  "assistant or your MCP client.")
-        finishing = pages.message("Deletion in progress", "Your account deletion is being finished: once the sign-in "
-                                  "provider confirms the account is gone, Inkcast erases your data within about a "
-                                  "minute. Nothing of yours remains after that.")
+        finishing = pages.deletion_finishing(config.backup_keep)
         if not req.get("keycloak_id") or not config.keycloak_sync_client_id:
             return finishing
         from .keycloak_sync import KeycloakSync, SyncError, erase_person
@@ -285,8 +284,7 @@ def _routes(ctx: Context) -> list[Route]:
                                  "from your MCP client or the API.")
         erase_person(store, ctx.metrics, req["user_id"], "return")
         store.delete_deletion_request(req["id"])
-        response = pages.message("Account deleted", "Your account is deleted and your data on Inkcast is erased. "
-                                 "Articles already published on the platforms stay there.")
+        response = pages.account_deleted(config.backup_keep)
         response.delete_cookie(COOKIE, path="/account")
         return response
 

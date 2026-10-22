@@ -21,7 +21,7 @@ import pathlib
 import sys
 
 from . import __version__
-from .libs.db.backup import BackupError, list_backups, restore_backup, take_backup, verify_backup
+from .libs.db.backup import DEFAULT_KEEP, BackupError, list_backups, restore_backup, take_backup, verify_backup
 from .libs.observability import setup_logging
 
 log = logging.getLogger("inkcast.backup")
@@ -42,7 +42,7 @@ def backup_main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="inkcast backup", description="Back up the database while it serves.")
     parser.add_argument("--database", type=pathlib.Path, default=database)
     parser.add_argument("--to", type=pathlib.Path, default=directory, help="directory for the backups")
-    parser.add_argument("--keep", type=int, default=int(os.environ.get("INKCAST_BACKUP_KEEP", "14")),
+    parser.add_argument("--keep", type=int, default=int(os.environ.get("INKCAST_BACKUP_KEEP", str(DEFAULT_KEEP))),
                         help="how many backups to keep (oldest removed first, only after a good backup)")
     args = parser.parse_args(argv)
     _logging()

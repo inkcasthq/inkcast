@@ -7,6 +7,7 @@ One process builds one ``Context``, however many services it runs (``All`` runs 
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass, field
 
@@ -22,6 +23,8 @@ from .http.ratelimit import RateLimiter
 from .observability import LAG_BUCKETS, Metrics
 from .pipeline import Publisher
 from .platforms import Platform, load_platforms
+
+log = logging.getLogger("inkcast.runtime")
 
 
 @dataclass
@@ -84,9 +87,22 @@ def build_metrics(store: Store | None, registry: dict[str, Platform], config: Co
     return m
 
 
+def open_store(config: Config) -> Store:
+    """The process's store, with the erasures re-applied before anything serves (issue #94): a database restored from
+    a backup taken before a person's erasure holds their rows again; the audit row the restore carried over says who.
+    Every service process runs this once at start-up; it is idempotent, a no-op when nothing matches, and not a new
+    deletion (logged with the id and the count, never counted in inkcast_identity_users_deleted_total)."""
+    store = Store(config.database_path, config.secret_key)
+    for user_id, counts in store.reapply_erasures().items():
+        rows = sum(counts.values())
+        log.warning("Inkcast user %s was erased before and came back with a restore: erased %d rows again", user_id, rows,
+                    extra={"event": "identity.erasure.reapplied", "user_id": user_id, "rows": rows})
+    return store
+
+
 def build_context(config: Config, transport: httpx2.AsyncBaseTransport | None = None,
                   services: tuple[str, ...] = (), storage: bool = True) -> Context:
-    store = Store(config.database_path, config.secret_key) if storage else None
+    store = open_store(config) if storage else None
     http = httpx2.AsyncClient(timeout=httpx2.Timeout(30.0, connect=10.0), transport=transport, follow_redirects=False)
     registry = load_platforms(http, config.platform_urls)
     metrics = build_metrics(store, registry, config)

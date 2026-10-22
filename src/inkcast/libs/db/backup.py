@@ -10,16 +10,22 @@
 * ``verify_backup``: the checksum against the manifest, then the integrity check.
 * ``restore_backup``: verifies first, refuses while the scheduler's heartbeat is fresh (the server is still running),
   and never deletes the current database: it is moved aside as ``<db>.before-restore-<time>`` with its WAL files.
+  The ``user_erasures`` audit rows of the database being replaced are carried into the restored copy (issue #94): a
+  backup taken before a person's erasure holds their rows and not the record of it, and that record is what lets
+  the server erase them again when it next opens the store (``Store.reapply_erasures``). Erasures that only the
+  replaced database knew of, when that database is lost too, are the one case this cannot cover; the runbook says so.
 
 A backup is as sensitive as the database: platform credentials inside are encrypted with INKCAST_SECRET_KEY (keep
 the key, or the backup can't be used, and never store the two together), and tokens are stored only as hashes.
-Files are written 0640.
+Files are written 0640. Until they age out (``keep`` daily copies, INKCAST_BACKUP_KEEP), backups hold an erased
+person's data too; the deletion pages say so.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import pathlib
 import sqlite3
@@ -27,9 +33,14 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from .erasure import SCHEMA as ERASURE_SCHEMA
+
+log = logging.getLogger(__name__)
+
 PREFIX = "inkcast-"
 SUFFIX = ".db"
 FRESH_HEARTBEAT_SECONDS = 120
+DEFAULT_KEEP = 14           # daily copies; the CronJob's INKCAST_BACKUP_KEEP and Config.backup_keep say the same
 
 
 class BackupError(Exception):
@@ -83,7 +94,7 @@ def list_backups(directory: pathlib.Path) -> list[pathlib.Path]:
     return sorted(p for p in directory.glob(f"{PREFIX}*{SUFFIX}") if _manifest_path(p).exists())
 
 
-def take_backup(database: pathlib.Path, directory: pathlib.Path, *, keep: int = 14, version: str = "",
+def take_backup(database: pathlib.Path, directory: pathlib.Path, *, keep: int = DEFAULT_KEEP, version: str = "",
                 now: float | None = None) -> Backup:
     if not database.exists():
         raise BackupError(f"No database at {database}.")
@@ -162,6 +173,37 @@ def _heartbeat_age(database: pathlib.Path, now: float) -> float | None:
     return None if not row or row[0] is None else now - float(row[0])
 
 
+def _carry_erasures(current: pathlib.Path, incoming: pathlib.Path) -> int:
+    """Copy the ``user_erasures`` rows of the database being replaced into the restored copy, skipping any it already
+    has; how many were carried. Zero when there is no current database or it predates the table. A current database
+    that can't be read refuses the restore (the heartbeat read above has already needed it), before anything is
+    swapped."""
+    if not current.exists():
+        return 0
+    source = sqlite3.connect(current, timeout=10)
+    try:
+        try:
+            rows = source.execute("SELECT user_hash, erased_at, counts FROM user_erasures").fetchall()
+        except sqlite3.OperationalError as exc:
+            if "no such table" in str(exc):
+                return 0
+            raise BackupError(f"Couldn't read the current database's erasure records: {exc}") from exc
+    finally:
+        source.close()
+    if not rows:
+        return 0
+    target = sqlite3.connect(incoming)
+    try:
+        target.executescript(ERASURE_SCHEMA)                # a backup from before the table existed gets it
+        target.executemany("INSERT INTO user_erasures SELECT ?, ?, ? WHERE NOT EXISTS "
+                           "(SELECT 1 FROM user_erasures WHERE user_hash = ? AND erased_at = ?)",
+                           [(h, t, c, h, t) for h, t, c in rows])
+        target.commit()
+        return target.total_changes
+    finally:
+        target.close()
+
+
 def restore_backup(path: pathlib.Path, database: pathlib.Path, *, force: bool = False,
                    now: float | None = None) -> pathlib.Path | None:
     """Put ``path`` in place of ``database``. Returns where the previous database was moved, if there was one."""
@@ -186,6 +228,14 @@ def restore_backup(path: pathlib.Path, database: pathlib.Path, *, force: bool = 
     if _integrity(incoming) != "ok" or _row_counts(incoming) != manifest.get("rows", _row_counts(incoming)):
         incoming.unlink(missing_ok=True)
         raise BackupError("The restored copy doesn't match the backup; the current database was not touched.")
+    try:
+        carried = _carry_erasures(database, incoming)       # after the copy is checked, before it is swapped in
+    except BaseException:
+        incoming.unlink(missing_ok=True)
+        raise
+    if carried:
+        log.info("Carried %d erasure record(s) from the current database into the restored copy: the server erases "
+                 "those people again when it starts", carried, extra={"event": "restore.erasures.carried", "rows": carried})
     aside = None
     if database.exists():
         stamp = datetime.fromtimestamp(now, timezone.utc).strftime("%Y%m%dT%H%M%SZ")

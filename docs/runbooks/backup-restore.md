@@ -11,7 +11,7 @@ This runbook keeps that file safe.
 | What | Where |
 |---|---|
 | Daily backup | The `backup` component, on by default in the OpenShift, Kubernetes and CI overlays: CronJob `inkcast-backup`, 03:17 UTC |
-| Copies kept | 14, on the separate volume `inkcast-backups` (`INKCAST_BACKUP_KEEP`) |
+| Copies kept | 14, on the separate volume `inkcast-backups` (`INKCAST_BACKUP_KEEP`). A person who deletes their account is erased from the database at once, but a backup taken before that still holds their data until it ages out, within this many days; the deletion pages tell them so, with this number, so the server reads `INKCAST_BACKUP_KEEP` too (set it in the shared ConfigMap when the CronJob's value changes) |
 | Alert | [InkcastBackupMissing](alerts.md#inkcastbackupmissing): no successful backup for 26 hours (critical) |
 | Drill | `scripts/ops/backup-drill.sh`, run by CI on kind for every change |
 | Recovery point | Up to 24 hours (one backup a day); take one before any risky change |
@@ -57,8 +57,9 @@ The script does the following, stopping at the first failure:
    - verifies the backup (checksum against the manifest, then the integrity check);
    - copies it in;
    - checks the copy's row counts against the manifest;
+   - carries the erasure records (`user_erasures`: a salted hash per person who deleted their account, the time, the counts; nothing that names them) of the database being replaced into the copy, skipping any it already has (`restore.erasures.carried` in the Job's log, with the count);
    - only then swaps it in.
-3. Scales the server back up and waits for it to be ready.
+3. Scales the server back up and waits for it to be ready. **Before it serves anything, the server re-applies the erasures:** when a process opens the store it hashes every user id under the erasure key and erases again anyone whose hash is in `user_erasures` but who has rows, which is what a backup taken before their deletion brings back. One log line per person, `identity.erasure.reapplied`, with the id and the number of rows; no second audit row, and `inkcast_identity_users_deleted_total` does not move (it was one deletion). With nothing to do the step costs one read. Check the server's log after the rollout: `oc -n inkcast logs deploy/inkcast | grep identity.erasure.reapplied`.
 
 Nothing is deleted. The replaced database stays on the data volume as `inkcast.db.before-restore-<time>`, with its WAL files. If the restore Job fails, the server comes back on the database it had.
 
@@ -66,6 +67,9 @@ After a restore:
 - **Tokens and sessions** issued after the backup no longer work. People sign in again, and CI tokens created since must be re-created.
 - **Posts published after the backup** are not in the ledger. The next Git sync asks each platform before creating anything (`find_existing`), so nothing is posted twice. Posts on platforms without that check are reported `unconfirmed` for a person to resolve.
 - **Platform connections** made after the backup must be reconnected.
+- **People who deleted their account** after the backup was taken are erased again by the server at start-up, as above, from the records the restore carried over.
+
+**Limitation: an erasure that only the lost database knew of.** A backup is a snapshot of the whole file, so a backup taken before a deletion holds the person's rows and not the record of their erasure, and one taken after holds the record and no rows. The record that re-applies an erasure therefore comes from the database being replaced. When that database is gone too (the data volume was lost, or the file was unreadable and moved aside by hand) and the backup restored is older than a deletion, nothing in the restored file says that person asked to be erased, and the start-up step cannot know. What covers it is the Keycloak user sync, which "Delete my account" needs anyway: its first pass after start-up re-reads the `DELETE_ACCOUNT` events since the cursor the backup holds (which predates the deletion) and reconciles every Keycloak-backed person against Keycloak, so a person who is gone there with a `DELETE_ACCOUNT` event is erased (`identity.user.deleted`, `via=event`) within the first pass, seconds after the server is up; one an administrator deleted is cut off (`identity.user.disabled`). The gap that remains is a `DELETE_ACCOUNT` event older than the realm's user-event retention: the shipped realm keeps events 7 days (`eventsExpiration` in `deploy/keycloak/realm-inkcast.json`) and backups 14, so for a restore of a backup more than 7 days old the reconcile can only cut such a person off, not erase them. To close it, set the realm's event expiration to at least `INKCAST_BACKUP_KEEP` days, or restore a backup newer than the oldest deletion you know of. Either way, after such a restore watch the first sync pass finish (`identity.user.deleted` or `identity.user.disabled` per person) before telling anyone the restore is done.
 
 ## By hand (outside Kubernetes)
 
@@ -74,6 +78,8 @@ INKCAST_DATABASE=./inkcast.db inkcast backup --to ./backups --keep 14
 inkcast backups --to ./backups
 inkcast restore --latest ./backups      # refuses while the server's heartbeat is under 2 minutes old
 ```
+
+The same rules apply: the restore carries the erasure records of the database it replaces, and the server re-applies them when it next starts, before it serves.
 
 ## Off-cluster copies
 

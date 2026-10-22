@@ -9,7 +9,9 @@
 #
 # Steps, each checked: scale the server to 0 (a restore refuses while the server runs), run `inkcast restore` as a
 # one-off Job with the same image and both volumes, scale back to the previous replica count, wait for the rollout.
-# The database being replaced is kept on the data volume as inkcast.db.before-restore-<time>. KUBECTL=oc works too.
+# The database being replaced is kept on the data volume as inkcast.db.before-restore-<time>; its erasure records
+# go into the restored copy, and the server erases those people again as it starts, before it serves (the runbook
+# says what that covers and what it can't). KUBECTL=oc works too.
 set -euo pipefail
 ns="${1:?usage: restore.sh <namespace> [backup-file-name]}"
 which_backup="${2:-}"
