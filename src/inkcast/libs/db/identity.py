@@ -59,7 +59,7 @@ COLUMNS = (("users", "disabled_at", "REAL"),)
 # Defence in depth behind disable_user() and erase_user(): a token or code minted in the moment a person was being
 # cut off or erased (a sign-in finishing as Keycloak disabled them, or as their account was deleted) is refused
 # anyway: only a token whose person exists and is not disabled is honoured.
-_ACTIVE_USER = " AND user_id IN (SELECT id FROM users WHERE disabled_at IS NULL)"
+_ACTIVE_USER = " AND EXISTS (SELECT 1 FROM users WHERE users.id = user_id AND users.disabled_at IS NULL)"  # by key
 
 
 class IdentityRepo(Database):

@@ -117,6 +117,33 @@ class ReviewAccountDeletion(Harness):
         self.assertIn("back at Inkcast", r.text)
 
 
+class ReviewTokenLookups(unittest.TestCase):
+    def test_a_token_lookup_reads_one_user_row_not_the_whole_users_table(self):
+        """The PR's _ACTIVE_USER check runs on every OAuth token, code and PAT lookup, i.e. on every request. Written
+        as ``user_id IN (SELECT id FROM users WHERE disabled_at IS NULL)``, SQLite lists every active user for each
+        lookup (SCAN users: about 67 ms a lookup at 200,000 users, under the store's lock); the person's own row, by
+        primary key, answers the same question."""
+        from inkcast.storage import Store
+        store = Store(":memory:", "k" * 40)
+        ada = store.upsert_user("oidc:https://kc/realms/i#ada", "ada", None, None)["id"]
+        store.save_code("code-1", "c1", ada, "{}")
+        store.save_token("at-1", "access", "c1", ada, ["posts:read"], None, "f1", 3600)
+        pat, _ = store.create_api_token(ada, "ci", ["posts:read"], None)
+        seen: list[str] = []
+        store._conn.set_trace_callback(seen.append)
+        try:
+            self.assertIsNotNone(store.get_code("code-1"))
+            self.assertIsNotNone(store.get_token("at-1", "access"))
+            self.assertIsNotNone(store.find_api_token(pat))
+        finally:
+            store._conn.set_trace_callback(None)
+        lookups = [q for q in seen if q.lstrip().upper().startswith("SELECT") and "FROM users" in q]
+        self.assertEqual(len(lookups), 3, seen)
+        for q in lookups:
+            plan = " | ".join(r["detail"] for r in store._all("EXPLAIN QUERY PLAN " + q))
+            self.assertNotIn("SCAN users", plan, q)
+
+
 del _AD
 
 if __name__ == "__main__":
