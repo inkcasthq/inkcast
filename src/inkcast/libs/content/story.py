@@ -18,10 +18,13 @@ from urllib.parse import urljoin, urlparse
 import yaml
 
 _FRONT_MATTER = re.compile(r"\A﻿?---[ \t]*\r?\n(.*?)\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|\Z)", re.S)
-_H1 = re.compile(r"^#\s+(.+?)\s*#*\s*$")
-_H2 = re.compile(r"^##\s+(.+?)\s*#*\s*$")
-_MD_IMAGE = re.compile(r"(!\[[^\]]*\]\()\s*<?([^)\s>]+)>?((?:\s+[\"'][^\"']*[\"'])?\s*\))")
-_HTML_IMAGE = re.compile(r"(<img\b[^>]*?\bsrc\s*=\s*[\"'])([^\"']+)([\"'])", re.I)
+# The closing #s are trimmed by _heading, not here: a lazy group before \s*#*\s*$ backtracks cubically on spaces.
+_H1 = re.compile(r"^#\s+(.+)$")
+_H2 = re.compile(r"^##\s+(.+)$")
+# Alt text stops at '[', the URL at '(', a tag at '<': otherwise one attempt can scan to the end of the body from every
+# start, which is quadratic or worse (a 1 MB body took hours).
+_MD_IMAGE = re.compile(r"(!\[[^\[\]]*\]\()\s*<?([^()\s>]+)>?((?:\s+[\"'][^\"']*[\"'])?\s*\))")
+_HTML_IMAGE = re.compile(r"(<img\b[^<>]*?\bsrc\s*=\s*[\"'])([^\"']+)([\"'])", re.I)
 
 # Common front-matter spellings mapped to Inkcast's names.
 _ALIASES = {
@@ -67,6 +70,8 @@ class Story:
         }
         for key, value in self.overrides.get(platform_id, {}).items():
             canonical_key = next((k for k, names in _ALIASES.items() if key in names), key)
+            if canonical_key in ("title", "subtitle") and value is not None:
+                value = str(value)  # YAML reads `title: 2048` as a number
             merged[canonical_key] = _as_tags(value) if canonical_key == "tags" else value
         return merged
 
@@ -76,6 +81,10 @@ def split_front_matter(markdown: str) -> tuple[dict[str, Any], str]:
     if not match:
         return {}, markdown
     try:
+        # An alias (*name) repeats a whole value: nested ones turn a few hundred bytes into gigabytes once the value
+        # is made text (tags, titles, previews). Front matter doesn't need them, so they are refused before loading.
+        if any(isinstance(e, yaml.AliasEvent) for e in yaml.parse(match.group(1), Loader=yaml.SafeLoader)):
+            raise StoryError("The front matter uses a YAML alias (*name); write the value out instead.")
         data = yaml.safe_load(match.group(1)) or {}
     except yaml.YAMLError as exc:
         raise StoryError(f"The front matter isn't valid YAML: {exc}") from exc
@@ -144,6 +153,11 @@ def parse_when(value: Any, now: datetime, past_is_now: bool = False) -> datetime
     return when
 
 
+def _heading(match: re.Match) -> str:
+    """A heading's text without its closing #s."""
+    return match.group(1).rstrip().rstrip("#").strip()
+
+
 def _strip_title_block(body: str, subtitle: str | None) -> tuple[str | None, str]:
     """Remove a leading `# Title` (returned) and a following `## Subtitle` that matches."""
     lines = body.replace("\r\n", "\n").split("\n")
@@ -152,12 +166,12 @@ def _strip_title_block(body: str, subtitle: str | None) -> tuple[str | None, str
         i += 1
     if i >= len(lines) or not (m := _H1.match(lines[i])):
         return None, "\n".join(lines[i:])
-    h1 = m.group(1).strip()
+    h1 = _heading(m)
     rest = lines[i + 1:]
     j = 0
     while j < len(rest) and not rest[j].strip():
         j += 1
-    if subtitle and j < len(rest) and (m2 := _H2.match(rest[j])) and m2.group(1).strip().lower() == subtitle.lower():
+    if subtitle and j < len(rest) and (m2 := _H2.match(rest[j])) and _heading(m2).lower() == subtitle.lower():
         rest = rest[j + 1:]
     return h1, "\n".join(rest)
 
@@ -204,9 +218,10 @@ def parse_story(
         raise StoryError("The markdown is empty. Read the file and pass its full contents.")
 
     meta, body = split_front_matter(markdown)
-    subtitle = (subtitle or _pick(meta, "subtitle") or "").strip() or None
+    # str(): YAML reads `title: 1984` as a number.
+    subtitle = str(subtitle or _pick(meta, "subtitle") or "").strip() or None
     h1, body = _strip_title_block(body, subtitle)
-    title = (title or _pick(meta, "title") or h1 or "").strip()
+    title = str(title or _pick(meta, "title") or h1 or "").strip()
     if len(title) < 2:
         raise StoryError("The story needs a title: pass `title`, add `title:` to the front matter, or start with `# Heading`.")
 
@@ -215,7 +230,7 @@ def parse_story(
     base = image_base_url or _pick(meta, "image_base_url")
 
     chosen = platforms or _as_tags(_pick(meta, "platforms")) or []
-    chosen = [p.strip().lower() for p in chosen]
+    chosen = list(dict.fromkeys(p.strip().lower() for p in chosen))  # once each: a repeat would post twice
     unknown = [p for p in chosen if p not in known]
     if unknown:
         raise StoryError(f"Unknown platform(s): {', '.join(unknown)}. Available: {', '.join(known)}.")
@@ -225,6 +240,9 @@ def parse_story(
         block = meta.get(pid)
         if isinstance(block, dict):
             overrides[pid] = dict(block)
+            for key, value in block.items():  # the same rule as the top-level URLs
+                if value and key in _ALIASES["canonical_url"] + _ALIASES["cover_image"]:
+                    overrides[pid][key] = check_url(value, f"{pid}.{key}")
     for pid, dest in (destinations or {}).items():
         pid = pid.strip().lower()
         if pid not in known:

@@ -72,7 +72,9 @@ class Publisher:
                 problems.append(Outcome(pid, "failed", message=str(exc)))
         return ready, problems
 
-    async def publish(self, user_id: str, story: Story, platform_ids: list[str]) -> list[Outcome]:
+    async def publish(self, user_id: str, story: Story, platform_ids: list[str],
+                      on_created: Any = None) -> list[Outcome]:
+        """``on_created(platform_id, post_id)`` runs once each post row exists and before anything is sent."""
         ready, outcomes = self.prepare(story, platform_ids)
         group = "grp_" + uuid.uuid4().hex[:10]
         for prepared in ready:
@@ -99,6 +101,8 @@ class Publisher:
                 group_id=group, user_id=user_id, platform=platform.id, title=prepared.title,
                 status="scheduled" if story.publish_at else "publishing", run_at=run_at, payload=prepared.to_dict(),
             )
+            if on_created:
+                on_created(platform.id, post_id)
             if story.publish_at:
                 outcomes.append(Outcome(platform.id, "scheduled", post_id=post_id, prepared=prepared))
             else:
@@ -141,11 +145,15 @@ class Publisher:
             self._count(platform.id, "failed")
             return Outcome(platform.id, "failed", post_id=post_id, message=str(exc))
         except Exception as exc:  # a plug-in bug must not kill the scheduler
+            # It may have crashed after the platform accepted the post (reading the reply), so it is ambiguous like
+            # any uncertain failure: unconfirmed, never 'failed', which Git sync would create again.
             log.exception("Platform %s crashed publishing %s", platform.id, post_id)
-            self.store.update_post(post_id, status="failed", error=f"internal error: {exc}",
-                                   events=self._event("post.failed", post_id, user_id, platform.id, reason="internal"))
-            self._count(platform.id, "failed")
-            return Outcome(platform.id, "failed", post_id=post_id, message=f"Internal error in the {platform.name} plug-in.")
+            self.store.update_post(post_id, status="unconfirmed", error=f"internal error: {exc}",
+                                   events=self._event("post.unconfirmed", post_id, user_id, platform.id))
+            self._count(platform.id, "unconfirmed")
+            return Outcome(platform.id, "unconfirmed", post_id=post_id, message=(
+                f"Internal error in the {platform.name} plug-in; the post may or may not have been published. "
+                f"Check {platform.name} before trying again."))
 
         self._observe("inkcast_publish_duration_seconds", time.perf_counter() - started, platform=platform.id)
         status = result.status if result.status in ("draft", "unlisted") else "published"
@@ -199,6 +207,9 @@ class Publisher:
             found = await platform.find_existing(creds, Account.from_dict(account_data), prepared)
         except PlatformError:
             return None
+        except Exception:  # a plug-in bug: can't tell, and it must not stop the other posts being resolved
+            log.exception("Platform %s crashed looking up an existing post", platform.id)
+            return None
         if found is None:
             return Outcome(platform.id, "missing")
         status = found.status if found.status in ("draft", "unlisted") else "published"
@@ -241,6 +252,8 @@ class Publisher:
         now = now or time.time()
         outcomes = [await self.recover(row) for row in self.store.claim_stuck(older_than=now - STUCK_AFTER)]
         for row in self.store.claim_due_posts(now):
+            if not self.store.renew_claim(row["id"], row["attempts"]):
+                continue  # another worker took it over as stuck while this batch was being sent: it is theirs now
             lag = max(0.0, now - float(row["run_at"]))
             self._observe("inkcast_publish_lag_seconds", lag, platform=row["platform"])
             platform = self.platforms.get(row["platform"])

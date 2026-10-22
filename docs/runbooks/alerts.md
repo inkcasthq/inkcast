@@ -45,7 +45,7 @@ SLO burn-rate alerts carry `slo`, `burn_rate`, `long_window` and `short_window` 
 
 ## InkcastUnconfirmedPublishes
 
-**Meaning:** a publish ended `unconfirmed`: the request was sent and the platform's answer was lost (timeout or 5xx after the send). Inkcast never retries these blindly.
+**Meaning:** a publish ended `unconfirmed`: the request was sent and the platform's answer was lost (timeout or 5xx after the send), or the platform plug-in crashed mid-send (`internal error` in the post's `error`: a plug-in bug, roll back the image). Inkcast never retries these blindly.
 
 1. Find them: the admin portal (E6) or `SELECT id, user_id, platform, title FROM posts WHERE status='unconfirmed'`.
 2. Check the platform for the post. If it exists, record it (`result_url`, `remote_id`, status `published`); if not, set `scheduled` with `run_at=now`. Git-published posts resolve themselves on the next sync (`find_existing`).
@@ -55,9 +55,8 @@ SLO burn-rate alerts carry `slo`, `burn_rate`, `long_window` and `short_window` 
 
 **Meaning:** more than 20% of attempts to one platform failed in 30 minutes (with at least 5 attempts).
 
-1. The error text is in the posts' `error` column and in the `publish.*` log lines; 401/403 means revoked credentials (customers must reconnect; E7 channel health will tell them), 5xx or timeouts mean a platform outage, `internal error` means a plug-in bug.
+1. The error text is in the posts' `error` column and in the `publish.*` log lines; 401/403 means revoked credentials (customers must reconnect; E7 channel health will tell them), 5xx or timeouts mean a platform outage (a plug-in crash ends `unconfirmed`: see `InkcastUnconfirmedPublishes`).
 2. Check the platform's status page; nothing to do for an outage except watch retries (60 s, 5 m, 30 m) and unconfirmed posts.
-3. A plug-in bug: roll back the image; the posts failed for good and the customers must republish.
 
 ## InkcastHttp5xxRateHigh
 
