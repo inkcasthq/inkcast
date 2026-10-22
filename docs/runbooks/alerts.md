@@ -125,10 +125,19 @@ SLO burn-rate alerts carry `slo`, `burn_rate`, `long_window` and `short_window` 
 
 1. The IdentityService log has `identity.sync.failed` lines with the reason.
 2. "Keycloak refused the sync service account (HTTP 401)": the `inkcast-sync` client secret in Keycloak and `INKCAST_KEYCLOAK_SYNC_SECRET` differ (a rotation done on one side only). Set both to the same value.
-3. "HTTP 403" on `users/…` or `admin-events`: the service account lost `view-users` or `view-events` (realm-management). The realm file grants both.
+3. "HTTP 403" on `admin-events` or `events`, or "the reconcile could act on nobody" with an `identity.sync.person.failed` line (`status` 403) for every person: the service account lost `view-users` or `view-events` (realm-management). The realm file grants both.
 4. Connection errors: Keycloak is down, or a NetworkPolicy blocks the admin API (same host and port as the issuer).
 5. Once it recovers, the next full reconcile (every `INKCAST_KEYCLOAK_RECONCILE_INTERVAL`, 10 minutes by default, and at start) catches anyone missed. To force it now, restart IdentityService.
 6. A self-deletion whose `DELETE_ACCOUNT` event Keycloak trimmed meanwhile (the realm keeps events 7 days) is still cut off by that reconcile, and erased `INKCAST_KEYCLOAK_ERASE_AFTER_DAYS` (30) later, like an administrator's deletion. An outage longer than the retention therefore delays those erasures by the grace period; it never loses them.
+
+## InkcastIdentitySyncPersonFailing
+
+**Meaning:** for an hour, every 30 minutes has had a Keycloak user sync failure at one stage (`stage="person"`: Keycloak answered an error about one person, a 500 for that user or a malformed id, on `users/{id}` or their `DELETE_ACCOUNT` events). The pass went on past them (#103), so everyone else is cut off and erased as usual, but that person is neither until Keycloak answers about them: their tokens keep working if Keycloak has disabled or deleted them meanwhile, and an erasure of theirs waits. The sync as a whole is fine; if `InkcastIdentitySyncFailing` fires too, follow it first (a realm-wide 403 or 500 fails everyone, which also fails the reconcile as a pass).
+
+1. The IdentityService log has `identity.sync.person.failed` lines: `user_id` (the Inkcast id; `null` for someone Inkcast does not know), `via` (`event` or `reconcile`), `call` (`user` for `users/{id}`, `events` for their `DELETE_ACCOUNT` events) and the HTTP `status`. Nothing from Keycloak's answer is logged. The Keycloak id is the `identity` column of that user (`oidc:<issuer>#<id>`).
+2. The person is read again at every reconcile (every `INKCAST_KEYCLOAK_RECONCILE_INTERVAL`, 10 minutes by default), and at every pass (30 s) while a `DELETE_ACCOUNT` event of theirs holds the cursor; the alert clears an hour after Keycloak answers about them again.
+3. The fault is in Keycloak, about that one user: open them in its admin console (Users, search by the id), which makes the same `users/{id}` read, and Keycloak's own log says why it fails (`status` 500) or refuses the id (400). Fix or delete the user there: a deletion answers 404 at the next read, and the sync cuts them off and erases them after the grace period.
+4. A `DELETE_ACCOUNT` event of that person holds the user-events cursor (`sync_state`, `keycloak-user-events`), so every pass re-reads the events since it; that is by design (an erasure is never passed over) and costs one read per pass until they are erased. If the person is gone and that event is all that is left, nothing needs doing: the first read that answers 404 erases them.
 
 ## InkcastAuthzErrors
 
