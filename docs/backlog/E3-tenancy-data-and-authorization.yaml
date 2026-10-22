@@ -136,6 +136,15 @@ features:
     title: Events carry org_id and workspace_id; rollups appear at those scopes with no consumer change (test)
     status: planned
     change: new
+  - id: F3.3.S7
+    title: 'Export my data: one JSON bundle of everything Inkcast holds about the person (never credentials or tokens)'
+    status: planned
+    change: 'new; issue #61 (offered first by the account-deletion page, E9.F9.5.S4)'
+    acceptance:
+    - MCP inkcast_export and REST POST /api/v1/account/export give a one-time download link (OAuth only, 24 h, once)
+    - 'Schema-versioned JSON: profile, posts with markdown and per-platform results, schedules, ledger, connected platforms
+      (names and accounts only), token names, scopes and dates, KPI rollups'
+    - Tests prove no secret is in the bundle and another account's data never appears
 - id: F3.4
   title: Bring your own platform app credentials per workspace
   stories:
