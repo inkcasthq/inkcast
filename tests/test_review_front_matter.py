@@ -129,5 +129,15 @@ class KeyEchoedRaw(Api):
                 self.assertFalse(any(line.startswith("::") for line in table.splitlines()), table[:300])
 
 
+class ReasonUncapped(Api):
+    """The value is cut to 80 characters, but Python's reason is added whole, and float()'s quotes the whole value
+    (int()'s stops at 200): `draft: !!float <100 KB>` is a 100 KB message, in REST's answer and in the sync's."""
+
+    def test_the_message_stays_short_for_a_long_float(self):
+        message = self.assert_refused("draft: !!float " + "x" * 100_000 + "\n")
+        self.assertIn("draft", message)
+        self.assertLess(len(message), 500)
+
+
 if __name__ == "__main__":
     unittest.main()

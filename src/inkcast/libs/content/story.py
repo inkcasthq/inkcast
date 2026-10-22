@@ -153,7 +153,8 @@ def split_front_matter(markdown: str) -> tuple[dict[str, Any], str]:
         # which the JSON response can't encode) or an explicit `? key` of any length. Anything else gets its line.
         named = exc.field if exc.field and exc.field.isprintable() and len(exc.field) <= 80 else None
         where = named or f"The value on line {exc.node.start_mark.line + 2}"
-        reason = f": {str(exc.cause).rstrip('.')}" if isinstance(exc.cause, ValueError) else ""  # the others' text is Python's
+        # The others' text is Python's. float()'s quotes the whole value, so it is cut too (int()'s stops at 200).
+        reason = f": {str(exc.cause).rstrip('.')[:200]}" if isinstance(exc.cause, ValueError) else ""
         value = exc.node.value if len(exc.node.value) <= 80 else exc.node.value[:79] + "…"  # a 4301-digit int, say
         raise StoryError(f"{where} {value!r} isn't a valid {kind}{reason}.") from exc
     except yaml.YAMLError as exc:
