@@ -117,6 +117,7 @@ class Evaluator:
 
     def __init__(self, model: Model, source: TupleSource):
         self.model, self.source = model, source
+        self._cycles = 0  # cycles met so far: a subtraction that meets one denies, as OpenFGA's exclusion does
 
     # ---- check --------------------------------------------------------------------------------------------
 
@@ -136,6 +137,7 @@ class Evaluator:
                               f"resolving {relation} on {obj}")
         key = (user, relation, obj)
         if key in path:
+            self._cycles += 1
             return False
         rewrite = self.model.rewrite(Ref.parse(obj).type, relation)
         return self._node(rewrite, user, relation, obj, depth, path | {key})
@@ -153,13 +155,26 @@ class Evaluator:
             return all(self._node(c, user, relation, obj, depth, path) for c in node["intersection"]["child"])
         if "difference" in node:
             d = node["difference"]
-            return self._node(d["base"], user, relation, obj, depth, path) and \
-                not self._node(d["subtract"], user, relation, obj, depth, path)
+            if not self._node(d["base"], user, relation, obj, depth, path):
+                return False
+            cycles = self._cycles
+            return not self._node(d["subtract"], user, relation, obj, depth, path) and self._cycles == cycles
         raise EngineError(f"unknown rewrite {sorted(node)} on {relation}")
+
+    def _allowed(self, stored: str, relation: str, obj: str) -> bool:
+        """OpenFGA's read-time filter (ValidateTupleForRead): a stored tuple counts only while the current model
+        still allows it, so a model version that drops a user type revokes those grants."""
+        try:
+            self.model.validate_tuple(Tuple(stored, relation, obj))
+        except InvalidRequest:
+            return False
+        return True
 
     def _direct(self, user: str, relation: str, obj: str, depth: int, path: frozenset) -> bool:
         utype, _, urel = parse_user(user)
         for stored in self.source.users_of(obj, relation):
+            if not self._allowed(stored, relation, obj):
+                continue
             if stored == user:
                 return True
             stype, sid, srel = parse_user(stored)
@@ -175,6 +190,8 @@ class Evaluator:
         tupleset = node["tupleset"]["relation"]
         computed = node["computedUserset"]["relation"]
         for parent in self.source.users_of(obj, tupleset):
+            if not self._allowed(parent, tupleset, obj):
+                continue
             ptype, pid, prel = parse_user(parent)
             if prel or pid == "*" or not self.model.has_relation(ptype, computed):
                 continue  # a tupleset names plain objects; a type without the relation contributes nothing

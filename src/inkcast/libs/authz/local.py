@@ -17,6 +17,7 @@ from typing import Any, Iterable, Sequence
 
 from .engine import MAX_BATCH_CHECK, Check
 from .model import Evaluator, Model
+from .openfga import MAX_TUPLES_PER_WRITE
 from .types import MINIMIZE_LATENCY, Consistency, EngineError, InvalidRequest, Ref, Tuple
 
 
@@ -27,10 +28,16 @@ class _StoreSource:
         self.store = store
 
     def users_of(self, obj: str, relation: str) -> list[str]:
-        return self.store.authz_users_of(obj, relation)
+        try:
+            return self.store.authz_users_of(obj, relation)
+        except Exception as exc:  # the database itself: locked, gone
+            raise EngineError(f"authorization store read failed: {type(exc).__name__}") from exc
 
     def objects_of_type(self, type_: str) -> list[str]:
-        return self.store.authz_objects_of_type(type_)
+        try:
+            return self.store.authz_objects_of_type(type_)
+        except Exception as exc:
+            raise EngineError(f"authorization store read failed: {type(exc).__name__}") from exc
 
 
 def validate_write(model: Model, writes: list[Tuple], deletes: list[Tuple]) -> None:
@@ -38,6 +45,8 @@ def validate_write(model: Model, writes: list[Tuple], deletes: list[Tuple]) -> N
     and deleted, and (for writes) a user type the model does not allow on that relation."""
     if not writes and not deletes:
         raise InvalidRequest("a write needs at least one tuple to write or delete")
+    if len(writes) + len(deletes) > MAX_TUPLES_PER_WRITE:
+        raise InvalidRequest(f"a write takes at most {MAX_TUPLES_PER_WRITE} tuples (got {len(writes) + len(deletes)})")
     seen: set[Tuple] = set()
     for t in (*writes, *deletes):
         if t in seen:
@@ -88,8 +97,9 @@ class LocalEngine:
 
     async def read(self, *, user: str | None = None, relation: str | None = None, obj: Ref | None = None,
                    type_: str | None = None) -> list[Tuple]:
-        if relation is not None and obj is None and type_ is None:
-            raise InvalidRequest("reading by relation needs an object or an object type")
+        # OpenFGA's Read: with any filter, an object type; with no object id, a user.
+        if obj is None and (user, relation, type_) != (None, None, None) and (type_ is None or user is None):
+            raise InvalidRequest("reading needs an object, a user with an object type, or no filter at all")
         try:
             rows = self.store.authz_read(user=user, relation=relation, obj=str(obj) if obj else None, type_=type_)
         except Exception as exc:
