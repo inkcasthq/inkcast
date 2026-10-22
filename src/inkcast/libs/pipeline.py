@@ -207,6 +207,9 @@ class Publisher:
             found = await platform.find_existing(creds, Account.from_dict(account_data), prepared)
         except PlatformError:
             return None
+        except Exception:  # a plug-in bug: can't tell, and it must not stop the other posts being resolved
+            log.exception("Platform %s crashed looking up an existing post", platform.id)
+            return None
         if found is None:
             return Outcome(platform.id, "missing")
         status = found.status if found.status in ("draft", "unlisted") else "published"

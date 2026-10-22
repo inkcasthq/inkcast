@@ -258,6 +258,26 @@ class RecoveryInterrupted(SyncHarness, unittest.TestCase):
         asyncio.run(self.publisher.run_due())
         self.assertEqual(self.store.get_post(pid)["status"], "published", "left 'recovering' for good")
 
+    def test_a_plugin_crash_while_checking_one_post_does_not_abort_the_tick(self):
+        """confirm() only caught PlatformError, so a plug-in bug in find_existing raised out of run_due: the other
+        posts claimed for recovery were stranded and nothing due in that tick was sent (Git sync's check of an
+        unconfirmed entry failed the whole sync the same way)."""
+        self.make()
+        first, second = self.stuck("A"), self.stuck("B")
+        due = self.store.create_post(group_id="g", user_id=self.user, platform="fake", title="Due", status="scheduled",
+                                     run_at=time.time() - 1, payload={"platform": "fake", "title": "Due", "payload": {},
+                                                                      "preview": {}})
+        self.age()
+
+        async def bug(*args):
+            raise KeyError("id")
+
+        self.fake.find_existing = bug
+        with self.assertLogs("inkcast.libs.pipeline", "WARNING"):
+            asyncio.run(self.publisher.run_due())
+        self.assertEqual([self.store.get_post(p)["status"] for p in (first, second, due)],
+                         ["unconfirmed", "unconfirmed", "published"])
+
 
 if __name__ == "__main__":
     unittest.main()
