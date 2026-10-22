@@ -25,7 +25,11 @@ access token is cut off in one transaction (``Store.disable_user``) and the pers
 next successful sign-in (Keycloak only allows that once they are enabled again). A disabled-but-present person is
 never erased. The worker signs in to Keycloak as its own service account (client credentials; the realm's
 ``inkcast-sync`` client with realm-management ``view-users`` and ``view-events`` only). Errors never stop the loop:
-they are logged, counted and retried.
+they are logged, counted and retried. An answer about one person that the sync cannot act on (a 500 for that user,
+a malformed id; ``PersonError``) is counted as ``inkcast_identity_sync_errors_total{stage="person"}``, logged with the
+Inkcast user id only, and the pass goes on with the others (#103): that person is read again at the next pass or
+reconcile. Anything else (Keycloak unreachable, the service account refused, the database) fails the pass as a
+whole, and so does a reconcile that could act on nobody.
 """
 
 from __future__ import annotations
@@ -49,7 +53,17 @@ LOOKBACK_MS = 60_000
 
 
 class SyncError(Exception):
-    pass
+    """The pass fails: Keycloak refused the service account or a realm-wide read, or the reconcile could act on nobody."""
+
+
+class PersonError(SyncError):
+    """Keycloak answered an error about one person (``users/{id}``, or their events): that person's alone, and the pass
+    goes on (#103). ``call`` names the read (``user``, ``events``) and ``status`` the HTTP status: a fixed string and
+    an int, all a log line about them carries."""
+
+    def __init__(self, message: str, call: str, status: int):
+        super().__init__(message)
+        self.call, self.status = call, status
 
 
 def _user_not_found(r: httpx2.Response) -> bool:
@@ -89,6 +103,7 @@ class KeycloakSync:
         self._token_until = 0.0
         self.last_success = 0.0
         self.last_reconcile = 0.0
+        self.unread_until = 0.0     # after a reconcile that could act on nobody: no full re-read before this
 
     @property
     def enabled(self) -> bool:
@@ -127,7 +142,7 @@ class KeycloakSync:
         if r.status_code == 404 and _user_not_found(r):
             return "deleted"
         if r.status_code != 200:
-            raise SyncError(f"reading users/{keycloak_id} answered HTTP {r.status_code}")
+            raise PersonError(f"reading users/{keycloak_id} answered HTTP {r.status_code}", "user", r.status_code)
         return "active" if r.json().get("enabled", True) else "disabled"
 
     async def changed_people(self) -> list[str]:
@@ -151,24 +166,26 @@ class KeycloakSync:
         self.store.set_sync_state(CURSOR, str(newest))
         return list(dict.fromkeys(ids))
 
-    async def deleted_accounts(self) -> tuple[list[str], int]:
+    async def deleted_accounts(self) -> tuple[dict[str, int], int, int]:
         """Keycloak ids from DELETE_ACCOUNT user events at or after LOOKBACK_MS before their own cursor (the person
         deleted the account themselves; one already erased has no user row left, so seeing the event again erases,
-        counts and records nothing), and the newest event time: ``tick`` moves the cursor there only once every one
-        of them is erased, so an erasure that failed is read again. Same shape as ``changed_people``: newest first,
-        at most 500."""
+        counts and records nothing), each with the earliest such event's time, newest person first; then the cursor
+        as read and the newest event time. ``tick`` moves the cursor to the newest only once every one of them is
+        erased, and no further than the event of a person it could not act on, so an erasure that failed is read
+        again. Same shape as ``changed_people``: newest first, at most 500."""
         cursor = int(self.store.get_sync_state(USER_EVENTS_CURSOR) or self.clock() * 1000)
         day = datetime.fromtimestamp(cursor / 1000 - 86400, timezone.utc).strftime("%Y-%m-%d")
         r = await self._get("events", params=[("type", "DELETE_ACCOUNT"), ("dateFrom", day), ("first", "0"), ("max", "500")])
         if r.status_code != 200:
             raise SyncError(f"reading events answered HTTP {r.status_code}")
-        newest, ids = cursor, []
+        newest, earliest = cursor, {}
         for event in r.json():
             at = int(event.get("time", 0))
             if at >= cursor - LOOKBACK_MS and event.get("type") == "DELETE_ACCOUNT" and event.get("userId"):
-                ids.append(str(event["userId"]))
+                keycloak_id = str(event["userId"])
+                earliest[keycloak_id] = min(at, earliest.get(keycloak_id, at))
             newest = max(newest, at)
-        return list(dict.fromkeys(ids)), newest
+        return earliest, cursor, newest
 
     async def deleted_own_account(self, keycloak_id: str) -> bool:
         """Whether Keycloak holds a DELETE_ACCOUNT user event for this person, for the reconcile: a person gone from
@@ -178,7 +195,7 @@ class KeycloakSync:
         r = await self._get("events", params=[("type", "DELETE_ACCOUNT"), ("user", keycloak_id), ("first", "0"),
                                               ("max", "1")])
         if r.status_code != 200:
-            raise SyncError(f"reading events answered HTTP {r.status_code}")
+            raise PersonError(f"reading events answered HTTP {r.status_code}", "events", r.status_code)
         return any(e.get("type") == "DELETE_ACCOUNT" and e.get("userId") == keycloak_id for e in r.json())
 
     # ---- what Inkcast does about it ------------------------------------------------------------------------
@@ -225,37 +242,77 @@ class KeycloakSync:
             return False
         return self.clock() - float(user["deleted_at"]) >= days * 86400
 
+    def _person_failed(self, user_id: str | None, via: str, exc: PersonError) -> None:
+        """Keycloak answered about one person, but not something the sync can act on: counted and logged, and the
+        pass goes on with the others (#103); the person is read again at the next pass or reconcile. Only the
+        Inkcast user id (None for a person Inkcast does not know), which read it was and the HTTP status reach the
+        log: never the Keycloak id, nor anything from the answer."""
+        log.warning("Keycloak answered HTTP %d to the %s read about Inkcast user %s (%s): retried at the next read; "
+                    "the others go on", exc.status, exc.call, user_id, via,
+                    extra={"event": "identity.sync.person.failed", "user_id": user_id, "via": via, "call": exc.call,
+                           "status": exc.status})
+        if self.metrics:
+            self.metrics.inc("inkcast_identity_sync_errors_total", stage="person")
+
     async def tick(self) -> dict[str, int]:
-        """One pass: the events since the cursor, then a reconcile when it is due. Returns what it did."""
+        """One pass: the events since the cursors, then a reconcile when it is due. Returns what it did. A
+        ``PersonError`` is that person's alone (``_person_failed``); any other error, or a reconcile that could act
+        on nobody (a realm-wide 403 or 500), fails the pass as a whole, as before."""
         done = {"checked": 0, "disabled": 0, "erased": 0}
-        deleted, newest = await self.deleted_accounts()
-        for keycloak_id in deleted:
+        deleted, cursor, newest = await self.deleted_accounts()
+        for keycloak_id, at in deleted.items():
             # The look-back reads an event again on later passes, and Keycloak can have the person again under the
             # same id (restored from a realm export, LDAP without import): erase only once it confirms they are gone.
-            if self.store.find_user_by_identity(self.prefix + keycloak_id) \
-                    and await self.person(keycloak_id) == "deleted" and self._erase(keycloak_id, "event"):
-                done["erased"] += 1
-        self.store.set_sync_state(USER_EVENTS_CURSOR, str(newest))
+            user = self.store.find_user_by_identity(self.prefix + keycloak_id)
+            if not user:
+                continue
+            try:
+                if await self.person(keycloak_id) == "deleted" and self._erase(keycloak_id, "event"):
+                    done["erased"] += 1
+            except PersonError as exc:
+                self._person_failed(str(user["id"]), "event", exc)
+                newest = min(newest, at)         # the cursor stops before their event: read again until erased
+        self.store.set_sync_state(USER_EVENTS_CURSOR, str(max(cursor, newest)))
         for keycloak_id in await self.changed_people():
             done["checked"] += 1
-            state = await self.person(keycloak_id)
+            try:
+                state = await self.person(keycloak_id)
+            except PersonError as exc:                 # the reconcile re-reads everyone: like an event the pass missed
+                known = self.store.find_user_by_identity(self.prefix + keycloak_id)
+                self._person_failed(str(known["id"]) if known else None, "event", exc)
+                continue
             if state != "deleted" and (known := self.store.find_user_by_identity(self.prefix + keycloak_id)):
                 self.store.mark_user_present(str(known["id"]))     # Keycloak has them: a running grace period stops
             if state != "active" and self._cut_off(keycloak_id, state, "event"):
                 done["disabled"] += 1
         if self.clock() - self.last_reconcile >= self.config.keycloak_reconcile_seconds:
+            if self.clock() < self.unread_until:         # still failing, but everyone is read again on schedule
+                raise SyncError("the last reconcile could act on nobody; everyone is read again at the next one")
             # The cut-off people too: one Keycloak no longer has is erased once the grace period is over; one it has
             # again (restored from a backup under the same id) gets a whole grace period at a later deletion.
-            for user in self.store.users_with_identity_prefix(self.prefix, include_disabled=True):
+            people = self.store.users_with_identity_prefix(self.prefix, include_disabled=True)
+            unread = 0
+            for user in people:
                 keycloak_id, user_id = user["identity"][len(self.prefix):], str(user["id"])
                 done["checked"] += 1
-                state = await self.person(keycloak_id)
+                try:
+                    state = await self.person(keycloak_id)
+                except PersonError as exc:               # read again at the next reconcile, on schedule
+                    unread += 1
+                    self._person_failed(user_id, "reconcile", exc)
+                    continue
                 if state != "deleted":                   # present, enabled or not: never erased
                     if user.get("deleted_at") is not None:
                         self.store.mark_user_present(user_id)
                     if state == "disabled" and self._cut_off(keycloak_id, state, "reconcile"):
                         done["disabled"] += 1
-                elif await self.deleted_own_account(keycloak_id):
+                    continue
+                try:
+                    own_deletion = await self.deleted_own_account(keycloak_id)
+                except PersonError as exc:               # gone for certain: cut off now; the event, next reconcile
+                    self._person_failed(user_id, "reconcile", exc)
+                    own_deletion = False
+                if own_deletion:
                     if self._erase(keycloak_id, "reconcile"):   # an event the pass missed: erased, as the pass would have
                         done["erased"] += 1
                 else:                                    # an administrator's deletion, or the event is past retention
@@ -263,6 +320,9 @@ class KeycloakSync:
                         done["disabled"] += 1
                     if self._grace_over(user_id, user) and self._erase(keycloak_id, "reconcile"):
                         done["erased"] += 1
+            if unread and unread == len(people):         # nobody could be read: the sync is failing, not a person
+                self.unread_until = self.clock() + self.config.keycloak_reconcile_seconds
+                raise SyncError(f"the reconcile could act on nobody: every one of {unread} reads failed")
             self.last_reconcile = self.clock()
         self.last_success = self.clock()
         return done

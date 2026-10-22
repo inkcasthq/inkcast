@@ -69,6 +69,8 @@ EVENTS: dict[str, tuple[str, str]] = {
     "identity.erasure.reapplied": ("warning", "A restore brought back rows of a person erased before; they were erased again at "
                                               "start-up, before anything served (id and count only; not a new deletion)."),
     "identity.sync.failed": ("warning", "A Keycloak user sync pass failed (service account refused, Keycloak down); retried."),
+    "identity.sync.person.failed": ("warning", "Keycloak answered an error about one person (Inkcast user id, read and status "
+                                               "only); nothing was done for them, the pass went on, they are read again."),
     "authz.denied": ("warning", "A permission check said no (user, relation and object ids; never a token or a name)."),
     "authz.error": ("critical", "The policy engine could not answer (OpenFGA down, bad model id); the caller failed closed (503)."),
     "backup.done": ("info", "A database backup was taken, checked and kept (name, size, rows)."),
