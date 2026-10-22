@@ -151,7 +151,7 @@ Rook-Ceph RGW on-prem, S3 in cloud, through one `ObjectStore` seam (put, presign
 | Usage against plan limits | `libs/entitlements` counters (E5) | now | planned |
 | Engagement | `engagement.sampled` read back from platform APIs (E8) | day | planned |
 
-**Retention:** hourly buckets 90 days, daily buckets kept (one row per scope per KPI per day per dim set is a few hundred bytes a day per customer). Day buckets are UTC; a customer's local-day view is assembled from hourly buckets in the API, which is why hourly is kept at all.
+**Retention:** hourly buckets 90 days (`INKCAST_KPI_HOURLY_RETENTION_DAYS`, §6), daily buckets kept (one row per scope per KPI per day per dim set is a few hundred bytes a day per customer). Day buckets are UTC; a customer's local-day view is assembled from hourly buckets in the API, which is why hourly is kept at all.
 
 **The API** (`services/insights/rest.py`; OpenAPI tag "Insights"; scope `insights:read`):
 
@@ -216,12 +216,14 @@ inhibit_rules:
 |---|---|---|
 | Prometheus | 15 days local; Thanos or the platform's long-term store for SLO windows | the 30-day SLO windows need 30 days of the recording rules |
 | JSON logs | 30 days (platform logging); `request_id` only, never bodies or query strings | debugging; nothing personal beyond ids |
-| Outbox rows | 7 days after every consumer passed | replay window |
-| Hourly KPI buckets | 90 days | local-day views |
+| Outbox rows | `INKCAST_OUTBOX_RETENTION_DAYS` (7; 1–30) after every consumer passed | replay window |
+| Hourly KPI buckets and `kpi_applied` | `INKCAST_KPI_HOURLY_RETENTION_DAYS` (90; 31–400) | local-day views; `grain=hour` serves up to 31 days, so the floor is 31 |
 | Daily KPI buckets | indefinitely, per scope | the customer's history; tiny |
 | Audit log (E3) | 365 days on Business, 90 on Team, per plan | the tier design |
 
-Erasure (a user or an organization leaves): the owning tables are deleted by the existing flows; KPI rows at `user` scope are deleted; rows at `workspace`/`org` scope keep their totals and have `member` rewritten to a tombstone (`user:deleted`), because the organization's history is the organization's data. Events in the outbox are purged within 7 days by retention. Prometheus holds no personal data.
+The two retentions are settings (F1.10.S3, issue #91), read into `Config.retention` and handed to `Store.purge_expired` by the scheduler's housekeeping (every 90 ticks); the defaults are the values above. The hourly retention may never be shorter than the outbox's: `kpi_applied` is purged at the hourly cutoff, and it is the record that stops an event replayed from the outbox counting twice, so it must outlive the events. The configuration refuses the reverse order, naming both variables. Production and staging state both explicitly.
+
+Erasure (a user or an organization leaves): the owning tables are deleted by the existing flows; KPI rows at `user` scope are deleted; rows at `workspace`/`org` scope keep their totals and have `member` rewritten to a tombstone (`user:deleted`), because the organization's history is the organization's data. Events in the outbox are purged within `INKCAST_OUTBOX_RETENTION_DAYS` (7 by default, at most 30) by retention. Prometheus holds no personal data.
 
 ## 7. Seams and ownership
 
@@ -244,6 +246,8 @@ Erasure (a user or an organization leaves): the owning tables are deleted by the
 | `INKCAST_CACHE_URL` | (empty: in-process) | `redis://host:6379/0` or `rediss://`; Valkey or Redis |
 | `INKCAST_CACHE_PASSWORD` / `_FILE` | | the `AUTH` password; a password in the URL is refused at startup |
 | `INKCAST_INSIGHTS_INTERVAL` | `10` | seconds between consumer passes |
+| `INKCAST_OUTBOX_RETENTION_DAYS` | `7` | days a domain event stays in the outbox after every consumer has passed it (the replay window); `1` to `30` |
+| `INKCAST_KPI_HOURLY_RETENTION_DAYS` | `90` | days hourly KPI buckets and their `kpi_applied` rows are kept; `31` to `400`, never shorter than `INKCAST_OUTBOX_RETENTION_DAYS` (§6). Daily buckets are kept indefinitely |
 | `INKCAST_OVERDUE_GRACE`, `INKCAST_SCHEDULER_INTERVAL`, `INKCAST_METRICS_PORT` | as before | |
 
 ## 9. Verification
