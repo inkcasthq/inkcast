@@ -254,5 +254,35 @@ class RateLimitsCannotBeSidestepped(unittest.TestCase):
         self.assertEqual((codes, rows), ([302, 302, 429, 429], 2), "one registered client, unbounded pending rows")
 
 
+class NoBearerLinksInLogs(unittest.TestCase):
+    """A connect ticket is a bearer secret for 15 minutes: whoever has /connect/<ticket> attaches platform
+    credentials to that person's account. The access log keeps paths (never query strings, for OAuth codes)."""
+
+    def test_the_access_log_never_holds_a_connect_ticket(self):
+        import io
+        import logging
+        from inkcast.libs.observability import JsonFormatter, Redactor, TextFormatter
+        cfg = password_config()
+        app, ctx = in_process("ConnectorService", cfg)
+        user = ctx.store.upsert_user("local:owner", "owner", None, None)
+        logger = logging.getLogger("inkcast.http")
+        for formatter in (JsonFormatter("connector-service"), TextFormatter("%(message)s")):
+            ticket = ctx.store.create_ticket(user["id"], "devto")
+            out = io.StringIO()
+            handler = logging.StreamHandler(out)
+            handler.setFormatter(formatter)
+            handler.addFilter(Redactor())
+            logger.addHandler(handler)
+            level, logger.level = logger.level, logging.INFO
+            try:
+                with TestClient(app, base_url=cfg.public_url) as c:
+                    self.assertEqual(c.get(f"/connect/{ticket}").status_code, 200)
+            finally:
+                logger.removeHandler(handler)
+                logger.setLevel(level)
+            self.assertIn("GET /connect/", out.getvalue())                      # the request is still logged
+            self.assertNotIn(ticket, out.getvalue(), f"{type(formatter).__name__} wrote the ticket")
+
+
 if __name__ == "__main__":
     unittest.main()
