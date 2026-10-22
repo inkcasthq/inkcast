@@ -107,7 +107,7 @@ class GitSync:
 
         # A scheduled post may have gone out (or failed) since the last sync: take its current state.
         post = self.store.get_post(entry["post_id"]) if entry and entry["post_id"] else None
-        if post and entry["status"] in ("scheduled", "publishing") and post["status"] != entry["status"]:
+        if post and entry["status"] in ("scheduled", "publishing", "recovering") and post["status"] != entry["status"]:
             entry = self.store.put_entry(user_id, src, path, pid, status=post["status"], url=post["result_url"],
                                          remote_id=post["remote_id"])
 

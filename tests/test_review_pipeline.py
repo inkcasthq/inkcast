@@ -279,5 +279,33 @@ class RecoveryInterrupted(SyncHarness, unittest.TestCase):
                          ["unconfirmed", "unconfirmed", "published"])
 
 
+class LedgerFollowsRecovery(SyncHarness, unittest.TestCase):
+    def test_an_entry_seen_while_its_post_was_recovering_follows_the_post_afterwards(self):
+        """Sync refreshes an entry from its post only while the entry says 'scheduled' or 'publishing'. A sync that
+        runs while the scheduler is recovering the post copies 'recovering' into the entry, and from then on the
+        entry never follows the post: it says 'recovering' for good and, with no remote id, an edit of the file is
+        reported 'stale' (as if the platform couldn't edit posts) instead of updating the published post."""
+        platform = Fake()
+        platform.capabilities = frozenset({"find", "update"})
+        platform.updated = []
+
+        async def update(creds, account, remote_id, prepared, destination):
+            platform.updated.append(remote_id)
+            return PublishResult(url=f"https://fake/{remote_id}", remote_id=remote_id, status="published")
+
+        platform.update = update
+        self.make(platform)
+        when = (datetime.now(timezone.utc) + timedelta(days=2)).replace(microsecond=0).isoformat()
+        (created,) = self.sync(story_md(extra=f"publish_at: {when}\n"))
+        # Its time came, the worker sending it stopped, and another worker is checking it with the platform now.
+        self.store.update_post(created.post_id, status="recovering")
+        self.sync(story_md(extra=f"publish_at: {when}\n"))
+        self.store.update_post(created.post_id, status="published", result_url="https://fake/7", remote_id="7")
+        (after,) = self.sync(story_md(extra=f"publish_at: {when}\n"))
+        self.assertEqual(after.status, "published")
+        (edited,) = self.sync(story_md(body="Corrected body.", extra=f"publish_at: {when}\n"))
+        self.assertEqual((edited.action, platform.updated), ("update", ["7"]))
+
+
 if __name__ == "__main__":
     unittest.main()
