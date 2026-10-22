@@ -43,6 +43,11 @@ class ConnectLink(BaseModel):
     help: str
 
 
+class DeletionLink(BaseModel):
+    url: str = Field(description="One-time page where the person, after signing in again, starts deleting their account.")
+    expires_in: int = Field(description="Seconds until the link expires.")
+
+
 class DestinationInfo(BaseModel):
     id: str
     name: str

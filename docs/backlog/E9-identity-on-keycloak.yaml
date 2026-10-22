@@ -91,18 +91,21 @@ features:
   - id: F9.5.S4
     title: 'Delete my account: Inkcast leads, Keycloak deletes the account (kc_action=delete_account), Inkcast erases
       the data'
-    status: planned
-    change: 'refined 2026-10-22 (owner: Inkcast-led; Keycloak deletes through an application-initiated action, because
-      fine-grained admin permissions have no delete-only scope: manage also allows email change and action emails);
-      issue #41'
+    status: done
+    change: 'built in PR #69 (issue #41): Inkcast-led, Keycloak deletes through its delete_account application-initiated
+      action (fine-grained admin permissions have no delete-only scope: manage also allows email change and action emails);
+      Keycloak 26 never redirects back after a successful deletion, so the client baseUrl links its "deleted" page to
+      /account/deleted, where the visit is matched by a cookie and confirmed through view-users before erasing (via=return);
+      the sync reads DELETE_ACCOUNT user events as the backstop (via=event); erase_user from #65'
     acceptance:
     - MCP inkcast_delete_account and REST POST /api/v1/account/deletion-link (OAuth only) return a one-time link
     - 'Inkcast''s page: what goes, what stays (articles on the platforms), the export (E3.F3.3.S7); Continue goes to
       Keycloak with kc_action=delete_account, where the person confirms and Keycloak deletes the account'
     - 'Realm: delete_account required action enabled; account client''s delete-account role in the default roles;
       DELETE_ACCOUNT in enabledEventTypes (the account console''s Delete account is an accepted side effect)'
-    - 'Erasure (E3.F3.3.S5, one transaction) on return with kc_action_status=success, and as a backstop from the sync
-      reading DELETE_ACCOUNT user events; cancelled erases nothing; audit keeps a salted id hash, time and counts'
+    - 'Erasure (E3.F3.3.S5, one transaction) on the visit back from Keycloak''s "deleted" page (matched by a cookie to the
+      pending record, confirmed through the sync''s read-only view-users), and as a backstop from the sync reading
+      DELETE_ACCOUNT user events; cancelled or an error erases nothing; audit keeps a salted id hash, time and counts'
     - 'Event identity.user.deleted; inkcast_identity_users_deleted_total{via=return|event}; the sync keeps view-users
       and view-events only'
     - 'Kind e2e: ada deletes through the flow (401 on her tokens, Keycloak user and Inkcast rows gone, others untouched);

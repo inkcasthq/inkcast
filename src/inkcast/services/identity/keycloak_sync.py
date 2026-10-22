@@ -8,6 +8,9 @@ polling (the ADR-0008 option that needs no Keycloak plug-in, so it works air-gap
 
 * every ``keycloak_sync_interval_seconds`` it reads the realm's admin events for USER updates and deletes since its
   cursor, and re-reads each such person from the admin API;
+* in the same pass it reads the realm's user events of type DELETE_ACCOUNT since a cursor of its own: a person
+  who deleted their own account (through Inkcast's "Delete my account", E9.F9.5.S4, or Keycloak's account console)
+  is erased from Inkcast (``Store.erase_user``, every table in one transaction) rather than merely cut off;
 * every ``keycloak_reconcile_seconds`` (and on start) it re-reads every Keycloak-backed person Inkcast knows, so an
   event missed while it was down, a deleted account from the account console (a user event, not an admin event),
   or events trimmed by Keycloak's retention still lead to the same result.
@@ -31,10 +34,27 @@ import httpx2
 
 log = logging.getLogger("inkcast.identity.sync")
 CURSOR = "keycloak-admin-events"
+USER_EVENTS_CURSOR = "keycloak-user-events"
 
 
 class SyncError(Exception):
     pass
+
+
+def erase_person(store: Any, metrics: Any, user_id: str, via: str) -> dict[str, int]:
+    """Erase one person whose account is gone (``via`` ``return`` for the visit back from Keycloak, ``event`` for
+    the DELETE_ACCOUNT event); logs ``identity.user.deleted`` with ids and counts only. Nothing to erase is not an
+    error (the other path got there first), and is neither logged nor counted."""
+    counts = store.erase_user(user_id)
+    if not any(counts.values()):
+        return counts
+    posts, tokens, pats = (int(counts.get(k, 0)) for k in ("posts", "tokens", "api_tokens"))
+    log.warning("Inkcast user %s deleted their account (%s): erased %d posts, %d OAuth grants, %d PATs, %d rows in all",
+                user_id, via, posts, tokens, pats, sum(counts.values()),
+                extra={"event": "identity.user.deleted", "user_id": user_id, "via": via, "rows": sum(counts.values())})
+    if metrics:
+        metrics.inc("inkcast_identity_users_deleted_total", via=via)
+    return counts
 
 
 class KeycloakSync:
@@ -109,7 +129,30 @@ class KeycloakSync:
         self.store.set_sync_state(CURSOR, str(newest))
         return list(dict.fromkeys(ids))
 
+    async def deleted_accounts(self) -> list[str]:
+        """Keycloak ids from DELETE_ACCOUNT user events at or after their own cursor (the person deleted the account
+        themselves); moves that cursor. Same shape as ``changed_people``: newest first, at most 500."""
+        cursor = int(self.store.get_sync_state(USER_EVENTS_CURSOR) or self.clock() * 1000)
+        day = datetime.fromtimestamp(cursor / 1000 - 86400, timezone.utc).strftime("%Y-%m-%d")
+        r = await self._get("events", params=[("type", "DELETE_ACCOUNT"), ("dateFrom", day), ("first", "0"), ("max", "500")])
+        if r.status_code != 200:
+            raise SyncError(f"reading events answered HTTP {r.status_code}")
+        newest, ids = cursor, []
+        for event in r.json():
+            at = int(event.get("time", 0))
+            if at >= cursor and event.get("type") == "DELETE_ACCOUNT" and event.get("userId"):
+                ids.append(str(event["userId"]))
+            newest = max(newest, at)
+        self.store.set_sync_state(USER_EVENTS_CURSOR, str(newest))
+        return list(dict.fromkeys(ids))
+
     # ---- what Inkcast does about it ------------------------------------------------------------------------
+
+    def _erase(self, keycloak_id: str) -> bool:
+        user = self.store.find_user_by_identity(self.prefix + keycloak_id)
+        if not user:
+            return False
+        return any(erase_person(self.store, self.metrics, str(user["id"]), "event").values())
 
     def _cut_off(self, keycloak_id: str, state: str, via: str) -> bool:
         user = self.store.find_user_by_identity(self.prefix + keycloak_id)
@@ -131,7 +174,10 @@ class KeycloakSync:
 
     async def tick(self) -> dict[str, int]:
         """One pass: the events since the cursor, then a reconcile when it is due. Returns what it did."""
-        done = {"checked": 0, "disabled": 0}
+        done = {"checked": 0, "disabled": 0, "erased": 0}
+        for keycloak_id in await self.deleted_accounts():
+            if self._erase(keycloak_id):
+                done["erased"] += 1
         for keycloak_id in await self.changed_people():
             done["checked"] += 1
             state = await self.person(keycloak_id)

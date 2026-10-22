@@ -12,6 +12,9 @@
 4. No credential the run created appears in full in any output file: personal access tokens (``ink_pat_…``),
    OAuth access and refresh tokens (``ic_at_…``, ``ic_rt_…``), in results.json, the panels' text, the logs, the
    document, everything under the run directory.
+5. After the account deletion (E9.F9.5.S4): both of the person's tokens answered 401, the erasure was counted once
+   (``inkcast_identity_users_deleted_total{via="return"}``), and the articles on the fake DEV are the same as before
+   it: what was published stays.
 
 Writes <run>/integrity.jsonl, one line per check, and exits 1 if any check fails.
 
@@ -107,6 +110,16 @@ def main() -> int:
     title = scheduled.get("title")
     check("cancelled schedule: nothing on DEV", bool(title) and title not in by_title, "no article titled " + repr(title),
           [a.get("title") for a in articles], f"{len(articles)} article(s) on the fake DEV, none is the cancelled one" if title and title not in by_title else "")
+
+    # 5. The account deletion: tokens dead, counted once, the platform's articles untouched.
+    deletion = res.get("deletion") or {}
+    check("deletion: the OAuth token and the PAT answer 401", deletion.get("me_after") == [401, 401], [401, 401], deletion.get("me_after"))
+    check("deletion: counted once, via the visit back from the provider",
+          deletion.get("metric") == 'inkcast_identity_users_deleted_total{via="return"} 1',
+          'inkcast_identity_users_deleted_total{via="return"} 1', deletion.get("metric"))
+    after = [a.get("title") for a in res.get("dev_articles_after_deletion") or []]
+    check("deletion: the articles on DEV outlived the account", bool(after) and after == [a.get("title") for a in articles],
+          [a.get("title") for a in articles], after, f"{len(after)} article(s) on the fake DEV after the account is gone" if after else "")
 
     # 4. No credential in full in any output file (run_walk.sh scans once more, with --leaks-only, once the document exists).
     row = leak_row(run, "no credential in full in any output file")

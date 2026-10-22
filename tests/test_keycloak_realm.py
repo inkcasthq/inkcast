@@ -87,6 +87,25 @@ class Realm(unittest.TestCase):
             self.assertGreaterEqual(value, 86400, f"{name}: the sync needs at least a day")
             self.assertLessEqual(value, 30 * 86400, f"{name}: keep events for a bounded time")
 
+    def test_delete_my_account_is_set_up(self):
+        """E9.F9.5.S4 (issue #41): the person deletes the account themselves through Keycloak's delete_account
+        application-initiated action, so the action is enabled, every account may use it (the account client's
+        delete-account role is a default role), the DELETE_ACCOUNT user event is recorded for the sync's backstop,
+        and Keycloak's "deleted" page links back to Inkcast (the client's baseUrl: Keycloak 26 never redirects after
+        a successful delete_account). The sync still reads only: view-users and view-events."""
+        actions = {a["alias"]: a for a in self.realm["requiredActions"]}
+        self.assertTrue(actions["delete_account"]["enabled"])
+        self.assertEqual(actions["delete_account"]["providerId"], "delete_account")
+        self.assertFalse(actions["delete_account"]["defaultAction"], "nobody is asked to delete their account on sign-in")
+        default = next(x for x in self.realm["roles"]["realm"] if x["name"] == "default-roles-inkcast")
+        self.assertEqual(default["composites"]["client"], {"account": ["delete-account"]})
+        self.assertIn("DELETE_ACCOUNT", self.realm["enabledEventTypes"])
+        self.assertTrue(self.realm["eventsEnabled"])
+        self.assertEqual(self.client["baseUrl"], "${INKCAST_PUBLIC_URL}/account/deleted")
+        account = next(u for u in self.realm["users"] if u.get("serviceAccountClientId") == "inkcast-sync")
+        self.assertEqual(account["clientRoles"], {"realm-management": ["view-users", "view-events"]},
+                         "Inkcast holds no admin right over users: deletion is the person's own act")
+
     def test_roles_and_account_protection(self):
         r = self.realm
         roles = {x["name"]: x for x in r["roles"]["realm"]}

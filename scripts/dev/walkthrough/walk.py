@@ -4,13 +4,16 @@
 """The end-to-end walkthrough: Inkcast driven the way a person and their MCP client use it, in order, with every
 step recorded (time, verdict, detail, the call and the reply) and pictured.
 
-Both apps run for real in development mode (password sign-in) against the fake DEV and Medium APIs from
-tests/fakes.py. The MCP side is the real SDK client (OAuthClientProvider: discovery, dynamic registration, PKCE,
+Both apps run for real in development mode against the fake DEV and Medium APIs and the fake Keycloak from
+tests/fakes.py (OIDC sign-in, the fake's login form standing in for Keycloak's, the user sync against the fake's
+admin API). The MCP side is the real SDK client (OAuthClientProvider: discovery, dynamic registration, PKCE,
 the redirect opened in a Playwright browser, the code received by a real local listener on the callback port),
 exactly the flow an MCP client such as a coding assistant performs. REST steps are what the GitHub Action and
 the CLI send. Every MCP and REST step gets a rendered panel (the call and the reply, plainly labelled); every
 browser step gets a screenshot. Each step asserts what it expects of the reply; a failed expectation fails the
 step, and a page with a JavaScript error, an HTTP error status or a visible error is refused instead of pictured.
+The journey ends with the person deleting their account (E9.F9.5.S4): Inkcast's page, the stand-in Keycloak's
+confirmation, its "deleted" page linking back, and Inkcast's erasure.
 
     WALK_PASSWORD=<at least 12 characters> walk.py --out <dir>
 
@@ -58,6 +61,7 @@ from walklib import (  # noqa: E402
 )
 
 CLIENT_NAME = "Walkthrough MCP client"
+PERSON = "ada@example.com"     # the one account at the stand-in Keycloak; WALK_PASSWORD is its password
 DEV_KEY = "devto-key"          # the fake DEV accepts exactly this key (tests/fakes.py)
 FOREM_ACCEPT = "application/vnd.forem.api-v1+json"
 SOURCE = "github.com/acme/blog"
@@ -305,13 +309,20 @@ async def wait_http(url: str, want: int, procs: list[subprocess.Popen], timeout:
 
 def start_stack(out: pathlib.Path, state: pathlib.Path, base: str, fakes: str, ports: dict[str, int],
                 password: str) -> list[subprocess.Popen]:
-    """The fake platforms and Inkcast (every service in one process), as a developer runs them locally, the password
-    and the secret key handed over in the child's environment as a developer does (Inkcast's posture check notes
-    it; development mode allows it). ``state`` is a private directory outside the output: the database lives there,
-    not in what CI uploads."""
+    """The fake platforms with the fake Keycloak, and Inkcast (every service in one process) signing people in
+    through it, as a developer runs them locally, the secrets handed over in the children's environment as a
+    developer does (Inkcast's posture check notes it; development mode allows it). The person's password is the
+    fake Keycloak's, never Inkcast's. ``state`` is a private directory outside the output: the database lives
+    there, not in what CI uploads."""
     env = {k: v for k, v in os.environ.items() if k != "WALK_PASSWORD"}
     env.update({"PYTHONPATH": f"{ROOT / 'src'}:{ROOT / 'tests'}",
-                "INKCAST_ENV": "development", "INKCAST_LOGIN": "password", "INKCAST_PASSWORD": password,
+                "INKCAST_ENV": "development", "INKCAST_LOGIN": "oidc",
+                "OIDC_ISSUER": f"{fakes}/kc/realms/inkcast", "OIDC_CLIENT_ID": "inkcast", "OIDC_CLIENT_SECRET": "kc-secret",
+                "OIDC_REQUIRED_ROLE": "inkcast-user",
+                "INKCAST_KEYCLOAK_SYNC_CLIENT_ID": "inkcast-sync", "INKCAST_KEYCLOAK_SYNC_SECRET": "sync-secret",
+                "INKCAST_KEYCLOAK_SYNC_INTERVAL": "2",
+                "FAKES_KC_ACCOUNT_EMAIL": PERSON, "FAKES_KC_ACCOUNT_PASSWORD": password,
+                "FAKES_KC_BASE_URL": f"{base}/account/deleted",
                 "INKCAST_SECRET_KEY": os.environ.get("INKCAST_SECRET_KEY") or secrets.token_urlsafe(48),
                 "INKCAST_PUBLIC_URL": base, "INKCAST_PORT": str(ports["inkcast"]), "INKCAST_METRICS_PORT": str(ports["metrics"]),
                 "INKCAST_DATABASE": str(state / "inkcast.db"),
@@ -405,6 +416,14 @@ async def run(args, password: str) -> dict:
     return facts
 
 
+async def sign_in(page, password: str) -> None:
+    """Fill the identity provider's login form (Keycloak's ids, served by the stand-in) and submit it."""
+    await page.fill("input[name=username]", PERSON)
+    await page.fill("input[name=password]", password)
+    async with page.expect_navigation():
+        await page.keyboard.press("Enter")
+
+
 async def journey(w: Walk, base: str, fakes: str, callback: Callback, facts: dict, password: str) -> None:
     page = w.page
     storage = Memory()
@@ -434,12 +453,11 @@ async def journey(w: Walk, base: str, fakes: str, callback: Callback, facts: dic
                      "The client registered itself (RFC 7591); no secret, PKCE instead.", bool(info.get("client_id"))),
                  reply={k: v for k, v in info.items() if "secret" not in k})
         await page.goto(url)
-        await page.wait_for_selector("input[type=password]")
-        await w.browser("sign-in page", "The client opened the authorization URL in the browser; Inkcast asks the person to sign in.",
-                        ("the sign-in form", has("Sign in", "Password")))
-        await page.fill("input[type=password]", password)
-        async with page.expect_navigation():
-            await page.keyboard.press("Enter")
+        await page.wait_for_selector("#kc-form-login")
+        await w.browser("sign-in page", "The client opened the authorization URL in the browser; Inkcast sent it to the identity "
+                        "provider (the stand-in for Keycloak), which asks the person to sign in.",
+                        ("the identity provider's sign-in form", has("Sign in", "Password")))
+        await sign_in(page, password)
         await page.wait_for_selector("button[value=approve]")
         await w.browser("consent page", "Signed in: Inkcast asks whether this client may use the account, naming the client.",
                         ("consent names the client", has(f"Allow {CLIENT_NAME} to use Inkcast?", "Approve")))
@@ -556,10 +574,8 @@ async def journey(w: Walk, base: str, fakes: str, callback: Callback, facts: dic
                 pat = ""
                 if token_link:
                     await page.goto(token_link)
-                    await page.wait_for_selector("input[type=password]")
-                    await page.fill("input[type=password]", password)
-                    async with page.expect_navigation():
-                        await page.keyboard.press("Enter")
+                    await page.wait_for_selector("#kc-form-login")
+                    await sign_in(page, password)
                     await page.wait_for_selector("button[value=approve]")
                     await w.browser("token confirm", "After signing in again, the person confirms the token's name, scope and expiry.",
                                     ("the confirmation names the token and scope", has("Create a personal access token?", "blog repo CI", "stories:sync")))
@@ -637,6 +653,82 @@ async def journey(w: Walk, base: str, fakes: str, callback: Callback, facts: dic
                                      and [a.get("published") for a in b] == [False, True]),
                                     label="/devto/api/articles/me/all (fake DEV)", headers={"api-key": DEV_KEY, "Accept": FOREM_ACCEPT})
     facts["dev_articles"] = articles if isinstance(articles, list) else []
+
+    w.phase = "10. Delete my account"
+    # ---- 11. Delete my account (E9.F9.5.S4) ------------------------------------------------------------------
+    # Back in the MCP client: the assistant hands over a one-time link and deletes nothing itself. A CI token can't
+    # even ask for the link. On the page the person signs in again, reads what goes and what stays, and continues to
+    # the identity provider, which asks for the password once more, confirms, deletes the account and links back;
+    # Inkcast checks with the provider that the person is gone, erases their data and says so.
+    async with httpx2.AsyncClient(auth=auth, timeout=30) as http:
+        async with streamable_http_client(f"{base}/mcp", http_client=http) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                delete_text = await w.mcp(session, "inkcast_delete_account", {},
+                                          "The person asks to delete the account: the assistant gets a one-time link and deletes nothing.",
+                                          ("a one-time /account/delete/ link; nothing deleted yet", has(f"{base}/account/delete/", "Nothing has been deleted yet")))
+    delete_link = next((t for t in delete_text.split() if t.startswith(f"{base}/account/delete/")), None)
+    await w.rest(api, "POST", f"{base}/api/v1/account/deletion-link",
+                 "The same through the REST API with the CI token: refused. Only a person's own OAuth sign-in may start it.",
+                 ("403: a personal access token can't start an account deletion", lambda s, b: s == 403),
+                 headers={"Authorization": f"Bearer {pat}"}, auth_note="(the personal access token)")
+    if delete_link:
+        await page.goto(delete_link)
+        await page.wait_for_selector("#kc-form-login")
+        await w.browser("deletion sign-in", "The link asks for a fresh sign-in at the identity provider first.",
+                        ("the identity provider's sign-in form", has("Sign in", "Password")))
+        await sign_in(page, password)
+        await page.wait_for_selector("button[value=approve]")
+        await w.browser("deletion page", "Inkcast's page: what goes (posts, schedules, the ledger, connections and credentials, tokens, usage "
+                        "numbers), what stays (articles already on the platforms), the export coming soon, and Continue.",
+                        ("what goes, what stays, the export", has("Delete your Inkcast account?", "What goes", "What stays",
+                                                                 "articles already published", "coming soon", "Continue")))
+        async with page.expect_navigation():
+            await page.click("button[value=approve]")
+        await page.wait_for_selector("#kc-form-login")
+        await w.browser("provider re-authentication", "The identity provider's delete_account action always asks for the password again.",
+                        ("the sign-in form once more", has("Sign in", "Password")))
+        await sign_in(page, password)
+        await page.wait_for_selector("input[value='Confirm deletion']")
+        await w.browser("provider confirmation", "The identity provider asks the person to confirm; Cancel would come back to Inkcast with nothing deleted.",
+                        ("the delete-account confirmation", has("Delete account confirmation", "irreversible", "Cancel")))
+        async with page.expect_navigation():
+            await page.click("input[value='Confirm deletion']")
+        await page.wait_for_selector("#kc-info-message")
+        await w.browser("provider deleted page", "The provider deleted the account on the person's own authority and shows its own page; "
+                        "its Back to Application link is Inkcast's /account/deleted.",
+                        ("deleted, with a link back", has("User deleted successfully", "Back to Application")))
+        async with page.expect_navigation():
+            await page.click("text=Back to Application")
+        await w.browser("account deleted", "Back at Inkcast: it confirmed with the provider that the person is gone (read-only view-users), "
+                        "erased every row of theirs in one transaction, and says so. Articles on DEV stay.",
+                        ("Inkcast says the account is deleted and the data erased", has("Account deleted", "erased", "stay there")))
+    status_oauth, _ = await w.rest(api, "GET", f"{base}/api/v1/me", "The MCP session's OAuth token, after the deletion.",
+                                   ("401: the token is gone with the account", lambda s, b: s == 401),
+                                   headers=bearer, auth_note="(the MCP session's OAuth access token)")
+    status_pat, _ = await w.rest(api, "GET", f"{base}/api/v1/me", "The personal access token too.",
+                                 ("401: the CI token is gone with the account", lambda s, b: s == 401),
+                                 headers={"Authorization": f"Bearer {pat}"}, auth_note="(the personal access token)")
+    metrics_url = f"http://localhost:{os.environ.get('WALK_METRICS_PORT', '9090')}/metrics"
+    scraped = await api.get(metrics_url)
+    lines = [ln for ln in scraped.text.splitlines() if "inkcast_identity_users_deleted_total" in ln]
+    counted = 'inkcast_identity_users_deleted_total{via="return"} 1' in lines
+    narration = "Operations see it as a number, never a name: one person erased, learnt of on the visit back from the provider."
+    w.record("metric inkcast_identity_users_deleted_total", "rest", counted,
+             f"HTTP {scraped.status_code}; " + ("the counter says 1 via=return" if counted else "expected the via=return counter at 1"),
+             narration, await w.panel("HTTP request and response", rest_panel_title("get", "/metrics (the metrics port)"),
+                                      f"GET {metrics_url}", f"HTTP {scraped.status_code}\n\n" + "\n".join(lines) + "\n(the other series not shown)",
+                                      narration, counted),
+             call={"method": "GET", "url": metrics_url, "headers": {}, "body": None}, reply={"status": scraped.status_code, "body": lines},
+             checked="inkcast_identity_users_deleted_total{via=\"return\"} is 1")
+    facts["deletion"] = {"link": bool(delete_link), "me_after": [status_oauth, status_pat],
+                         "metric": next((ln for ln in lines if ln.startswith("inkcast_identity_users_deleted_total{")), None)}
+    status, after = await w.rest(api, "GET", f"{fakes}/devto/api/articles/me/all",
+                                 "What stays: the fake DEV still holds both articles after the account is gone.",
+                                 ("the same two articles as before", lambda s, b: s == 200 and isinstance(b, list)
+                                  and [a.get("title") for a in b] == [a.get("title") for a in facts["dev_articles"]]),
+                                 label="/devto/api/articles/me/all (fake DEV)", headers={"api-key": DEV_KEY, "Accept": FOREM_ACCEPT})
+    facts["dev_articles_after_deletion"] = after if isinstance(after, list) else []
     await api.aclose()
 
 

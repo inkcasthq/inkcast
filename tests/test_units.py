@@ -241,6 +241,7 @@ class UserErasureTests(unittest.TestCase):
         store.save_code(f"code-{name}", "c1", uid, "{}")
         store.set_pending_user(store.create_pending("c1", "{}"), uid)
         pat, _ = store.create_api_token(uid, "ci", ["posts:read"], None)
+        store.create_deletion_request(uid, 900)
         store.apply(f"evt-{uid}", time.time(), [Increment("posts_published", "user", uid, {"platform": "fake"})])
         store.authz_write([(f"user:{uid}", "owner", "organization:acme")])
         store.enqueue(DomainEvent("post.cancelled", user_id=uid, subject="pst_x", attrs={"platform": "fake"}))
@@ -309,6 +310,20 @@ class UserErasureTests(unittest.TestCase):
         for personal in (ada, ada[4:], "ada", "Ada", "ada@example.com", "oidc:https://kc/realms/i#ada", pat, "s3cret"):
             self.assertNotIn(personal, text)
         self.assertNotIn(ada, json.dumps(store.user_erasures()))
+
+    def test_a_token_minted_in_the_instant_of_the_erasure_is_refused(self):
+        """A sign-in finishing as the account is erased: its code, OAuth token or PAT belongs to nobody and is refused."""
+        store = Store(":memory:", "k" * 40)
+        ada, _ = self.seed(store, "ada")
+        store.erase_user(ada)
+        store.save_code("late-code", "c1", ada, "{}")
+        store.save_token("late-at", "access", "c1", ada, ["posts:read"], None, "f9", 3600)
+        late_pat, _ = store.create_api_token(ada, "late", ["posts:read"], None)
+        self.assertIsNone(store.get_code("late-code"))
+        self.assertIsNone(store.get_token("late-at", "access"))
+        self.assertIsNone(store.find_api_token(late_pat))
+        bob, bob_pat = self.seed(store, "bob")
+        self.assertIsNotNone(store.find_api_token(bob_pat), "a person who exists is served")
 
     def test_a_scheduled_post_can_never_send_after_the_erasure(self):
         """Like RaceTests: whichever side wins the write lock, nothing of the person's is sent afterwards."""
@@ -380,6 +395,35 @@ class UserErasureTests(unittest.TestCase):
         self.assertEqual(scheduler.claim_due_posts(time.time()), [], "nothing is left in the queue")
         self.assertEqual(store.get_post(store._one("SELECT id FROM posts WHERE user_id = ?", bob)["id"])["status"],
                          "publishing", "bob's claimed post is still the scheduler's; untouched by any of this")
+
+
+class DeletionRequestTests(unittest.TestCase):
+    """E9.F9.5.S4: the store side of Delete my account: a one-time link, then the cookie for the visit back."""
+
+    def test_the_link_is_one_use_bound_to_the_person_and_the_cookie_finds_the_request_until_it_expires(self):
+        store = Store(":memory:", "k" * 40)
+        ada = store.upsert_user("oidc:https://kc/realms/i#ada", "ada", None, None)
+        ticket = store.create_deletion_request(ada["id"], ttl=900)
+        from inkcast.libs.secrets import token_hash
+        self.assertEqual(store._one("SELECT link_hash FROM deletion_requests")["link_hash"], token_hash(ticket),
+                         "only the hash is stored")
+        req = store.open_deletion_link(ticket)
+        self.assertEqual(req["user_id"], ada["id"])
+        self.assertIsNone(store.open_deletion_link(ticket), "a second visit finds nothing")
+        self.assertIsNone(store.open_deletion_link("nope"))
+        self.assertEqual(store.get_deletion_request(req["id"])["link_hash"], None)
+
+        cookie = store.arm_deletion_return(req["id"], "kc-ada", ttl=1800)
+        self.assertEqual(store.deletion_request_by_cookie(cookie)["keycloak_id"], "kc-ada")
+        self.assertIsNone(store.deletion_request_by_cookie("x" * 43))
+        self.assertNotIn(cookie, [r["cookie_hash"] for r in store._all("SELECT cookie_hash FROM deletion_requests")])
+        store._exec("UPDATE deletion_requests SET expires_at = ?", time.time() - 1)
+        self.assertIsNone(store.deletion_request_by_cookie(cookie), "expired")
+        self.assertIsNone(store.get_deletion_request(req["id"]))
+        store.purge_expired()
+        self.assertEqual(store._all("SELECT 1 FROM deletion_requests"), [])
+        expired = store.create_deletion_request(ada["id"], ttl=-1)
+        self.assertIsNone(store.open_deletion_link(expired))
 
 
 class OAuthTests(unittest.TestCase):

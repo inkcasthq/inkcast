@@ -30,7 +30,8 @@
     "REGISTER_ERROR",
     "LOGOUT",
     "UPDATE_PASSWORD",
-    "VERIFY_EMAIL"
+    "VERIFY_EMAIL",
+    "DELETE_ACCOUNT"
   ],
   "adminEventsEnabled": true,
   "adminEventsDetailsEnabled": false,
@@ -47,12 +48,17 @@
       },
       {
         "name": "default-roles-inkcast",
-        "description": "Roles every new account gets.",
+        "description": "Roles every new account gets: inkcast-user, and the account client's delete-account (E9.F9.5.S4: a person may delete their own account).",
         "composite": true,
         "composites": {
           "realm": [
             "inkcast-user"
-          ]
+          ],
+          "client": {
+            "account": [
+              "delete-account"
+            ]
+          }
         }
       }
     ]
@@ -78,6 +84,7 @@
       "redirectUris": [
         "${INKCAST_PUBLIC_URL}/auth/callback"
       ],
+      "baseUrl": "${INKCAST_PUBLIC_URL}/account/deleted",
       "webOrigins": [
         "${INKCAST_PUBLIC_URL}"
       ],
@@ -183,6 +190,15 @@
       "enabled": true,
       "defaultAction": false,
       "priority": 60,
+      "config": {}
+    },
+    {
+      "alias": "delete_account",
+      "name": "Delete Account",
+      "providerId": "delete_account",
+      "enabled": true,
+      "defaultAction": false,
+      "priority": 70,
       "config": {}
     }
   ],

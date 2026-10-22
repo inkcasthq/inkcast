@@ -22,6 +22,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
 
 from ... import __version__
+from ...libs.account import deletion_link
 from ...libs.auth import SCOPE, SCOPES, Principal
 from ...libs.contracts.models import PublishRequest, PublishResponse, SyncFile, SyncRequest, SyncResponse
 from ...libs.runtime import Context
@@ -44,6 +45,10 @@ For files that live in a git repository, prefer inkcast_sync: it remembers what 
 became on each platform, so running it again updates posts instead of duplicating them.
 For CI, the person needs a personal access token: call inkcast_create_token and give them
 the link (the token is shown to them in the browser, never to you).
+
+If the person wants to delete their Inkcast account, call inkcast_delete_account and give
+them the link: they sign in again, read what goes and what stays, and confirm at the sign-in
+provider. You never delete anything yourself.
 """
 
 
@@ -245,6 +250,22 @@ def build_mcp(ctx: Context, service: InkcastService, sync: GitSync) -> MCPServer
         return (f"Open this link to create the token “{name}” ({', '.join(scopes)}; {expires_in_days} days). "
                 f"You'll sign in, confirm, and see the token once — store it as a CI secret named INKCAST_TOKEN:\n"
                 f"{config.public_url}/tokens/new?{query}")
+
+    @mcp.tool(title="Delete my account", annotations=ToolAnnotations(read_only_hint=True))
+    async def inkcast_delete_account() -> str:
+        """Give the person a one-time link to delete their Inkcast account. Nothing is deleted by this call: on the
+        page they sign in again, read what goes (posts, schedules, the ledger, connections and credentials, tokens,
+        usage numbers) and what stays (articles already on the platforms), and confirm at the sign-in provider."""
+        who = principal("posts:read")
+        if who.kind != "oauth":
+            raise ToolError("A personal access token can't start an account deletion; sign in with OAuth (/mcp in Claude Code).")
+        try:
+            link = deletion_link(config, ctx.store, who.user_id)
+        except ServiceError as exc:
+            raise ToolError(exc.message) from exc
+        return (f"Open this link to delete your Inkcast account (valid {link.expires_in // 60} minutes, one use):\n{link.url}\n\n"
+                "You'll sign in again, see what goes and what stays, then confirm at the sign-in provider. Articles already "
+                "published on the platforms stay there. Nothing has been deleted yet.")
 
     return mcp
 
