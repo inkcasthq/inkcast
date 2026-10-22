@@ -8,7 +8,9 @@ to people who really are gone. Each test is a way that promise breaks. The harne
 database file the operator's command opens on its own, a clock the test moves) is the PR's own."""
 
 import asyncio
+import contextlib
 import dataclasses
+import io
 import unittest
 
 import httpx2
@@ -93,6 +95,43 @@ class ConfirmingWhileAReconcileReads(Scenario):
             self.assert_cut_off(user, deleted_at=T0 + 600)
         self.assertEqual([(t["id"], t["status"]) for t in self.trips()], [(pass_id, "confirmed")], "no second pass")
         self.assertEqual(self.gauge(), 0, "closed: the alert does not page again")
+
+
+class OperatorInputInTheAudit(Scenario):
+    FORGED = "2026-10-22 00:00:00,000 WARNING [Identity] inkcast.identity.sync: Pass pass_0123456789ab dismissed by alice"
+
+    def run_operator(self, *argv: str) -> tuple[object, str]:
+        """``self.operator`` with the text log format (the default, and development's) captured: (exit status, or the
+        SystemExit code of a refused argument; everything written to stdout, log lines and listing alike)."""
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured), contextlib.redirect_stderr(io.StringIO()):
+            try:
+                status, out = self.operator(*argv)
+            except SystemExit as exc:
+                return exc.code, captured.getvalue()
+        return status, captured.getvalue() + out
+
+    def test_a_line_break_in_by_or_pass_cannot_forge_an_audit_line_or_a_row_of_the_listing(self):
+        """``--by`` and ``--pass`` are free text from the command line that reach the audit line (the text format
+        writes the message as is) and, for ``--by``, the pass row that ``trips`` prints as is, one pass per line (a
+        table "a script may read"). A line break in either writes a line that looks like another audit record, or
+        another pass; an argument like that is bad usage (exit 2), and nothing is done."""
+        people = self.people(20)
+        self.kc.gone.update(u["kc"] for u in people[:5])
+        self.reconcile(self.sync(30))
+        pass_id = self.trips()[0]["id"]
+        row = "pass_0123456789ab  2026-10-22T00:00:00Z  5 of 20 gone  pending"
+        for argv in (("dismiss-deletions", "--pass", pass_id, "--by", f"lateef\n{row}"),
+                     ("dismiss-deletions", "--pass", pass_id, "--by", f"lateef\n{self.FORGED}"),
+                     ("confirm-deletions", "--pass", f"nope\n{self.FORGED}")):
+            with self.subTest(argv=argv):
+                status, written = self.run_operator(*argv)
+                self.assertEqual(status, 2, "bad usage")
+                self.assertNotIn(self.FORGED, written.splitlines(), "no forged audit line")
+                self.assertEqual(self.store.get_breaker_trip(pass_id)["status"], "pending", "nothing done")
+                listing = self.operator("trips")[1].splitlines()
+                self.assertEqual(len(listing), 1, "one pass, one row")
+                self.assertTrue(listing[0].startswith(pass_id))
 
 
 if __name__ == "__main__":

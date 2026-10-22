@@ -52,6 +52,13 @@ def _who(given: str | None) -> str:
         return "operator"
 
 
+def _one_line(value: str) -> str:
+    """``--pass`` and ``--by`` reach the audit line and the listing as written: printable text on one line only."""
+    if not value.isprintable():
+        raise argparse.ArgumentTypeError("must be printable text on one line (no line breaks or control characters)")
+    return value
+
+
 def _store(environ: Mapping[str, str] | None) -> Store:
     config = load_config(environ)
     config.validate(("secret_key",))        # the erasure audit's salt and the sealer need the server's key
@@ -115,8 +122,10 @@ def identity_main(argv: list[str], environ: Mapping[str, str] | None = None, clo
     for name, help_text in (("confirm-deletions", "the people of this pass really are gone: cut them off and start the clock"),
                             ("dismiss-deletions", "Keycloak was wrong about this pass: do nothing, read everyone again")):
         sub = commands.add_parser(name, help=help_text)
-        sub.add_argument("--pass", dest="pass_id", required=True, metavar="ID", help="the pass id (inkcast identity trips)")
-        sub.add_argument("--by", default=None, metavar="WHO", help="who decided, for the audit line (default: your user name)")
+        sub.add_argument("--pass", dest="pass_id", required=True, metavar="ID", type=_one_line,
+                         help="the pass id (inkcast identity trips)")
+        sub.add_argument("--by", default=None, metavar="WHO", type=_one_line,
+                         help="who decided, for the audit line (default: your user name)")
     args = parser.parse_args(argv)
     settings = environ if environ is not None else os.environ
     # The listing is a table on stdout a script may read (`--pass $(... | cut)`): no INFO lines in front of it.
