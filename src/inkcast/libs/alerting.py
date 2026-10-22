@@ -158,6 +158,15 @@ ALERTS: tuple[Alert, ...] = (
           "warning", "The Keycloak user sync has failed for 15 minutes",
           "Every Keycloak user sync pass for 15 minutes failed, so people disabled or deleted in Keycloak keep their "
           "Inkcast tokens until it recovers. Sign-in itself is unaffected.", "identity"),
+    # #103: a failure Keycloak answers about one person is that person's alone; the pass goes on and reads them again
+    # at the next reconcile (every 10 minutes by default), so a person it keeps failing for shows up in every 30 m.
+    Alert("InkcastIdentitySyncPersonFailing",
+          'sum by (stage) (increase(inkcast_identity_sync_errors_total[30m])) > 0',
+          "warning", "The Keycloak user sync keeps failing at stage {{ $labels.stage }}",
+          "For an hour, every 30 minutes has had a Keycloak user sync failure at stage {{ $labels.stage }}: Keycloak "
+          "answers an error about one person (users/{id} or their events), so they are neither cut off nor erased "
+          "while everyone else is. The identity.sync.person.failed log lines name the Inkcast user id, the read and "
+          "the HTTP status. If InkcastIdentitySyncFailing fires too, follow it first.", "identity", for_="1h"),
     # E3.F3.6.S5: an engine error is a 503 for the person asking (fail closed), so any sustained rate pages.
     Alert("InkcastAuthzErrors", 'sum(rate(inkcast_authz_checks_total{result="error"}[5m])) > 0', "critical",
           "The authorization engine is failing; requests are refused (503)",
