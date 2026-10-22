@@ -202,6 +202,7 @@ All settings are environment variables; see [.env.example](.env.example). Each s
 | `INKCAST_PATH_PREFIX` | `/` | `/`, `auto` (each service under `/<full-name>`, e.g. `/publishing-api`), or a path |
 | `INKCAST_UPSTREAM_<SERVICE>` | | Gateway only: e.g. `INKCAST_UPSTREAM_PUBLISHING_API=http://inkcast-publishing-api:8787` |
 | `INKCAST_OVERDUE_GRACE` | `600` | seconds past due before a scheduled post counts as overdue (metric and alert) |
+| `INKCAST_BACKUP_KEEP` | `14` | daily backups kept by the backup CronJob, and what the deletion pages tell a person: their data is erased from the database at once, but copies in backups age out within this many days, and a restored backup is erased again before it serves ([runbook](docs/runbooks/backup-restore.md)). The server reads the same name as the CronJob; change both together |
 | `INKCAST_INSIGHTS_INTERVAL` | `10` | seconds between InsightsService passes that fold new events into KPI rollups |
 | `INKCAST_KEYCLOAK_SYNC_CLIENT_ID` | | with `INKCAST_LOGIN=oidc` on Keycloak: the service-account client (`inkcast-sync`, `view-users` and `view-events` only) the user sync signs in as, so a person disabled or deleted in Keycloak loses their Inkcast tokens within a minute, and a person who deletes their own account is erased. Delete my account is refused until this is set. Its secret: `INKCAST_KEYCLOAK_SYNC_SECRET(_FILE)` |
 | `INKCAST_KEYCLOAK_SYNC_INTERVAL` | `30` | seconds between reads of Keycloak's USER admin events and DELETE_ACCOUNT user events |

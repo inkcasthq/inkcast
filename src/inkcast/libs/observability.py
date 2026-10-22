@@ -66,12 +66,16 @@ EVENTS: dict[str, tuple[str, str]] = {
     "identity.user.disabled": ("warning", "Keycloak disabled or deleted a person: their Inkcast tokens and PATs were cut off."),
     "identity.user.deleted": ("warning", "A person's account is gone (deleted by them, or in Keycloak and past the grace "
                                          "period): every row of theirs was erased (ids and counts only)."),
+    "identity.erasure.reapplied": ("warning", "A restore brought back rows of a person erased before; they were erased again at "
+                                              "start-up, before anything served (id and count only; not a new deletion)."),
     "identity.sync.failed": ("warning", "A Keycloak user sync pass failed (service account refused, Keycloak down); retried."),
     "authz.denied": ("warning", "A permission check said no (user, relation and object ids; never a token or a name)."),
     "authz.error": ("critical", "The policy engine could not answer (OpenFGA down, bad model id); the caller failed closed (503)."),
     "backup.done": ("info", "A database backup was taken, checked and kept (name, size, rows)."),
     "backup.failed": ("critical", "A database backup failed; nothing was removed. The alert fires when none succeeds for 26 h."),
     "restore.done": ("warning", "The database was replaced by a backup; the previous one was kept beside it."),
+    "restore.erasures.carried": ("info", "The erasure records of the replaced database went into the restored copy, so the "
+                                         "server erases those people again at start-up (count only)."),
     "restore.refused": ("warning", "A restore did not run: the backup failed its checks, or the server was still running."),
 }
 
