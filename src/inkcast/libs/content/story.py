@@ -67,6 +67,8 @@ class Story:
         }
         for key, value in self.overrides.get(platform_id, {}).items():
             canonical_key = next((k for k, names in _ALIASES.items() if key in names), key)
+            if canonical_key in ("title", "subtitle") and value is not None:
+                value = str(value)  # YAML reads `title: 2048` as a number
             merged[canonical_key] = _as_tags(value) if canonical_key == "tags" else value
         return merged
 
@@ -208,9 +210,10 @@ def parse_story(
         raise StoryError("The markdown is empty. Read the file and pass its full contents.")
 
     meta, body = split_front_matter(markdown)
-    subtitle = (subtitle or _pick(meta, "subtitle") or "").strip() or None
+    # str(): YAML reads `title: 1984` as a number.
+    subtitle = str(subtitle or _pick(meta, "subtitle") or "").strip() or None
     h1, body = _strip_title_block(body, subtitle)
-    title = (title or _pick(meta, "title") or h1 or "").strip()
+    title = str(title or _pick(meta, "title") or h1 or "").strip()
     if len(title) < 2:
         raise StoryError("The story needs a title: pass `title`, add `title:` to the front matter, or start with `# Heading`.")
 

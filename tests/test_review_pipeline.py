@@ -307,5 +307,24 @@ class LedgerFollowsRecovery(SyncHarness, unittest.TestCase):
         self.assertEqual((edited.action, platform.updated), ("update", ["7"]))
 
 
+class NumericTitles(SyncHarness, unittest.TestCase):
+    def test_a_numeric_title_does_not_break_the_sync_of_every_file(self):
+        """YAML reads `title: 1984` as an int; parse_story called .strip() on it and raised AttributeError, which
+        isn't a StoryError, so the whole sync request failed: every CI run of the repository, every file after it."""
+        from inkcast.libs.platforms.devto import DevtoPlatform
+
+        self.make()
+        req = SyncRequest(source="github.com/acme/blog", files=[
+            SyncFile(path="posts/1984.md", markdown="---\ntitle: 1984\nsubtitle: 42\nplatforms: [fake]\n---\n\nBody.\n"),
+            SyncFile(path="posts/next.md", markdown=story_md("Next")),
+        ])
+        results = asyncio.run(self.git.sync(self.user, req)).results
+        self.assertEqual([(r.path, r.action) for r in results], [("posts/1984.md", "create"), ("posts/next.md", "create")])
+        self.assertEqual(self.fake.sent, ["1984", "Next"])
+        # A platform block's title is text too (DEV measures it).
+        story = parse_story("---\ntitle: Novels\ndevto:\n  title: 2048\n---\n\nBody.\n", known_platforms=["devto"])
+        self.assertEqual(DevtoPlatform(httpx2.AsyncClient()).prepare(story.for_platform("devto"), story.body).title, "2048")
+
+
 if __name__ == "__main__":
     unittest.main()
