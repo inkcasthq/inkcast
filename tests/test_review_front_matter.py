@@ -176,5 +176,25 @@ class LongBaseSixtyNumber(unittest.TestCase):
         self.assertIn("subtitle", str(caught.exception))
 
 
+class DeepNesting(Api):
+    """PyYAML composes nested lists and mappings recursively, so 3000 `[` (6 KB) are a RecursionError, which nothing
+    catches: REST publish answers 500, and so does the whole sync. The alias check walks every event before the load
+    anyway, so it can bound the depth there, before anything recurses."""
+
+    def test_deep_nesting_is_refused(self):
+        for extra in ("devto: " + "[" * 3000 + "]" * 3000 + "\n", "devto: " + "{a: " * 3000 + "1" + "}" * 3000 + "\n"):
+            with self.subTest(extra=extra[:12]):
+                self.assertIn("deep", self.assert_refused(extra))
+
+    def test_nesting_that_front_matter_uses_still_loads(self):
+        meta, _ = content.split_front_matter("---\na:\n  b:\n    c: [[1, {d: [2]}]]\n---\n")
+        self.assertEqual(meta, {"a": {"b": {"c": [[1, {"d": [2]}]]}}})
+
+    def test_an_alias_is_still_refused_first(self):
+        with self.assertRaises(content.StoryError) as caught:
+            content.split_front_matter("---\na: &x 1\nb: *x\nc: " + "[" * 3000 + "]" * 3000 + "\n---\n")
+        self.assertIn("alias", str(caught.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

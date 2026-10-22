@@ -144,8 +144,15 @@ def split_front_matter(markdown: str) -> tuple[dict[str, Any], str]:
     try:
         # An alias (*name) repeats a whole value: nested ones turn a few hundred bytes into gigabytes once the value
         # is made text (tags, titles, previews). Front matter doesn't need them, so they are refused before loading.
-        if any(isinstance(e, yaml.AliasEvent) for e in yaml.parse(match.group(1), Loader=yaml.SafeLoader)):
-            raise StoryError("The front matter uses a YAML alias (*name); write the value out instead.")
+        # PyYAML composes nested lists and mappings recursively: a few thousand `[` are a RecursionError. The same walk
+        # bounds the depth, before anything recurses.
+        depth = 0
+        for event in yaml.parse(match.group(1), Loader=yaml.SafeLoader):
+            if isinstance(event, yaml.AliasEvent):
+                raise StoryError("The front matter uses a YAML alias (*name); write the value out instead.")
+            depth += isinstance(event, yaml.CollectionStartEvent) - isinstance(event, yaml.CollectionEndEvent)
+            if depth > 32:
+                raise StoryError("The front matter nests lists or mappings more than 32 deep; flatten it.")
         # What yaml.load(text, Loader=_FrontMatterLoader) does; spelled out because CodeQL's model of yaml.load
         # knows SafeLoader itself as the safe Loader, not a subclass of it, and would report unsafe deserialization.
         loader = _FrontMatterLoader(match.group(1))
