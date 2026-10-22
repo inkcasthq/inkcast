@@ -150,7 +150,12 @@ def parse_when(value: Any, now: datetime, past_is_now: bool = False) -> datetime
         raise StoryError(
             f"publish_at {value!r} has no time zone. Add a UTC offset, e.g. 2026-10-21T09:00:00-05:00."
         )
-    when = when.astimezone(timezone.utc)
+    try:
+        when = when.astimezone(timezone.utc)
+    except OverflowError as exc:  # e.g. 9999-12-31T23:00:00-05:00, which is in year 10000 in UTC
+        raise StoryError(
+            f"publish_at {when.isoformat()} is out of range; schedule it at most {SCHEDULE_HORIZON_DAYS} days ahead."
+        ) from exc
     if when < now + timedelta(minutes=2):
         if past_is_now:
             return None
