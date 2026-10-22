@@ -49,7 +49,8 @@ for role in view-users view-events; do
 done
 echo "$sync_roles" | grep -q '"manage-users"' && { echo "the inkcast-sync service account must not manage users" >&2; exit 1; }
 echo "-- E9.F9.5.S4: delete_account enabled, delete-account a default role, DELETE_ACCOUNT recorded, the client links back"
-# Parsed as JSON and printed, not grepped: kcadm's formatting is not a contract (see the event-retention check above).
+# Parsed as JSON and printed, not grepped: kcadm's formatting is not a contract, and under pipefail `kcadm | grep -q`
+# fails at random when grep exits on its match and kcadm dies of SIGPIPE writing the rest.
 kcadm get authentication/required-actions -r inkcast | python3 -c '
 import json, sys
 actions = {a.get("alias"): a for a in json.load(sys.stdin)}
@@ -61,9 +62,16 @@ import json, sys
 names = sorted(r.get("name") for r in json.load(sys.stdin))
 print("default-roles-inkcast composites:", names)
 sys.exit(0 if "delete-account" in names else "default-roles-inkcast lacks the account client'"'"'s delete-account role")'
-kcadm get events/config -r inkcast | grep -q '"DELETE_ACCOUNT"' || { echo "DELETE_ACCOUNT is not an enabled event type" >&2; exit 1; }
-kcadm get clients -r inkcast -q clientId=inkcast-identity --fields baseUrl | grep -q 'http://localhost:8787/account/return' \
-  || { echo "the inkcast-identity client's baseUrl must be Inkcast's /account/return" >&2; exit 1; }
+kcadm get events/config -r inkcast | python3 -c '
+import json, sys
+types = json.load(sys.stdin).get("enabledEventTypes") or []
+print("DELETE_ACCOUNT recorded:", "DELETE_ACCOUNT" in types)
+sys.exit(0 if "DELETE_ACCOUNT" in types else "DELETE_ACCOUNT is not an enabled event type")'
+kcadm get clients -r inkcast -q clientId=inkcast-identity | python3 -c '
+import json, sys
+base = [c.get("baseUrl") for c in json.load(sys.stdin)]
+print("inkcast-identity baseUrl:", base)
+sys.exit(0 if base == ["http://localhost:8787/account/return"] else "the inkcast-identity client'"'"'s baseUrl must be Inkcast'"'"'s /account/return")'
 
 echo "== Two people: one with inkcast-user, one without"
 ok_pw="$(rand)A1!"; no_pw="$(rand)B2!"
