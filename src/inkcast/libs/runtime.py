@@ -108,7 +108,7 @@ def build_context(config: Config, transport: httpx2.AsyncBaseTransport | None = 
     http = httpx2.AsyncClient(timeout=httpx2.Timeout(30.0, connect=10.0), transport=transport, follow_redirects=False)
     registry = load_platforms(http, config.platform_urls)
     metrics = build_metrics(store, registry, config)
-    publisher = Publisher(store, registry, metrics) if store else None
+    publisher = Publisher(store, registry, metrics, retry=config.publish_retry) if store else None
     verifier = TokenVerifier(store) if store else None
     cache = build_cache(config.cache_url, config.cache_password, metrics)
     authz = build_engine(config, store, http, metrics) if store else None

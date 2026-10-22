@@ -126,7 +126,9 @@ class GitSync:
 
         if post and post["status"] == "scheduled":  # not sent yet: the schedule time matters too
             wanted = story.publish_at.timestamp() if story.publish_at else None
-            if wanted is None or abs(post["run_at"] - wanted) >= 1:
+            # A post the scheduler has tried waits for its retry (INKCAST_PUBLISH_RETRY_DELAYS): its run_at is the
+            # retry's, so a file that still says "now" (its publish_at has passed) has not changed.
+            if (wanted is None and not post["attempts"]) or (wanted is not None and abs(post["run_at"] - wanted) >= 1):
                 changed = True
 
         if not changed:
