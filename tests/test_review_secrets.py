@@ -154,5 +154,31 @@ class EverySecretFileIsChecked(unittest.TestCase):
         self.assertEqual(missed, [])
 
 
+class RevealFlagIsOffInProduction(unittest.TestCase):
+    """The launcher sets up logging (INKCAST_LOG_LEVEL) before it loads the configuration, and load_config() reads
+    every credential through a provider built with reveal_in_logs from INKCAST_LOG_REVEAL_SECRETS. In production the
+    "value revealed" DEBUG lines were written first and validate() refused to start afterwards. A value shorter than
+    the redactor's 8-character minimum (a Redis password, say) reached the log in clear."""
+
+    def test_no_revealed_line_is_written_in_production(self):
+        from inkcast.libs.config import ConfigError, load_config
+        env = {"INKCAST_ENV": "production", "INKCAST_LOG_REVEAL_SECRETS": "true", "INKCAST_METRICS_PORT": "0",
+               "INKCAST_PUBLIC_URL": "https://inkcast.example.com", "INKCAST_SECRET_KEY": "Q7r!x9Lm2vP0sZ4bN8cH1dK5fG3jT6wY-aE",
+               "INKCAST_CACHE_URL": "redis://cache:6379/0", "INKCAST_CACHE_PASSWORD": "Rd7#kq2"}
+        buf, _ = _json_lines("inkcast.libs.secrets", "DEBUG")
+        self.addCleanup(buf.restore)
+        config = load_config(env)
+        with self.assertRaisesRegex(ConfigError, "INKCAST_LOG_REVEAL_SECRETS"):
+            config.validate({"secret_key"})                # production still refuses the flag
+        out = buf.getvalue()
+        self.assertIn("Secret consumed", out)              # the masked DEBUG lines are there
+        self.assertNotIn('"revealed": true', out)
+        self.assertNotIn("Rd7#kq2", out)
+
+    def test_the_flag_still_works_in_a_lab(self):
+        from inkcast.libs.config import secrets_provider
+        self.assertTrue(secrets_provider({"INKCAST_LOG_REVEAL_SECRETS": "true", "INKCAST_ENV": "development"})._reveal)
+
+
 if __name__ == "__main__":
     unittest.main()
