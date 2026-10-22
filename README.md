@@ -171,7 +171,7 @@ tags: [ai, agents, developer-tools]          # each platform applies its own lim
 canonical_url: https://blog.example.com/why-we-built-an-agent
 cover_image: https://blog.example.com/img/cover.png
 platforms: [medium, devto]
-publish_at: 2026-10-21T09:00:00-05:00        # omit to publish now; a UTC offset is required
+publish_at: 2026-10-21T09:00:00-05:00        # omit to publish now; a UTC offset is required; up to 730 days ahead
 image_base_url: https://blog.example.com/why-we-built-an-agent/   # fixes relative image paths
 medium:
   title: A punchier title for Medium

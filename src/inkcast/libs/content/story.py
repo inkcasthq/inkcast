@@ -17,6 +17,10 @@ from urllib.parse import urljoin, urlparse
 
 import yaml
 
+# How far ahead a story may be scheduled, and how far ahead a listing can look (`days_ahead` on REST, MCP and in the
+# OpenAPI document): one number, so every accepted schedule can be listed and cancelled (#95).
+SCHEDULE_HORIZON_DAYS = 730
+
 _FRONT_MATTER = re.compile(r"\A﻿?---[ \t]*\r?\n(.*?)\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|\Z)", re.S)
 # The closing #s are trimmed by _heading, not here: a lazy group before \s*#*\s*$ backtracks cubically on spaces.
 _H1 = re.compile(r"^#\s+(.+)$")
@@ -128,7 +132,8 @@ def check_url(url: str, what: str) -> str:
 
 
 def parse_when(value: Any, now: datetime, past_is_now: bool = False) -> datetime | None:
-    """A schedule time, in UTC. Past (or < 2 minutes away) is an error, or None ("now") if ``past_is_now``."""
+    """A schedule time, in UTC. Past (or < 2 minutes away) is an error, or None ("now") if ``past_is_now``;
+    beyond SCHEDULE_HORIZON_DAYS is always an error."""
     if isinstance(value, datetime):
         when = value
     else:
@@ -150,6 +155,12 @@ def parse_when(value: Any, now: datetime, past_is_now: bool = False) -> datetime
         if past_is_now:
             return None
         raise StoryError(f"publish_at {when.isoformat()} is in the past or under 2 minutes away; omit it to publish now.")
+    latest = now + timedelta(days=SCHEDULE_HORIZON_DAYS)
+    if when > latest:
+        raise StoryError(
+            f"publish_at {when.isoformat()} is more than {SCHEDULE_HORIZON_DAYS} days ahead; the latest allowed is "
+            f"{latest.isoformat(timespec='seconds')}."
+        )
     return when
 
 

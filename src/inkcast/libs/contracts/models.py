@@ -8,6 +8,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from ..content.story import SCHEDULE_HORIZON_DAYS
+
 
 class ErrorBody(BaseModel):
     error: str = Field(description="Machine-readable error code.")
@@ -63,7 +65,8 @@ class PublishRequest(BaseModel):
     canonical_url: str | None = Field(None, description="URL of the original post; set as the canonical link everywhere.")
     cover_image: str | None = None
     destinations: dict[str, str] | None = Field(None, description="Per-platform destination, e.g. `{\"medium\": \"Better Programming\"}`.")
-    publish_at: str | None = Field(None, description="ISO 8601 with a UTC offset, e.g. `2026-10-21T09:00:00-05:00`. Omit to publish now.")
+    publish_at: str | None = Field(None, description=f"ISO 8601 with a UTC offset, e.g. `2026-10-21T09:00:00-05:00`, at most "
+                                                     f"{SCHEDULE_HORIZON_DAYS} days ahead. Omit to publish now.")
     draft: bool = False
     image_base_url: str | None = None
     dry_run: bool = Field(False, description="Validate and preview only; nothing is sent or stored.")

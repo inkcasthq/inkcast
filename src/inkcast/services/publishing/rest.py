@@ -16,6 +16,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from ...libs.auth import Principal
+from ...libs.content.story import SCHEDULE_HORIZON_DAYS
 from ...libs.contracts.models import PublishRequest, SyncRequest
 from ...libs.contracts.openapi import openapi_document
 from ...libs.http.docs import docs_routes
@@ -49,7 +50,7 @@ def build_routes(service: InkcastService, sync: GitSync, authed: Authed, public_
 
     async def list_posts(request: Request, who: Principal):
         return service.list_posts(who.user_id, query_int(request, "days_back", 7, 366),
-                                  query_int(request, "days_ahead", 90, 730))
+                                  query_int(request, "days_ahead", 90, SCHEDULE_HORIZON_DAYS))
 
     async def cancel(request: Request, who: Principal):
         return service.cancel(who.user_id, request.path_params["post_id"])
