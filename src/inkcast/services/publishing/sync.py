@@ -24,11 +24,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from datetime import datetime, timezone
 
 from ...libs.content.story import StoryError, parse_story
 from ...libs.contracts.models import LedgerEntry, SyncRequest, SyncResponse, SyncResult
 from ...libs.db import Store
+from ...libs.db.ledger import CLAIM_TTL
 from ...libs.events import DomainEvent
 from ...libs.observability import Metrics
 from ...libs.pipeline import Publisher
@@ -98,9 +100,14 @@ class GitSync:
         entry = self.store.get_entry(user_id, src, path, pid)
         base = {"path": path, "platform": pid}
 
+        # An abandoned claim that already has its post: the sync stopped while sending it. Follow that post (the
+        # scheduler recovers it) instead of letting the claim be taken over and the post created a second time.
+        if entry and entry["status"] == "syncing" and entry["post_id"] and time.time() - entry["synced_at"] >= CLAIM_TTL:
+            entry = self.store.put_entry(user_id, src, path, pid, status="publishing")
+
         # A scheduled post may have gone out (or failed) since the last sync: take its current state.
         post = self.store.get_post(entry["post_id"]) if entry and entry["post_id"] else None
-        if post and entry["status"] in ("scheduled", "publishing") and post["status"] != entry["status"]:
+        if post and entry["status"] in ("scheduled", "publishing", "recovering") and post["status"] != entry["status"]:
             entry = self.store.put_entry(user_id, src, path, pid, status=post["status"], url=post["result_url"],
                                          remote_id=post["remote_id"])
 
@@ -137,6 +144,8 @@ class GitSync:
             except PlatformError:  # it went out, or another sync replaced it, a moment ago
                 return SyncResult(**base, action="skipped", status=entry["status"], post_id=post["id"],
                                   message="The scheduled post changed state during this sync; run the sync again.")
+            # Ours to replace now: hold it as a claim, or a concurrent sync sees the cancelled post and creates one too.
+            self.store.put_entry(user_id, src, path, pid, status="syncing")
             return await self._create(user_id, req, path, story, platform, prepared, digest, entry, replace=True)
 
         if "update" not in platform.capabilities or not entry["remote_id"]:
@@ -170,8 +179,12 @@ class GitSync:
                               preview=prepared.preview)
         if not replace and not self.store.claim_new(user_id, src, path, pid, digest):
             return SyncResult(**base, action="skipped", message="Another sync of this file is in progress.")
+
+        def on_record(_pid: str, post_id: str) -> None:  # before the send, so a crash mid-send can't orphan the post
+            self.store.put_entry(user_id, src, path, pid, post_id=post_id)
+
         try:
-            [o] = await self.publisher.publish(user_id, story, [pid])
+            [o] = await self.publisher.publish(user_id, story, [pid], on_created=on_record)
         except Exception:
             if not replace:
                 self.store.put_entry(user_id, src, path, pid, status="failed", message="internal error")

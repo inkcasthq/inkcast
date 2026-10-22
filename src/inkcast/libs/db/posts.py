@@ -93,12 +93,21 @@ class PostsRepo(Database):
                 )
         return [{**dict(r), "attempts": r["attempts"] + 1} for r in rows]
 
+    def renew_claim(self, post_id: str, attempts: int) -> bool:
+        """Just before a claimed post is sent: restart its 'publishing' clock. A batch is sent one post at a time,
+        so its tail can wait long enough to look stuck to another worker. False when that worker took the post
+        over (``claim_stuck``, or a later claim: ``attempts`` changed), so it must not be sent from here."""
+        return self._exec("UPDATE posts SET updated_at = ? WHERE id = ? AND status = 'publishing' AND attempts = ?",
+                          time.time(), post_id, attempts) == 1
+
     def claim_stuck(self, older_than: float) -> list[dict[str, Any]]:
         """Posts left 'publishing' by a crash or restart, moved atomically to 'recovering' so one worker resolves
         each. The caller decides what they become: a send may or may not have reached the platform, so they
-        are never simply put back in the queue (that is how schedulers post twice)."""
+        are never simply put back in the queue (that is how schedulers post twice). A post left 'recovering' (that
+        worker stopped too) is taken again: recovering only asks the platform, it never sends."""
         with self._tx() as c:
-            rows = c.execute("SELECT * FROM posts WHERE status = 'publishing' AND updated_at < ?", (older_than,)).fetchall()
+            rows = c.execute("SELECT * FROM posts WHERE status IN ('publishing', 'recovering') AND updated_at < ?",
+                             (older_than,)).fetchall()
             for r in rows:
                 c.execute("UPDATE posts SET status = 'recovering', updated_at = ? WHERE id = ?", (time.time(), r["id"]))
         return [dict(r) for r in rows]

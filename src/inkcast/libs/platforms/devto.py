@@ -58,7 +58,7 @@ class DevtoPlatform(Platform):
         try:
             body = response.json()
             detail = body.get("error") or body.get("errors") or body
-        except ValueError:
+        except (ValueError, AttributeError):  # not JSON, or JSON that isn't an object
             detail = response.text[:300]
         return f"DEV rejected the article ({response.status_code}): {detail}"
 
