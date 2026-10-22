@@ -68,5 +68,43 @@ class ADamagedErasureTable(unittest.TestCase):
         self.assertEqual(self.db.read_bytes(), self.before)
 
 
+class TheCarryAtScale(unittest.TestCase):
+    """``user_erasures`` is never purged: it holds one row per erasure over the deployment's life, and the newest
+    backup (the usual one to restore) already holds nearly all of them. The carry checks each row with a
+    ``WHERE NOT EXISTS`` over an unindexed table, so its work grows with the square of that count (measured: 10,000
+    records 2.5 s, 40,000 records 40 s; past ~110,000 it outlasts ``scripts/ops/restore.sh``'s 300 s wait, after which
+    the script scales the server back up while the Job is still about to swap the database under it). Counted here
+    in SQLite VM steps, which are deterministic: doubling the records must not quadruple the work."""
+
+    def steps(self, n: int) -> int:
+        from inkcast.libs.db.backup import _carry_erasures
+        from inkcast.libs.db.erasure import SCHEMA
+        directory = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, directory, True)
+        current, incoming = directory / "current.db", directory / "incoming.db"
+        rows = [(f"{i:064x}", 1_700_000_000.0 + i, "{}") for i in range(n)]
+        for path in (current, incoming):                   # the newest backup already has every record
+            conn = sqlite3.connect(path)
+            conn.executescript(SCHEMA)
+            conn.executemany("INSERT INTO user_erasures VALUES (?, ?, ?)", rows)
+            conn.commit()
+            conn.close()
+        count = [0]
+        real = sqlite3.connect
+
+        def counting(*args, **kwargs):
+            conn = real(*args, **kwargs)
+            conn.set_progress_handler(lambda: count.__setitem__(0, count[0] + 1), 1000)
+            return conn
+        with mock.patch("sqlite3.connect", counting):
+            self.assertEqual(_carry_erasures(current, incoming), 0, "nothing new to carry")
+        return count[0]
+
+    def test_doubling_the_erasure_records_does_not_quadruple_the_carry(self):
+        small, large = self.steps(1500), self.steps(3000)
+        self.assertGreater(small, 0)
+        self.assertLess(large / small, 3, f"{small} -> {large} thousand VM steps: quadratic in the records")
+
+
 if __name__ == "__main__":
     unittest.main()
