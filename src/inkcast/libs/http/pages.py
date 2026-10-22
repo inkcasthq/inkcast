@@ -106,8 +106,16 @@ def token_created(token: str, name: str) -> HTMLResponse:
 <code>INKCAST_TOKEN</code>. Don't paste it into a chat with an AI assistant.</p>""")
 
 
-def deletion_confirm(pending_id: str, csrf: str, user_display: str) -> HTMLResponse:
-    """What goes, what stays, and Continue to Keycloak (E9.F9.5.S4). The export (E3.F3.3.S7) is not built yet."""
+def _backups_age_out(backup_keep: int) -> str:
+    """The truth about backups (issue #94): an erased person's data is in the daily copies until they age out."""
+    days = f"{backup_keep} day{'s' if backup_keep != 1 else ''}"
+    return (f"Copies of your data in Inkcast's daily backups age out within {days}; a backup restored before then is "
+            f"erased again before Inkcast serves anyone from it.")
+
+
+def deletion_confirm(pending_id: str, csrf: str, user_display: str, backup_keep: int) -> HTMLResponse:
+    """What goes, what stays (on the platforms, and in backups until they age out: ``backup_keep`` daily copies),
+    and Continue to Keycloak (E9.F9.5.S4). The export (E3.F3.3.S7) is not built yet."""
     return _page("Delete your account", f"""
 <h1>Delete your Inkcast account?</h1>
 <p>Signed in as <strong>{escape(user_display)}</strong>.</p>
@@ -116,6 +124,7 @@ publishing ledger, your connected platforms and the credentials stored for them,
 access tokens, and your usage numbers.</p>
 <p><strong>What stays:</strong> articles already published on the platforms. Inkcast never deletes anything on
 DEV, Medium or any other platform; remove those there if you want them gone.</p>
+<p><strong>What stays for a while:</strong> {escape(_backups_age_out(backup_keep))}</p>
 <p class=muted>Export my data (a copy of everything above) is coming soon; if you want a copy, wait for it before
 deleting.</p>
 <p>Continue takes you to the sign-in provider, which asks you to sign in once more and to confirm. It deletes your
@@ -124,3 +133,16 @@ account there; Inkcast then erases your data here.</p>
 <input type=hidden name=pending value="{escape(pending_id)}"><input type=hidden name=csrf value="{escape(csrf)}">
 <div class=row><button name=decision value=deny>Keep my account</button><button class=primary name=decision value=approve>Continue</button></div>
 </form>""")
+
+
+def account_deleted(backup_keep: int) -> HTMLResponse:
+    """The visit back from Keycloak's deleted page, once Inkcast has erased the person (E9.F9.5.S4)."""
+    return message("Account deleted", "Your account is deleted and your data on Inkcast is erased. Articles already "
+                   f"published on the platforms stay there. {_backups_age_out(backup_keep)}")
+
+
+def deletion_finishing(backup_keep: int) -> HTMLResponse:
+    """The visit back while the sign-in provider has not yet confirmed that the account is gone."""
+    return message("Deletion in progress", "Your account deletion is being finished: once the sign-in provider confirms "
+                   "the account is gone, Inkcast erases your data within about a minute. After that, nothing of yours "
+                   f"remains in Inkcast's database. {_backups_age_out(backup_keep)}")
