@@ -31,8 +31,8 @@ SENSITIVE_KEYS = frozenset({
     "x-aws-parameters-secrets-token", "x-vault-token", "code_verifier", "ticket",
 })
 
-# scheme://user:password@host  ->  scheme://user:[REDACTED]@host
-_URL_CREDENTIALS = re.compile(r"(\b[a-z][a-z0-9+.-]*://[^:/\s@]+:)[^@\s/]+@", re.I)
+# scheme://user:password@host  ->  scheme://user:[REDACTED]@host (the user may be empty: redis://:password@host)
+_URL_CREDENTIALS = re.compile(r"(\b[a-z][a-z0-9+.-]*://[^:/\s@]*:)[^@\s/]+@", re.I)
 
 
 # Names that mention a secret but hold a pointer or a setting, not the value: INKCAST_SECRET_KEY_FILE,

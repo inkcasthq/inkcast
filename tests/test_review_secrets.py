@@ -202,5 +202,20 @@ class ConfigFileErrorsShowNoContent(unittest.TestCase):
         self.assertIn("line 2", str(caught.exception))
 
 
+class UrlPasswordsWithoutAUser(unittest.TestCase):
+    """The URL layer masks a password in any URL, registered or not (``postgres://u:[REDACTED]@host``). It needed a
+    non-empty user name, so the usual Redis form ``redis://:password@host`` went to the log as it was, although
+    the config-file guard (naming._URL_WITH_PASSWORD) already treats an empty user name as a password URL."""
+
+    def test_an_empty_user_name_still_masks_the_password(self):
+        from inkcast.libs.observability import redact
+        from inkcast.libs.secrets import Redactor
+        line = "cache error: redis://:Nq4-wz81LpRt@cache.inkcast.svc:6379/0 refused"
+        self.assertNotIn("Nq4-wz81LpRt", Redactor().scrub(line))
+        self.assertNotIn("Nq4-wz81LpRt", redact(line))
+        self.assertEqual(Redactor().scrub("redis://:Nq4-wz81LpRt@cache:6379"), "redis://:[REDACTED]@cache:6379")
+        self.assertEqual(Redactor().scrub("http://localhost:2773/x@y"), "http://localhost:2773/x@y")  # a port, no password
+
+
 if __name__ == "__main__":
     unittest.main()
