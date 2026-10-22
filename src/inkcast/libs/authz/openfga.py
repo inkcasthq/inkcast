@@ -68,9 +68,12 @@ class OpenFgaEngine:
                 raise EngineError(f"OpenFGA request failed ({type(exc).__name__}) for {method} {path}") from exc
         if 200 <= r.status_code < 300:
             try:
-                return r.json() if r.content else {}
+                answer = r.json() if r.content else {}
             except ValueError as exc:
                 raise EngineError(f"OpenFGA answered {method} {path} with a non-JSON body (HTTP {r.status_code})") from exc
+            if not isinstance(answer, dict):
+                raise EngineError(f"OpenFGA answered {method} {path} with a JSON {type(answer).__name__}, not an object")
+            return answer
         code, message = _error(r)
         if r.status_code in (400, 422):
             raise InvalidRequest(f"OpenFGA refused {method} {path} ({code}): {message}")
@@ -155,7 +158,10 @@ class OpenFgaEngine:
             if token:
                 body["continuation_token"] = token
             answer = await self._request("POST", "read", body, retry=True)
-            for row in answer.get("tuples") or ():
+            rows = answer.get("tuples") or []
+            if not isinstance(rows, list):
+                raise EngineError("OpenFGA read answered tuples that are not a list")
+            for row in rows:
                 try:
                     found.append(Tuple.from_key(row["key"]))
                 except (KeyError, TypeError, ValueError) as exc:
@@ -171,7 +177,8 @@ class OpenFgaEngine:
             return self._ready[1]
         try:
             answer = await self._request("GET", f"authorization-models/{self.model_id}", retry=True)
-            found = str((answer.get("authorization_model") or {}).get("id", ""))
+            model = answer.get("authorization_model")
+            found = str(model.get("id", "")) if isinstance(model, dict) else ""
             problem = None if found == self.model_id else f"OpenFGA answered with model {found!r}, not {self.model_id!r}"
         except EngineError as exc:
             problem = str(exc)

@@ -202,5 +202,27 @@ class DifferenceAndCycles(unittest.TestCase):
         self.assertEqual(ev.list_objects("user:u", "can_view", "doc"), [])
 
 
+class MalformedOpenFgaAnswers(unittest.TestCase):
+    """A 2xx whose JSON is not the documented object (``null``, a list, a string; a field of the wrong type)
+    raised AttributeError or TypeError, not EngineError: no authz.error event or error count, no 503 from
+    require(), and /readyz raised instead of reporting the problem."""
+
+    def test_a_non_object_body_is_an_engine_error_and_is_counted(self):
+        for body in (b"null", b"[]", b'"allowed"', b"1"):
+            engine = Instrumented(fga(lambda r, b=body: httpx2.Response(200, content=b)))
+            with self.subTest(body=body):
+                with self.assertLogs("inkcast.authz", "ERROR") as logs, self.assertRaises(EngineError):
+                    run(engine.check("user:a", "can_view", Ref("post", "1")))
+                self.assertEqual(logs.records[0].__dict__["event"], "authz.error")
+                with self.assertRaises(EngineError):
+                    run(engine.list_objects("user:a", "can_view", "post"))
+                self.assertIsInstance(run(fga(lambda r, b=body: httpx2.Response(200, content=b)).ready()), str)
+
+    def test_fields_of_the_wrong_type_are_engine_errors(self):
+        self.assertIsInstance(run(fga(lambda r: httpx2.Response(200, json={"authorization_model": "m1"})).ready()), str)
+        with self.assertRaises(EngineError):
+            run(fga(lambda r: httpx2.Response(200, json={"tuples": 5})).read())
+
+
 if __name__ == "__main__":
     unittest.main()
