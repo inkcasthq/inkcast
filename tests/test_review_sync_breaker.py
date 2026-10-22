@@ -7,9 +7,11 @@ provider switched off) cuts off and erases nobody until an operator confirms, an
 to people who really are gone. Each test is a way that promise breaks. The harness (a mock Keycloak admin API, one
 database file the operator's command opens on its own, a clock the test moves) is the PR's own."""
 
+import asyncio
 import dataclasses
 import unittest
 
+import httpx2
 from test_sync_breaker import T0, Scenario
 
 
@@ -60,6 +62,37 @@ class APercentThatCanNeverTrip(Scenario):
                 self.assertEqual(check.status, status)
                 self.assertIn("INKCAST_KEYCLOAK_BREAKER_PERCENT=100", check.detail)
                 self.assertIn("effectively off", check.detail)
+
+
+class ConfirmingWhileAReconcileReads(Scenario):
+    def test_a_confirmation_during_the_read_phase_does_not_trip_the_breaker_again(self):
+        """The reconcile lists everyone, then reads each from Keycloak (minutes in a large realm), then judges. The
+        operator confirms the pass while it reads: when it judges, no pass is pending, and the rows it listed before
+        the confirmation have no deleted_at, so it counts the five just confirmed as newly gone and records a second
+        pass with them, re-opening the breaker and paging again (the PR: "a confirmation cannot re-trip")."""
+        people = self.people(20)
+        held = people[:5]
+        self.kc.gone.update(u["kc"] for u in held)
+        mock = self.kc
+        confirmed: list[int] = []
+        midway = people[10]["kc"]
+
+        def keycloak(request: httpx2.Request) -> httpx2.Response:
+            if request.url.path.endswith(f"/users/{midway}") and self.trips() and not confirmed:
+                confirmed.append(self.operator("confirm-deletions", "--pass", self.trips()[0]["id"], "--by", "lateef")[0])
+            return mock(request)
+
+        self.http = httpx2.AsyncClient(transport=httpx2.MockTransport(keycloak))
+        self.addCleanup(lambda: asyncio.run(self.http.aclose()))
+        worker = self.sync(30)
+        self.reconcile(worker)                                       # trips; the hook waits for the trip
+        pass_id = self.trips()[0]["id"]
+        self.reconcile(worker, T0 + 600)                             # the operator confirms halfway through its reads
+        self.assertEqual(confirmed, [0], "the confirmation ran, mid-read")
+        for user in held:
+            self.assert_cut_off(user, deleted_at=T0 + 600)
+        self.assertEqual([(t["id"], t["status"]) for t in self.trips()], [(pass_id, "confirmed")], "no second pass")
+        self.assertEqual(self.gauge(), 0, "closed: the alert does not page again")
 
 
 if __name__ == "__main__":

@@ -395,7 +395,9 @@ class KeycloakSync:
                         "neither cut off nor erased, until an operator confirms or dismisses the pass", pending["id"], held,
                         extra={"event": "identity.sync.breaker.held", "pass_id": pending["id"], "held": held})
             return True
-        newly = [user for user, _, own_deletion in gone if not own_deletion and user.get("deleted_at") is None]
+        # As their row stands now, not as listed before the reads: a pass confirmed meanwhile has marked its people.
+        newly = [user for user, _, own_deletion in gone if not own_deletion and user.get("deleted_at") is None
+                 and (row := self.store.get_user(str(user["id"]))) is not None and row.get("deleted_at") is None]
         cfg = self.config
         if not (len(newly) >= cfg.keycloak_breaker_min and len(newly) * 100 > cfg.keycloak_breaker_percent * read):
             return False
