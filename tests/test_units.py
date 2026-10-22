@@ -318,7 +318,8 @@ class UserErasureTests(unittest.TestCase):
         columns = [c[1] for c in store._conn.execute("PRAGMA table_info(user_erasures)")]
         self.assertEqual(columns, ["user_hash", "erased_at", "counts"])
         (row,) = store._conn.execute("SELECT * FROM user_erasures").fetchall()
-        text = json.dumps(dict(row))
+        # The hash is checked exactly above; masked here, since random hex can contain "ada" (issue #83).
+        text = json.dumps({**dict(row), "user_hash": "<hash>"})
         for personal in (ada, ada[4:], "ada", "Ada", "ada@example.com", "oidc:https://kc/realms/i#ada", pat, "s3cret"):
             self.assertNotIn(personal, text)
         self.assertNotIn(ada, json.dumps(store.user_erasures()))
