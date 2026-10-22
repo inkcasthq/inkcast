@@ -370,8 +370,10 @@ class Configuration(unittest.TestCase):
 class Posture(unittest.TestCase):
     def check(self, days, environment: str):
         from inkcast.libs.secrets import Redactor, run_checks
+        # With the sync in use (Keycloak sign-in and a service account): elsewhere a number of days is only noted (#105).
         config = Config(public_url="https://inkcast.example.com", secret_key="Q7r!x9Lm2vP0sZ4bN8cH1dK5fG3jT6wY-aE",
-                        database_path=":memory:", environment=environment, keycloak_erase_after_days=days)
+                        database_path=":memory:", environment=environment, keycloak_erase_after_days=days, login="oidc",
+                        oidc_issuer=ISSUER, keycloak_sync_client_id="inkcast-sync")
         return {c.id: c for c in run_checks(config, redactor=Redactor(), environ={})}["keycloak-erase-after"]
 
     def test_off_warns_in_production_and_staging_and_is_only_noted_elsewhere(self):

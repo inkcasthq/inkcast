@@ -50,6 +50,9 @@ PUBLISH_RETRY_DELAY = (30, 21600)   # seconds, each
 PUBLISH_ATTEMPTS_RULE = "INKCAST_PUBLISH_MAX_ATTEMPTS must be a whole number from 1 to 10 (got {got!r})."
 PUBLISH_DELAYS_RULE = ("INKCAST_PUBLISH_RETRY_DELAYS must be 1 to 9 whole numbers of seconds, comma-separated, each from 30 "
                        "to 21600 and never decreasing (got {got!r}).")
+ON_OFF_RULE = "{name} must be 'on' or 'off' (got {got!r})."
+BREAKER_PERCENT_RULE = "INKCAST_KEYCLOAK_BREAKER_PERCENT must be a whole number from 1 to 100 (got {got!r})."
+BREAKER_MIN_RULE = "INKCAST_KEYCLOAK_BREAKER_MIN must be a whole number, 1 or more (got {got!r})."
 
 
 class ConfigError(RuntimeError):
@@ -167,6 +170,24 @@ class _Env:
             raise ConfigError("Inkcast configuration problems:\n- " + "\n- ".join(problems))
         return policy
 
+    def on_off(self, name: str, default: str) -> bool:
+        """``on`` or ``off`` and nothing else: a safety switch must not read a typo as either."""
+        raw = self.get(name, default)
+        if raw.lower() not in ("on", "off"):
+            raise ConfigError(ON_OFF_RULE.format(name=name, got=raw))
+        return raw.lower() == "on"
+
+    def int_in(self, name: str, default: str, low: int, high: int | None, rule: str) -> int:
+        """A whole number from ``low`` to ``high`` (no upper bound when None); anything else is ``rule``."""
+        raw = self.get(name, default)
+        try:
+            value = int(raw)
+        except ValueError:
+            raise ConfigError(rule.format(got=raw)) from None
+        if value < low or (high is not None and value > high):
+            raise ConfigError(rule.format(got=raw))
+        return value
+
     def prefixed(self, prefix: str, key_fn) -> dict[str, str]:
         return {key_fn(key[len(prefix):]): value.strip().rstrip("/")
                 for key, value in self.environ.items() if key.startswith(prefix) and value.strip()}
@@ -215,6 +236,15 @@ class Config:
     # reconcile that finds them gone; None (INKCAST_KEYCLOAK_ERASE_AFTER_DAYS=off) never erases on a 404, which is a
     # posture warning in production and staging. The grace period lets an accidental deletion be restored.
     keycloak_erase_after_days: int | None = 30
+    # The sync's circuit breaker (E9.F9.5.S7, issue #105): a reconcile that finds at least keycloak_breaker_min people
+    # newly gone from Keycloak (404), and more than keycloak_breaker_percent of those it read, cuts off and erases
+    # nobody and starts no grace period; it records the pass for an operator to confirm or dismiss (`inkcast identity`).
+    # A Keycloak restored from an older backup, the issuer pointing at the wrong Keycloak, or a user-storage provider
+    # disabled for maintenance all answer 404 about people who still exist. off (INKCAST_KEYCLOAK_BREAKER=off) is a
+    # posture warning in production and staging.
+    keycloak_breaker: bool = True
+    keycloak_breaker_percent: int = 10
+    keycloak_breaker_min: int = 5
 
     access_token_seconds: int = 3600
     refresh_token_seconds: int = 60 * 60 * 24 * 30
@@ -367,6 +397,13 @@ class Config:
         days = self.keycloak_erase_after_days          # None is "off"; load_config parses, this covers a Config built by hand
         if days is not None and not (isinstance(days, int) and days >= 0):
             problems.append(DAYS_OR_OFF_RULE.format(name="INKCAST_KEYCLOAK_ERASE_AFTER_DAYS", got=days))
+        if not isinstance(self.keycloak_breaker, bool):
+            problems.append(ON_OFF_RULE.format(name="INKCAST_KEYCLOAK_BREAKER", got=self.keycloak_breaker))
+        percent, minimum = self.keycloak_breaker_percent, self.keycloak_breaker_min
+        if not (_whole(percent) and 1 <= percent <= 100):
+            problems.append(BREAKER_PERCENT_RULE.format(got=percent))
+        if not (_whole(minimum) and minimum >= 1):
+            problems.append(BREAKER_MIN_RULE.format(got=minimum))
         problems += publish_retry_problems(self.publish_retry)  # load_config refuses already; a Config built by hand
         if urlparse(self.public_url).scheme != "https" and urlparse(self.public_url).hostname not in {
             "localhost", "127.0.0.1"
@@ -475,6 +512,9 @@ def load_config(environ: Mapping[str, str] | None = None) -> Config:
         keycloak_sync_interval_seconds=env.float("INKCAST_KEYCLOAK_SYNC_INTERVAL", "30"),
         keycloak_reconcile_seconds=env.float("INKCAST_KEYCLOAK_RECONCILE_INTERVAL", "600"),
         keycloak_erase_after_days=env.days_or_off("INKCAST_KEYCLOAK_ERASE_AFTER_DAYS", "30"),
+        keycloak_breaker=env.on_off("INKCAST_KEYCLOAK_BREAKER", "on"),
+        keycloak_breaker_percent=env.int_in("INKCAST_KEYCLOAK_BREAKER_PERCENT", "10", 1, 100, BREAKER_PERCENT_RULE),
+        keycloak_breaker_min=env.int_in("INKCAST_KEYCLOAK_BREAKER_MIN", "5", 1, None, BREAKER_MIN_RULE),
         extra_allowed_hosts=tuple(h.strip() for h in settings.get("INKCAST_ALLOWED_HOSTS", "").split(",") if h.strip()),
         platform_urls=env.prefixed("INKCAST_API_URL_", str.lower),
         app_name=env.get("INKCAST_APP_NAME", "All"),

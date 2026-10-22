@@ -47,6 +47,7 @@ USER_TABLES: tuple[tuple[str, str], ...] = (
     ("auth_codes", "user_id = :user_id"),
     ("pending_auth", "user_id = :user_id"),
     ("api_tokens", "user_id = :user_id"),
+    ("sync_breaker_people", "user_id = :user_id"),      # a pass the Keycloak sync's breaker holds for an operator (#105)
     ("kpi_rollups", "scope_kind = 'user' AND scope_id = :user_id"),
     ("authz_tuples", "subject = 'user:' || :user_id"),
     ("users", "id = :user_id"),

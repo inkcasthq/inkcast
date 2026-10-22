@@ -244,6 +244,7 @@ class UserErasureTests(unittest.TestCase):
         store.apply(f"evt-{uid}", time.time(), [Increment("posts_published", "user", uid, {"platform": "fake"})])
         store.authz_write([(f"user:{uid}", "owner", "organization:acme")])
         store.enqueue(DomainEvent("post.cancelled", user_id=uid, subject="pst_x", attrs={"platform": "fake"}))
+        store.record_breaker_trip(time.time(), 1, 1, [(uid, user["last_login_at"])])    # held by the sync's breaker (#105)
         for table, condition in USER_TABLES:
             self.assertGreater(self.rows(store, table, condition, uid), 0, f"seed {table} for the test to mean anything")
         return uid, pat
