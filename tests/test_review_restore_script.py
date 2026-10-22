@@ -100,5 +100,17 @@ class TheServerMustBeSeenGone(_Script):
         self.assertLess(run.index(SCALE_DOWN), run.index(SCALE_UP), "the server was not brought back")
 
 
+class AnInterruptedScaleDownIsUndone(_Script):
+    """``scaled_down`` was set after `kubectl scale --replicas=0` returned. Ctrl-C while that call runs (the API has
+    taken it, kubectl has not returned) ran the exit trap with the flag still false: the server stayed at 0 replicas
+    and the script said only that it stopped, not that the server was down or how to bring it back."""
+
+    def test_ctrl_c_during_the_scale_down_scales_the_server_back(self):
+        run = self.run_script(FAKE_JOB="succeeds", INTERRUPT_ON="scale deploy/inkcast --replicas=0")
+        self.assertNotEqual(run.code, 0, run.out)
+        self.assertFalse(run.has(APPLY), run.calls)
+        self.assertLess(run.index(SCALE_DOWN), run.index(SCALE_UP), f"the server was left at 0: {run.calls}")
+
+
 if __name__ == "__main__":
     unittest.main()

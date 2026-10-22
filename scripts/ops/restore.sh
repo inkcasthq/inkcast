@@ -97,8 +97,8 @@ trap 'exit 130' INT TERM
 
 if ! $listing; then
   echo "Scaling the server to 0 (it was $replicas)."
+  scaled_down=true            # before the call: interrupted while it runs, the server may be at 0 already
   $k -n "$ns" scale deploy/inkcast --replicas=0
-  scaled_down=true
   $k -n "$ns" wait --for=delete pod -l app.kubernetes.io/component=server --timeout=180s || true
   # `|| true` covers "no pods to wait for"; what --force relies on is that none is left (a list that fails is not).
   servers="$($k -n "$ns" get pod -l app.kubernetes.io/component=server -o name)" ||
