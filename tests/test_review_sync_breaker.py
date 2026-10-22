@@ -7,6 +7,7 @@ provider switched off) cuts off and erases nobody until an operator confirms, an
 to people who really are gone. Each test is a way that promise breaks. The harness (a mock Keycloak admin API, one
 database file the operator's command opens on its own, a clock the test moves) is the PR's own."""
 
+import dataclasses
 import unittest
 
 from test_sync_breaker import T0, Scenario
@@ -39,6 +40,26 @@ class ConfirmationSparesWhoKeycloakHasAgain(Scenario):
         for user in still_gone:
             self.assert_cut_off(user, deleted_at=T0 + 3600)
             self.assertIsNone(self.store.find_api_token(pats[user["id"]]))
+
+
+class APercentThatCanNeverTrip(Scenario):
+    def test_percent_100_never_trips_so_the_posture_check_must_not_pass_it(self):
+        """INKCAST_KEYCLOAK_BREAKER_PERCENT=100 is valid (1-100), but the breaker trips only *above* the percent, and
+        more than all of the people read can never be gone: with everyone gone, the reconcile cuts off and (0 days)
+        erases everyone. That is the breaker off, so production and staging must be warned as for off, not told
+        "pass: holds them all for an operator"."""
+        from inkcast.libs.secrets import Redactor, run_checks
+        people = self.people(20)
+        self.kc.gone.update(u["kc"] for u in people)                # every single person: 100 % of those read
+        done = self.reconcile(self.sync(0, keycloak_breaker_percent=100, keycloak_breaker_min=1))
+        self.assertEqual((done["erased"], self.trips()), (20, []), "it cannot trip: everyone is erased")
+        for environment, status in (("production", "warn"), ("staging", "warn"), ("development", "info")):
+            with self.subTest(environment=environment):
+                config = dataclasses.replace(self.config(30, keycloak_breaker_percent=100), environment=environment)
+                check = {c.id: c for c in run_checks(config, redactor=Redactor(), environ={})}["keycloak-breaker"]
+                self.assertEqual(check.status, status)
+                self.assertIn("INKCAST_KEYCLOAK_BREAKER_PERCENT=100", check.detail)
+                self.assertIn("effectively off", check.detail)
 
 
 if __name__ == "__main__":

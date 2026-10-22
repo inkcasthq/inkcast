@@ -277,6 +277,10 @@ def _check_breaker(ctx: _Ctx) -> Check:
                      "all off at once and erases them after the grace period, however wrong Keycloak's answer is (a realm "
                      "restored from an older backup, the wrong issuer, a user-storage provider disabled). Set it to on.")
     minimum, percent = getattr(config, "keycloak_breaker_min", 5), getattr(config, "keycloak_breaker_percent", 10)
+    if percent >= 100:                      # it trips above the percent: more than everyone read is never gone
+        return Check("keycloak-breaker", title, "warn" if _hosted(ctx) else "info",
+                     f"INKCAST_KEYCLOAK_BREAKER_PERCENT={percent}: more than all of the people read can never be gone, so "
+                     "the breaker never trips: effectively off. Set it lower (the default is 10).")
     if not _sync_in_use(ctx):
         return Check("keycloak-breaker", title, "info",
                      "INKCAST_KEYCLOAK_BREAKER=on: not in use. Sign-in is not a Keycloak realm, or the user sync is off "
