@@ -145,11 +145,15 @@ class Publisher:
             self._count(platform.id, "failed")
             return Outcome(platform.id, "failed", post_id=post_id, message=str(exc))
         except Exception as exc:  # a plug-in bug must not kill the scheduler
+            # It may have crashed after the platform accepted the post (reading the reply), so it is ambiguous like
+            # any uncertain failure: unconfirmed, never 'failed', which Git sync would create again.
             log.exception("Platform %s crashed publishing %s", platform.id, post_id)
-            self.store.update_post(post_id, status="failed", error=f"internal error: {exc}",
-                                   events=self._event("post.failed", post_id, user_id, platform.id, reason="internal"))
-            self._count(platform.id, "failed")
-            return Outcome(platform.id, "failed", post_id=post_id, message=f"Internal error in the {platform.name} plug-in.")
+            self.store.update_post(post_id, status="unconfirmed", error=f"internal error: {exc}",
+                                   events=self._event("post.unconfirmed", post_id, user_id, platform.id))
+            self._count(platform.id, "unconfirmed")
+            return Outcome(platform.id, "unconfirmed", post_id=post_id, message=(
+                f"Internal error in the {platform.name} plug-in; the post may or may not have been published. "
+                f"Check {platform.name} before trying again."))
 
         self._observe("inkcast_publish_duration_seconds", time.perf_counter() - started, platform=platform.id)
         status = result.status if result.status in ("draft", "unlisted") else "published"

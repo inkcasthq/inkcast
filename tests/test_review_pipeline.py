@@ -197,5 +197,39 @@ class ConcurrentResync(SyncHarness, unittest.TestCase):
         self.assertEqual(actions, ["skipped", "update"])
 
 
+class PluginCrashAfterSend(SyncHarness, unittest.TestCase):
+    def test_a_post_the_platform_accepted_is_not_created_again_when_the_plugin_crashes_reading_the_reply(self):
+        """DEV creates the article and answers 201, but in a shape the plug-in doesn't expect (here a JSON array):
+        reading it raises inside publish(). That was recorded 'failed', and Git sync re-creates 'failed' entries,
+        so every CI run added another copy of the article."""
+        import json
+        from inkcast.libs.platforms.devto import DevtoPlatform
+
+        articles: list[dict] = []
+
+        def dev(request: httpx2.Request) -> httpx2.Response:
+            if request.method == "POST" and request.url.path == "/api/articles":
+                articles.append(json.loads(request.content)["article"])
+                return httpx2.Response(201, json=[{"id": 1000 + len(articles), "url": "https://dev.to/ada/x"}])
+            if request.url.path == "/api/articles/me/all":
+                return httpx2.Response(200, json=[{"id": 1000 + i, "title": a["title"], "url": f"https://dev.to/ada/{i}",
+                                                   "canonical_url": a.get("canonical_url"), "published": a["published"]}
+                                                  for i, a in enumerate(articles, 1)])
+            return httpx2.Response(404, json={"error": "not found"})
+
+        devto = DevtoPlatform(httpx2.AsyncClient(transport=httpx2.MockTransport(dev)))
+        self.make()
+        self.store.save_credentials(self.user, "devto", {"api_key": "k"}, {"id": "42", "name": "ada"})
+        self.publisher = Publisher(self.store, {"devto": devto})
+        self.git = GitSync(self.store, {"devto": devto}, self.publisher)
+        markdown = "---\ntitle: Shape change\nplatforms: [devto]\n---\n\nBody.\n"
+        with self.assertLogs("inkcast.libs.pipeline", "ERROR"):
+            first, *_ = [self.sync(markdown)[0] for _ in range(3)]   # a push, then two more CI runs
+        self.assertEqual(len(articles), 1, "one more copy of the article per sync")
+        self.assertEqual(first.status, "unconfirmed", first.message)
+        entry = self.store.get_entry(self.user, "github.com/acme/blog", "posts/p.md", "devto")
+        self.assertEqual((entry["status"], entry["remote_id"]), ("published", "1001"))   # found on DEV and recorded
+
+
 if __name__ == "__main__":
     unittest.main()
