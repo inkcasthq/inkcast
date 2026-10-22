@@ -34,7 +34,7 @@ from ...libs.auth import SCOPE, SCOPES, Principal
 from ...libs.contracts.models import TokenCreate, TokenCreated, TokenInfo
 from ...libs.contracts.routes import ROUTES
 from ...libs.http import pages
-from ...libs.http.ratelimit import limited
+from ...libs.http.ratelimit import WRITE_METHODS, limited
 from ...libs.http.rest import ApiError, Authed, json_body
 from ...libs.runtime import Context
 from ...libs.service import ServiceSpec
@@ -98,9 +98,11 @@ def _routes(ctx: Context) -> list[Route]:
         client_registration_options=settings.client_registration_options,
         revocation_options=settings.revocation_options,
     )
-    # Anyone can register a client (RFC 7591) and each registration is a row: bound it per client address.
-    routes = [Route(r.path, limited(r.endpoint, ctx.limiter, "register"), methods=sorted(r.methods or []))
-              if r.path == "/register" else r for r in routes]
+    # Anyone can register a client (RFC 7591) and each registration is a row: bound it per client address. So is each
+    # /authorize request (a pending row), GET included.
+    guarded = {"/register": WRITE_METHODS, "/authorize": {"GET", "POST"}}
+    routes = [Route(r.path, limited(r.endpoint, ctx.limiter, r.path.strip("/"), guarded[r.path]), methods=sorted(r.methods or []))
+              if r.path in guarded else r for r in routes]
 
     # ---- browser sign-in and consent ----------------------------------------------
 

@@ -239,6 +239,20 @@ class RateLimitsCannotBeSidestepped(unittest.TestCase):
             self.assertEqual([guess("guess-1"), guess("guess-2")], [403, 403])
             self.assertEqual(guess(PASSWORD), 429, "password guesses sent as GET are never limited")
 
+    def test_authorize_writes_a_row_per_request_so_it_is_limited(self):
+        cfg = password_config(rate_limit_per_minute=2)
+        app, ctx = in_process("IdentityService", cfg)
+        with TestClient(app, base_url=cfg.public_url) as c:
+            client = c.post("/register", json={"client_name": "x", "redirect_uris": ["http://localhost:1/cb"],
+                                               "token_endpoint_auth_method": "none", "grant_types": ["authorization_code"],
+                                               "response_types": ["code"]}).json()
+            params = {"client_id": client["client_id"], "response_type": "code", "redirect_uri": "http://localhost:1/cb",
+                      "code_challenge": "x" * 43, "code_challenge_method": "S256"}
+            codes = [c.get("/authorize", params=params, follow_redirects=False).status_code for _ in range(3)]
+            codes.append(c.post("/authorize", data=params, follow_redirects=False).status_code)
+        rows = ctx.store._one("SELECT count(*) AS n FROM pending_auth")["n"]
+        self.assertEqual((codes, rows), ([302, 302, 429, 429], 2), "one registered client, unbounded pending rows")
+
 
 if __name__ == "__main__":
     unittest.main()
