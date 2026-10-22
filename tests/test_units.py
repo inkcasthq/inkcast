@@ -219,6 +219,169 @@ class UserDisableTests(unittest.TestCase):
         self.assertIsNone(store.find_api_token(pat), "a revoked PAT stays revoked")
 
 
+class UserErasureTests(unittest.TestCase):
+    """E3.F3.3.S5 (issue #65): ``Store.erase_user`` removes everything Inkcast holds about one person, at once."""
+
+    PAYLOAD = {"platform": "fake", "title": "T", "payload": {}, "preview": {}}
+
+    def seed(self, store, name):
+        """A person with a row in every table ``erase_user`` covers (a new table must be seeded here too)."""
+        from inkcast.libs.db.erasure import USER_TABLES
+        from inkcast.libs.events import DomainEvent
+        from inkcast.libs.kpi.store import Increment
+        user = store.upsert_user(f"oidc:https://kc/realms/i#{name}", name, f"{name}@example.com", name.title())
+        uid = user["id"]
+        store.create_post(group_id="g", user_id=uid, platform="fake", title="T", status="scheduled",
+                          run_at=time.time() - 1, payload=self.PAYLOAD)             # + its post.scheduled outbox row
+        store.put_entry(uid, "repo", "posts/a.md", "fake", content_hash="h", status="published")
+        store.reserve_idempotency_key(uid, "key-1", "rh")
+        store.save_credentials(uid, "fake", {"api_key": "s3cret"}, {"id": uid, "name": name})
+        store.create_ticket(uid, "fake")
+        store.save_token(f"at-{name}", "access", "c1", uid, ["posts:read"], None, f"fam-{name}", 3600)
+        store.save_code(f"code-{name}", "c1", uid, "{}")
+        store.set_pending_user(store.create_pending("c1", "{}"), uid)
+        pat, _ = store.create_api_token(uid, "ci", ["posts:read"], None)
+        store.apply(f"evt-{uid}", time.time(), [Increment("posts_published", "user", uid, {"platform": "fake"})])
+        store.authz_write([(f"user:{uid}", "owner", "organization:acme")])
+        store.enqueue(DomainEvent("post.cancelled", user_id=uid, subject="pst_x", attrs={"platform": "fake"}))
+        for table, condition in USER_TABLES:
+            self.assertGreater(self.rows(store, table, condition, uid), 0, f"seed {table} for the test to mean anything")
+        return uid, pat
+
+    @staticmethod
+    def rows(store, table, condition, uid):
+        with store._lock:
+            return int(store._conn.execute(f"SELECT COUNT(*) AS n FROM {table} WHERE {condition}",
+                                           {"user_id": uid}).fetchone()["n"])
+
+    def test_everything_about_one_person_goes_and_nothing_about_another(self):
+        from inkcast.libs.db.erasure import USER_TABLES
+        store = Store(":memory:", "k" * 40)
+        ada, ada_pat = self.seed(store, "ada")
+        bob, bob_pat = self.seed(store, "bob")
+        before = {table: self.rows(store, table, condition, bob) for table, condition in USER_TABLES}
+
+        counts = store.erase_user(ada)
+        self.assertEqual(set(counts), {table for table, _ in USER_TABLES})
+        self.assertTrue(all(type(n) is int for n in counts.values()), counts)      # ints, never bool or None
+        self.assertTrue(all(n > 0 for n in counts.values()), counts)
+        self.assertEqual(counts["outbox"], 2, "the post.scheduled and the enqueued event")
+        for table, condition in USER_TABLES:
+            self.assertEqual(self.rows(store, table, condition, ada), 0, table)
+            self.assertEqual(self.rows(store, table, condition, bob), before[table], f"{table}: bob is untouched")
+        self.assertIsNone(store.find_user_by_identity("oidc:https://kc/realms/i#ada"))
+        self.assertIsNone(store.get_token("at-ada", "access"))
+        self.assertIsNone(store.find_api_token(ada_pat))
+        self.assertIsNotNone(store.find_api_token(bob_pat))
+        self.assertEqual(store.connected_accounts(ada), {})
+        self.assertEqual(list(store.connected_accounts(bob)), ["fake"])
+        self.assertEqual([r["user_id"] for r in store.claim_due_posts(time.time())], [bob], "only bob's post is due")
+
+    def test_idempotent_unknown_and_already_erased_return_zeros_and_leave_no_record(self):
+        store = Store(":memory:", "k" * 40)
+        zeros = store.erase_user("usr_nobody")
+        self.assertEqual(set(zeros.values()), {0})
+        self.assertEqual(store.user_erasures(), [])
+        ada, _ = self.seed(store, "ada")
+        self.assertGreater(sum(store.erase_user(ada).values()), 0)
+        self.assertEqual(set(store.erase_user(ada).values()), {0})
+        self.assertEqual(len(store.user_erasures()), 1, "the second run changed nothing, so it is not an erasure")
+
+    def test_the_audit_record_holds_a_salted_hash_the_time_and_counts_and_no_personal_data(self):
+        import json
+        from inkcast.libs.db.erasure import user_hash
+        from inkcast.libs.secrets import derive_key
+        store = Store(":memory:", "k" * 40)
+        ada, pat = self.seed(store, "ada")
+        start = time.time()
+        counts = store.erase_user(ada)
+        (record,) = store.user_erasures()
+        self.assertEqual(record["counts"], counts)
+        self.assertGreaterEqual(record["erased_at"], start)
+        self.assertEqual(record["user_hash"], user_hash(derive_key("k" * 40, "erasure"), ada))
+        self.assertNotEqual(record["user_hash"], user_hash(derive_key("j" * 40, "erasure"), ada), "salted by the key")
+        self.assertEqual(len(record["user_hash"]), 64)
+        # The row itself, byte for byte, holds nothing that identifies the person.
+        columns = [c[1] for c in store._conn.execute("PRAGMA table_info(user_erasures)")]
+        self.assertEqual(columns, ["user_hash", "erased_at", "counts"])
+        (row,) = store._conn.execute("SELECT * FROM user_erasures").fetchall()
+        text = json.dumps(dict(row))
+        for personal in (ada, ada[4:], "ada", "Ada", "ada@example.com", "oidc:https://kc/realms/i#ada", pat, "s3cret"):
+            self.assertNotIn(personal, text)
+        self.assertNotIn(ada, json.dumps(store.user_erasures()))
+
+    def test_a_scheduled_post_can_never_send_after_the_erasure(self):
+        """Like RaceTests: whichever side wins the write lock, nothing of the person's is sent afterwards."""
+        import asyncio
+        import tempfile
+        import threading
+        import httpx2
+        from inkcast.libs.pipeline import Publisher
+        from inkcast.libs.platforms import Account, Platform, Prepared, PublishResult
+
+        path = tempfile.mkdtemp() + "/erase.db"
+        store, scheduler, observer = (Store(path, "k" * 40) for _ in range(3))   # two processes, one database
+
+        class Fake(Platform):
+            id, name, default_api_url, credential_fields = "fake", "Fake", "https://fake.invalid", []
+            sent: list = []     # (title, the owner still existed when the platform was called)
+
+            async def verify(self, creds):
+                return Account(id="1", name="fake")
+
+            def prepare(self, fields, body):
+                return Prepared(platform="fake", title=fields["title"], payload={}, preview={})
+
+            async def publish(self, creds, account, prepared, destination):
+                self.sent.append((prepared.title, observer.get_user(account.id) is not None))
+                return PublishResult(url="https://fake/new", remote_id="new", status="published")
+
+        fake = Fake(httpx2.AsyncClient())
+        publisher = Publisher(scheduler, {"fake": fake})
+        ada, _ = self.seed(store, "ada")
+
+        # 1. The scheduler claimed the post a moment before the erasure: the claim is in its hands, but the send
+        #    finds no credentials, sends nothing, and writes neither the post nor an event back.
+        (claimed,) = scheduler.claim_due_posts(time.time())
+        self.assertEqual(store.erase_user(ada)["posts"], 1, "the claimed ('publishing') post goes with the rest")
+        asyncio.run(publisher._send(claimed["id"], ada, fake, Prepared.from_dict(self.PAYLOAD), attempts=1, scheduled=True))
+        self.assertEqual(fake.sent, [])
+        self.assertIsNone(store.get_post(claimed["id"]))
+        self.assertEqual(store._all("SELECT 1 FROM outbox WHERE user_id = ?", ada), [])
+
+        # 2. The erasure came first: the scheduler's claim finds nothing of hers, only bob's post.
+        bob, _ = self.seed(store, "bob")
+        ada, _ = self.seed(store, "ada")
+        store.erase_user(ada)
+        self.assertEqual([r["user_id"] for r in scheduler.claim_due_posts(time.time())], [bob])
+        self.assertEqual(fake.sent, [])
+
+        # 3. Both at once, from two connections: the write lock orders them; either way the end state is the same.
+        for _ in range(5):
+            ada, _ = self.seed(store, "ada")
+            start = threading.Barrier(2)
+
+            def erase():
+                start.wait()
+                store.erase_user(ada)
+
+            def tick():
+                start.wait()
+                asyncio.run(publisher.run_due())
+
+            threads = [threading.Thread(target=erase), threading.Thread(target=tick)]
+            [t.start() for t in threads]
+            [t.join() for t in threads]
+            self.assertEqual(store._all("SELECT 1 FROM posts WHERE user_id = ?", ada), [])
+            self.assertEqual(store._all("SELECT 1 FROM outbox WHERE user_id = ?", ada), [])
+            self.assertIsNone(store.get_user(ada))
+        # A tick that won the lock outright sent her post while she still existed; nothing went out after she was gone.
+        self.assertTrue(all(existed for _, existed in fake.sent), fake.sent)
+        self.assertEqual(scheduler.claim_due_posts(time.time()), [], "nothing is left in the queue")
+        self.assertEqual(store.get_post(store._one("SELECT id FROM posts WHERE user_id = ?", bob)["id"])["status"],
+                         "publishing", "bob's claimed post is still the scheduler's; untouched by any of this")
+
+
 class OAuthTests(unittest.TestCase):
     def test_refresh_rotation_and_single_use_codes(self):
         cfg = Config(public_url="http://localhost:8787", secret_key="k" * 40, database_path=":memory:",
