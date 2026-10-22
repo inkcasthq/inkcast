@@ -103,9 +103,11 @@ class PostsRepo(Database):
     def claim_stuck(self, older_than: float) -> list[dict[str, Any]]:
         """Posts left 'publishing' by a crash or restart, moved atomically to 'recovering' so one worker resolves
         each. The caller decides what they become: a send may or may not have reached the platform, so they
-        are never simply put back in the queue (that is how schedulers post twice)."""
+        are never simply put back in the queue (that is how schedulers post twice). A post left 'recovering' (that
+        worker stopped too) is taken again: recovering only asks the platform, it never sends."""
         with self._tx() as c:
-            rows = c.execute("SELECT * FROM posts WHERE status = 'publishing' AND updated_at < ?", (older_than,)).fetchall()
+            rows = c.execute("SELECT * FROM posts WHERE status IN ('publishing', 'recovering') AND updated_at < ?",
+                             (older_than,)).fetchall()
             for r in rows:
                 c.execute("UPDATE posts SET status = 'recovering', updated_at = ? WHERE id = ?", (time.time(), r["id"]))
         return [dict(r) for r in rows]

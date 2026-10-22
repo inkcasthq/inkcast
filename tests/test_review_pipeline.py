@@ -231,5 +231,33 @@ class PluginCrashAfterSend(SyncHarness, unittest.TestCase):
         self.assertEqual((entry["status"], entry["remote_id"]), ("published", "1001"))   # found on DEV and recorded
 
 
+class RecoveryInterrupted(SyncHarness, unittest.TestCase):
+    def stuck(self, title: str) -> str:
+        pid = self.store.create_post(group_id="g", user_id=self.user, platform="fake", title=title, status="publishing",
+                                     run_at=0, payload={"platform": "fake", "title": title, "payload": {}, "preview": {}})
+        self.fake.sent.append(title)                     # the send reached the platform; then the process stopped
+        return pid
+
+    def test_a_post_whose_recovery_was_interrupted_is_recovered_again(self):
+        """claim_stuck moves a post to 'recovering' before asking the platform. If that worker stops too (it is
+        mid-call to find_existing during a rollout), nothing ever picks the post up again: claim_stuck only looks at
+        'publishing'. It is neither sent nor shown to a person as unconfirmed; it says 'recovering' forever."""
+        self.make()
+        pid = self.stuck("Hello")
+        self.age()
+
+        async def died(*args):
+            raise Died()
+
+        self.fake.find_existing = died
+        with self.assertRaises(Died):
+            asyncio.run(self.publisher.run_due())        # the next worker starts recovering it, and stops as well
+        del self.fake.find_existing
+        self.assertEqual(self.store.get_post(pid)["status"], "recovering")
+        self.age()
+        asyncio.run(self.publisher.run_due())
+        self.assertEqual(self.store.get_post(pid)["status"], "published", "left 'recovering' for good")
+
+
 if __name__ == "__main__":
     unittest.main()
