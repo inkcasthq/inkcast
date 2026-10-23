@@ -14,6 +14,7 @@ from typing import Any
 
 from ..secrets import token_hash
 from .database import Database
+from .erasure import user_hash
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -76,9 +77,17 @@ BREAKER_GONE, BREAKER_DISABLED = "gone", "disabled"       # the kinds of person 
 # they work again). Also cleared at sign-in, and when Keycloak reports them enabled again.
 # sync_breaker_trips.disabled and sync_breaker_people.kind: the disabled kind of the breaker (#135); a pass from
 # before it is a 404 pass (0 disabled, every person gone).
+# erasure_hash: the person's id as the erasure audit refers to it (``user_hash`` in libs/db/erasure.py: HMAC-SHA256 under
+# a key derived from INKCAST_SECRET_KEY), written at creation and filled once, at the next open, for rows from before it
+# (``Store.backfill_erasure_hashes``). Indexed, so the re-erasure after a restore (``reapply_erasures``, issue #113) finds
+# the people whose hash is in ``user_erasures`` through the index instead of hashing every user in every process. It is
+# the hash under the key of the day it was written: after a rotation of INKCAST_SECRET_KEY it no longer matches a
+# record made under the new key, as no stored hash does (issue #112).
 COLUMNS = (("users", "disabled_at", "REAL"), ("users", "deleted_at", "REAL"), ("users", "held_at", "REAL"),
            ("sync_breaker_trips", "disabled", "INTEGER NOT NULL DEFAULT 0"),
-           ("sync_breaker_people", "kind", f"TEXT NOT NULL DEFAULT '{BREAKER_GONE}'"))
+           ("sync_breaker_people", "kind", f"TEXT NOT NULL DEFAULT '{BREAKER_GONE}'"),
+           ("users", "erasure_hash", "TEXT"))
+INDEXES = ("CREATE INDEX IF NOT EXISTS users_erasure_hash ON users(erasure_hash)",)
 
 
 # Defence in depth behind disable_user(), hold_user() and erase_user(): a token or code minted in the moment a person
@@ -89,6 +98,8 @@ _ACTIVE_USER = (" AND EXISTS (SELECT 1 FROM users WHERE users.id = user_id AND u
 
 
 class IdentityRepo(Database):
+    _erasure_salt: bytes        # set by Store: the key the erasure audit hashes user ids under (libs/db/erasure.py)
+
     # ---- users ------------------------------------------------------------
 
     def upsert_user(self, identity: str, display: str, email: str | None, name: str | None) -> dict[str, Any]:
@@ -104,12 +115,13 @@ class IdentityRepo(Database):
                 )
                 return {**dict(row), "display": display, "email": email, "name": name, "last_login_at": now,
                         "disabled_at": None, "deleted_at": None, "held_at": None}
-            user = {"id": "usr_" + uuid.uuid4().hex[:16], "identity": identity, "display": display,
+            user_id = "usr_" + uuid.uuid4().hex[:16]
+            user = {"id": user_id, "identity": identity, "display": display,
                     "email": email, "name": name, "created_at": now, "last_login_at": now, "disabled_at": None,
-                    "deleted_at": None, "held_at": None}
+                    "deleted_at": None, "held_at": None, "erasure_hash": user_hash(self._erasure_salt, user_id)}
             c.execute("INSERT INTO users (id, identity, display, email, name, created_at, last_login_at, disabled_at,"
-                      " deleted_at, held_at) VALUES (:id, :identity, :display, :email, :name, :created_at, :last_login_at,"
-                      " :disabled_at, :deleted_at, :held_at)", user)
+                      " deleted_at, held_at, erasure_hash) VALUES (:id, :identity, :display, :email, :name, :created_at,"
+                      " :last_login_at, :disabled_at, :deleted_at, :held_at, :erasure_hash)", user)
             return user
 
     def find_user_by_identity(self, identity: str) -> dict[str, Any] | None:
