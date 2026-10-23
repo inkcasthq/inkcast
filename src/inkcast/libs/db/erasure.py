@@ -15,8 +15,8 @@ restore carries the audit rows of the database it replaces into the restored one
 what makes that possible: a backup taken before the erasure holds the rows and not the record. Each person's hash
 is stored with their row (``users.erasure_hash``, indexed; libs/db/identity.py), so finding them costs the records,
 not a hash of every user in every process (issue #113); ``backfill_erasure_hashes`` fills it once for rows from before
-it. A hash is under the key of the day it was written, in the record and in the row alike: after a rotation of
-INKCAST_SECRET_KEY the two match only when both were written under the same key, and nothing is re-hashed (#112).
+it. The record of an erasure carries the hash stored with the person's row, so the two match whatever key was current
+when each was written: a rotation of INKCAST_SECRET_KEY doesn't stop a restored row from being re-erased (#112).
 
 Whoever erases decided on a reading of the person (a 404 from Keycloak, a grace period over) that another replica
 may have overtaken by the time the transaction starts, so ``erase_user`` takes the row as the caller read it and
@@ -105,10 +105,13 @@ class ErasureRepo(Database):
         with self._tx() as c:
             if as_read is not None and not self._as_read(c, user_id, as_read):
                 return {table: 0 for table, _ in USER_TABLES}
+            # The record carries the hash stored with the person (users.erasure_hash), so a restored row matches it
+            # whatever key was current when each was written (issue #113); computed only for a row from before it.
+            row = c.execute("SELECT erasure_hash FROM users WHERE id = ?", (user_id,)).fetchone()
+            hashed = (row["erasure_hash"] if row is not None else None) or user_hash(self._erasure_salt, user_id)
             counts = self._delete_person(c, user_id)
             if any(counts.values()):
-                c.execute("INSERT INTO user_erasures VALUES (?, ?, ?)",
-                          (user_hash(self._erasure_salt, user_id), now, json.dumps(counts, sort_keys=True)))
+                c.execute("INSERT INTO user_erasures VALUES (?, ?, ?)", (hashed, now, json.dumps(counts, sort_keys=True)))
         return counts
 
     def backfill_erasure_hashes(self) -> int:
