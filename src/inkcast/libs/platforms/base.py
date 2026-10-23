@@ -35,9 +35,6 @@ from typing import Any, ClassVar
 import httpx2
 
 _DELAY_SECONDS = re.compile(r"[0-9]+")  # Retry-After's delay-seconds form: ASCII digits only, no sign, no fraction
-# The longest wait a Retry-After is read as (over 31 years): far past any retry policy's cap, so a longer value is capped
-# like any other, and int() never parses the thousands of digits a hostile header can carry.
-RETRY_AFTER_CEILING = 10 ** 9
 
 
 @dataclass(frozen=True)
@@ -101,16 +98,18 @@ class PublishResult:
 
 
 def retry_after_seconds(value: str | None, now: float | None = None) -> int | None:
-    """The wait a ``Retry-After`` header asks for, in whole seconds up to ``RETRY_AFTER_CEILING``, or None when there is
-    no header or it can't be read. RFC 9110 §10.2.3 allows two forms: delay-seconds, a non-negative integer, and an
-    HTTP-date, measured from ``now`` (a date already past is 0: the platform is ready). Anything else (a sign, a
-    fraction, words, an impossible date) is None, and the retry policy's own delay applies."""
+    """The wait a ``Retry-After`` header asks for, in whole seconds, or None when there is no header or it can't be
+    read. RFC 9110 §10.2.3 allows two forms: delay-seconds, a non-negative integer, and an HTTP-date, measured from
+    ``now`` (a date already past is 0: the platform is ready). Anything else (a sign, a fraction, words, an impossible
+    date) is None, and the retry policy's own delay applies."""
     if value is None:
         return None
     text = value.strip()
     if _DELAY_SECONDS.fullmatch(text):
-        digits = text.lstrip("0") or "0"
-        return int(digits) if len(digits) < len(str(RETRY_AFTER_CEILING)) else RETRY_AFTER_CEILING
+        try:
+            return int(text)
+        except ValueError:  # thousands of digits: more than int() will read
+            return None
     try:
         when = parsedate_to_datetime(text)
     except (TypeError, ValueError):
@@ -118,10 +117,9 @@ def retry_after_seconds(value: str | None, now: float | None = None) -> int | No
     if when.tzinfo is None:  # the asctime form, or a "-0000" zone: an HTTP-date is always UTC
         when = when.replace(tzinfo=timezone.utc)
     try:
-        wait = math.ceil(when.timestamp() - (time.time() if now is None else now))
+        return max(0, math.ceil(when.timestamp() - (time.time() if now is None else now)))
     except (OverflowError, ValueError, OSError):
         return None
-    return min(max(0, wait), RETRY_AFTER_CEILING)
 
 
 class PlatformError(Exception):
