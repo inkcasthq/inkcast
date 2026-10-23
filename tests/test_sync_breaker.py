@@ -395,7 +395,7 @@ class Confirmation(Scenario):
                 self.reconcile(worker, T0 + 600)                    # still open: held with the others
                 self.now = T0 + 3600
                 with self.assertLogs("inkcast.identity.sync", level="WARNING") as logs:
-                    status, out = self.operator("confirm-deletions", "--pass", pass_id, "--by", "lateef")
+                    status, out = self.operator("confirm-deletions", "--pass", pass_id, "--by", "on-call")
                 self.assertEqual(status, 0, out)
                 for user in held:
                     self.assert_cut_off(user, deleted_at=T0 + 3600)   # the grace period runs from the confirmation
@@ -404,11 +404,11 @@ class Confirmation(Scenario):
                 for user in present:
                     self.assert_untouched(user)
                 trip = self.store.get_breaker_trip(pass_id)
-                self.assertEqual((trip["status"], trip["resolved_at"], trip["resolved_by"]), ("confirmed", T0 + 3600, "lateef"))
+                self.assertEqual((trip["status"], trip["resolved_at"], trip["resolved_by"]), ("confirmed", T0 + 3600, "on-call"))
                 confirmed = [r for r in logs.records if getattr(r, "event", "") == "identity.sync.breaker.confirmed"]
                 self.assertEqual(len(confirmed), 1, "one audit line")
                 self.assertEqual((confirmed[0].pass_id, confirmed[0].applied, confirmed[0].skipped, confirmed[0].by),
-                                 (pass_id, 5, 0, "lateef"))
+                                 (pass_id, 5, 0, "on-call"))
                 cut = [r for r in logs.records if getattr(r, "event", "") == "identity.user.disabled"]
                 self.assertEqual(sorted(r.user_id for r in cut), sorted(u["id"] for u in held))
                 self.assertEqual({(r.reason, r.via) for r in cut}, {("deleted", "confirm")})
@@ -498,14 +498,14 @@ class Confirmation(Scenario):
         pass_id = self.trips()[0]["id"]
         self.now = T0 + 60
         with self.assertLogs("inkcast.identity.sync", level="WARNING") as logs:
-            status, out = self.operator("dismiss-deletions", "--pass", pass_id, "--by", "lateef")
+            status, out = self.operator("dismiss-deletions", "--pass", pass_id, "--by", "on-call")
         self.assertEqual(status, 0, out)
         for user in people:
             self.assert_untouched(user)
         trip = self.store.get_breaker_trip(pass_id)
-        self.assertEqual((trip["status"], trip["resolved_at"], trip["resolved_by"]), ("dismissed", T0 + 60, "lateef"))
+        self.assertEqual((trip["status"], trip["resolved_at"], trip["resolved_by"]), ("dismissed", T0 + 60, "on-call"))
         dismissed = [r for r in logs.records if getattr(r, "event", "") == "identity.sync.breaker.dismissed"]
-        self.assertEqual([(r.pass_id, r.by) for r in dismissed], [(pass_id, "lateef")])
+        self.assertEqual([(r.pass_id, r.by) for r in dismissed], [(pass_id, "on-call")])
         self.assertEqual(self.gauge(), 0)
         self.kc.gone.clear()                                        # Keycloak was fixed: everyone is back
         self.assertEqual(self.reconcile(worker, T0 + 600), {"checked": 20, "disabled": 0, "erased": 0})
@@ -719,8 +719,8 @@ class Migration(unittest.TestCase):
         self.assertEqual(store.pending_breaker_trip()["id"], pass_id)
         self.assertEqual(store.erase_user(ada["id"])["sync_breaker_people"], 1)
         self.assertEqual([p["user_id"] for p in store.breaker_trip_people(pass_id)], [bob["id"]])
-        self.assertTrue(store.resolve_breaker_trip(pass_id, "confirmed", time.time(), "lateef"))
-        self.assertFalse(store.resolve_breaker_trip(pass_id, "dismissed", time.time(), "lateef"), "claimed once")
+        self.assertTrue(store.resolve_breaker_trip(pass_id, "confirmed", time.time(), "on-call"))
+        self.assertFalse(store.resolve_breaker_trip(pass_id, "dismissed", time.time(), "on-call"), "claimed once")
         self.assertIsNone(store.pending_breaker_trip())
 
 
