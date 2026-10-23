@@ -85,7 +85,7 @@ Designed cloud-native, on CNCF building blocks: Kubernetes/OpenShift, Keycloak, 
 |---|---|
 | **0 — done (v0.1)** | MCP server; Medium and DEV plug-ins; scheduler; OIDC/GitHub/password sign-in; encrypted credentials; consent page; end-to-end tests. |
 | **1 — hosted beta** | Keycloak realm and compose dev stack; Postgres; workspaces; API tokens at sign-up; separate worker; KMS envelope encryption; Hashnode, WordPress and Ghost plug-ins; notifications. |
-| **2 — SaaS + social** | Admin portal; billing; audit log UI; usage limits. **X → Instagram → TikTok** ([social epic](design/social-platforms-epic.md)): OAuth connect, media pipeline, async publishing, compliant composers, quota and cost ledger. Start Meta verification and the TikTok audit at the beginning of Phase 1 — review queues set that timeline. |
+| **2 — SaaS + social** | Admin portal; billing; audit log UI; usage limits. **Instagram (with Facebook Pages) → YouTube → TikTok → X** ([social epic](design/social-platforms-epic.md), [video platforms and batch review](design/video-platforms-and-review.md)): OAuth connect, media pipeline, async publishing, compliant composers, quota and cost ledger, batch review queue. Start Meta verification, Google OAuth verification and the TikTok audit at the beginning of Phase 1 — review queues set that timeline. |
 | **3 — mobile** | Sign-up, connect, review drafts, approve and schedule from the phone. |
 
 ## Non-goals (for now)
