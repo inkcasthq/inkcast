@@ -143,7 +143,7 @@ def cut_off_person(store: Any, metrics: Any, user: dict[str, Any], state: str, v
             return None
     if user.get("disabled_at"):
         return False
-    cut = store.disable_user(user_id, last_login_at=last_login_at)
+    cut = store.disable_user(user_id, last_login_at=last_login_at, held_at=user.get("held_at"))   # a release since: enabled
     if cut is None:
         return None
     # Only the Inkcast id, a fixed reason and counts reach the log: nothing from Keycloak's answers or the
@@ -322,11 +322,9 @@ class KeycloakSync:
         whether rows were erased now."""
         return any(erase_person(self.store, self.metrics, user, via).values())
 
-    def _cut_off(self, keycloak_id: str, state: str, via: str) -> bool | None:
-        """``cut_off_person`` for the person behind a Keycloak id, as their row stands now; nothing for an unknown one."""
-        user = self.store.find_user_by_identity(self.prefix + keycloak_id)
-        if not user:
-            return False
+    def _cut_off(self, user: dict[str, Any], state: str, via: str) -> bool | None:
+        """``cut_off_person`` for ``user``, their row as this pass read it before it read Keycloak about them (#102):
+        a row read after the answer would already hold a sign-in that overtook it."""
         return cut_off_person(self.store, self.metrics, user, state, via, self.clock())
 
     def _grace_over(self, listed: dict[str, Any]) -> dict[str, Any] | None:
@@ -384,18 +382,17 @@ class KeycloakSync:
         held = self._breaker_open()                # no 404 without an event, and no enabled: false, is acted on until an operator decides
         for keycloak_id in await self.changed_people():
             done["checked"] += 1
+            known = self.store.find_user_by_identity(self.prefix + keycloak_id)     # as they stand before the answer (#102)
             try:
                 state = await self.person(keycloak_id)
             except PersonError as exc:                 # the reconcile re-reads everyone: like an event the pass missed
-                known = self.store.find_user_by_identity(self.prefix + keycloak_id)
                 self._person_failed(str(known["id"]) if known else None, "event", exc)
                 continue
-            if state == "deleted":                     # held: the reconcile reads them again, and acts once an operator decides
-                if not held and self._cut_off(keycloak_id, state, "event"):
-                    done["disabled"] += 1
-                continue
-            known = self.store.find_user_by_identity(self.prefix + keycloak_id)
             if not known:
+                continue
+            if state == "deleted":                     # held: the reconcile reads them again, and acts once an operator decides
+                if not held and self._cut_off(known, state, "event"):
+                    done["disabled"] += 1
                 continue
             self.store.mark_user_present(str(known["id"]))     # Keycloak has them: a running grace period stops
             if state == "active":                      # enabled (again): a hold on them is lifted by this pass (#135)
@@ -463,7 +460,7 @@ class KeycloakSync:
                     release_person(self.store, str(user["id"]), "reconcile")
             elif held:                               # disabled, and the breaker holds a pass: held, not cut off (#135)
                 self._hold(user, "reconcile")
-            elif self._cut_off(keycloak_id, state, "reconcile"):
+            elif self._cut_off(user, state, "reconcile"):    # as listed, before the reads (#102)
                 done["disabled"] += 1
         for user, keycloak_id, own_deletion in gone:
             if own_deletion:                         # an event the pass missed: erased, as the pass would have
@@ -472,7 +469,7 @@ class KeycloakSync:
             elif held or self._signed_in_since(user):
                 continue                             # held for an operator, or Keycloak let them in after the 404
             else:                                    # an administrator's deletion, or the event is past retention
-                if self._cut_off(keycloak_id, "deleted", "reconcile"):
+                if self._cut_off(user, "deleted", "reconcile"):    # as listed: a sign-in since the check declines it
                     done["disabled"] += 1
                 over = self._grace_over(user)        # their row now, cut off; what the erasure re-checks
                 if over is not None and self._erase(over, "reconcile"):

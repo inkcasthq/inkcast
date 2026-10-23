@@ -124,16 +124,19 @@ class IdentityRepo(Database):
                          + ("" if include_disabled else " AND disabled_at IS NULL") + " ORDER BY id", len(prefix), prefix)
         return [dict(r) for r in rows]
 
-    def disable_user(self, user_id: str, last_login_at: float | None = None) -> dict[str, int] | None:
+    def disable_user(self, user_id: str, last_login_at: float | None = None,
+                     held_at: float | None = None) -> dict[str, int] | None:
         """The person can no longer use Inkcast: every OAuth token, code and personal access token goes, in one
         transaction, and a hold on them (#135) ends with it. With ``last_login_at``, only while that is still their
-        last sign-in (#102): the caller read it when it decided, and a sign-in since, handled by another replica,
-        means Keycloak let them in. Counts of what was cut off; None when nothing was done (already disabled, no such
-        person, or signed in since)."""
+        last sign-in and ``held_at`` still their hold (#102): the caller read both when it decided, and a sign-in
+        since, handled by another replica, means Keycloak let them in; a release since, that it has them enabled
+        again. Counts of what was cut off; None when nothing was done (already disabled, no such person, or signed in
+        or released since)."""
         now = time.time()
         with self._tx() as c:
             if c.execute("UPDATE users SET disabled_at = ?, held_at = NULL WHERE id = ? AND disabled_at IS NULL"
-                         " AND (? IS NULL OR last_login_at = ?)", (now, user_id, last_login_at, last_login_at)).rowcount != 1:
+                         " AND (? IS NULL OR (last_login_at = ? AND held_at IS ?))",
+                         (now, user_id, last_login_at, last_login_at, held_at)).rowcount != 1:
                 return None
             tokens = c.execute("DELETE FROM tokens WHERE user_id = ?", (user_id,)).rowcount
             codes = c.execute("DELETE FROM auth_codes WHERE user_id = ?", (user_id,)).rowcount
