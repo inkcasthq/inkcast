@@ -282,8 +282,9 @@ def _routes(ctx: Context) -> list[Route]:
         DELETE_ACCOUNT pass may get there first), so the person always gets the right answer: gone at Keycloak →
         erased (idempotent; counted as via=return only when this visit erased rows) and "deleted"; Keycloak still
         has them → nothing erased, "nothing was deleted" (the record stays for a later confirmation); Keycloak not
-        answering → nothing erased, "being finished". The deleted and finishing pages say what stays for a while:
-        copies in backups, until they age out (issue #94)."""
+        answering, or a sign-in that landed between its answer and the erasure (#102) → nothing erased, "being
+        finished", the record kept. The deleted and finishing pages say what stays for a while: copies in backups,
+        until they age out (issue #94)."""
         cookie = request.cookies.get(COOKIE, "")
         req = store.deletion_request_by_cookie(cookie) if cookie else None
         if not req:                              # no cookie, or one no pending deletion matches: nothing to say
@@ -295,6 +296,7 @@ def _routes(ctx: Context) -> list[Route]:
         from .keycloak_sync import KeycloakSync, SyncError, erase_person
         sync = ctx.extras.get("keycloak_sync") or ctx.extras.setdefault(
             "keycloak_sync", KeycloakSync(config, store, ctx.http, ctx.metrics))
+        user = store.get_user(req["user_id"])                    # as they stand before Keycloak is asked (#102); None: erased already
         try:
             state = await sync.person(req["keycloak_id"])
         except (SyncError, httpx2.HTTPError, ValueError):
@@ -305,7 +307,10 @@ def _routes(ctx: Context) -> list[Route]:
             return pages.message("Nothing was deleted", "The sign-in provider still has your account, so Inkcast has "
                                  "erased nothing. If you still want it gone, confirm the deletion there, or start again "
                                  "from your MCP client or the API.")
-        erase_person(store, ctx.metrics, req["user_id"], "return")
+        if user is not None:
+            erase_person(store, ctx.metrics, user, "return")
+            if store.get_user(user["id"]) is not None:           # not as read: a sign-in landed between the 404 and the
+                return finishing                                 # erasure (#102); the sync judges them afresh, the record stays
         store.delete_deletion_request(req["id"])
         response = pages.account_deleted(config.backup_keep)
         response.delete_cookie(COOKIE, path="/account")
