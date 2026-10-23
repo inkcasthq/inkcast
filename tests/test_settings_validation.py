@@ -96,9 +96,9 @@ class Refusals(unittest.TestCase):
 
     def test_the_reconcile_interval_runs_from_the_sync_interval_to_under_30_minutes(self):
         self.refused(RECONCILE, "29.9", "29", "0", "-600", "nan", "inf", "abc")       # the default sync interval is 30
-        self.refused(RECONCILE, "1800", "1800.5", "3600", "86400", "86401")
-        self.refused(RECONCILE, "4.9", **{SYNC: "5"})
-        self.accepted(RECONCILE, "30", "31", "600", "1799", "1799.9")
+        self.refused(RECONCILE, "1770", "1799", "1799.9", "1800", "1800.5", "3600", "86400", "86401")   # 1800 with the sync
+        self.refused(RECONCILE, "4.9", "1795", **{SYNC: "5"})
+        self.accepted(RECONCILE, "30", "31", "600", "1769", "1769.9")
         self.accepted(RECONCILE, "5", "6", **{SYNC: "5"})
         self.accepted(RECONCILE, "600", **{SYNC: "600"})                              # equal is allowed
 
