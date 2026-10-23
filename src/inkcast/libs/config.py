@@ -87,7 +87,8 @@ ONE_TIME_LINK_RULE = "INKCAST_ONE_TIME_LINK_MINUTES must be a whole number of mi
 # The intervals, the overdue grace, the rate limit and the backup copies (F1.10.S5, issue #93): settings that existed
 # before the newer ones above and took unsafe values silently. Every interval is a positive, finite number of seconds
 # (0, a negative, nan or inf is a tight loop, or no wait at all). The Keycloak reconcile may not run more often than the
-# events pass (it is the catch-up for events that pass missed), and never 30 minutes or more apart: the
+# events pass (it is the catch-up for events that pass missed), and never 30 minutes or more apart, counting the up to
+# one sync interval it waits for the first pass after it is due (so the two add up to under 30 minutes): the
 # InkcastIdentitySyncPersonFailing alert (libs/alerting) looks at a 30-minute window, so a person who fails only in the
 # reconcile could never raise it. That is a hard bound, not a posture warning: the alert is the operator's only signal
 # that someone is neither cut off nor erased, and a warning logged once at start-up would be missed for the lifetime of
@@ -100,8 +101,9 @@ SCHEDULER_INTERVAL = (1, 60)           # seconds, inclusive
 OVERDUE_GRACE_TICKS = 2                # the overdue grace is at least this many scheduler intervals
 SYNC_INTERVAL_RULE = "INKCAST_KEYCLOAK_SYNC_INTERVAL must be a positive number of seconds (got {got!r})."
 RECONCILE_INTERVAL_RULE = ("INKCAST_KEYCLOAK_RECONCILE_INTERVAL must be a number of seconds from INKCAST_KEYCLOAK_SYNC_INTERVAL "
-                           "({sync}) to under 1800: the InkcastIdentitySyncPersonFailing alert looks at a 30-minute window, so "
-                           "a rarer reconcile could never raise it (got {got!r}).")
+                           "({sync}) to under {limit}, under 1800 with the sync interval: the reconcile runs at the first pass "
+                           "after it is due, up to one sync interval late, and the InkcastIdentitySyncPersonFailing alert looks "
+                           "at a 30-minute window, so a rarer reconcile could never raise it (got {got!r}).")
 SCHEDULER_INTERVAL_RULE = "INKCAST_SCHEDULER_INTERVAL must be a number of seconds from 1 to 60 (got {got!r})."
 OVERDUE_GRACE_RULE = ("INKCAST_OVERDUE_GRACE must be a number of seconds, at least twice INKCAST_SCHEDULER_INTERVAL ({twice}): "
                       "below that, posts due between two ticks count as overdue and the critical InkcastPostsOverdue alert "
@@ -267,9 +269,10 @@ INTERVAL_SETTINGS = ("INKCAST_KEYCLOAK_SYNC_INTERVAL", "INKCAST_KEYCLOAK_RECONCI
 def interval_problems(*, sync: Any, reconcile: Any, scheduler: Any, grace: Any, insights: Any, shutdown: Any,
                       got: Mapping[str, Any] | None = None) -> list[str]:
     """The rules of the six interval settings (F1.10.S5, issue #93), as problems naming the variable: each a positive,
-    finite number of seconds; the reconcile from the sync interval to under KEYCLOAK_RECONCILE_CEILING; the scheduler
-    tick from 1 to 60; the overdue grace at least OVERDUE_GRACE_TICKS ticks. ``got`` is what to quote, by variable
-    name (the raw strings at load; the values themselves for a Config built by hand)."""
+    finite number of seconds; the reconcile from the sync interval to under KEYCLOAK_RECONCILE_CEILING less the sync
+    interval (it runs at the first pass after it is due); the scheduler tick from 1 to 60; the overdue grace at least
+    OVERDUE_GRACE_TICKS ticks. ``got`` is what to quote, by variable name (the raw strings at load; the values
+    themselves for a Config built by hand)."""
     raw = dict(got or {})
 
     def quote(name: str, value: Any) -> Any:
@@ -281,8 +284,10 @@ def interval_problems(*, sync: Any, reconcile: Any, scheduler: Any, grace: Any, 
         problems.append(SYNC_INTERVAL_RULE.format(got=quote("INKCAST_KEYCLOAK_SYNC_INTERVAL", sync)))
     # Judged against a sync interval within its rule: one outside it is the problem, not the order.
     floor = sync if sync_ok else 0
-    if not (_seconds(reconcile) and floor <= reconcile < KEYCLOAK_RECONCILE_CEILING):
+    limit = KEYCLOAK_RECONCILE_CEILING - floor     # it runs at the first pass after it is due: up to one sync interval late
+    if not (_seconds(reconcile) and floor <= reconcile < limit):
         problems.append(RECONCILE_INTERVAL_RULE.format(sync=_show(quote("INKCAST_KEYCLOAK_SYNC_INTERVAL", sync)),
+                                                       limit=_show(limit),
                                                        got=quote("INKCAST_KEYCLOAK_RECONCILE_INTERVAL", reconcile)))
     scheduler_ok = _seconds(scheduler) and SCHEDULER_INTERVAL[0] <= scheduler <= SCHEDULER_INTERVAL[1]
     if not scheduler_ok:
@@ -551,8 +556,8 @@ class Config:
     keycloak_sync_secret: SecretValue = SecretValue("")
     # How often admin events are read (INKCAST_KEYCLOAK_SYNC_INTERVAL, positive; 60 s or more is a posture warning: the
     # "within a minute" promise), and how often every Keycloak-backed user is re-checked for missed events
-    # (INKCAST_KEYCLOAK_RECONCILE_INTERVAL, from the sync interval to under 1800: the InkcastIdentitySyncPersonFailing
-    # alert's 30-minute window). F1.10.S5, issue #93.
+    # (INKCAST_KEYCLOAK_RECONCILE_INTERVAL, from the sync interval to under 1800 less it, since it runs at the first pass
+    # after it is due: the InkcastIdentitySyncPersonFailing alert's 30-minute window). F1.10.S5, issue #93.
     keycloak_sync_interval_seconds: float = 30.0
     keycloak_reconcile_seconds: float = 600.0
     # Days a person Keycloak no longer has (an administrator's deletion, or a self-deletion whose event was never
