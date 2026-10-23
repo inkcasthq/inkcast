@@ -27,6 +27,9 @@ configMapGenerator:
       - INKCAST_PAT_DEFAULT_DAYS=90
       - INKCAST_PAT_MAX_DAYS=366
       - INKCAST_PAT_ALLOW_NO_EXPIRY=true
+      # Retention (F1.10.S3): production's values, so staging rehearses the same replay window and hourly history.
+      - INKCAST_OUTBOX_RETENTION_DAYS=7
+      - INKCAST_KPI_HOURLY_RETENTION_DAYS=90
 images:
   - name: ghcr.io/inkcasthq/inkcast
     digest: sha256:0000000000000000000000000000000000000000000000000000000000000000

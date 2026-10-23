@@ -62,6 +62,18 @@ PAT_MAX_RULE = "INKCAST_PAT_MAX_DAYS must be a whole number of days from 1 to 36
 PAT_DEFAULT_RULE = "INKCAST_PAT_DEFAULT_DAYS must be a whole number of days from 1 to INKCAST_PAT_MAX_DAYS ({max}) (got {got!r})."
 PAT_NO_EXPIRY_RULE = "INKCAST_PAT_ALLOW_NO_EXPIRY must be true or false (got {got!r})."
 REFRESH_TOKEN_RULE = "INKCAST_REFRESH_TOKEN_DAYS must be a whole number of days from 1 to 90 (got {got!r})."
+# Retention (F1.10.S3, issue #91): domain events in the outbox once every consumer has passed them, and hourly KPI
+# buckets with the kpi_applied rows that stop a replayed event counting twice (observability design §6). The hourly
+# floor is 31 days because grain=hour serves up to 31 days (services/insights/rest.MAX_HOURLY_DAYS). The hourly
+# retention may never be shorter than the outbox's: an event replayed from the outbox is harmless only while its
+# kpi_applied row still exists, and that row is purged at the hourly cutoff.
+OUTBOX_RETENTION_DAYS = (1, 30)
+KPI_HOURLY_RETENTION_DAYS = (31, 400)
+OUTBOX_RETENTION_RULE = "INKCAST_OUTBOX_RETENTION_DAYS must be a whole number of days from 1 to 30 (got {got!r})."
+KPI_HOURLY_RETENTION_RULE = "INKCAST_KPI_HOURLY_RETENTION_DAYS must be a whole number of days from 31 to 400 (got {got!r})."
+RETENTION_ORDER_RULE = ("INKCAST_KPI_HOURLY_RETENTION_DAYS ({hourly}) must not be shorter than INKCAST_OUTBOX_RETENTION_DAYS "
+                        "({outbox}): kpi_applied is the record that stops a replayed event counting twice, so it must outlive "
+                        "the events.")
 _SWITCH = {"true": True, "yes": True, "on": True, "1": True, "false": False, "no": False, "off": False, "0": False}
 
 
@@ -155,6 +167,45 @@ def refresh_token_problems(days: Any, got: Any = None) -> list[str]:
     if _whole(days) and REFRESH_TOKEN_DAYS[0] <= days <= REFRESH_TOKEN_DAYS[1]:
         return []
     return [REFRESH_TOKEN_RULE.format(got=days if got is None else got)]
+
+
+@dataclass(frozen=True)
+class RetentionPolicy:
+    """How long the housekeeping keeps what nothing reads any more (F1.10.S3, issue #91): domain events every consumer
+    has passed, for ``outbox_days`` (INKCAST_OUTBOX_RETENTION_DAYS, the replay window), and hourly KPI buckets with their
+    ``kpi_applied`` rows, for ``kpi_hourly_days`` (INKCAST_KPI_HOURLY_RETENTION_DAYS). Daily buckets are kept. The
+    scheduler's housekeeping hands it to ``Store.purge_expired``; nothing reads it from global state."""
+
+    outbox_days: int = 7
+    kpi_hourly_days: int = 90
+
+    @property
+    def outbox_seconds(self) -> float:
+        return self.outbox_days * 86400
+
+    @property
+    def kpi_hourly_seconds(self) -> float:
+        return self.kpi_hourly_days * 86400
+
+
+def retention_problems(policy: RetentionPolicy, got: tuple[Any, Any] | None = None) -> list[str]:
+    """The rules of INKCAST_OUTBOX_RETENTION_DAYS (1 to 30) and INKCAST_KPI_HOURLY_RETENTION_DAYS (31 to 400, never shorter
+    than the outbox's), as problems naming the variable; ``got`` is what to quote (the raw strings at load, the values
+    for a Config built by hand)."""
+    got_outbox, got_hourly = got if got else (policy.outbox_days, policy.kpi_hourly_days)
+    problems = []
+    outbox, hourly = policy.outbox_days, policy.kpi_hourly_days
+    outbox_ok = _whole(outbox) and OUTBOX_RETENTION_DAYS[0] <= outbox <= OUTBOX_RETENTION_DAYS[1]
+    if not outbox_ok:
+        problems.append(OUTBOX_RETENTION_RULE.format(got=got_outbox))
+    if not (_whole(hourly) and KPI_HOURLY_RETENTION_DAYS[0] <= hourly <= KPI_HOURLY_RETENTION_DAYS[1]):
+        problems.append(KPI_HOURLY_RETENTION_RULE.format(got=got_hourly))
+    # Judged against an outbox retention within its bounds: one outside them is the problem, not the order. Today the
+    # bounds keep the order on their own (31 > 30); the rule is stated anyway, so a change to either bound can't
+    # silently lose the invariant.
+    if outbox_ok and _whole(hourly) and hourly < outbox:
+        problems.append(RETENTION_ORDER_RULE.format(hourly=hourly, outbox=outbox))
+    return problems
 
 
 def _problems(problems: list[str]) -> None:
@@ -282,6 +333,24 @@ class _Env:
         _problems(refresh_token_problems(days, got=raw))
         return days
 
+    def retention(self) -> RetentionPolicy:
+        """INKCAST_OUTBOX_RETENTION_DAYS and INKCAST_KPI_HOURLY_RETENTION_DAYS as a ``RetentionPolicy``; a value outside its
+        rule, or an hourly retention shorter than the outbox's, is a ConfigError naming the variable (each, when several
+        are wrong)."""
+        raw_outbox = self.get("INKCAST_OUTBOX_RETENTION_DAYS", "7")
+        raw_hourly = self.get("INKCAST_KPI_HOURLY_RETENTION_DAYS", "90")
+        try:
+            outbox: Any = int(raw_outbox)
+        except ValueError:
+            outbox = raw_outbox                       # fails the whole-number rule below, with the same message
+        try:
+            hourly: Any = int(raw_hourly)
+        except ValueError:
+            hourly = raw_hourly
+        policy = RetentionPolicy(outbox, hourly)
+        _problems(retention_problems(policy, got=(raw_outbox, raw_hourly)))
+        return policy
+
     def prefixed(self, prefix: str, key_fn) -> dict[str, str]:
         return {key_fn(key[len(prefix):]): value.strip().rstrip("/")
                 for key, value in self.environ.items() if key.startswith(prefix) and value.strip()}
@@ -358,6 +427,11 @@ class Config:
     # The default is 4 sends over about 36 minutes. A window over 24 h is a posture warning (publish-retry-window).
     publish_retry: RetryPolicy = RetryPolicy()
     insights_interval_seconds: float = 10.0  # how often InsightsService folds new domain events into KPI rollups
+    # Retention (F1.10.S3, issue #91): INKCAST_OUTBOX_RETENTION_DAYS (7, 1-30) keeps domain events every consumer has
+    # passed, the replay window; INKCAST_KPI_HOURLY_RETENTION_DAYS (90, 31-400, never shorter than the outbox's) keeps
+    # hourly KPI buckets and the kpi_applied rows that make a replay harmless. Daily buckets are kept. The scheduler's
+    # housekeeping hands it to Store.purge_expired every 90 ticks.
+    retention: RetentionPolicy = RetentionPolicy()
     log_format: str = "text"  # "json" in containers
     log_level: str = "INFO"
     metrics_port: int = 9090  # Prometheus /metrics on its own port; 0 disables
@@ -511,6 +585,7 @@ class Config:
         problems += publish_retry_problems(self.publish_retry)  # load_config refuses already; a Config built by hand
         problems += pat_policy_problems(self.pat)              # likewise
         problems += refresh_token_problems(self.refresh_token_days)
+        problems += retention_problems(self.retention)
         if urlparse(self.public_url).scheme != "https" and urlparse(self.public_url).hostname not in {
             "localhost", "127.0.0.1"
         }:
@@ -633,6 +708,7 @@ def load_config(environ: Mapping[str, str] | None = None) -> Config:
         scheduler_interval_seconds=env.float("INKCAST_SCHEDULER_INTERVAL", "20"),
         publish_retry=env.publish_retry(),
         insights_interval_seconds=env.float("INKCAST_INSIGHTS_INTERVAL", "10"),
+        retention=env.retention(),
         log_format=env.get("INKCAST_LOG_FORMAT", "text").lower(),
         log_level=env.get("INKCAST_LOG_LEVEL", "INFO"),
         metrics_port=env.int("INKCAST_METRICS_PORT", "9090"),
