@@ -203,8 +203,9 @@ spec:
       annotations:
         summary: The Keycloak user sync keeps failing at stage {{ $labels.stage }}
         description: 'For an hour, every 30 minutes has had a Keycloak user sync failure at stage {{ $labels.stage }}: Keycloak
-          answers an error about one person (users/{id} or their events), so they are neither cut off nor erased while everyone
-          else is. The identity.sync.person.failed log lines name the Inkcast user id, the read and the HTTP status. If InkcastIdentitySyncFailing
+          answers an error about one person (users/{id} or their events), or gives that read no answer at all (a timeout),
+          so they are neither cut off nor erased while everyone else is. The identity.sync.person.failed log lines name the
+          Inkcast user id, the read, the HTTP status (0 for no answer) and the error''s name. If InkcastIdentitySyncFailing
           fires too, follow it first.'
         runbook_url: https://github.com/inkcasthq/inkcast/blob/main/docs/runbooks/alerts.md#inkcastidentitysyncpersonfailing
     - alert: InkcastIdentitySyncBreakerOpen

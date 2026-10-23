@@ -28,8 +28,12 @@ never erased. The worker signs in to Keycloak as its own service account (client
 they are logged, counted and retried. An answer about one person that the sync cannot act on (a 500 for that user,
 a malformed id; ``PersonError``) is counted as ``inkcast_identity_sync_errors_total{stage="person"}``, logged with the
 Inkcast user id only, and the pass goes on with the others (#103): that person is read again at the next pass or
-reconcile. Anything else (Keycloak unreachable, the service account refused, the database) fails the pass as a
-whole, and so does a reconcile that could act on nobody.
+reconcile. So is a read about one person that got no answer at all (a timeout, a connection refused or reset: one
+user whose read hangs on an LDAP referral must not block everyone after them, #121), but only once in a row: the
+second read with no answer, with no answer from Keycloak to anything in between, fails the pass as a whole, so a
+Keycloak outage costs a pass two timeouts, not one per person. Anything else (the service account refused or without
+an answer, a realm-wide read, the database) fails the pass as a whole, and so does a reconcile that could act on
+nobody.
 
 **The circuit breaker (E9.F9.5.S7, issue #105; a mass "disabled", E9.F9.5.S8, issue #135).** Some Keycloak failures
 make it answer 404 about many people who still exist: a realm restored from an older backup, the issuer pointing at
@@ -80,13 +84,14 @@ class SyncError(Exception):
 
 
 class PersonError(SyncError):
-    """Keycloak answered an error about one person (``users/{id}``, or their events): that person's alone, and the pass
-    goes on (#103). ``call`` names the read (``user``, ``events``) and ``status`` the HTTP status: a fixed string and
-    an int, all a log line about them carries."""
+    """Keycloak answered an error about one person (``users/{id}``, or their events), or gave that read no answer at
+    all (#121): that person's alone, and the pass goes on (#103). ``call`` names the read (``user``, ``events``),
+    ``status`` the HTTP status (``0`` for no answer) and ``cause`` the transport error's class name (``ReadTimeout``,
+    ``ConnectError``; empty when Keycloak answered): fixed strings and an int, all a log line about them carries."""
 
-    def __init__(self, message: str, call: str, status: int):
+    def __init__(self, message: str, call: str, status: int, cause: str = ""):
         super().__init__(message)
-        self.call, self.status = call, status
+        self.call, self.status, self.cause = call, status, cause
 
 
 def _user_not_found(r: httpx2.Response) -> bool:
@@ -179,6 +184,7 @@ class KeycloakSync:
         self.last_success = 0.0
         self.last_reconcile = 0.0
         self.unread_until = 0.0     # after a reconcile that could act on nobody: no full re-read before this
+        self._no_answer = 0         # reads about one person with no answer in a row (#121): the second fails the pass
 
     @property
     def enabled(self) -> bool:
@@ -189,9 +195,12 @@ class KeycloakSync:
     async def _access_token(self) -> str:
         if self._token and self.clock() < self._token_until:
             return self._token
-        r = await self.http.post(self.token_url, data={
-            "grant_type": "client_credentials", "client_id": self.config.keycloak_sync_client_id,
-            "client_secret": self.config.keycloak_sync_secret.reveal()}, headers={"Accept": "application/json"})
+        try:
+            r = await self.http.post(self.token_url, data={
+                "grant_type": "client_credentials", "client_id": self.config.keycloak_sync_client_id,
+                "client_secret": self.config.keycloak_sync_secret.reveal()}, headers={"Accept": "application/json"})
+        except httpx2.TransportError as exc:    # the service account's failure, never a person's (#121)
+            raise SyncError(f"no answer from Keycloak's token endpoint ({type(exc).__name__})") from exc
         if r.status_code != 200:
             raise SyncError(f"Keycloak refused the sync service account (HTTP {r.status_code})")
         body = r.json()
@@ -203,17 +212,35 @@ class KeycloakSync:
         for attempt in (1, 2):
             r = await self.http.get(f"{self.admin}/{path}", params=params,
                                     headers={"Authorization": f"Bearer {await self._access_token()}"})
+            self._no_answer = 0                        # an answer, whatever it says: Keycloak is reachable
             if r.status_code == 401 and attempt == 1:  # the token expired early or was revoked: once more
                 self._token = None
                 continue
             return r
         return r
 
+    async def _read_person(self, path: str, params: Any, call: str) -> httpx2.Response:
+        """``_get`` for a read about one person. No answer at all (a timeout, a connection refused or reset) is that
+        person's alone the first time, like an error Keycloak answers (``PersonError``, status 0, the error's name), so
+        one person whose read hangs blocks nobody after them (#121); the second time in a row, with no answer from
+        Keycloak to anything in between, it fails the pass (``SyncError``): Keycloak is unreachable, not a person, and
+        an outage then costs a pass two timeouts, not one per person. Only the error's class name is kept: nothing
+        of its message."""
+        try:
+            return await self._get(path, params)
+        except httpx2.TransportError as exc:
+            self._no_answer += 1
+            cause = type(exc).__name__
+            if self._no_answer >= 2:
+                raise SyncError(f"no answer from Keycloak to two reads in a row ({cause}, the second on the {call} read "
+                                "about one person): unreachable, not a person") from exc
+            raise PersonError(f"the {call} read got no answer ({cause})", call, 0, cause) from exc
+
     async def person(self, keycloak_id: str) -> str:
         """'active', 'disabled' or 'deleted', as Keycloak sees them now. Only Keycloak's own answer for a missing
         user (404 ``{"error": "User not found"}``, UsersResource) means 'deleted': a 404 from anything else (a proxy
         that doesn't expose /admin/, a wrong URL) is an error, never a reason to erase or cut anyone off."""
-        r = await self._get(f"users/{quote(keycloak_id, safe='')}")   # one path segment: '#', '?' or '/' ask about another id
+        r = await self._read_person(f"users/{quote(keycloak_id, safe='')}", None, "user")   # one path segment: '#', '?' or '/' ask about another id
         if r.status_code == 404 and _user_not_found(r):
             return "deleted"
         if r.status_code != 200:
@@ -267,8 +294,8 @@ class KeycloakSync:
         Keycloak who deleted the account themselves is erased even when the pass above missed the event (more than
         LOOKBACK_MS late, a replica's clock running fast, a burst of more than 500); one an administrator deleted,
         or whose event retention has trimmed, is cut off and erased after ``keycloak_erase_after_days``."""
-        r = await self._get("events", params=[("type", "DELETE_ACCOUNT"), ("user", keycloak_id), ("first", "0"),
-                                              ("max", "1")])
+        r = await self._read_person("events", [("type", "DELETE_ACCOUNT"), ("user", keycloak_id), ("first", "0"),
+                                               ("max", "1")], "events")
         if r.status_code != 200:
             raise PersonError(f"reading events answered HTTP {r.status_code}", "events", r.status_code)
         return any(e.get("type") == "DELETE_ACCOUNT" and e.get("userId") == keycloak_id for e in r.json())
@@ -300,22 +327,31 @@ class KeycloakSync:
         return self.clock() - float(user["deleted_at"]) >= days * 86400
 
     def _person_failed(self, user_id: str | None, via: str, exc: PersonError) -> None:
-        """Keycloak answered about one person, but not something the sync can act on: counted and logged, and the
-        pass goes on with the others (#103); the person is read again at the next pass or reconcile. Only the
-        Inkcast user id (None for a person Inkcast does not know), which read it was and the HTTP status reach the
-        log: never the Keycloak id, nor anything from the answer."""
-        log.warning("Keycloak answered HTTP %d to the %s read about Inkcast user %s (%s): retried at the next read; "
-                    "the others go on", exc.status, exc.call, user_id, via,
-                    extra={"event": "identity.sync.person.failed", "user_id": user_id, "via": via, "call": exc.call,
-                           "status": exc.status})
+        """Keycloak answered about one person, but not something the sync can act on, or gave the read no answer at
+        all (#121): counted and logged, and the pass goes on with the others (#103); the person is read again at the
+        next pass or reconcile. Only the Inkcast user id (None for a person Inkcast does not know), which read it
+        was, the HTTP status and the transport error's name reach the log: never the Keycloak id, nor anything from
+        the answer or the error."""
+        extra = {"event": "identity.sync.person.failed", "user_id": user_id, "via": via, "call": exc.call,
+                 "status": exc.status, "cause": exc.cause}
+        if exc.status:
+            log.warning("Keycloak answered HTTP %d to the %s read about Inkcast user %s (%s): retried at the next read; "
+                        "the others go on", exc.status, exc.call, user_id, via, extra=extra)
+        else:
+            log.warning("Keycloak gave no answer (%s) to the %s read about Inkcast user %s (%s): retried at the next "
+                        "read; the others go on, unless the next read gets no answer either", exc.cause, exc.call,
+                        user_id, via, extra=extra)
         if self.metrics:
             self.metrics.inc("inkcast_identity_sync_errors_total", stage="person")
 
     async def tick(self) -> dict[str, int]:
         """One pass: the events since the cursors, then a reconcile when it is due. Returns what it did. A
         ``PersonError`` is that person's alone (``_person_failed``); any other error, or a reconcile that could act
-        on nobody (a realm-wide 403 or 500), fails the pass as a whole, as before."""
+        on nobody (a realm-wide 403 or 500), fails the pass as a whole, as before. Reads with no answer are counted in
+        a row within a pass (``_read_person``): the second fails it, and the next pass, and the reconcile, start at
+        nought."""
         done = {"checked": 0, "disabled": 0, "erased": 0}
+        self._no_answer = 0
         deleted, cursor, newest = await self.deleted_accounts()
         for keycloak_id, at in deleted.items():
             # The look-back reads an event again on later passes, and Keycloak can have the person again under the
@@ -370,6 +406,8 @@ class KeycloakSync:
         period at a later deletion. Everyone is read before anyone is acted on, so the breaker can count (#105) and
         so an error that fails the pass as a whole leaves nobody half done."""
         people = self.store.users_with_identity_prefix(self.prefix, include_disabled=True)
+        # Its own count: the admin-events pass reads the newest event's person at every pass, who may be this one's first.
+        self._no_answer = 0
         read: list[tuple[dict[str, Any], str, str]] = []           # (row as listed, Keycloak id, state)
         unread = 0
         for user in people:
