@@ -100,9 +100,12 @@ def _confirm(store: Store, pass_id: str, by: str, now: float) -> int:
             if user.get("held_at") is None:            # released: a pass read them enabled again (#135)
                 skipped += 1
                 continue
-            cut_off_person(store, None, user, "disabled", "confirm", now)      # revokes their PATs; never erased
+            acted = cut_off_person(store, None, user, "disabled", "confirm", now)      # revokes their PATs; never erased
         else:
-            cut_off_person(store, None, user, "deleted", "confirm", now)
+            acted = cut_off_person(store, None, user, "deleted", "confirm", now)
+        if acted is None:                              # signed in between the check above and the cut-off (#102)
+            skipped += 1
+            continue
         applied[held["kind"]] += 1
     store.forget_breaker_trip_people(pass_id)
     log.warning("Pass %s confirmed by %s: cut off %d (%d gone, their grace period running from now; %d disabled, their "

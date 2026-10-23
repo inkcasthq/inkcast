@@ -208,7 +208,7 @@ class UserDisableTests(unittest.TestCase):
         self.assertIsNone(store.get_code("code-ada"))
         self.assertIsNone(store.find_api_token(pat))
         self.assertIsNotNone(store.get_token("at-bob", "access"), "nobody else touched")
-        self.assertEqual(store.disable_user(ada["id"]), {"oauth_tokens": 0, "personal_access_tokens": 0, "codes": 0})
+        self.assertIsNone(store.disable_user(ada["id"]), "already disabled: nothing done (#102)")
         self.assertEqual([u["id"] for u in store.users_with_identity_prefix("oidc:https://kc/realms/i#")], [bob["id"]])
 
         # A token minted in the moment of the cut-off is refused while the person stays disabled.

@@ -124,15 +124,20 @@ class IdentityRepo(Database):
                          + ("" if include_disabled else " AND disabled_at IS NULL") + " ORDER BY id", len(prefix), prefix)
         return [dict(r) for r in rows]
 
-    def disable_user(self, user_id: str) -> dict[str, int]:
+    def disable_user(self, user_id: str, last_login_at: float | None = None,
+                     held_at: float | None = None) -> dict[str, int] | None:
         """The person can no longer use Inkcast: every OAuth token, code and personal access token goes, in one
-        transaction, and a hold on them (#135) ends with it. Counts of what was cut off; zeros when they were already
-        disabled."""
+        transaction, and a hold on them (#135) ends with it. With ``last_login_at``, only while that is still their
+        last sign-in and ``held_at`` still their hold (#102): the caller read both when it decided, and a sign-in
+        since, handled by another replica, means Keycloak let them in; a release since, that it has them enabled
+        again. Counts of what was cut off; None when nothing was done (already disabled, no such person, or signed in
+        or released since)."""
         now = time.time()
         with self._tx() as c:
-            if c.execute("UPDATE users SET disabled_at = ?, held_at = NULL WHERE id = ? AND disabled_at IS NULL",
-                         (now, user_id)).rowcount != 1:
-                return {"oauth_tokens": 0, "personal_access_tokens": 0, "codes": 0}
+            if c.execute("UPDATE users SET disabled_at = ?, held_at = NULL WHERE id = ? AND disabled_at IS NULL"
+                         " AND (? IS NULL OR (last_login_at = ? AND held_at IS ?))",
+                         (now, user_id, last_login_at, last_login_at, held_at)).rowcount != 1:
+                return None
             tokens = c.execute("DELETE FROM tokens WHERE user_id = ?", (user_id,)).rowcount
             codes = c.execute("DELETE FROM auth_codes WHERE user_id = ?", (user_id,)).rowcount
             c.execute("DELETE FROM pending_auth WHERE user_id = ?", (user_id,))   # signed in, not yet approved
@@ -159,14 +164,18 @@ class IdentityRepo(Database):
         personal access tokens work again. True when they were held."""
         return self._exec("UPDATE users SET held_at = NULL WHERE id = ? AND held_at IS NOT NULL", user_id) == 1
 
-    def mark_user_deleted(self, user_id: str, now: float) -> float:
+    def mark_user_deleted(self, user_id: str, now: float, last_login_at: float | None = None) -> float | None:
         """The identity provider has no such person any more (Keycloak's 404): records when that was first seen (an
         earlier time is kept) and returns it. The grace period before erasure runs from it, whether or not the person
-        was already disabled (``disable_user`` is a no-op the second time; this is not)."""
+        was already disabled (``disable_user`` is a no-op the second time; this is not). With ``last_login_at``, only
+        while that is still their last sign-in (#102), as ``disable_user``; None when nothing was recorded (no such
+        person, or signed in since)."""
         with self._tx() as c:
-            c.execute("UPDATE users SET deleted_at = COALESCE(deleted_at, ?) WHERE id = ?", (now, user_id))
+            if c.execute("UPDATE users SET deleted_at = COALESCE(deleted_at, ?) WHERE id = ? AND (? IS NULL OR last_login_at = ?)",
+                         (now, user_id, last_login_at, last_login_at)).rowcount != 1:
+                return None
             row = c.execute("SELECT deleted_at FROM users WHERE id = ?", (user_id,)).fetchone()
-        return float(row["deleted_at"]) if row and row["deleted_at"] is not None else now
+        return float(row["deleted_at"])
 
     def mark_user_present(self, user_id: str) -> None:
         """The identity provider has the person after all (restored from a backup under the same id): a grace period
