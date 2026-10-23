@@ -239,8 +239,8 @@ features:
     - INKCAST_ONE_TIME_LINK_MINUTES (15, 5-60, one value for both links); MCP and REST replies state the configured lifetime
   - id: F1.10.S5
     title: 'Validate the existing business settings: intervals, grace, rate limit, backup copies'
-    status: planned
-    change: 'new; issue #93'
+    status: done
+    change: 'new; issue #93, built in PR #155'
     acceptance:
     - 'Sync, reconcile, scheduler, insights and shutdown intervals refuse <= 0; the scheduler stays 1-60; overdue grace is
       at least twice the scheduler interval; the rate limit refuses < 0 and fails production posture at 0 with password sign-in;

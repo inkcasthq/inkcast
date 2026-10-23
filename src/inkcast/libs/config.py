@@ -18,6 +18,7 @@ secret values.
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping
@@ -83,6 +84,37 @@ RETENTION_ORDER_RULE = ("INKCAST_KPI_HOURLY_RETENTION_DAYS ({hourly}) must not b
 ONE_TIME_LINK_MINUTES = (5, 60)
 ONE_TIME_LINK_DEFAULT_MINUTES = 15
 ONE_TIME_LINK_RULE = "INKCAST_ONE_TIME_LINK_MINUTES must be a whole number of minutes from 5 to 60 (got {got!r})."
+# The intervals, the overdue grace, the rate limit and the backup copies (F1.10.S5, issue #93): settings that existed
+# before the newer ones above and took unsafe values silently. Every interval is a positive, finite number of seconds
+# (0, a negative, nan or inf is a tight loop, or no wait at all). The Keycloak reconcile may not run more often than the
+# events pass (it is the catch-up for events that pass missed), and never 30 minutes or more apart, counting the up to
+# one sync interval it waits for the first pass after it is due (so the two add up to under 30 minutes): the
+# InkcastIdentitySyncPersonFailing alert (libs/alerting) looks at a 30-minute window, so a person who fails only in the
+# reconcile could never raise it. That is a hard bound, not a posture warning: the alert is the operator's only signal
+# that someone is neither cut off nor erased, and a warning logged once at start-up would be missed for the lifetime of
+# a deployment whose alert stays blind. The scheduler tick is 1 to 60 s: 120 s or more fails the on-time KPI and SLO
+# by design. The overdue grace is at least two ticks: below that, posts due between two ticks count as overdue and the
+# critical InkcastPostsOverdue alert fires in normal operation. The sync interval at 60 s or more, the rate limit off
+# with password sign-in, and backups kept beyond 35 days are posture checks (libs/secrets/checks).
+KEYCLOAK_RECONCILE_CEILING = 1800      # seconds, excluded: the InkcastIdentitySyncPersonFailing alert's window
+SCHEDULER_INTERVAL = (1, 60)           # seconds, inclusive
+OVERDUE_GRACE_TICKS = 2                # the overdue grace is at least this many scheduler intervals
+# The sync interval stays under half the ceiling: the reconcile is no shorter than it, and the two add up to under it.
+SYNC_INTERVAL_CEILING = KEYCLOAK_RECONCILE_CEILING // 2
+SYNC_INTERVAL_RULE = ("INKCAST_KEYCLOAK_SYNC_INTERVAL must be a positive number of seconds under 900: the reconcile, no "
+                      "shorter than it, must follow it within the InkcastIdentitySyncPersonFailing alert's 30-minute window "
+                      "(got {got!r}).")
+RECONCILE_INTERVAL_RULE = ("INKCAST_KEYCLOAK_RECONCILE_INTERVAL must be a number of seconds from INKCAST_KEYCLOAK_SYNC_INTERVAL "
+                           "({sync}) to under {limit}, under 1800 with the sync interval: the reconcile runs at the first pass "
+                           "after it is due, up to one sync interval late, and the InkcastIdentitySyncPersonFailing alert looks "
+                           "at a 30-minute window, so a rarer reconcile could never raise it (got {got!r}).")
+SCHEDULER_INTERVAL_RULE = "INKCAST_SCHEDULER_INTERVAL must be a number of seconds from 1 to 60 (got {got!r})."
+OVERDUE_GRACE_RULE = ("INKCAST_OVERDUE_GRACE must be a number of seconds, at least twice INKCAST_SCHEDULER_INTERVAL ({twice}): "
+                      "below that, posts due between two ticks count as overdue and the critical InkcastPostsOverdue alert "
+                      "fires in normal operation (got {got!r}).")
+POSITIVE_SECONDS_RULE = "{name} must be a positive number of seconds (got {got!r})."
+RATE_LIMIT_RULE = "INKCAST_RATE_LIMIT_PER_MINUTE must be a whole number, 0 (off) or more (got {got!r})."
+BACKUP_KEEP_RULE = "INKCAST_BACKUP_KEEP must be a whole number, 1 or more (the backup keeps that many daily copies) (got {got!r})."
 _SWITCH = {"true": True, "yes": True, "on": True, "1": True, "false": False, "no": False, "off": False, "0": False}
 
 
@@ -224,6 +256,83 @@ def retention_problems(policy: RetentionPolicy, got: tuple[Any, Any] | None = No
     return problems
 
 
+def _seconds(value: Any) -> bool:
+    """A positive, finite number of seconds: an int or a float, never a bool, a nan or an inf."""
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return False
+    try:
+        return math.isfinite(value) and value > 0
+    except OverflowError:                         # an int beyond any float (10**400): no wait, no clock can take it
+        return False
+
+
+def _show(value: Any) -> Any:
+    """A number as the operator would write it (30, not 30.0) when quoting a setting inside another's rule."""
+    return format(value, "g") if _seconds(value) else value
+
+
+INTERVAL_SETTINGS = ("INKCAST_KEYCLOAK_SYNC_INTERVAL", "INKCAST_KEYCLOAK_RECONCILE_INTERVAL", "INKCAST_SCHEDULER_INTERVAL",
+                     "INKCAST_OVERDUE_GRACE", "INKCAST_INSIGHTS_INTERVAL", "INKCAST_SHUTDOWN_GRACE")
+
+
+def interval_problems(*, sync: Any, reconcile: Any, scheduler: Any, grace: Any, insights: Any, shutdown: Any,
+                      got: Mapping[str, Any] | None = None) -> list[str]:
+    """The rules of the six interval settings (F1.10.S5, issue #93), as problems naming the variable: each a positive,
+    finite number of seconds; the sync interval under SYNC_INTERVAL_CEILING; the reconcile from the sync interval to
+    under KEYCLOAK_RECONCILE_CEILING less the sync interval (it runs at the first pass after it is due); the scheduler
+    tick from 1 to 60; the overdue grace at least OVERDUE_GRACE_TICKS ticks. ``got`` is what to quote, by variable
+    name (the raw strings at load; the values themselves for a Config built by hand)."""
+    raw = dict(got or {})
+
+    def quote(name: str, value: Any) -> Any:
+        return raw.get(name, value)
+
+    problems = []
+    sync_ok = _seconds(sync) and sync < SYNC_INTERVAL_CEILING
+    if not sync_ok:
+        problems.append(SYNC_INTERVAL_RULE.format(got=quote("INKCAST_KEYCLOAK_SYNC_INTERVAL", sync)))
+    # Judged against a sync interval within its rule: one outside it is the problem, not the order.
+    floor = sync if sync_ok else 0
+    limit = KEYCLOAK_RECONCILE_CEILING - floor     # it runs at the first pass after it is due: up to one sync interval late
+    if not (_seconds(reconcile) and floor <= reconcile < limit):
+        problems.append(RECONCILE_INTERVAL_RULE.format(sync=_show(quote("INKCAST_KEYCLOAK_SYNC_INTERVAL", sync)),
+                                                       limit=_show(limit),
+                                                       got=quote("INKCAST_KEYCLOAK_RECONCILE_INTERVAL", reconcile)))
+    scheduler_ok = _seconds(scheduler) and SCHEDULER_INTERVAL[0] <= scheduler <= SCHEDULER_INTERVAL[1]
+    if not scheduler_ok:
+        problems.append(SCHEDULER_INTERVAL_RULE.format(got=quote("INKCAST_SCHEDULER_INTERVAL", scheduler)))
+    twice = OVERDUE_GRACE_TICKS * (scheduler if scheduler_ok else SCHEDULER_INTERVAL[0])
+    if not (_seconds(grace) and grace >= twice):
+        problems.append(OVERDUE_GRACE_RULE.format(twice=_show(twice), got=quote("INKCAST_OVERDUE_GRACE", grace)))
+    for name, value in (("INKCAST_INSIGHTS_INTERVAL", insights), ("INKCAST_SHUTDOWN_GRACE", shutdown)):
+        if not _seconds(value):
+            problems.append(POSITIVE_SECONDS_RULE.format(name=name, got=quote(name, value)))
+    return problems
+
+
+def rate_limit_problems(per_minute: Any, got: Any = None) -> list[str]:
+    """The rule of INKCAST_RATE_LIMIT_PER_MINUTE (a whole number, 0 or more), as a problem naming it. 0 turns the limit
+    off, which is a posture check (rate-limit), not a refusal: a negative only looked like a setting."""
+    if _whole(per_minute) and per_minute >= 0:
+        return []
+    return [RATE_LIMIT_RULE.format(got=per_minute if got is None else got)]
+
+
+def backup_keep_problems(keep: Any, got: Any = None) -> list[str]:
+    """The rule of INKCAST_BACKUP_KEEP (a whole number, 1 or more), as a problem naming it: the server (the deletion
+    pages quote it) and ``inkcast backup`` (the CronJob) read it through this one rule. Above 35 is a posture warning
+    (backup-keep, libs/secrets/checks), not a refusal."""
+    if _whole(keep) and keep >= 1:
+        return []
+    return [BACKUP_KEEP_RULE.format(got=keep if got is None else got)]
+
+
+def backup_keep_from(environ: Mapping[str, str]) -> int:
+    """INKCAST_BACKUP_KEEP as ``inkcast backup`` reads it: the same rule as the server's, a ConfigError naming the
+    variable instead of a traceback, and the CronJob's default (libs/db/backup.DEFAULT_KEEP, 14) when unset."""
+    return _Env(environ).backup_keep()
+
+
 def _problems(problems: list[str]) -> None:
     """Raise the problems found at load, one plainly or several as a list."""
     if len(problems) == 1:
@@ -359,6 +468,42 @@ class _Env:
         _problems(one_time_link_problems(minutes, got=raw))
         return minutes
 
+    def intervals(self) -> dict[str, float]:
+        """The six interval settings (INTERVAL_SETTINGS), by variable name, with their defaults; a value outside its rule
+        is a ConfigError naming that variable (each of them, when several are wrong). A non-number is quoted as typed."""
+        defaults = ("30", "600", "20", "600", "10", "25")
+        raw = {name: self.get(name, default) for name, default in zip(INTERVAL_SETTINGS, defaults)}
+        values: dict[str, Any] = {}
+        for name, text in raw.items():
+            try:
+                values[name] = float(text)
+            except ValueError:
+                values[name] = text                   # fails the number rule below, with the same message
+        sync, reconcile, scheduler, grace, insights, shutdown = (values[name] for name in INTERVAL_SETTINGS)
+        _problems(interval_problems(sync=sync, reconcile=reconcile, scheduler=scheduler, grace=grace, insights=insights,
+                                    shutdown=shutdown, got=raw))
+        return values
+
+    def rate_limit(self) -> int:
+        """INKCAST_RATE_LIMIT_PER_MINUTE, a whole number, 0 (off) or more; anything else is a ConfigError naming it."""
+        raw = self.get("INKCAST_RATE_LIMIT_PER_MINUTE", "60")
+        try:
+            per_minute: Any = int(raw)
+        except ValueError:
+            per_minute = raw
+        _problems(rate_limit_problems(per_minute, got=raw))
+        return per_minute
+
+    def backup_keep(self) -> int:
+        """INKCAST_BACKUP_KEEP, a whole number, 1 or more; anything else is a ConfigError naming it."""
+        raw = self.get("INKCAST_BACKUP_KEEP", "14")
+        try:
+            keep: Any = int(raw)
+        except ValueError:
+            keep = raw
+        _problems(backup_keep_problems(keep, got=raw))
+        return keep
+
     def retention(self) -> RetentionPolicy:
         """INKCAST_OUTBOX_RETENTION_DAYS and INKCAST_KPI_HOURLY_RETENTION_DAYS as a ``RetentionPolicy``; a value outside its
         rule, or an hourly retention shorter than the outbox's, is a ConfigError naming the variable (each, when several
@@ -418,8 +563,12 @@ class Config:
     # Empty client id = off. The realm's client is inkcast-sync (deploy/keycloak/realm-inkcast.json).
     keycloak_sync_client_id: str = ""
     keycloak_sync_secret: SecretValue = SecretValue("")
-    keycloak_sync_interval_seconds: float = 30.0   # how often admin events are read (the "within a minute" goal)
-    keycloak_reconcile_seconds: float = 600.0      # how often every Keycloak-backed user is re-checked (missed events)
+    # How often admin events are read (INKCAST_KEYCLOAK_SYNC_INTERVAL, under 900; 60 s or more is a posture warning: the
+    # "within a minute" promise), and how often every Keycloak-backed user is re-checked for missed events
+    # (INKCAST_KEYCLOAK_RECONCILE_INTERVAL, from the sync interval to under 1800 less it, since it runs at the first pass
+    # after it is due: the InkcastIdentitySyncPersonFailing alert's 30-minute window). F1.10.S5, issue #93.
+    keycloak_sync_interval_seconds: float = 30.0
+    keycloak_reconcile_seconds: float = 600.0
     # Days a person Keycloak no longer has (an administrator's deletion, or a self-deletion whose event was never
     # seen) stays cut off before the reconcile erases their data (E9.F9.5.S6, issue #86): 0 erases at the first
     # reconcile that finds them gone; None (INKCAST_KEYCLOAK_ERASE_AFTER_DAYS=off) never erases on a 404, which is a
@@ -455,12 +604,12 @@ class Config:
     # The replies state it (expires_in, "valid N minutes"). Handed to the publishing use cases and libs/account; the
     # sign-in and return windows (libs/account.RETURN_TTL, the consent page) are protocol windows and stay constant.
     one_time_link_minutes: int = ONE_TIME_LINK_DEFAULT_MINUTES
-    scheduler_interval_seconds: float = 20.0
+    scheduler_interval_seconds: float = 20.0  # INKCAST_SCHEDULER_INTERVAL, 1-60: 120 s or more fails the on-time KPI by design
     # How a scheduled post whose send certainly never happened is retried (F1.10.S1, issue #89):
     # INKCAST_PUBLISH_MAX_ATTEMPTS sends in all, INKCAST_PUBLISH_RETRY_DELAYS seconds apart (the last repeats).
     # The default is 4 sends over about 36 minutes. A window over 24 h is a posture warning (publish-retry-window).
     publish_retry: RetryPolicy = RetryPolicy()
-    insights_interval_seconds: float = 10.0  # how often InsightsService folds new domain events into KPI rollups
+    insights_interval_seconds: float = 10.0  # how often InsightsService folds new domain events into KPI rollups (positive)
     # Retention (F1.10.S3, issue #91): INKCAST_OUTBOX_RETENTION_DAYS (7, 1-30) keeps domain events every consumer has
     # passed, the replay window; INKCAST_KPI_HOURLY_RETENTION_DAYS (90, 31-400, never shorter than the outbox's) keeps
     # hourly KPI buckets and the kpi_applied rows that make a replay harmless. Daily buckets are kept. The scheduler's
@@ -469,10 +618,11 @@ class Config:
     log_format: str = "text"  # "json" in containers
     log_level: str = "INFO"
     metrics_port: int = 9090  # Prometheus /metrics on its own port; 0 disables
-    shutdown_grace_seconds: float = 25.0
+    shutdown_grace_seconds: float = 25.0  # INKCAST_SHUTDOWN_GRACE, positive; the Deployment's terminationGracePeriodSeconds exceeds it
     max_body_bytes: int = 10 * 1024 * 1024  # a request body above this is refused with 413 before any handler runs
     # Writes per minute per client address on the endpoints anyone can call without a token (client
-    # registration, the token page, the password form, the connect page). 0 disables the limit.
+    # registration, the token page, the password form, the connect page). 0 disables the limit, which with password
+    # sign-in is unbounded password guessing: a posture failure in production (rate-limit). Never negative.
     rate_limit_per_minute: int = 60
     # Shared cache and coordination (libs/cache): empty = in-process; redis://host:6379/0 or rediss:// for
     # Redis/Valkey shared by every replica. The password never goes in the URL: INKCAST_CACHE_PASSWORD(_FILE).
@@ -500,11 +650,13 @@ class Config:
     # Gateway only: base URL of each upstream service by full name, from INKCAST_UPSTREAM_<NAME>,
     # e.g. INKCAST_UPSTREAM_PUBLISHING_API=http://publishing-api:8080/publishing-api
     upstreams: dict[str, str] = field(default_factory=dict)
-    # Scheduled posts this long past due mean the scheduler is behind or stopped (alert + readiness).
+    # Scheduled posts this long past due mean the scheduler is behind or stopped (alert + readiness). At least two
+    # scheduler intervals: below that, a post due between ticks is "overdue" and InkcastPostsOverdue fires on a healthy system.
     overdue_grace_seconds: float = 600.0
     # How many daily backups the backup CronJob keeps (its INKCAST_BACKUP_KEEP; libs/db/backup.DEFAULT_KEEP): the
     # deletion pages tell a person that copies of their data in backups age out within this many days (issue #94).
-    # The server reads the same name, so a changed CronJob value goes in the shared ConfigMap too.
+    # The server reads the same name, so a changed CronJob value goes in the shared ConfigMap too. 1 or more; above
+    # 35 (checks.BACKUP_KEEP_WARN) a deleted person's data lingers in backups over five weeks, a posture warning (backup-keep).
     backup_keep: int = 14
     # Lab troubleshooting only (INKCAST_LOG_REVEAL_SECRETS): DEBUG lines about consumed secrets also print
     # the real value. Refused in production.
@@ -556,8 +708,11 @@ class Config:
             problems.append("INKCAST_LOG_REVEAL_SECRETS must not be enabled in production: it writes secret values to the log.")
         if self.path_prefix != "auto" and not self.path_prefix.startswith("/"):
             problems.append("INKCAST_PATH_PREFIX must be '/', 'auto' or a path starting with '/'.")
-        if self.backup_keep < 1:
-            problems.append("INKCAST_BACKUP_KEEP must be at least 1 (the backup keeps that many daily copies).")
+        problems += backup_keep_problems(self.backup_keep)      # load_config refuses already; a Config built by hand
+        problems += rate_limit_problems(self.rate_limit_per_minute)
+        problems += interval_problems(sync=self.keycloak_sync_interval_seconds, reconcile=self.keycloak_reconcile_seconds,
+                                      scheduler=self.scheduler_interval_seconds, grace=self.overdue_grace_seconds,
+                                      insights=self.insights_interval_seconds, shutdown=self.shutdown_grace_seconds)
         for name, need in SECRET_SETTINGS.items():
             if need in needs and name in self.secret_errors:
                 problems.append(self.secret_errors[name])
@@ -701,6 +856,7 @@ def load_config(environ: Mapping[str, str] | None = None) -> Config:
             return SecretValue("")
 
     port = env.int("PORT", env.get("INKCAST_PORT", "8787"))
+    intervals = env.intervals()
     cache_url = env.get("INKCAST_CACHE_URL").rstrip("/")
     authz_engine = env.get("INKCAST_AUTHZ_ENGINE", "local").lower()
     return Config(
@@ -730,8 +886,8 @@ def load_config(environ: Mapping[str, str] | None = None) -> Config:
         # Asked for only when the sync is configured: no credential is fetched that nothing uses.
         keycloak_sync_secret=(secret("INKCAST_KEYCLOAK_SYNC_SECRET") if env.get("INKCAST_KEYCLOAK_SYNC_CLIENT_ID")
                               else SecretValue("")),
-        keycloak_sync_interval_seconds=env.float("INKCAST_KEYCLOAK_SYNC_INTERVAL", "30"),
-        keycloak_reconcile_seconds=env.float("INKCAST_KEYCLOAK_RECONCILE_INTERVAL", "600"),
+        keycloak_sync_interval_seconds=intervals["INKCAST_KEYCLOAK_SYNC_INTERVAL"],
+        keycloak_reconcile_seconds=intervals["INKCAST_KEYCLOAK_RECONCILE_INTERVAL"],
         keycloak_erase_after_days=env.days_or_off("INKCAST_KEYCLOAK_ERASE_AFTER_DAYS", "30"),
         keycloak_breaker=env.on_off("INKCAST_KEYCLOAK_BREAKER", "on"),
         keycloak_breaker_percent=env.int_in("INKCAST_KEYCLOAK_BREAKER_PERCENT", "10", 1, 100, BREAKER_PERCENT_RULE),
@@ -744,18 +900,18 @@ def load_config(environ: Mapping[str, str] | None = None) -> Config:
         app_name=env.get("INKCAST_APP_NAME", "All"),
         path_prefix=env.get("INKCAST_PATH_PREFIX", "/"),
         upstreams=env.prefixed("INKCAST_UPSTREAM_", lambda k: k.lower().replace("_", "-")),
-        overdue_grace_seconds=env.float("INKCAST_OVERDUE_GRACE", "600"),
-        backup_keep=env.int("INKCAST_BACKUP_KEEP", "14"),
-        scheduler_interval_seconds=env.float("INKCAST_SCHEDULER_INTERVAL", "20"),
+        overdue_grace_seconds=intervals["INKCAST_OVERDUE_GRACE"],
+        backup_keep=env.backup_keep(),
+        scheduler_interval_seconds=intervals["INKCAST_SCHEDULER_INTERVAL"],
         publish_retry=env.publish_retry(),
-        insights_interval_seconds=env.float("INKCAST_INSIGHTS_INTERVAL", "10"),
+        insights_interval_seconds=intervals["INKCAST_INSIGHTS_INTERVAL"],
         retention=env.retention(),
         log_format=env.get("INKCAST_LOG_FORMAT", "text").lower(),
         log_level=env.get("INKCAST_LOG_LEVEL", "INFO"),
         metrics_port=env.int("INKCAST_METRICS_PORT", "9090"),
-        shutdown_grace_seconds=env.float("INKCAST_SHUTDOWN_GRACE", "25"),
+        shutdown_grace_seconds=intervals["INKCAST_SHUTDOWN_GRACE"],
         max_body_bytes=env.int("INKCAST_MAX_BODY_BYTES", str(10 * 1024 * 1024)),
-        rate_limit_per_minute=env.int("INKCAST_RATE_LIMIT_PER_MINUTE", "60"),
+        rate_limit_per_minute=env.rate_limit(),
         cache_url=cache_url,
         # Asked for only when a shared cache is configured: no credential is fetched that nothing uses.
         cache_password=secret("INKCAST_CACHE_PASSWORD") if cache_url else SecretValue(""),
