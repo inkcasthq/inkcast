@@ -25,7 +25,7 @@ import unittest
 
 import httpx2
 from starlette.testclient import TestClient
-from test_sync_per_person_errors import DAY, T0, USER_EVENTS_CURSOR, SyncError
+from test_sync_per_person_errors import DAY, T0, SyncError
 from test_sync_person_timeouts import DETAIL, Keycloak, Scenario
 
 from inkcast.launcher import build, resolve
@@ -233,7 +233,8 @@ class WhoseLastReadHungAreReadLast(Budget):
         self.assert_cut_off(gone)
         self.assertEqual(worker.last_reconcile, T0 + 600)
         done = self.tick(worker, T0 + 1200)
-        self.assertEqual(self.kc.read[8:], [gone["kc"], fine["kc"], h3["kc"], h4["kc"], h1["kc"]], "h3's turn: untried the longest")
+        self.assertEqual(self.kc.read[8:], [gone["kc"], fine["kc"], h3["kc"], h1["kc"], h2["kc"]],
+                         "h3's turn, untried the longest; then the others in id order; h4 waits for the next")
         self.assertEqual(len(self.pass_errors), 1, "only the first reconcile failed")
         self.kc.no_answer.clear()                                   # all four fixed at Keycloak
         self.assertEqual(self.tick(worker, T0 + 1800)["checked"], 6)
