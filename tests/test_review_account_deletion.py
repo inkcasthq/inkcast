@@ -66,11 +66,11 @@ class ReviewAccountDeletion(Harness):
         self.fakes.kc_account_console_delete("kc-rev-dave")                     # newer: Keycloak lists it first
         store, real, calls = self.app.store, self.app.store.erase_user, []
 
-        def flaky(user_id):
+        def flaky(user_id, **as_read):
             calls.append(user_id)
             if len(calls) == 1:
                 raise sqlite3.OperationalError("database is locked")
-            return real(user_id)
+            return real(user_id, **as_read)
         with mock.patch.object(store, "erase_user", flaky):
             with self.assertRaises(sqlite3.OperationalError):
                 self.sync_tick()

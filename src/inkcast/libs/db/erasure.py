@@ -13,6 +13,10 @@ counts. Nothing else about the person survives in the database. Copies in backup
 process when it opens the store, erases again anyone whose hash is in ``user_erasures`` but who has rows. The
 restore carries the audit rows of the database it replaces into the restored one (libs/db/backup.py), which is
 what makes that possible: a backup taken before the erasure holds the rows and not the record.
+
+Whoever erases decided on a reading of the person (a 404 from Keycloak, a grace period over) that another replica
+may have overtaken by the time the transaction starts, so ``erase_user`` takes the row as the caller read it and
+re-checks it inside the transaction (issue #102): a person who signed in meanwhile keeps every row.
 """
 
 from __future__ import annotations
@@ -22,6 +26,7 @@ import hmac
 import json
 import sqlite3
 import time
+from typing import Any, Mapping
 
 from .database import Database
 
@@ -52,6 +57,10 @@ USER_TABLES: tuple[tuple[str, str], ...] = (
     ("authz_tuples", "subject = 'user:' || :user_id"),
     ("users", "id = :user_id"),
 )
+# What ``erase_user`` re-checks about the person's row (issue #102): their standing, as the caller read it when it
+# decided. A sign-in changes last_login_at (and clears the other three); a reconcile that found them present clears
+# deleted_at; a pass that cut them off sets disabled_at; a hold or its release changes held_at.
+STANDING = ("last_login_at", "deleted_at", "disabled_at", "held_at")
 
 
 def user_hash(salt: bytes, user_id: str) -> str:
@@ -68,13 +77,29 @@ class ErasureRepo(Database):
         return {table: int(c.execute(f"DELETE FROM {table} WHERE {condition}", {"user_id": user_id}).rowcount)
                 for table, condition in USER_TABLES}
 
-    def erase_user(self, user_id: str) -> dict[str, int]:
+    @staticmethod
+    def _as_read(c: sqlite3.Connection, user_id: str, as_read: Mapping[str, Any]) -> bool:
+        """Whether the person's row is still there, standing as the caller read it, inside the caller's transaction."""
+        row = c.execute("SELECT last_login_at, deleted_at, disabled_at, held_at FROM users WHERE id = ?", (user_id,)).fetchone()
+        return row is not None and all(row[column] == as_read[column] for column in STANDING)
+
+    def erase_user(self, user_id: str, as_read: Mapping[str, Any] | None = None) -> dict[str, int]:
         """Delete the person's rows from every table in ``USER_TABLES`` in one transaction and record the erasure.
 
-        The counts per table, only ever ints; all zeros (and no audit record) for a person who is unknown or was
-        already erased, so it is safe to run twice or from two places."""
+        ``as_read`` is the person's ``users`` row as the caller read it when it decided to erase (issue #102): the
+        row is read again inside the transaction, under the write lock, and nothing is erased unless it is still
+        there and standing as read (``STANDING``: the same ``last_login_at``, ``deleted_at``, ``disabled_at`` and
+        ``held_at``). A sign-in handled by another replica in between is the one proof Inkcast has that Keycloak has
+        the person; a pass elsewhere that found them present, cut them off or held them has newer word about them
+        than the caller's; either way the caller's next pass judges them afresh. Without it the person is erased as
+        they stand (``reapply_erasures``, and a caller that read nothing).
+
+        The counts per table, only ever ints; all zeros (and no audit record) for a person who is unknown, was
+        already erased, or is not as read, so it is safe to run twice or from two places."""
         now = time.time()
         with self._tx() as c:
+            if as_read is not None and not self._as_read(c, user_id, as_read):
+                return {table: 0 for table, _ in USER_TABLES}
             counts = self._delete_person(c, user_id)
             if any(counts.values()):
                 c.execute("INSERT INTO user_erasures VALUES (?, ?, ?)",
@@ -108,4 +133,4 @@ class ErasureRepo(Database):
                 for r in rows]
 
 
-__all__ = ["ErasureRepo", "SCHEMA", "USER_TABLES", "user_hash"]
+__all__ = ["ErasureRepo", "SCHEMA", "STANDING", "USER_TABLES", "user_hash"]
