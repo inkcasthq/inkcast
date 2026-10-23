@@ -39,6 +39,7 @@ More detail on the design is in [docs/architecture.md](docs/architecture.md).
 |---|---|---|---|
 | Medium | ✅ built in | Integration token | Medium stopped issuing new tokens on 1 Jan 2025; tokens created earlier still work. Without one, Inkcast gives you Medium's *Import a story* steps instead. That import also sets the canonical link. |
 | DEV (dev.to) | ✅ built in | API key | Works with any Forem community via `INKCAST_API_URL_DEVTO`. |
+| YouTube, Facebook Pages | 🧭 designed | OAuth per platform | Video upload, audience and AI-disclosure fields, platform review gates. See [video platforms and batch review](docs/design/video-platforms-and-review.md). |
 | X, Instagram, TikTok | 🧭 designed | OAuth per platform | Needs per-platform OAuth, a media pipeline, async publishing and platform review gates. See [the social epic](docs/design/social-platforms-epic.md). |
 | Hashnode, WordPress, Ghost, … | 📋 planned | | See [docs/issues/](docs/issues/). |
 
