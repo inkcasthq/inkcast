@@ -12,6 +12,7 @@ import secrets
 import time
 from typing import Any
 
+from ..config import ONE_TIME_LINK_DEFAULT_MINUTES
 from ..secrets import Sealer, token_hash
 from .database import Database
 
@@ -50,7 +51,9 @@ class VaultRepo(Database):
 
     # ---- one-time links to the "connect a platform" page ------------------
 
-    def create_ticket(self, user_id: str, platform: str, ttl: float = 900) -> str:
+    def create_ticket(self, user_id: str, platform: str, ttl: float = ONE_TIME_LINK_DEFAULT_MINUTES * 60) -> str:
+        """A one-time ticket good for ``ttl`` seconds: the publishing use cases pass ``Config.one_time_link_seconds``
+        (INKCAST_ONE_TIME_LINK_MINUTES, F1.10.S4); the default is the setting's default, like ``purge_expired``'s."""
         ticket = secrets.token_urlsafe(32)
         self._exec("INSERT INTO connect_tickets VALUES (?, ?, ?, ?)", token_hash(ticket), user_id, platform, time.time() + ttl)
         return ticket

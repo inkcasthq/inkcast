@@ -74,6 +74,15 @@ KPI_HOURLY_RETENTION_RULE = "INKCAST_KPI_HOURLY_RETENTION_DAYS must be a whole n
 RETENTION_ORDER_RULE = ("INKCAST_KPI_HOURLY_RETENTION_DAYS ({hourly}) must not be shorter than INKCAST_OUTBOX_RETENTION_DAYS "
                         "({outbox}): kpi_applied is the record that stops a replayed event counting twice, so it must outlive "
                         "the events.")
+# One-time links (F1.10.S4, issue #92): how long a connect link (/connect/<ticket>, where a platform key is typed) and an
+# account-deletion link (/account/delete/<ticket>) last, INKCAST_ONE_TIME_LINK_MINUTES, one value for both. 60 minutes
+# is a hard maximum, not a tuning knob: a connect link is a bearer capability that passes through the AI transcript
+# (the MCP reply hands it to the assistant), and whoever holds it can attach their own platform account to the person's
+# Inkcast (services/connectors), so an hour is the most a leaked transcript may be good for. The floor of 5 leaves time
+# to switch to a browser and paste a key. The default is the 15 minutes that were hard-coded before.
+ONE_TIME_LINK_MINUTES = (5, 60)
+ONE_TIME_LINK_DEFAULT_MINUTES = 15
+ONE_TIME_LINK_RULE = "INKCAST_ONE_TIME_LINK_MINUTES must be a whole number of minutes from 5 to 60 (got {got!r})."
 _SWITCH = {"true": True, "yes": True, "on": True, "1": True, "false": False, "no": False, "off": False, "0": False}
 
 
@@ -167,6 +176,13 @@ def refresh_token_problems(days: Any, got: Any = None) -> list[str]:
     if _whole(days) and REFRESH_TOKEN_DAYS[0] <= days <= REFRESH_TOKEN_DAYS[1]:
         return []
     return [REFRESH_TOKEN_RULE.format(got=days if got is None else got)]
+
+
+def one_time_link_problems(minutes: Any, got: Any = None) -> list[str]:
+    """The rule of INKCAST_ONE_TIME_LINK_MINUTES (a whole number of minutes from 5 to 60), as a problem naming it."""
+    if _whole(minutes) and ONE_TIME_LINK_MINUTES[0] <= minutes <= ONE_TIME_LINK_MINUTES[1]:
+        return []
+    return [ONE_TIME_LINK_RULE.format(got=minutes if got is None else got)]
 
 
 @dataclass(frozen=True)
@@ -333,6 +349,16 @@ class _Env:
         _problems(refresh_token_problems(days, got=raw))
         return days
 
+    def one_time_link_minutes(self) -> int:
+        """INKCAST_ONE_TIME_LINK_MINUTES, a whole number of minutes from 5 to 60; anything else is a ConfigError naming it."""
+        raw = self.get("INKCAST_ONE_TIME_LINK_MINUTES", str(ONE_TIME_LINK_DEFAULT_MINUTES))
+        try:
+            minutes: Any = int(raw)
+        except ValueError:
+            minutes = raw
+        _problems(one_time_link_problems(minutes, got=raw))
+        return minutes
+
     def retention(self) -> RetentionPolicy:
         """INKCAST_OUTBOX_RETENTION_DAYS and INKCAST_KPI_HOURLY_RETENTION_DAYS as a ``RetentionPolicy``; a value outside its
         rule, or an hourly retention shorter than the outbox's, is a ConfigError naming the variable (each, when several
@@ -422,6 +448,13 @@ class Config:
     # INKCAST_PAT_MAX_DAYS (never above 366), and never only while INKCAST_PAT_ALLOW_NO_EXPIRY (a posture info in
     # production). Enforced where a token is made; tokens already issued keep their expiry.
     pat: PatPolicy = PatPolicy()
+    # One-time links (F1.10.S4, issue #92): minutes a connect link (inkcast_connect, POST /api/v1/platforms/{id}/connect-link)
+    # and an account-deletion link (inkcast_delete_account, POST /api/v1/account/deletion-link) last, one value for both
+    # (INKCAST_ONE_TIME_LINK_MINUTES, 5-60). 60 is a hard maximum: a connect link is a bearer capability that passes
+    # through the AI transcript, and whoever holds it can attach their own platform account to the person's Inkcast.
+    # The replies state it (expires_in, "valid N minutes"). Handed to the publishing use cases and libs/account; the
+    # sign-in and return windows (libs/account.RETURN_TTL, the consent page) are protocol windows and stay constant.
+    one_time_link_minutes: int = ONE_TIME_LINK_DEFAULT_MINUTES
     scheduler_interval_seconds: float = 20.0
     # How a scheduled post whose send certainly never happened is retried (F1.10.S1, issue #89):
     # INKCAST_PUBLISH_MAX_ATTEMPTS sends in all, INKCAST_PUBLISH_RETRY_DELAYS seconds apart (the last repeats).
@@ -499,6 +532,11 @@ class Config:
     @property
     def mcp_url(self) -> str:
         return self.public_url.rstrip("/") + "/mcp"
+
+    @property
+    def one_time_link_seconds(self) -> int:
+        """What a connect or deletion ticket is made with, and what the replies' ``expires_in`` says."""
+        return self.one_time_link_minutes * 60
 
     @property
     def allowed_hosts(self) -> list[str]:
@@ -586,6 +624,7 @@ class Config:
         problems += publish_retry_problems(self.publish_retry)  # load_config refuses already; a Config built by hand
         problems += pat_policy_problems(self.pat)              # likewise
         problems += refresh_token_problems(self.refresh_token_days)
+        problems += one_time_link_problems(self.one_time_link_minutes)
         problems += retention_problems(self.retention)
         if urlparse(self.public_url).scheme != "https" and urlparse(self.public_url).hostname not in {
             "localhost", "127.0.0.1"
@@ -699,6 +738,7 @@ def load_config(environ: Mapping[str, str] | None = None) -> Config:
         keycloak_breaker_min=env.int_in("INKCAST_KEYCLOAK_BREAKER_MIN", "5", 1, None, BREAKER_MIN_RULE),
         refresh_token_days=env.refresh_token_days(),
         pat=env.pat_policy(),
+        one_time_link_minutes=env.one_time_link_minutes(),
         extra_allowed_hosts=tuple(h.strip() for h in settings.get("INKCAST_ALLOWED_HOSTS", "").split(",") if h.strip()),
         platform_urls=env.prefixed("INKCAST_API_URL_", str.lower),
         app_name=env.get("INKCAST_APP_NAME", "All"),
