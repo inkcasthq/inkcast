@@ -343,6 +343,66 @@ def _check_pat_expiry(ctx: _Ctx) -> Check:
                  f"{settings}: every new token expires, within {policy.max_days} days ({policy.default_days} unless asked).")
 
 
+# F1.10.S5 (issue #93): the sync interval at a minute or more breaks the "cut off within a minute" promise (README,
+# E9.F9.5.S2, the deletion page); the reconcile's bound is hard (libs/config.KEYCLOAK_RECONCILE_CEILING), not a warning.
+SYNC_INTERVAL_WARN_SECONDS = 60
+# Daily copies: above this a deleted person's data lingers in backups over five weeks (issue #94).
+BACKUP_KEEP_WARN = 35
+
+
+def _check_sync_interval(ctx: _Ctx) -> Check:
+    """A person disabled or deleted in Keycloak loses their tokens within a minute: the events pass runs every
+    INKCAST_KEYCLOAK_SYNC_INTERVAL seconds, so at 60 or more the promise is broken whether or not the sync runs today."""
+    seconds = getattr(ctx.config, "keycloak_sync_interval_seconds", 30.0)
+    title = "People gone from Keycloak are cut off within a minute"
+    shown = format(seconds, "g")
+    if seconds >= SYNC_INTERVAL_WARN_SECONDS:
+        return Check("keycloak-sync-interval", title, "warn",
+                     f"INKCAST_KEYCLOAK_SYNC_INTERVAL={shown}: Keycloak's events are read every {shown} s, so a person "
+                     "disabled or deleted there keeps their Inkcast tokens for longer than the minute the deletion page and "
+                     "the README promise. Set it below 60 (the default is 30).")
+    if not _sync_in_use(ctx):
+        return Check("keycloak-sync-interval", title, "info",
+                     f"INKCAST_KEYCLOAK_SYNC_INTERVAL={shown}: not in use. Sign-in is not a Keycloak realm, or the user sync "
+                     "is off (INKCAST_KEYCLOAK_SYNC_CLIENT_ID unset).")
+    return Check("keycloak-sync-interval", title, "pass",
+                 f"INKCAST_KEYCLOAK_SYNC_INTERVAL={shown}: Keycloak's events are read every {shown} s.")
+
+
+def _check_rate_limit(ctx: _Ctx) -> Check:
+    """F1.10.S5 (issue #93): INKCAST_RATE_LIMIT_PER_MINUTE=0 turns off the per-client limit on the endpoints anyone can
+    call without a token. With INKCAST_LOGIN=password that is unbounded guessing of the one shared password: a failure
+    in production, a warning elsewhere. With another sign-in it is a choice on record (``info``)."""
+    per_minute = getattr(ctx.config, "rate_limit_per_minute", 60)
+    title = "Unauthenticated writes are rate-limited"
+    if per_minute == 0 and getattr(ctx.config, "login", "") == "password":
+        return Check("rate-limit", title, ctx.level(),
+                     "INKCAST_RATE_LIMIT_PER_MINUTE=0 with INKCAST_LOGIN=password: the password form takes unlimited guesses "
+                     "from one client. Set a limit (the default is 60 per minute per client address).")
+    if per_minute == 0:
+        return Check("rate-limit", title, "info",
+                     "INKCAST_RATE_LIMIT_PER_MINUTE=0: client registration, the token page and the connect page take unlimited "
+                     "writes from one client address (sign-in is at the identity provider). Set a limit to bound them.")
+    return Check("rate-limit", title, "pass",
+                 f"INKCAST_RATE_LIMIT_PER_MINUTE={per_minute}: writes per minute per client address on the endpoints anyone "
+                 "can call without a token.")
+
+
+def _check_backup_keep(ctx: _Ctx) -> Check:
+    """F1.10.S5 (issue #93): a person who deletes their account is erased from the database at once, but copies in
+    backups age out only after INKCAST_BACKUP_KEEP days, which the deletion pages state (issue #94). Beyond five weeks
+    that is longer than a deletion should linger."""
+    keep = getattr(ctx.config, "backup_keep", 14)
+    title = "Backups age out within weeks"
+    if keep > BACKUP_KEEP_WARN:
+        return Check("backup-keep", title, "warn",
+                     f"INKCAST_BACKUP_KEEP={keep}: a deleted person's data stays in backups for {keep} days, more than the "
+                     f"{BACKUP_KEEP_WARN} the deletion pages should promise. Keep fewer daily copies (the default is 14), and "
+                     "keep the CronJob's value the same.")
+    return Check("backup-keep", title, "pass",
+                 f"INKCAST_BACKUP_KEEP={keep}: a deleted person's data ages out of backups within {keep} days.")
+
+
 def _check_database_file(ctx: _Ctx) -> Check:
     path = ctx.config.database_path
     if path == ":memory:" or not os.path.exists(path):
@@ -367,7 +427,7 @@ CHECKS: tuple[Callable[[_Ctx], Check], ...] = (
     _check_public_url, _check_secret_key, _check_reveal_flag, _check_debug_flags, _check_log_format,
     _check_secret_files, _check_env_scrubbed, _check_redaction, _check_non_root, _check_core_dumps,
     _check_forwarded_ips, _check_login, _check_erase_after, _check_breaker, _check_publish_retry_window,
-    _check_pat_expiry,
+    _check_pat_expiry, _check_sync_interval, _check_rate_limit, _check_backup_keep,
     _check_database_file, _check_secrets_source,
 )
 
