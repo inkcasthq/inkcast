@@ -160,13 +160,15 @@ ALERTS: tuple[Alert, ...] = (
           "Inkcast tokens until it recovers. Sign-in itself is unaffected.", "identity"),
     # #103: a failure Keycloak answers about one person is that person's alone; the pass goes on and reads them again
     # at the next reconcile (every 10 minutes by default), so a person it keeps failing for shows up in every 30 m.
+    # #121: so is a read about one person that gets no answer (a timeout), unless the next read gets none either.
     Alert("InkcastIdentitySyncPersonFailing",
           'sum by (stage) (increase(inkcast_identity_sync_errors_total[30m])) > 0',
           "warning", "The Keycloak user sync keeps failing at stage {{ $labels.stage }}",
           "For an hour, every 30 minutes has had a Keycloak user sync failure at stage {{ $labels.stage }}: Keycloak "
-          "answers an error about one person (users/{id} or their events), so they are neither cut off nor erased "
-          "while everyone else is. The identity.sync.person.failed log lines name the Inkcast user id, the read and "
-          "the HTTP status. If InkcastIdentitySyncFailing fires too, follow it first.", "identity", for_="1h"),
+          "answers an error about one person (users/{id} or their events), or gives that read no answer at all (a "
+          "timeout), so they are neither cut off nor erased while everyone else is. The identity.sync.person.failed "
+          "log lines name the Inkcast user id, the read, the HTTP status (0 for no answer) and the error's name. If "
+          "InkcastIdentitySyncFailing fires too, follow it first.", "identity", for_="1h"),
     # #105: the gauge is read from the database (1 while a pass is pending), so it needs no hold and survives restarts.
     Alert("InkcastIdentitySyncBreakerOpen", "max(inkcast_identity_sync_breaker_open) > 0", "critical",
           "The Keycloak user sync holds a mass deletion or disabling for an operator",
