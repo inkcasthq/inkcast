@@ -226,8 +226,8 @@ features:
     - Every PAT entry point (REST, /tokens/new, MCP) enforces the limit with a 422 naming it; production sets the PAT settings
   - id: F1.10.S3
     title: 'Retention as settings: domain events and hourly KPIs'
-    status: planned
-    change: 'new; issue #91'
+    status: done
+    change: 'new; issue #91, built in PR #137'
     acceptance:
     - INKCAST_OUTBOX_RETENTION_DAYS (7, 1-30) and INKCAST_KPI_HOURLY_RETENTION_DAYS (90, 31-400); production sets both
     - Hourly KPI retention may not be shorter than the outbox's (kpi_applied stops a replayed event counting twice)
