@@ -167,6 +167,8 @@ The default X template puts the canonical link in the post because that's the po
 
 ## Sequencing (from the research)
 
+**Superseded on 2026-10-22:** the order is now Instagram (with Facebook Pages on the same Meta review), YouTube, TikTok, then X. The reasons and the new platforms are in [video platforms, batch review and the engagement inbox](video-platforms-and-review.md). The original table is kept below for its risk notes.
+
 | Order | Platform | Why | Main risk |
 |---|---|---|---|
 | 1 | **X** | No review gate; text-only works; synchronous create | Ongoing per-post cost; automation and duplicate rules |
