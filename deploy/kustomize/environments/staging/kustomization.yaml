@@ -32,4 +32,4 @@ configMapGenerator:
       - INKCAST_KPI_HOURLY_RETENTION_DAYS=90
 images:
   - name: ghcr.io/inkcasthq/inkcast
-    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    digest: sha256:e8220476c59fd5d75121aa94c743173caa0f47c82286a19fbbd56bef1e7e95d4
