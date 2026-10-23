@@ -24,6 +24,7 @@ ErasureRepo        IdentityService     user_erasures (erase_user: every table ab
 
 from __future__ import annotations
 
+from ..config import RetentionPolicy
 from ..secrets import Sealer, SecretValue, derive_key, new_secret, token_hash
 from . import authz, erasure, identity, kpi, ledger, outbox, posts, vault
 from .authz import AuthzRepo, TupleConflict
@@ -47,11 +48,14 @@ class Store(IdentityRepo, VaultRepo, PostsRepo, LedgerRepo, OutboxRepo, KpiRepo,
         self.sealer = Sealer(secret_key)
         self._erasure_salt = derive_key(secret_key, "erasure")
 
-    def purge_expired(self) -> None:
+    def purge_expired(self, retention: RetentionPolicy = RetentionPolicy()) -> None:
+        """Housekeeping: expired grants and tickets, then domain events every consumer has passed and hourly KPI buckets
+        (with their ``kpi_applied`` rows) older than ``retention``. The scheduler passes ``Config.retention``
+        (INKCAST_OUTBOX_RETENTION_DAYS, INKCAST_KPI_HOURLY_RETENTION_DAYS); the default is the design's 7 and 90 days."""
         self.purge_expired_identity()
         self.purge_expired_tickets()
-        self.purge_outbox()
-        self.purge_kpis()
+        self.purge_outbox(retention.outbox_seconds)
+        self.purge_kpis(retention.kpi_hourly_seconds)
 
 
 __all__ = ["AuthzRepo", "Database", "ErasureRepo", "IdentityRepo", "KpiRepo", "LedgerRepo", "OutboxRepo", "PostsRepo",
