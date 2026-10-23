@@ -372,14 +372,17 @@ class IdentityRepo(Database):
                    "del_" + uuid.uuid4().hex[:16], user_id, token_hash(ticket), now, now + ttl)
         return ticket
 
-    def open_deletion_link(self, ticket: str) -> dict[str, Any] | None:
-        """The request behind a link, consuming the link (a second visit finds nothing); None when unknown or expired."""
+    def open_deletion_link(self, ticket: str, ttl: float = 900) -> dict[str, Any] | None:
+        """The request behind a link, consuming the link (a second visit finds nothing); None when unknown or expired.
+        The request then lives ``ttl`` more seconds, the sign-in it starts (``create_pending``'s), not what was left
+        of the link's lifetime."""
         with self._tx() as c:
+            now = time.time()
             row = c.execute("SELECT * FROM deletion_requests WHERE link_hash = ? AND expires_at > ?",
-                            (token_hash(ticket), time.time())).fetchone()
+                            (token_hash(ticket), now)).fetchone()
             if not row:
                 return None
-            c.execute("UPDATE deletion_requests SET link_hash = NULL WHERE id = ?", (row["id"],))
+            c.execute("UPDATE deletion_requests SET link_hash = NULL, expires_at = ? WHERE id = ?", (now + ttl, row["id"]))
         return dict(row)
 
     def get_deletion_request(self, request_id: str) -> dict[str, Any] | None:
