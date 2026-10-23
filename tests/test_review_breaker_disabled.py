@@ -56,3 +56,28 @@ class TheEventsPassLetsAReEnabledPersonLeaveThePass(Held):
         self.kc.disabled.add(eve["kc"])                                  # Keycloak fixed for the others
         self.assertEqual(self.reconcile(worker, T0 + 600)["disabled"], 1, "eve, judged afresh: one person, cut off")
         self.assert_cut_off_disabled(eve)
+
+    def test_a_person_of_a_404_pass_the_events_pass_reads_present_is_not_cut_off_by_the_confirmation(self):
+        """A 404 pass: five of twenty gone. Keycloak has ada again (her user-storage provider is back) and an
+        administrator saves her (a USER admin event), so the events pass reads her present before any reconcile does.
+        The other four really are gone and the operator confirms. "A held person a pass has since read enabled again
+        left the pass then" (inkcast identity's own account of a confirmation): ada must keep her row, her token and her
+        PAT. The events pass leaves her in the pass, so the confirmation cuts her off, revokes her PAT for good and
+        starts her erasure clock."""
+        people = self.people(20)
+        gone = people[:5]
+        self.kc.gone.update(u["kc"] for u in gone)
+        worker = self.sync(30)
+        self.assertEqual(self.tick(worker)["checked"], 0, "the cursors are set")
+        self.reconcile(worker)
+        pass_id = self.trips()[0]["id"]
+        ada = gone[0]
+        self.kc.gone.discard(ada["kc"])                                  # Keycloak has her again
+        self.kc.admin_events.append(_event(T0 + 1, ada["kc"]))
+        self.tick(worker, T0 + 2)
+        self.now = T0 + 100
+        self.assertEqual(self.operator("confirm-deletions", "--pass", pass_id, "--by", "on-call")[0], 0)
+        self.assert_untouched(ada)
+        self.assert_working(ada)
+        for user in gone[1:]:
+            self.assert_cut_off(user, deleted_at=T0 + 100)
