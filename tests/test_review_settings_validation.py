@@ -111,5 +111,35 @@ class TheReconcileFailsAPersonAgainWithinTheAlertWindow(unittest.TestCase):
         self.assertGreaterEqual(ran, 2, "the default and a pair inside the bound run")
 
 
+class ASyncIntervalNoReconcileCanFollowIsRefusedAsItself(unittest.TestCase):
+    """The README and .env.example give INKCAST_KEYCLOAK_SYNC_INTERVAL no upper bound ("more than 0; 60 or more is a
+    posture warning"), and its rule has none. But the reconcile may be no shorter than it and must stay under the
+    alert's window with it, so from some sync interval on no reconcile can follow: the server refuses to start, and the
+    refusal names INKCAST_KEYCLOAK_RECONCILE_INTERVAL, which the operator never set and cannot set to anything that
+    starts. The PR's own rule is that a setting judged against another outside its rule is judged on its own, so one
+    wrong value gives one problem about itself."""
+
+    def test_the_refusal_names_the_sync_interval_and_every_sync_interval_it_accepts_has_a_reconcile(self):
+        for sync in ("900", "1800", "3600", "86400"):
+            with self.subTest(sync=sync):
+                with self.assertRaises(ConfigError) as caught:
+                    load_config({**KEYCLOAK, SYNC: sync})              # the reconcile left at its default, 600
+                message = str(caught.exception)
+                self.assertTrue(message.startswith(f"{SYNC} must"), message)
+                self.assertNotIn("\n- ", message, "one problem: the default reconcile is not one")
+                self.assertIn(repr(sync), message)
+        for sync in ("1", "30", "60", "600", "899", "899.5"):
+            with self.subTest(sync=sync):
+                load_config({**KEYCLOAK, SYNC: sync, RECONCILE: sync}).validate()   # the shortest reconcile it allows
+
+    def test_the_docs_state_the_sync_intervals_bound(self):
+        import pathlib
+        root = pathlib.Path(__file__).resolve().parents[1]
+        (row,) = [line for line in (root / "README.md").read_text(encoding="utf-8").splitlines()
+                  if line.startswith(f"| `{SYNC}` |")]
+        self.assertIn("under `900`", row)
+        self.assertIn("under 900", (root / ".env.example").read_text(encoding="utf-8"))
+
+
 if __name__ == "__main__":
     unittest.main()
