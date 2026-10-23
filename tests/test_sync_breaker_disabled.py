@@ -181,17 +181,17 @@ class Resolution(Held):
         pass_id = self.trips()[0]["id"]
         self.now = T0 + 3600
         with self.assertLogs("inkcast.identity.sync", level="WARNING") as logs:
-            status, out = self.operator("confirm-deletions", "--pass", pass_id, "--by", "lateef")
+            status, out = self.operator("confirm-deletions", "--pass", pass_id, "--by", "on-call")
         self.assertEqual(status, 0, out)
         for user in people:
             self.assert_cut_off_disabled(user)
             self.assertEqual(self.me(user)[0], 401)
         trip = self.store.get_breaker_trip(pass_id)
-        self.assertEqual((trip["status"], trip["resolved_at"], trip["resolved_by"]), ("confirmed", T0 + 3600, "lateef"))
+        self.assertEqual((trip["status"], trip["resolved_at"], trip["resolved_by"]), ("confirmed", T0 + 3600, "on-call"))
         confirmed = [r for r in logs.records if getattr(r, "event", "") == "identity.sync.breaker.confirmed"]
         self.assertEqual(len(confirmed), 1, "one audit line")
         self.assertEqual((confirmed[0].pass_id, confirmed[0].applied, confirmed[0].skipped, confirmed[0].by),
-                         (pass_id, 20, 0, "lateef"))
+                         (pass_id, 20, 0, "on-call"))
         self.assertEqual((confirmed[0].gone, confirmed[0].disabled), (0, 20))
         cut = [r for r in logs.records if getattr(r, "event", "") == "identity.user.disabled"]
         self.assertEqual(sorted(r.user_id for r in cut), sorted(u["id"] for u in people))
@@ -216,7 +216,7 @@ class Resolution(Held):
             self.assertEqual(self.me(user)[0], 401)
         self.now = T0 + 60
         with self.assertLogs("inkcast.identity.sync", level="INFO") as logs:
-            status, out = self.operator("dismiss-deletions", "--pass", pass_id, "--by", "lateef")
+            status, out = self.operator("dismiss-deletions", "--pass", pass_id, "--by", "on-call")
         self.assertEqual(status, 0, out)
         for user in people:
             row = self.row(user)
@@ -226,9 +226,9 @@ class Resolution(Held):
             self.assertEqual(self.me(user)[0], 200)
             self.assertIsNone(self.store.get_token(f"ic_at_{user['kc']:x<43}", "access"), "the OAuth token stays cut: a sign-in restores it")
         trip = self.store.get_breaker_trip(pass_id)
-        self.assertEqual((trip["status"], trip["resolved_at"], trip["resolved_by"]), ("dismissed", T0 + 60, "lateef"))
+        self.assertEqual((trip["status"], trip["resolved_at"], trip["resolved_by"]), ("dismissed", T0 + 60, "on-call"))
         dismissed = [r for r in logs.records if getattr(r, "event", "") == "identity.sync.breaker.dismissed"]
-        self.assertEqual([(r.pass_id, r.by, r.released) for r in dismissed], [(pass_id, "lateef", 20)])
+        self.assertEqual([(r.pass_id, r.by, r.released) for r in dismissed], [(pass_id, "on-call", 20)])
         released = [r for r in logs.records if getattr(r, "event", "") == "identity.user.released"]
         self.assertEqual(sorted(r.user_id for r in released), sorted(u["id"] for u in people))
         self.assertEqual({r.via for r in released}, {"dismiss"})
@@ -485,7 +485,7 @@ class ReEnabledBeforeConfirmation(Held):
         self.assertEqual(sorted((r.user_id, r.via) for r in released), sorted((u["id"], "reconcile") for u in back))
         self.now = T0 + 3600
         with self.assertLogs("inkcast.identity.sync", level="WARNING") as logs:
-            self.assertEqual(self.operator("confirm-deletions", "--pass", pass_id, "--by", "lateef")[0], 0)
+            self.assertEqual(self.operator("confirm-deletions", "--pass", pass_id, "--by", "on-call")[0], 0)
         for user in back:
             self.assertTrue(self.pat_works(user), f"{user['kc']} keeps their PAT")
             self.assert_working(user)
