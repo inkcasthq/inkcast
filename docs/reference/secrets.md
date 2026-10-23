@@ -93,7 +93,7 @@ file may hold pointers: `INKCAST_SECRET_KEY_FILE`, `INKCAST_SECRETS_DIR`, `INKCA
 
 Two layers run on **every** log line, in JSON and text format, message and traceback alike:
 
-1. patterns: Inkcast's own token formats (`ink_pat_…`, `ic_at_…`, the ticket in `/connect/…`), `Bearer …`, `password=…`,
+1. patterns: Inkcast's own token formats (`ink_pat_…`, `ic_at_…`, the ticket in `/connect/…` and `/account/delete/…`), `Bearer …`, `password=…`,
    `client_secret=…`, `code=…`;
 2. registered values: the exact credentials this process loaded, in raw, JSON-escaped and URL-encoded
    form, wherever they appear: a message, an `extra=` field, a library's error text, a URL with a

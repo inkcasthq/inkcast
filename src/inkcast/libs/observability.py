@@ -104,6 +104,7 @@ _SECRET_PATTERNS = [
     re.compile(r"\b(ink_pat_[A-Za-z0-9]+_)[A-Za-z0-9_\-]{8,}"),
     re.compile(r"\b(ic_(?:at|rt|code)_)[A-Za-z0-9_\-]{8,}"),
     re.compile(r"(/connect/)[A-Za-z0-9_\-]{8,}"),  # one-time connect tickets travel in the path (access log)
+    re.compile(r"(/account/delete/)[A-Za-z0-9_\-]{8,}"),  # so do one-time account-deletion tickets (issue #149)
     re.compile(r"(?i)\b(bearer\s+)[A-Za-z0-9._~+/\-]{8,}=*"),
     re.compile(r"(?i)\b((?:api[_-]?key|client_secret|password|access_token|refresh_token|code)=)[^&\s\"']+"),
 ]
