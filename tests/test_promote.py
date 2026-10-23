@@ -26,6 +26,13 @@ class Promote(unittest.TestCase):
         script = (REPO / "scripts" / "repo" / "settings.py").read_text()
         self.assertIn('f"repos/{repo}/actions/permissions/workflow"', script)   # checked and applied
 
+    def test_squash_merges_take_the_title_only(self):
+        # PR bodies written from the automation workspace carry a tooling attribution line that can't be removed
+        # there; PR_BODY would copy it into main on every merge (issue #142). The PR title is the commit.
+        settings = json.loads((REPO / ".github" / "repo-settings.json").read_text())
+        self.assertEqual(settings["repository"]["squash_merge_commit_title"], "PR_TITLE")
+        self.assertEqual(settings["repository"]["squash_merge_commit_message"], "BLANK")
+
     def test_a_failure_to_open_the_pull_request_is_readable(self):
         text = (WORKFLOWS / "promote.yml").read_text()
         self.assertIn('scripts/ci-run.sh "open the promotion pull request" gh pr create', text)
