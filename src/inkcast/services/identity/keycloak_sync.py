@@ -143,7 +143,7 @@ def cut_off_person(store: Any, metrics: Any, user: dict[str, Any], state: str, v
             return None
     if user.get("disabled_at"):
         return False
-    cut = store.disable_user(user_id, last_login_at=last_login_at)
+    cut = store.disable_user(user_id, last_login_at=last_login_at, held_at=user.get("held_at"))   # a release since: enabled
     if cut is None:
         return None
     # Only the Inkcast id, a fixed reason and counts reach the log: nothing from Keycloak's answers or the

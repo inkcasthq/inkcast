@@ -133,5 +133,41 @@ class TheReconcileCutOff(Base):
         self.assert_cut_off(bob)
 
 
+class TheConfirmationOfAHold(Base):
+    """``inkcast identity confirm-deletions`` of a disabled pass: a held person is cut off only while still held. One
+    a pass in the server read enabled again, and released, after the confirmation checked her hold is restored."""
+
+    def test_a_release_between_the_check_and_the_cut_off_spares_a_disabled_person(self):
+        from inkcast.breaker import _confirm
+        people = [self.person(f"kc-p{i}") for i in range(8)]
+        disabled = people[:5]
+        pats = {u["id"]: self.pat(u) for u in disabled}
+        self.kc.disabled.update(u["kc"] for u in disabled)
+        self.reconcile(self.sync(30))
+        (trip,) = self.trips()
+        ada = disabled[0]
+        self.assertIsNotNone(self.row(ada)["held_at"], "held")
+        real, released = self.store.disable_user, []
+
+        def disable_user(user_id, *args, **kwargs):
+            if user_id == ada["id"] and not released:              # Keycloak enabled her again; a pass elsewhere saw it
+                self.kc.disabled.discard(ada["kc"])
+                released.append(self.other.release_user(ada["id"]))
+            return real(user_id, *args, **kwargs)
+        self.store.disable_user = disable_user
+        self.addCleanup(delattr, self.store, "disable_user")
+        with self.assertLogs("inkcast.identity.sync", level="WARNING") as logs:
+            self.assertEqual(_confirm(self.store, trip["id"], "on-call", T0 + 3600), 0)
+        self.assertEqual(released, [True], "the release landed between the check and the cut-off")
+        row = self.row(ada)
+        self.assertEqual((row["disabled_at"], row["held_at"]), (None, None), "not cut off: released, enabled again")
+        self.assertIsNotNone(self.store.find_api_token(pats[ada["id"]]), "her PAT works again: not revoked")
+        for user in disabled[1:]:
+            self.assertIsNotNone(self.row(user)["disabled_at"])
+            self.assertIsNone(self.store.find_api_token(pats[user["id"]]), "revoked")
+        (confirmed,) = [r for r in logs.records if getattr(r, "event", "") == "identity.sync.breaker.confirmed"]
+        self.assertEqual((confirmed.applied, confirmed.skipped), (4, 1), "the audit line counts her as spared")
+
+
 if __name__ == "__main__":
     unittest.main()
