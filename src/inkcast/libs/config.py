@@ -258,7 +258,12 @@ def retention_problems(policy: RetentionPolicy, got: tuple[Any, Any] | None = No
 
 def _seconds(value: Any) -> bool:
     """A positive, finite number of seconds: an int or a float, never a bool, a nan or an inf."""
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value > 0
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return False
+    try:
+        return math.isfinite(value) and value > 0
+    except OverflowError:                         # an int beyond any float (10**400): no wait, no clock can take it
+        return False
 
 
 def _show(value: Any) -> Any:

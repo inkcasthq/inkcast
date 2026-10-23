@@ -168,5 +168,30 @@ class AShutdownGraceUnderASecondIsStillAGrace(unittest.TestCase):
         self.assertGreaterEqual(ran, 2, "1.5 and the default start")
 
 
+class AnIntervalBeyondAnyFloatIsRefusedNotACrash(unittest.TestCase):
+    """``validate()`` is the PR's net for a Config built by hand, each refusal a ConfigError naming the variable. An int
+    too large for a float (``10**400``) makes ``math.isfinite`` raise OverflowError instead: a traceback, no variable
+    named, and none of the other problems listed."""
+
+    def test_validate_refuses_it_naming_the_variable(self):
+        from inkcast.libs.config import Config
+        for field, name in (("keycloak_sync_interval_seconds", SYNC), ("keycloak_reconcile_seconds", RECONCILE),
+                            ("scheduler_interval_seconds", "INKCAST_SCHEDULER_INTERVAL"),
+                            ("overdue_grace_seconds", "INKCAST_OVERDUE_GRACE"),
+                            ("insights_interval_seconds", "INKCAST_INSIGHTS_INTERVAL"),
+                            ("shutdown_grace_seconds", "INKCAST_SHUTDOWN_GRACE")):
+            with self.subTest(field=field):
+                cfg = Config(public_url="https://inkcast.example.com", secret_key=SECRET_KEY, database_path=":memory:",
+                             login="password", password="p" * 12, **{field: 10**400})
+                try:
+                    cfg.validate()
+                except ConfigError as exc:
+                    self.assertIn(name, str(exc))
+                except OverflowError as exc:
+                    self.fail(f"{field}=10**400: {type(exc).__name__}: {exc}, not a refusal naming {name}")
+                else:
+                    self.fail(f"{field}=10**400 passed validate()")
+
+
 if __name__ == "__main__":
     unittest.main()
