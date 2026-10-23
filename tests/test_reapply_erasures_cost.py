@@ -215,6 +215,21 @@ class ARestoredDatabase(unittest.TestCase):
         self.assertEqual(list(store.reapply_erasures()), [ada], "erased again despite the rotation")
         self.assertEqual(set(self.counts(store, ada).values()), {0})
 
+    def test_a_person_created_under_one_key_and_erased_under_another_is_still_re_erased(self):
+        """The record carries the hash stored with the row, so a key rotation between the two doesn't hide her."""
+        store = Store(str(self.db), KEY)
+        ada, _ = self.seed(store, "ada")
+        take_backup(self.db, self.backups, version="test")                 # her rows, hashed under the old key
+        store.close()
+        store = Store(str(self.db), "r" * 48)                              # INKCAST_SECRET_KEY rotated, then she left
+        self.assertGreater(sum(store.erase_user(ada).values()), 0)
+        store.close()
+        restore_backup(self.newest_backup(), self.db, now=time.time() + 3600)
+        store = Store(str(self.db), "r" * 48)
+        self.addCleanup(store.close)
+        self.assertEqual(list(store.reapply_erasures()), [ada], "erased again despite the rotation")
+        self.assertEqual(set(self.counts(store, ada).values()), {0})
+
 
 del UserErasureTests                       # helpers only; its tests belong to test_units
 
