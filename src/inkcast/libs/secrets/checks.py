@@ -348,6 +348,10 @@ def _check_pat_expiry(ctx: _Ctx) -> Check:
 SYNC_INTERVAL_WARN_SECONDS = 60
 # Daily copies: above this a deleted person's data lingers in backups over five weeks (issue #94).
 BACKUP_KEEP_WARN = 35
+# Writes a minute from one client address: above this (ten a second, which no person submitting a form reaches) the
+# limit no longer slows a tool guessing the one shared password of INKCAST_LOGIN=password (#157). Still far under the
+# ceiling (libs/config.RATE_LIMIT_CEILING), which is about the limiter's arithmetic, not the posture.
+RATE_LIMIT_WARN = 600
 
 
 def _check_sync_interval(ctx: _Ctx) -> Check:
@@ -372,13 +376,20 @@ def _check_sync_interval(ctx: _Ctx) -> Check:
 def _check_rate_limit(ctx: _Ctx) -> Check:
     """F1.10.S5 (issue #93): INKCAST_RATE_LIMIT_PER_MINUTE=0 turns off the per-client limit on the endpoints anyone can
     call without a token. With INKCAST_LOGIN=password that is unbounded guessing of the one shared password: a failure
-    in production, a warning elsewhere. With another sign-in it is a choice on record (``info``)."""
+    in production, a warning elsewhere; a limit above RATE_LIMIT_WARN with password sign-in is effectively the same
+    (#157): a warning. With another sign-in it is a choice on record (``info``)."""
     per_minute = getattr(ctx.config, "rate_limit_per_minute", 60)
     title = "Unauthenticated writes are rate-limited"
-    if per_minute == 0 and getattr(ctx.config, "login", "") == "password":
+    password = getattr(ctx.config, "login", "") == "password"
+    if per_minute == 0 and password:
         return Check("rate-limit", title, ctx.level(),
                      "INKCAST_RATE_LIMIT_PER_MINUTE=0 with INKCAST_LOGIN=password: the password form takes unlimited guesses "
                      "from one client. Set a limit (the default is 60 per minute per client address).")
+    if per_minute > RATE_LIMIT_WARN and password:
+        return Check("rate-limit", title, "warn",
+                     f"INKCAST_RATE_LIMIT_PER_MINUTE={per_minute} with INKCAST_LOGIN=password: the password form takes "
+                     f"{per_minute} guesses a minute from one client address, more than {RATE_LIMIT_WARN} (ten a second), "
+                     "which no longer slows a guessing tool. Set it lower (the default is 60).")
     if per_minute == 0:
         return Check("rate-limit", title, "info",
                      "INKCAST_RATE_LIMIT_PER_MINUTE=0: client registration, the token page and the connect page take unlimited "
@@ -394,13 +405,21 @@ def _check_backup_keep(ctx: _Ctx) -> Check:
     that is longer than a deletion should linger."""
     keep = getattr(ctx.config, "backup_keep", 14)
     title = "Backups age out within weeks"
-    if keep > BACKUP_KEEP_WARN:
-        return Check("backup-keep", title, "warn",
-                     f"INKCAST_BACKUP_KEEP={keep}: a deleted person's data stays in backups for {keep} days, more than the "
-                     f"{BACKUP_KEEP_WARN} the deletion pages should promise. Keep fewer daily copies (the default is 14), and "
-                     "keep the CronJob's value the same.")
+    warning = backup_keep_warning(keep)
+    if warning:
+        return Check("backup-keep", title, "warn", warning)
     return Check("backup-keep", title, "pass",
                  f"INKCAST_BACKUP_KEEP={keep}: a deleted person's data ages out of backups within {keep} days.")
+
+
+def backup_keep_warning(keep: int, setting: str = "INKCAST_BACKUP_KEEP") -> str | None:
+    """The backup-keep warning for ``keep`` daily copies, or None within BACKUP_KEEP_WARN: the check's detail, and what
+    ``inkcast backup`` logs when ``--keep`` (``setting``) or the variable says more (#157)."""
+    if keep <= BACKUP_KEEP_WARN:
+        return None
+    return (f"{setting}={keep}: a deleted person's data stays in backups for {keep} days, more than the {BACKUP_KEEP_WARN} "
+            "the deletion pages should promise. Keep fewer daily copies (the default is 14), the same for the CronJob and "
+            "the server.")
 
 
 def _check_database_file(ctx: _Ctx) -> Check:

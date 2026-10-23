@@ -142,7 +142,7 @@ turns a weak `INKCAST_SECRET_KEY` and the reveal flag into failures.
 | `publish-retry-window` | retries end within 24 h | the `INKCAST_PUBLISH_RETRY_DELAYS` waits between the `INKCAST_PUBLISH_MAX_ATTEMPTS` sends (one fewer than the sends, the last delay repeating) add up to more than a day: warn |
 | `pat-expiry` | every new personal access token expires (`INKCAST_PAT_ALLOW_NO_EXPIRY=false`), or a laptop | `INKCAST_PAT_ALLOW_NO_EXPIRY=true` (a token may never expire, to be revoked by hand) in production or staging: **info**, a choice on record, never a problem |
 | `keycloak-sync-interval` | `INKCAST_KEYCLOAK_SYNC_INTERVAL` under 60 s, with the user sync in use (info elsewhere) | `60` or more (a person disabled or deleted in Keycloak keeps their tokens for longer than the minute promised): warn |
-| `rate-limit` | `INKCAST_RATE_LIMIT_PER_MINUTE` above 0 | `0` with `INKCAST_LOGIN=password` (unlimited password guessing): warn, **fail** in production; `0` with another sign-in: **info** |
+| `rate-limit` | `INKCAST_RATE_LIMIT_PER_MINUTE` from 1 to 600 | `0` with `INKCAST_LOGIN=password` (unlimited password guessing): warn, **fail** in production; above `600` (ten a second) with `INKCAST_LOGIN=password` (the limit no longer slows a guessing tool): warn; `0` with another sign-in: **info** |
 | `backup-keep` | `INKCAST_BACKUP_KEEP` at most 35 | more (a deleted person's data lingers in backups over five weeks): warn |
 | `non-root`, `core-dumps`, `forwarded-ips`, `login-method`, `database-protected`, `secrets-source` | see `inkcast checks` | |
 

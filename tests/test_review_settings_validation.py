@@ -94,7 +94,7 @@ class TheReconcileFailsAPersonAgainWithinTheAlertWindow(unittest.TestCase):
     def test_every_accepted_pair_counts_a_person_failing_in_the_reconcile_again_within_the_window(self):
         window = alert_window()
         ran = 0
-        for sync, reconcile in (("30", "600"), ("30", "1799"), ("5", "1799"), ("1000", "1700"), ("600", "1199")):
+        for sync, reconcile in (("30", "600"), ("30", "1799"), ("5", "1799"), ("1000", "1700"), ("600", "1080")):
             env = {SYNC: sync, RECONCILE: reconcile}
             with self.subTest(**env):
                 try:
@@ -128,7 +128,7 @@ class ASyncIntervalNoReconcileCanFollowIsRefusedAsItself(unittest.TestCase):
                 self.assertTrue(message.startswith(f"{SYNC} must"), message)
                 self.assertNotIn("\n- ", message, "one problem: the default reconcile is not one")
                 self.assertIn(repr(sync), message)
-        for sync in ("1", "30", "60", "600", "899", "899.5"):
+        for sync in ("1", "30", "60", "600", "839", "840"):                           # 840 at most, with #157's margin
             with self.subTest(sync=sync):
                 load_config({**KEYCLOAK, SYNC: sync, RECONCILE: sync}).validate()   # the shortest reconcile it allows
 
@@ -137,8 +137,8 @@ class ASyncIntervalNoReconcileCanFollowIsRefusedAsItself(unittest.TestCase):
         root = pathlib.Path(__file__).resolve().parents[1]
         (row,) = [line for line in (root / "README.md").read_text(encoding="utf-8").splitlines()
                   if line.startswith(f"| `{SYNC}` |")]
-        self.assertIn("under `900`", row)
-        self.assertIn("under 900", (root / ".env.example").read_text(encoding="utf-8"))
+        self.assertIn("`1` to `840`", row)
+        self.assertIn("1-840", (root / ".env.example").read_text(encoding="utf-8"))
 
 
 class AShutdownGraceUnderASecondIsStillAGrace(unittest.TestCase):
