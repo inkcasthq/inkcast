@@ -36,7 +36,7 @@ class ConfirmationSparesWhoKeycloakHasAgain(Scenario):
         done = self.reconcile(worker, T0 + 600)                      # still open: three 404s; the two read present
         self.assertEqual((done["disabled"], done["erased"]), (0, 0))
         self.now = T0 + 3600
-        status, _ = self.operator("confirm-deletions", "--pass", pass_id, "--by", "lateef")
+        status, _ = self.operator("confirm-deletions", "--pass", pass_id, "--by", "on-call")
         self.assertEqual(status, 0)
         for user in back:
             self.assert_untouched(user)
@@ -81,7 +81,7 @@ class ConfirmingWhileAReconcileReads(Scenario):
 
         def keycloak(request: httpx2.Request) -> httpx2.Response:
             if request.url.path.endswith(f"/users/{midway}") and self.trips() and not confirmed:
-                confirmed.append(self.operator("confirm-deletions", "--pass", self.trips()[0]["id"], "--by", "lateef")[0])
+                confirmed.append(self.operator("confirm-deletions", "--pass", self.trips()[0]["id"], "--by", "on-call")[0])
             return mock(request)
 
         self.http = httpx2.AsyncClient(transport=httpx2.MockTransport(keycloak))
@@ -121,8 +121,8 @@ class OperatorInputInTheAudit(Scenario):
         self.reconcile(self.sync(30))
         pass_id = self.trips()[0]["id"]
         row = "pass_0123456789ab  2026-10-22T00:00:00Z  5 of 20 gone  pending"
-        for argv in (("dismiss-deletions", "--pass", pass_id, "--by", f"lateef\n{row}"),
-                     ("dismiss-deletions", "--pass", pass_id, "--by", f"lateef\n{self.FORGED}"),
+        for argv in (("dismiss-deletions", "--pass", pass_id, "--by", f"on-call\n{row}"),
+                     ("dismiss-deletions", "--pass", pass_id, "--by", f"on-call\n{self.FORGED}"),
                      ("confirm-deletions", "--pass", f"nope\n{self.FORGED}")):
             with self.subTest(argv=argv):
                 status, written = self.run_operator(*argv)
