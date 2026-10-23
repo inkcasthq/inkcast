@@ -16,7 +16,8 @@ from .usecases import InkcastService
 
 def _parts(ctx: Context):
     if "publishing" not in ctx.extras:
-        service = InkcastService(ctx.store, ctx.platforms, ctx.publisher, ctx.config.public_url)
+        service = InkcastService(ctx.store, ctx.platforms, ctx.publisher, ctx.config.public_url,
+                                 ctx.config.one_time_link_seconds)
         sync = GitSync(ctx.store, ctx.platforms, ctx.publisher, ctx.metrics)
         ctx.extras["publishing"] = (service, sync)
     return ctx.extras["publishing"]

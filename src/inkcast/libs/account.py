@@ -18,13 +18,16 @@ from typing import Any
 from .contracts.models import DeletionLink
 from .http.rest import ApiError
 
-LINK_TTL = 900        # the one-time link: 15 minutes, one use
+# The one-time link lasts Config.one_time_link_seconds (INKCAST_ONE_TIME_LINK_MINUTES, 15 by default, at most 60; F1.10.S4,
+# issue #92), the same setting as the connect link's. The return window below is a protocol window, deliberately not
+# a setting: it covers Keycloak's own pages (sign in again, confirm) and the visit back, however the link was sized.
 RETURN_TTL = 1800     # from "Continue" to the visit back from Keycloak: 30 minutes
 COOKIE = "inkcast_deletion"
 
 
 def deletion_link(config: Any, store: Any, user_id: str) -> DeletionLink:
-    """The one-time link, or the reason there is none (``ApiError`` 409, in words the person can act on)."""
+    """The one-time link, good for ``config.one_time_link_seconds`` (the reply states it), or the reason there is none
+    (``ApiError`` 409, in words the person can act on)."""
     if config.login != "oidc":
         raise ApiError(409, "not_available", "Deleting your account is not available on this Inkcast: it needs Keycloak "
                        "sign-in (INKCAST_LOGIN=oidc), and this one uses another sign-in. Ask the operator to remove your data.")
@@ -32,8 +35,9 @@ def deletion_link(config: Any, store: Any, user_id: str) -> DeletionLink:
         raise ApiError(409, "not_available", "Deleting your account is not available on this Inkcast yet: the Keycloak "
                        "user sync (INKCAST_KEYCLOAK_SYNC_CLIENT_ID) is not configured, so Inkcast could not learn that "
                        "your account is gone. Ask the operator.")
-    ticket = store.create_deletion_request(user_id, ttl=LINK_TTL)
-    return DeletionLink(url=f"{config.public_url}/account/delete/{ticket}", expires_in=LINK_TTL)
+    ttl = config.one_time_link_seconds
+    ticket = store.create_deletion_request(user_id, ttl=ttl)
+    return DeletionLink(url=f"{config.public_url}/account/delete/{ticket}", expires_in=ttl)
 
 
-__all__ = ["COOKIE", "LINK_TTL", "RETURN_TTL", "deletion_link"]
+__all__ = ["COOKIE", "RETURN_TTL", "deletion_link"]

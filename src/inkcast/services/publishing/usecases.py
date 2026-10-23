@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+from ...libs.config import ONE_TIME_LINK_DEFAULT_MINUTES
 from ...libs.contracts.models import (
     ConnectedAccount, ConnectLink, DestinationInfo, Me, PlatformInfo, PlatformResult, PostInfo,
     PublishRequest, PublishResponse,
@@ -17,14 +18,16 @@ from ...libs.db import Store
 from ...libs.content.story import SCHEDULE_HORIZON_DAYS, StoryError, parse_story
 from ...libs.http.rest import ApiError
 
-TICKET_TTL = 900
-
 ServiceError = ApiError  # use cases raise the shared REST error type
 
 
 class InkcastService:
-    def __init__(self, store: Store, platforms: dict[str, Platform], publisher: Publisher, public_url: str):
+    def __init__(self, store: Store, platforms: dict[str, Platform], publisher: Publisher, public_url: str,
+                 link_seconds: int = ONE_TIME_LINK_DEFAULT_MINUTES * 60):
+        """``link_seconds`` is how long a connect link lasts: ``Config.one_time_link_seconds`` (INKCAST_ONE_TIME_LINK_MINUTES,
+        F1.10.S4), handed in by the service that builds this, never read from global state."""
         self.store, self.platforms, self.publisher, self.public_url = store, platforms, publisher, public_url
+        self.link_seconds = link_seconds
 
     def _platform(self, pid: str) -> Platform:
         p = self.platforms.get(pid.strip().lower())
@@ -46,9 +49,11 @@ class InkcastService:
         ]
 
     def connect_link(self, user_id: str, pid: str) -> ConnectLink:
+        """A one-time link to /connect/<ticket>, good for ``link_seconds``; the reply states that lifetime."""
         p = self._platform(pid)
-        ticket = self.store.create_ticket(user_id, p.id, ttl=TICKET_TTL)
-        return ConnectLink(platform=p.id, url=f"{self.public_url}/connect/{ticket}", expires_in=TICKET_TTL, help=p.connect_help)
+        ticket = self.store.create_ticket(user_id, p.id, ttl=self.link_seconds)
+        return ConnectLink(platform=p.id, url=f"{self.public_url}/connect/{ticket}", expires_in=self.link_seconds,
+                           help=p.connect_help)
 
     def disconnect(self, user_id: str, pid: str) -> bool:
         return self.store.delete_credentials(user_id, self._platform(pid).id)

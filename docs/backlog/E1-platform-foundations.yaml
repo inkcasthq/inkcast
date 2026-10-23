@@ -233,8 +233,8 @@ features:
     - Hourly KPI retention may not be shorter than the outbox's (kpi_applied stops a replayed event counting twice)
   - id: F1.10.S4
     title: One-time link lifetime as a setting (connect and deletion links)
-    status: planned
-    change: 'new; issue #92'
+    status: done
+    change: 'new; issue #92, built in PR #147'
     acceptance:
     - INKCAST_ONE_TIME_LINK_MINUTES (15, 5-60, one value for both links); MCP and REST replies state the configured lifetime
   - id: F1.10.S5
