@@ -348,7 +348,8 @@ class KeycloakSync:
         """One pass: the events since the cursors, then a reconcile when it is due. Returns what it did. A
         ``PersonError`` is that person's alone (``_person_failed``); any other error, or a reconcile that could act
         on nobody (a realm-wide 403 or 500), fails the pass as a whole, as before. Reads with no answer are counted in
-        a row within a pass (``_read_person``): the second fails it, and the next pass starts at nought."""
+        a row within a pass (``_read_person``): the second fails it, and the next pass, and the reconcile, start at
+        nought."""
         done = {"checked": 0, "disabled": 0, "erased": 0}
         self._no_answer = 0
         deleted, cursor, newest = await self.deleted_accounts()
@@ -405,6 +406,8 @@ class KeycloakSync:
         period at a later deletion. Everyone is read before anyone is acted on, so the breaker can count (#105) and
         so an error that fails the pass as a whole leaves nobody half done."""
         people = self.store.users_with_identity_prefix(self.prefix, include_disabled=True)
+        # Its own count: the admin-events pass reads the newest event's person at every pass, who may be this one's first.
+        self._no_answer = 0
         read: list[tuple[dict[str, Any], str, str]] = []           # (row as listed, Keycloak id, state)
         unread = 0
         for user in people:
