@@ -452,7 +452,7 @@ class TheEventsPassWhileOpen(Held):
         self.assertTrue(self.pat_works(back), "she keeps her PAT: Keycloak has her enabled")
         self.assertIsNone(self.row(back)["disabled_at"])
         confirmed = [r for r in logs.records if getattr(r, "event", "") == "identity.sync.breaker.confirmed"][0]
-        self.assertEqual((confirmed.applied, confirmed.skipped), (19, 1))
+        self.assertEqual((confirmed.applied, confirmed.skipped), (19, 0), "she left the pass when read enabled")
         for user in people:
             if user is not back:
                 self.assert_cut_off_disabled(user)
