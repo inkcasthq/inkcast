@@ -35,6 +35,21 @@ configMapGenerator:
       # indefinitely.
       - INKCAST_OUTBOX_RETENTION_DAYS=7
       - INKCAST_KPI_HOURLY_RETENTION_DAYS=90
+      # The intervals, the overdue grace, the rate limit and the backup copies (F1.10.S5, #157): seconds between reads
+      # of Keycloak's events (1-840; 60 or more is a posture warning) and between full re-reads of every Keycloak person
+      # (from the sync interval to 1680 less it: the InkcastIdentitySyncPersonFailing alert's window); seconds between
+      # scheduler ticks (1-60) and past due before a post counts as overdue (twice the tick to 3600); seconds between
+      # insights passes (1 or more); the shutdown grace (under the Deployment's terminationGracePeriodSeconds, 40);
+      # unauthenticated writes a minute per client address (0-10000; 0 is off, above 600 with password sign-in warns);
+      # and daily backups kept (above 35 warns). The defaults, stated so they are a choice.
+      - INKCAST_KEYCLOAK_SYNC_INTERVAL=30
+      - INKCAST_KEYCLOAK_RECONCILE_INTERVAL=600
+      - INKCAST_SCHEDULER_INTERVAL=20
+      - INKCAST_OVERDUE_GRACE=600
+      - INKCAST_INSIGHTS_INTERVAL=10
+      - INKCAST_SHUTDOWN_GRACE=25
+      - INKCAST_RATE_LIMIT_PER_MINUTE=60
+      - INKCAST_BACKUP_KEEP=14           # the backup CronJob's value (components/backup): change both together
 images:
   - name: ghcr.io/inkcasthq/inkcast
     digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
