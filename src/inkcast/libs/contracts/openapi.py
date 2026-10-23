@@ -27,7 +27,9 @@ MODELS = (ErrorBody, Me, PlatformInfo, ConnectLink, DeletionLink, DestinationInf
           KpiPoint, KpiSeries)
 
 _ERR = {"application/problem+json": {"schema": {"$ref": "#/components/schemas/ErrorBody"}}}
-_ERRORS = {401: "Missing, invalid or expired token", 403: "The token lacks the scope this needs", 404: "Not found",
+_ERRORS = {401: "Missing, invalid or expired token; or a personal access token on hold while an operator reviews a "
+                "sign-in provider change (error `token_held`)",
+           403: "The token lacks the scope this needs", 404: "Not found",
            409: "Conflict", 422: "Invalid input", 502: "The platform returned an error"}
 
 

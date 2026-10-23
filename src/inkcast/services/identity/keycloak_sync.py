@@ -31,19 +31,26 @@ Inkcast user id only, and the pass goes on with the others (#103): that person i
 reconcile. Anything else (Keycloak unreachable, the service account refused, the database) fails the pass as a
 whole, and so does a reconcile that could act on nobody.
 
-**The circuit breaker (E9.F9.5.S7, issue #105).** Some Keycloak failures make it answer 404 about many people who
-still exist: a realm restored from an older backup, the issuer pointing at the wrong Keycloak, a non-importing
-user-storage provider (LDAP) disabled for maintenance. So the reconcile reads everyone before it acts on anyone, and
-counts the people newly found gone with no DELETE_ACCOUNT event (one already cut off, with a grace period running,
-was counted when it was found). At ``keycloak_breaker_min`` or more, and more than ``keycloak_breaker_percent`` of
-the people it read, the breaker trips: the pass is recorded with those people (``sync_breaker_trips``), nobody is
-cut off or erased and no grace period starts or advances, ``inkcast_identity_sync_breaker_open`` is 1 and
-``InkcastIdentitySyncBreakerOpen`` fires. It stays open, and every later pass holds every 404 without an event (the
-events pass too), until an operator resolves the pass with ``inkcast identity confirm-deletions --pass <id>`` (its
-people are cut off and their grace period starts then; the reconcile erases them as the policy says) or
-``dismiss-deletions`` (nothing is done; the next reconcile reads everyone again, and trips again if it must). A
-DELETE_ACCOUNT event is never held: the person asked, and the event is specific. Keycloak's own ``enabled: false``
-is acted on as before: an answer about a person it has, and reversible.
+**The circuit breaker (E9.F9.5.S7, issue #105; a mass "disabled", E9.F9.5.S8, issue #135).** Some Keycloak failures
+make it answer 404 about many people who still exist: a realm restored from an older backup, the issuer pointing at
+the wrong Keycloak, a non-importing user-storage provider (LDAP) disabled for maintenance. An *importing* provider
+switched off makes it report every one of its people ``enabled: false`` instead. So the reconcile reads everyone
+before it acts on anyone, and counts the people newly found gone with no DELETE_ACCOUNT event and the people newly
+found disabled together (one already cut off, with a grace period running or not, was counted when it was found). At
+``keycloak_breaker_min`` or more, and more than ``keycloak_breaker_percent`` of the people it read, the breaker trips:
+the pass is recorded with those people and their kind (``sync_breaker_trips``, ``sync_breaker_people``),
+``inkcast_identity_sync_breaker_open`` is 1 and ``InkcastIdentitySyncBreakerOpen`` fires. The gone are held as
+before: nobody is cut off or erased and no grace period starts or advances. The disabled are **held** (``hold_person``,
+``users.held_at``): their OAuth tokens, codes and pending consents go at once, which a sign-in restores and Keycloak
+refuses while they are disabled, so it is reversible; their personal access tokens are refused but not revoked. It
+stays open, and every later pass holds every 404 without an event and every ``enabled: false`` (the events pass too),
+until an operator resolves the pass with ``inkcast identity confirm-deletions --pass <id>`` (the gone are cut off and
+their grace period starts then, and the reconcile erases them as the policy says; the disabled are cut off and their
+personal access tokens revoked) or ``dismiss-deletions`` (nothing is done to the gone; the disabled are released and
+their personal access tokens work again; the next reconcile reads everyone again, and trips again if it must). A
+held person Keycloak reports enabled again is released at once, by whichever pass reads them, and leaves the pass. A
+DELETE_ACCOUNT event is never held: the person asked, and the event is specific. Below the thresholds a 404 or an
+``enabled: false`` is acted on as before.
 """
 
 from __future__ import annotations
@@ -56,6 +63,8 @@ from typing import Any
 from urllib.parse import quote
 
 import httpx2
+
+from ...libs.db.identity import BREAKER_GONE
 
 log = logging.getLogger("inkcast.identity.sync")
 CURSOR = "keycloak-admin-events"
@@ -127,6 +136,33 @@ def cut_off_person(store: Any, metrics: Any, user: dict[str, Any], state: str, v
                        "revoked_oauth": oauth, "revoked_pats": pats, "revoked_codes": codes})
     if metrics:
         metrics.inc("inkcast_identity_users_disabled_total", reason=reason)
+    return True
+
+
+def hold_person(store: Any, user: dict[str, Any], via: str, now: float) -> bool:
+    """Hold one person Keycloak reports disabled while the breaker holds a pass (#135): their OAuth tokens, codes and
+    pending consents go now (a sign-in restores them, and Keycloak refuses that while they are disabled), their
+    personal access tokens are refused but not revoked, until an operator confirms (revoked) or dismisses (work
+    again). Nothing for one already held or cut off. Logs ``identity.user.held`` with the Inkcast id and counts."""
+    user_id = str(user["id"])
+    cut = store.hold_user(user_id, now)
+    if cut is None:
+        return False
+    oauth, codes = (int(cut.get(k, 0)) for k in ("oauth_tokens", "codes"))     # counts only, as in cut_off_person
+    log.warning("Keycloak disabled the person behind Inkcast user %s while the sync's breaker holds a pass: held; cut off "
+                "%d OAuth grants and %d codes, their personal access tokens refused until an operator decides",
+                user_id, oauth, codes,
+                extra={"event": "identity.user.held", "user_id": user_id, "via": via, "revoked_oauth": oauth, "revoked_codes": codes})
+    return True
+
+
+def release_person(store: Any, user_id: str, via: str) -> bool:
+    """Lift the hold on one person (``via`` ``reconcile`` or ``event``: Keycloak reports them enabled again; ``dismiss``:
+    an operator dismissed the pass): their personal access tokens work again. Logs ``identity.user.released``."""
+    if not store.release_user(user_id):
+        return False
+    log.info("The hold on Inkcast user %s is lifted (%s): their personal access tokens work again", user_id, via,
+             extra={"event": "identity.user.released", "user_id": user_id, "via": via})
     return True
 
 
@@ -294,7 +330,7 @@ class KeycloakSync:
                 self._person_failed(str(user["id"]), "event", exc)
                 newest = min(newest, at)         # the cursor stops before their event: read again until erased
         self.store.set_sync_state(USER_EVENTS_CURSOR, str(max(cursor, newest)))
-        held = self._breaker_open()                # no 404 without an event is acted on until an operator decides
+        held = self._breaker_open()                # no 404 without an event, and no enabled: false, is acted on until an operator decides
         for keycloak_id in await self.changed_people():
             done["checked"] += 1
             try:
@@ -303,11 +339,22 @@ class KeycloakSync:
                 known = self.store.find_user_by_identity(self.prefix + keycloak_id)
                 self._person_failed(str(known["id"]) if known else None, "event", exc)
                 continue
-            if state != "deleted" and (known := self.store.find_user_by_identity(self.prefix + keycloak_id)):
-                self.store.mark_user_present(str(known["id"]))     # Keycloak has them: a running grace period stops
-            if state == "deleted" and held:            # the reconcile reads them again, and acts once an operator decides
+            if state == "deleted":                     # held: the reconcile reads them again, and acts once an operator decides
+                if not held and self._cut_off(keycloak_id, state, "event"):
+                    done["disabled"] += 1
                 continue
-            if state != "active" and self._cut_off(keycloak_id, state, "event"):
+            known = self.store.find_user_by_identity(self.prefix + keycloak_id)
+            if not known:
+                continue
+            self.store.mark_user_present(str(known["id"]))     # Keycloak has them: a running grace period stops
+            if state == "active":                      # enabled (again): a hold on them is lifted by this pass (#135)
+                if held:                               # and they leave the pass, as at the reconcile
+                    self.store.release_breaker_people([str(known["id"])])
+                if known.get("held_at") is not None:
+                    release_person(self.store, str(known["id"]), "event")
+            elif held:                                 # disabled while a pass is held: held too, not cut off (#135)
+                hold_person(self.store, known, "event", self.clock())
+            elif cut_off_person(self.store, self.metrics, known, state, "event", self.clock()):
                 done["disabled"] += 1
         if self.clock() - self.last_reconcile >= self.config.keycloak_reconcile_seconds:
             if self.clock() < self.unread_until:         # still failing, but everyone is read again on schedule
@@ -348,15 +395,23 @@ class KeycloakSync:
                 self._person_failed(str(user["id"]), "reconcile", exc)
                 own_deletion = False
             gone.append((user, keycloak_id, own_deletion))
-        held = self._breaker(gone, len(read))
+        disabled = [(user, keycloak_id) for user, keycloak_id, state in read if state == "disabled"]
+        held = self._breaker(gone, disabled, len(read))
         if held:                                     # Keycloak has them again: a confirmation no longer applies to them
-            self.store.release_breaker_people([str(user["id"]) for user, _, state in read if state != "deleted"])
+            self.store.release_breaker_people([str(user["id"]) for user, _, state in read if state == "active"])
+            self.store.release_breaker_people([str(user["id"]) for user, _ in disabled], BREAKER_GONE)   # present, still disabled
         for user, keycloak_id, state in read:
-            if state != "deleted":                   # present, enabled or not: never erased
-                if user.get("deleted_at") is not None:
-                    self.store.mark_user_present(str(user["id"]))
-                if state == "disabled" and self._cut_off(keycloak_id, state, "reconcile"):
-                    done["disabled"] += 1
+            if state == "deleted":
+                continue
+            if user.get("deleted_at") is not None:   # present, enabled or not: never erased
+                self.store.mark_user_present(str(user["id"]))
+            if state == "active":                    # enabled (again): a hold on them is lifted (#135)
+                if user.get("held_at") is not None:
+                    release_person(self.store, str(user["id"]), "reconcile")
+            elif held:                               # disabled, and the breaker holds a pass: held, not cut off (#135)
+                self._hold(user, "reconcile")
+            elif self._cut_off(keycloak_id, state, "reconcile"):
+                done["disabled"] += 1
         for user, keycloak_id, own_deletion in gone:
             if own_deletion:                         # an event the pass missed: erased, as the pass would have
                 if self._erase(keycloak_id, "reconcile"):
@@ -375,40 +430,55 @@ class KeycloakSync:
         user = self.store.get_user(str(listed["id"]))
         return not user or user.get("last_login_at") != listed.get("last_login_at")
 
+    def _hold(self, listed: dict[str, Any], via: str) -> bool:
+        """``hold_person`` for a person the reconcile read disabled, unless they signed in since ``listed`` was read
+        (Keycloak let them in: enabled, the one proof) or were erased; nothing for one already held or cut off."""
+        if self._signed_in_since(listed):
+            return False
+        return hold_person(self.store, listed, via, self.clock())
+
     def _breaker_open(self) -> bool:
         """Whether a pass is held for an operator, with the breaker on; with ``INKCAST_KEYCLOAK_BREAKER=off`` nothing
         is held, whatever a pass recorded earlier says (it stays listed until resolved)."""
         return bool(self.config.keycloak_breaker and self.store.pending_breaker_trip())
 
-    def _breaker(self, gone: list[tuple[dict[str, Any], str, bool]], read: int) -> bool:
-        """The circuit breaker (#105): whether this reconcile holds every 404 without a DELETE_ACCOUNT event. It
-        counts the people newly found gone (no event, no ``deleted_at`` yet: one already cut off was counted when
-        it was found, and confirming a pass marks its people) against the people read; at the minimum and above
-        the share it records the pass and trips. An open breaker stays open, and records no second pass, until an
-        operator resolves the first (``inkcast identity``)."""
+    def _breaker(self, gone: list[tuple[dict[str, Any], str, bool]], disabled: list[tuple[dict[str, Any], str]],
+                 read: int) -> bool:
+        """The circuit breaker (#105, #135): whether this reconcile holds every 404 without a DELETE_ACCOUNT event
+        and every ``enabled: false``. It counts the people newly found gone (no event, no ``deleted_at`` yet) and
+        newly found disabled (no ``disabled_at`` yet) together against the people read (one already cut off was
+        counted when it was found, and confirming a pass marks its people); at the minimum and above the share it
+        records the pass, each person with their kind, and trips. An open breaker stays open, and records no second
+        pass, until an operator resolves the first (``inkcast identity``)."""
         if not self.config.keycloak_breaker:
             return False
         pending = self.store.pending_breaker_trip()
         held = sum(1 for _, _, own_deletion in gone if not own_deletion)
         if pending is not None:
-            log.warning("The Keycloak sync's breaker is open (pass %s): %d people Keycloak says are gone are held, "
-                        "neither cut off nor erased, until an operator confirms or dismisses the pass", pending["id"], held,
-                        extra={"event": "identity.sync.breaker.held", "pass_id": pending["id"], "held": held})
+            log.warning("The Keycloak sync's breaker is open (pass %s): %d people Keycloak says are gone and %d it says are "
+                        "disabled are held, neither cut off nor erased, until an operator confirms or dismisses the pass",
+                        pending["id"], held, len(disabled),
+                        extra={"event": "identity.sync.breaker.held", "pass_id": pending["id"], "held": held,
+                               "disabled": len(disabled)})
             return True
         # As their row stands now, not as listed before the reads: a pass confirmed meanwhile has marked its people.
-        newly = [user for user, _, own_deletion in gone if not own_deletion and user.get("deleted_at") is None
-                 and (row := self.store.get_user(str(user["id"]))) is not None and row.get("deleted_at") is None]
-        cfg = self.config
-        if not (len(newly) >= cfg.keycloak_breaker_min and len(newly) * 100 > cfg.keycloak_breaker_percent * read):
+        newly_gone = [user for user, _, own_deletion in gone if not own_deletion and user.get("deleted_at") is None
+                      and (row := self.store.get_user(str(user["id"]))) is not None and row.get("deleted_at") is None]
+        newly_disabled = [user for user, _ in disabled if user.get("disabled_at") is None
+                          and (row := self.store.get_user(str(user["id"]))) is not None and row.get("disabled_at") is None]
+        newly, cfg = len(newly_gone) + len(newly_disabled), self.config
+        if not (newly >= cfg.keycloak_breaker_min and newly * 100 > cfg.keycloak_breaker_percent * read):
             return False
-        pass_id = self.store.record_breaker_trip(self.clock(), len(newly), read,
-                                                 [(str(user["id"]), float(user["last_login_at"])) for user in newly])
-        log.critical("Keycloak says %d of the %d people read are gone at once (at least %d and more than %d%%): nobody is "
-                     "cut off or erased and no grace period starts until an operator confirms or dismisses pass %s "
-                     "(inkcast identity confirm-deletions | dismiss-deletions --pass %s)", len(newly), read,
-                     cfg.keycloak_breaker_min, cfg.keycloak_breaker_percent, pass_id, pass_id,
-                     extra={"event": "identity.sync.breaker.tripped", "pass_id": pass_id, "gone": len(newly), "read": read,
-                            "held": held})
+        pass_id = self.store.record_breaker_trip(self.clock(), len(newly_gone), read,
+                                                 [(str(user["id"]), float(user["last_login_at"])) for user in newly_gone],
+                                                 [(str(user["id"]), float(user["last_login_at"])) for user in newly_disabled])
+        log.critical("Keycloak says %d of the %d people read are gone and %d disabled at once (at least %d and more than "
+                     "%d%% in all): nobody is cut off or erased and no grace period starts, and the disabled keep their "
+                     "personal access tokens, refused, until an operator confirms or dismisses pass %s "
+                     "(inkcast identity confirm-deletions | dismiss-deletions --pass %s)", len(newly_gone), read,
+                     len(newly_disabled), cfg.keycloak_breaker_min, cfg.keycloak_breaker_percent, pass_id, pass_id,
+                     extra={"event": "identity.sync.breaker.tripped", "pass_id": pass_id, "gone": len(newly_gone),
+                            "disabled": len(newly_disabled), "read": read, "held": held})
         return True
 
     async def run_forever(self, stop: asyncio.Event) -> None:

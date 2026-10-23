@@ -399,12 +399,13 @@ class Config:
     # reconcile that finds them gone; None (INKCAST_KEYCLOAK_ERASE_AFTER_DAYS=off) never erases on a 404, which is a
     # posture warning in production and staging. The grace period lets an accidental deletion be restored.
     keycloak_erase_after_days: int | None = 30
-    # The sync's circuit breaker (E9.F9.5.S7, issue #105): a reconcile that finds at least keycloak_breaker_min people
-    # newly gone from Keycloak (404), and more than keycloak_breaker_percent of those it read, cuts off and erases
-    # nobody and starts no grace period; it records the pass for an operator to confirm or dismiss (`inkcast identity`).
-    # A Keycloak restored from an older backup, the issuer pointing at the wrong Keycloak, or a user-storage provider
-    # disabled for maintenance all answer 404 about people who still exist. off (INKCAST_KEYCLOAK_BREAKER=off) is a
-    # posture warning in production and staging.
+    # The sync's circuit breaker (E9.F9.5.S7, issue #105; S8, #135): a reconcile that finds at least keycloak_breaker_min
+    # people newly gone from Keycloak (404) or newly disabled in it (enabled: false), and more than
+    # keycloak_breaker_percent of those it read, cuts off and erases nobody and starts no grace period; the disabled
+    # lose their OAuth tokens and keep their personal access tokens, refused; it records the pass for an operator to
+    # confirm or dismiss (`inkcast identity`). A Keycloak restored from an older backup, the issuer pointing at the
+    # wrong Keycloak, or a user-storage provider switched off all answer 404 (or disabled, for an importing provider)
+    # about people who still exist. off (INKCAST_KEYCLOAK_BREAKER=off) is a posture warning in production and staging.
     keycloak_breaker: bool = True
     keycloak_breaker_percent: int = 10
     keycloak_breaker_min: int = 5

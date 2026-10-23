@@ -266,16 +266,17 @@ def _check_erase_after(ctx: _Ctx) -> Check:
 
 
 def _check_breaker(ctx: _Ctx) -> Check:
-    """E9.F9.5.S7 (issue #105): a Keycloak that answers 404 about many people who still exist (restored from an older
-    backup, the wrong issuer, a user-storage provider disabled) must not cut everyone off at once. ``off`` is a choice
-    production and staging must see."""
-    title = "A mass deletion in Keycloak waits for an operator"
+    """E9.F9.5.S7 (issue #105) and S8 (#135): a Keycloak that answers 404, or ``enabled: false``, about many people who
+    still exist (restored from an older backup, the wrong issuer, a user-storage provider switched off) must not cut
+    everyone off at once. ``off`` is a choice production and staging must see."""
+    title = "A mass deletion or disabling in Keycloak waits for an operator"
     config = ctx.config
     if not getattr(config, "keycloak_breaker", True):
         return Check("keycloak-breaker", title, "warn" if _hosted(ctx) else "info",
-                     "INKCAST_KEYCLOAK_BREAKER=off: a reconcile that finds many people gone from Keycloak at once cuts them "
-                     "all off at once and erases them after the grace period, however wrong Keycloak's answer is (a realm "
-                     "restored from an older backup, the wrong issuer, a user-storage provider disabled). Set it to on.")
+                     "INKCAST_KEYCLOAK_BREAKER=off: a reconcile that finds many people gone from Keycloak, or disabled in it, "
+                     "at once cuts them all off at once (their personal access tokens revoked for good) and erases the gone "
+                     "after the grace period, however wrong Keycloak's answer is (a realm restored from an older backup, the "
+                     "wrong issuer, a user-storage provider switched off). Set it to on.")
     minimum, percent = getattr(config, "keycloak_breaker_min", 5), getattr(config, "keycloak_breaker_percent", 10)
     if percent >= 100:                      # it trips above the percent: more than everyone read is never gone
         return Check("keycloak-breaker", title, "warn" if _hosted(ctx) else "info",
@@ -287,7 +288,8 @@ def _check_breaker(ctx: _Ctx) -> Check:
                      "(INKCAST_KEYCLOAK_SYNC_CLIENT_ID unset).")
     return Check("keycloak-breaker", title, "pass",
                  f"INKCAST_KEYCLOAK_BREAKER=on: a reconcile that finds at least {minimum} people, and more than {percent}% of "
-                 "those it read, gone from Keycloak holds them all for an operator (inkcast identity confirm-deletions).")
+                 "those it read, gone from Keycloak or disabled in it holds them all for an operator (inkcast identity "
+                 "confirm-deletions): the disabled keep their personal access tokens, refused, meanwhile.")
 
 
 def _duration(seconds: int) -> str:

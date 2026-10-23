@@ -51,9 +51,9 @@ CREATE TABLE IF NOT EXISTS deletion_requests (
   created_at REAL NOT NULL, expires_at REAL NOT NULL
 );
 -- The Keycloak sync's circuit breaker (E9.F9.5.S7, issue #105): one row per reconcile pass that found too many people
--- gone at once (gone of read), with its status (pending, confirmed, dismissed) and who resolved it; the people it
--- held are in sync_breaker_people, with last_login_at as the pass read it (a later sign-in proves Keycloak has them),
--- erased with the person and removed when the pass is resolved.
+-- gone (404) or disabled (#135) at once (gone and disabled of read), with its status (pending, confirmed, dismissed)
+-- and who resolved it; the people it held are in sync_breaker_people with their kind, with last_login_at as the pass
+-- read it (a later sign-in proves Keycloak has them), erased with the person and removed when the pass is resolved.
 CREATE TABLE IF NOT EXISTS sync_breaker_trips (
   id TEXT PRIMARY KEY, tripped_at REAL NOT NULL, gone INTEGER NOT NULL, read INTEGER NOT NULL, status TEXT NOT NULL,
   resolved_at REAL, resolved_by TEXT
@@ -63,19 +63,29 @@ CREATE TABLE IF NOT EXISTS sync_breaker_people (
 );
 """
 BREAKER_PENDING, BREAKER_CONFIRMED, BREAKER_DISMISSED = "pending", "confirmed", "dismissed"
+BREAKER_GONE, BREAKER_DISABLED = "gone", "disabled"       # the kinds of person a pass holds (sync_breaker_people.kind)
 # disabled_at: set when the identity provider disabled or deleted the person (E9.F9.5); cleared at their next
 # successful sign-in, which the provider only allows once they are enabled again.
 # deleted_at: when the identity provider was first found to have no such person any more (Keycloak's 404, whether an
 # administrator deleted them or a self-deletion whose event was never seen; E9.F9.5.S6). The grace period before
 # erasure (INKCAST_KEYCLOAK_ERASE_AFTER_DAYS) runs from it. Cleared when the provider has them again (an account
 # restored from a backup) and at sign-in. A person disabled first and deleted later keeps disabled_at and gains this.
-COLUMNS = (("users", "disabled_at", "REAL"), ("users", "deleted_at", "REAL"))
+# held_at: the sync's breaker holds the person (#135): Keycloak reported them disabled in a pass that found too many
+# people cut off at once. Their OAuth tokens and codes are gone; their personal access tokens are refused, not
+# revoked, until an operator confirms the pass (disable_user: revoked, and this cleared) or dismisses it (cleared:
+# they work again). Also cleared at sign-in, and when Keycloak reports them enabled again.
+# sync_breaker_trips.disabled and sync_breaker_people.kind: the disabled kind of the breaker (#135); a pass from
+# before it is a 404 pass (0 disabled, every person gone).
+COLUMNS = (("users", "disabled_at", "REAL"), ("users", "deleted_at", "REAL"), ("users", "held_at", "REAL"),
+           ("sync_breaker_trips", "disabled", "INTEGER NOT NULL DEFAULT 0"),
+           ("sync_breaker_people", "kind", f"TEXT NOT NULL DEFAULT '{BREAKER_GONE}'"))
 
 
-# Defence in depth behind disable_user() and erase_user(): a token or code minted in the moment a person was being
-# cut off or erased (a sign-in finishing as Keycloak disabled them, or as their account was deleted) is refused
-# anyway: only a token whose person exists and is not disabled is honoured.
-_ACTIVE_USER = " AND EXISTS (SELECT 1 FROM users WHERE users.id = user_id AND users.disabled_at IS NULL)"  # by key
+# Defence in depth behind disable_user(), hold_user() and erase_user(): a token or code minted in the moment a person
+# was being cut off, held or erased (a sign-in finishing as Keycloak disabled them, or as their account was deleted)
+# is refused anyway: only a token whose person exists and is neither disabled nor held is honoured.
+_ACTIVE_USER = (" AND EXISTS (SELECT 1 FROM users WHERE users.id = user_id AND users.disabled_at IS NULL"
+                " AND users.held_at IS NULL)")  # by key
 
 
 class IdentityRepo(Database):
@@ -89,17 +99,17 @@ class IdentityRepo(Database):
             if row:
                 c.execute(
                     "UPDATE users SET display = ?, email = ?, name = ?, last_login_at = ?, disabled_at = NULL,"
-                    " deleted_at = NULL WHERE id = ?",
+                    " deleted_at = NULL, held_at = NULL WHERE id = ?",
                     (display, email, name, now, row["id"]),
                 )
                 return {**dict(row), "display": display, "email": email, "name": name, "last_login_at": now,
-                        "disabled_at": None, "deleted_at": None}
+                        "disabled_at": None, "deleted_at": None, "held_at": None}
             user = {"id": "usr_" + uuid.uuid4().hex[:16], "identity": identity, "display": display,
                     "email": email, "name": name, "created_at": now, "last_login_at": now, "disabled_at": None,
-                    "deleted_at": None}
+                    "deleted_at": None, "held_at": None}
             c.execute("INSERT INTO users (id, identity, display, email, name, created_at, last_login_at, disabled_at,"
-                      " deleted_at) VALUES (:id, :identity, :display, :email, :name, :created_at, :last_login_at,"
-                      " :disabled_at, :deleted_at)", user)
+                      " deleted_at, held_at) VALUES (:id, :identity, :display, :email, :name, :created_at, :last_login_at,"
+                      " :disabled_at, :deleted_at, :held_at)", user)
             return user
 
     def find_user_by_identity(self, identity: str) -> dict[str, Any] | None:
@@ -116,10 +126,11 @@ class IdentityRepo(Database):
 
     def disable_user(self, user_id: str) -> dict[str, int]:
         """The person can no longer use Inkcast: every OAuth token, code and personal access token goes, in one
-        transaction. Counts of what was cut off; zeros when they were already disabled."""
+        transaction, and a hold on them (#135) ends with it. Counts of what was cut off; zeros when they were already
+        disabled."""
         now = time.time()
         with self._tx() as c:
-            if c.execute("UPDATE users SET disabled_at = ? WHERE id = ? AND disabled_at IS NULL",
+            if c.execute("UPDATE users SET disabled_at = ?, held_at = NULL WHERE id = ? AND disabled_at IS NULL",
                          (now, user_id)).rowcount != 1:
                 return {"oauth_tokens": 0, "personal_access_tokens": 0, "codes": 0}
             tokens = c.execute("DELETE FROM tokens WHERE user_id = ?", (user_id,)).rowcount
@@ -128,6 +139,25 @@ class IdentityRepo(Database):
             pats = c.execute("UPDATE api_tokens SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL",
                              (now, user_id)).rowcount
         return {"oauth_tokens": tokens, "personal_access_tokens": pats, "codes": codes}
+
+    def hold_user(self, user_id: str, now: float) -> dict[str, int] | None:
+        """The Keycloak sync's breaker holds the person (#135): every OAuth token, code and pending consent goes, in
+        one transaction, as ``disable_user`` cuts them (a sign-in restores them, and Keycloak refuses that while the
+        person is disabled); their personal access tokens stay, refused while ``held_at`` is set. Counts of what was
+        cut; None when nothing was done (already held, cut off, or no such person)."""
+        with self._tx() as c:
+            if c.execute("UPDATE users SET held_at = ? WHERE id = ? AND held_at IS NULL AND disabled_at IS NULL",
+                         (now, user_id)).rowcount != 1:
+                return None
+            tokens = c.execute("DELETE FROM tokens WHERE user_id = ?", (user_id,)).rowcount
+            codes = c.execute("DELETE FROM auth_codes WHERE user_id = ?", (user_id,)).rowcount
+            c.execute("DELETE FROM pending_auth WHERE user_id = ?", (user_id,))
+        return {"oauth_tokens": tokens, "codes": codes}
+
+    def release_user(self, user_id: str) -> bool:
+        """The hold is lifted (Keycloak reports the person enabled again, or an operator dismissed the pass): their
+        personal access tokens work again. True when they were held."""
+        return self._exec("UPDATE users SET held_at = NULL WHERE id = ? AND held_at IS NOT NULL", user_id) == 1
 
     def mark_user_deleted(self, user_id: str, now: float) -> float:
         """The identity provider has no such person any more (Keycloak's 404): records when that was first seen (an
@@ -157,15 +187,18 @@ class IdentityRepo(Database):
 
     # ---- the sync's circuit breaker (E9.F9.5.S7): a pass that found too many people gone, held for an operator ----
 
-    def record_breaker_trip(self, now: float, gone: int, read: int, people: list[tuple[str, float]]) -> str:
+    def record_breaker_trip(self, now: float, gone: int, read: int, people: list[tuple[str, float]],
+                            disabled: list[tuple[str, float]] = ()) -> str:
         """A reconcile pass that tripped the breaker: ``gone`` of ``read`` people newly found gone, and for each of
-        them the Inkcast id and ``last_login_at`` as the pass read it. Returns the pass id."""
+        them the Inkcast id and ``last_login_at`` as the pass read it; likewise ``disabled``, the people newly found
+        disabled (#135), counted into the pass's ``disabled``. Returns the pass id."""
         pass_id = "pass_" + uuid.uuid4().hex[:12]
         with self._tx() as c:
-            c.execute("INSERT INTO sync_breaker_trips (id, tripped_at, gone, read, status) VALUES (?, ?, ?, ?, ?)",
-                      (pass_id, now, gone, read, BREAKER_PENDING))
-            c.executemany("INSERT INTO sync_breaker_people VALUES (?, ?, ?)",
-                          [(pass_id, user_id, last_login_at) for user_id, last_login_at in people])
+            c.execute("INSERT INTO sync_breaker_trips (id, tripped_at, gone, read, status, disabled) VALUES (?, ?, ?, ?, ?, ?)",
+                      (pass_id, now, gone, read, BREAKER_PENDING, len(disabled)))
+            c.executemany("INSERT INTO sync_breaker_people (pass_id, user_id, last_login_at, kind) VALUES (?, ?, ?, ?)",
+                          [(pass_id, user_id, last_login_at, BREAKER_GONE) for user_id, last_login_at in people]
+                          + [(pass_id, user_id, last_login_at, BREAKER_DISABLED) for user_id, last_login_at in disabled])
         return pass_id
 
     def pending_breaker_trip(self) -> dict[str, Any] | None:
@@ -182,8 +215,10 @@ class IdentityRepo(Database):
         return [dict(r) for r in self._all("SELECT * FROM sync_breaker_trips ORDER BY tripped_at, id")]
 
     def breaker_trip_people(self, pass_id: str) -> list[dict[str, Any]]:
-        """The people a pass holds (``user_id``, ``last_login_at`` as read then), in id order; none once resolved."""
-        rows = self._all("SELECT user_id, last_login_at FROM sync_breaker_people WHERE pass_id = ? ORDER BY user_id", pass_id)
+        """The people a pass holds (``user_id``, ``last_login_at`` as read then, ``kind``: gone or disabled), in id
+        order; none once resolved."""
+        rows = self._all("SELECT user_id, last_login_at, kind FROM sync_breaker_people WHERE pass_id = ? ORDER BY user_id",
+                         pass_id)
         return [dict(r) for r in rows]
 
     def resolve_breaker_trip(self, pass_id: str, status: str, now: float, by: str) -> bool:
@@ -196,12 +231,14 @@ class IdentityRepo(Database):
         """A resolved pass keeps its counts and status, not the ids."""
         return self._exec("DELETE FROM sync_breaker_people WHERE pass_id = ?", pass_id)
 
-    def release_breaker_people(self, user_ids: list[str]) -> int:
-        """People a pending pass holds whom Keycloak has again (a reconcile read them as present): the pass no longer
-        holds them, so confirming it does not cut them off."""
+    def release_breaker_people(self, user_ids: list[str], kind: str | None = None) -> int:
+        """People a pending pass holds whom Keycloak has again (a reconcile read them as present, or as enabled): the
+        pass no longer holds them, so confirming it does not cut them off. With ``kind``, only the rows of that kind
+        (a person read present but disabled leaves a pass as gone, not as disabled)."""
         with self._tx() as c:
             return sum(c.execute("DELETE FROM sync_breaker_people WHERE user_id = ? AND pass_id IN "
-                                 "(SELECT id FROM sync_breaker_trips WHERE status = ?)", (user_id, BREAKER_PENDING)).rowcount
+                                 "(SELECT id FROM sync_breaker_trips WHERE status = ?)" + (" AND kind = ?" if kind else ""),
+                                 (user_id, BREAKER_PENDING, *([kind] if kind else []))).rowcount
                        for user_id in user_ids)
 
     # ---- OAuth clients -------------------------------------------------------
@@ -298,7 +335,8 @@ class IdentityRepo(Database):
         return token, row
 
     def find_api_token(self, token: str) -> dict[str, Any] | None:
-        """The active token row for a presented token (not revoked, not expired); records its use."""
+        """The active token row for a presented token (not revoked, not expired; its person neither disabled nor
+        held); records its use."""
         now = time.time()
         row = self._one("SELECT * FROM api_tokens WHERE token_hash = ? AND revoked_at IS NULL"
                         " AND (expires_at IS NULL OR expires_at > ?)" + _ACTIVE_USER, token_hash(token), now)
@@ -307,6 +345,14 @@ class IdentityRepo(Database):
         if not row["last_used_at"] or now - row["last_used_at"] > 60:  # don't write on every request
             self._exec("UPDATE api_tokens SET last_used_at = ? WHERE id = ?", now, row["id"])
         return dict(row)
+
+    def api_token_held(self, token: str) -> bool:
+        """Whether a presented token is live (not revoked, not expired, its person present and not cut off) but its
+        person is held by the Keycloak sync's breaker (#135): for the refusal's message only, after
+        ``find_api_token`` has refused it; never a reason to serve it."""
+        return self._one("SELECT 1 FROM api_tokens JOIN users ON users.id = api_tokens.user_id WHERE token_hash = ?"
+                         " AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?) AND users.disabled_at IS NULL"
+                         " AND users.held_at IS NOT NULL", token_hash(token), time.time()) is not None
 
     def list_api_tokens(self, user_id: str) -> list[dict[str, Any]]:
         rows = self._all("SELECT * FROM api_tokens WHERE user_id = ? AND revoked_at IS NULL ORDER BY created_at", user_id)
