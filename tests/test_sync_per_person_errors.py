@@ -174,7 +174,8 @@ class TheReconcileGoesOn(Scenario):
         self.assertEqual(self.pass_errors, [])
 
     def test_the_failure_is_counted_and_logged_with_the_inkcast_id_and_fixed_fields_only(self):
-        bad, other = self.people("ada", "bob")
+        # Keycloak ids with non-hex letters: the Inkcast id (usr_<hex>) can't contain them by chance, as "ada" could.
+        bad, other = self.people("kc-ada", "kc-bob")
         self.kc.failing[bad["kc"]] = 500
         worker = self.sync(30)
         with self.assertLogs("inkcast.identity.sync", level="WARNING") as logs:
