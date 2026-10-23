@@ -21,10 +21,22 @@ import pathlib
 import sys
 
 from . import __version__
-from .libs.db.backup import DEFAULT_KEEP, BackupError, list_backups, restore_backup, take_backup, verify_backup
+from .libs.config import ConfigError, backup_keep_from, backup_keep_problems
+from .libs.db.backup import BackupError, list_backups, restore_backup, take_backup, verify_backup
 from .libs.observability import setup_logging
 
 log = logging.getLogger("inkcast.backup")
+
+
+def _keep(raw: str) -> int:
+    """``--keep``, under the same rule as INKCAST_BACKUP_KEEP (libs/config): a whole number, 1 or more."""
+    try:
+        keep = int(raw)
+    except ValueError:
+        keep = -1
+    if backup_keep_problems(keep, got=raw):
+        raise argparse.ArgumentTypeError(f"must be a whole number, 1 or more (got {raw!r}).")
+    return keep
 
 
 def _defaults() -> tuple[pathlib.Path, pathlib.Path]:
@@ -42,9 +54,15 @@ def backup_main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="inkcast backup", description="Back up the database while it serves.")
     parser.add_argument("--database", type=pathlib.Path, default=database)
     parser.add_argument("--to", type=pathlib.Path, default=directory, help="directory for the backups")
-    parser.add_argument("--keep", type=int, default=int(os.environ.get("INKCAST_BACKUP_KEEP", str(DEFAULT_KEEP))),
-                        help="how many backups to keep (oldest removed first, only after a good backup)")
+    parser.add_argument("--keep", type=_keep, default=None, metavar="N",
+                        help="how many backups to keep, 1 or more (oldest removed first, only after a good backup); "
+                             "INKCAST_BACKUP_KEEP, or 14, when not given")
     args = parser.parse_args(argv)
+    if args.keep is None:
+        try:
+            args.keep = backup_keep_from(os.environ)       # the CronJob's value, under the server's rule (libs/config)
+        except ConfigError as exc:
+            parser.error(str(exc))                         # exit 2, bad usage: the variable named, no traceback
     _logging()
     try:
         b = take_backup(args.database, args.to, keep=args.keep, version=__version__)
