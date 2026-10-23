@@ -92,13 +92,13 @@ class Refusals(unittest.TestCase):
 
     def test_the_sync_interval_is_a_positive_finite_number_of_seconds(self):
         self.refused(SYNC, "0", "-1", "-0.5", "nan", "inf", "-inf", "abc", "1e400")   # 1e400 reads as inf
-        self.accepted(SYNC, "0.5", "1", "30", "59", "60", "600")                       # 60 and more: a posture warning
+        self.accepted(SYNC, "1", "30", "59", "60", "600")                              # 60 and more: a posture warning
 
     def test_the_reconcile_interval_runs_from_the_sync_interval_to_under_30_minutes(self):
         self.refused(RECONCILE, "29.9", "29", "0", "-600", "nan", "inf", "abc")       # the default sync interval is 30
         self.refused(RECONCILE, "1770", "1799", "1799.9", "1800", "1800.5", "3600", "86400", "86401")   # 1800 with the sync
         self.refused(RECONCILE, "4.9", "1795", **{SYNC: "5"})
-        self.accepted(RECONCILE, "30", "31", "600", "1769", "1769.9")
+        self.accepted(RECONCILE, "30", "31", "600", "1649", "1649.9", "1650")           # 1680 less the sync: #157's margin
         self.accepted(RECONCILE, "5", "6", **{SYNC: "5"})
         self.accepted(RECONCILE, "600", **{SYNC: "600"})                              # equal is allowed
 
@@ -128,7 +128,7 @@ class Refusals(unittest.TestCase):
 
     def test_the_overdue_grace_is_at_least_two_scheduler_intervals(self):
         self.refused(GRACE, "39", "39.9", "0", "-600", "nan", "inf", "abc")           # the default tick is 20
-        self.accepted(GRACE, "40", "40.1", "600", "86400")
+        self.accepted(GRACE, "40", "40.1", "600", "3600")                              # 3600 is the ceiling (#157)
         self.refused(GRACE, "9", "9.5", **{SCHEDULER: "5"})
         self.accepted(GRACE, "10", "10.5", **{SCHEDULER: "5"})
         self.refused(GRACE, "119", **{SCHEDULER: "60"})
@@ -154,7 +154,8 @@ class Refusals(unittest.TestCase):
     def test_the_insights_interval_and_the_shutdown_grace_are_positive_and_finite(self):
         for name in (INSIGHTS, SHUTDOWN):
             self.refused(name, "0", "-1", "nan", "inf", "-inf", "abc")
-            self.accepted(name, "0.001", "1", "10", "25", "3600")
+        self.accepted(INSIGHTS, "1", "10", "25", "3600")                               # the 1 s floor: #157
+        self.accepted(SHUTDOWN, "0.001", "1", "10", "25", "39")                        # under 40: #157
 
     def test_the_rate_limit_is_a_whole_number_0_or_more(self):
         self.refused(RATE_LIMIT, "-1", "-60", "1.5", "nan", "abc")
@@ -287,7 +288,7 @@ class Posture(unittest.TestCase):
                 self.assertIn(f"{RATE_LIMIT}=0", check.detail)
 
     def test_a_rate_limit_passes(self):
-        for per_minute in (1, 60, 10000):
+        for per_minute in (1, 60, 600):                                                # above 600 with password sign-in warns (#157)
             for fields in ({}, KEYCLOAK):
                 check = checks(by_hand(environment="production", rate_limit_per_minute=per_minute, **fields))["rate-limit"]
                 self.assertEqual(check.status, "pass", check.detail)
