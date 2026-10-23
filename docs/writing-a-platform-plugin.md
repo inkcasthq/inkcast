@@ -51,7 +51,7 @@ hashnode = "inkcast_hashnode:HashnodePlatform"
 ## Rules of thumb
 
 - **`prepare` must be pure and its output JSON-serialisable.** It runs for dry runs, and its result is stored for scheduled posts.
-- **Be precise with retries.** Raise `PlatformError(..., retryable=True)` only for transient failures. `Platform.request()` already does this for 429, 5xx and network errors.
+- **Be precise with retries.** Raise `PlatformError(..., retryable=True)` only for transient failures. `Platform.request()` already does this for 429, 5xx and network errors, and passes a 429's `Retry-After` as `retry_after` (seconds; `retry_after_seconds()` reads both forms of the header), which the scheduler honours up to its policy's largest delay.
 - **Never put the title in the body** unless the platform requires it (Medium does). The story body never includes it.
 - **Word errors for the person reading Claude's reply.** Say what went wrong and how to fix it.
 - **Test against a fake of the platform's API.** Copy the pattern in `tests/fakes.py`.

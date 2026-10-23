@@ -143,7 +143,7 @@ Every route, MCP tool and job goes through one `authz.require()`: token scope, t
 
 **Duplicate-safe publishing:**
 
-- Connection errors and 429s are retried: `INKCAST_PUBLISH_MAX_ATTEMPTS` sends in all, `INKCAST_PUBLISH_RETRY_DELAYS` seconds apart with the last delay repeating (4 and `60,300,1800` by default: about 36 minutes). A window over 24 h is a posture warning.
+- Connection errors and 429s are retried: `INKCAST_PUBLISH_MAX_ATTEMPTS` sends in all, `INKCAST_PUBLISH_RETRY_DELAYS` seconds apart with the last delay repeating (4 and `60,300,1800` by default: about 36 minutes). A 429's `Retry-After` (seconds or an HTTP-date) lengthens the wait, capped at the largest delay so a hostile value can't park a post. A window over 24 h is a posture warning.
 - A timeout *after* a publish request was sent, or a 5xx on it, marks the post `unconfirmed`. Inkcast never retries it blindly, whatever the retry settings: Git publishing asks the platform (`find_existing`) first, and anything else waits for a human.
 
 ### CNCF building blocks
