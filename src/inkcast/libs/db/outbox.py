@@ -7,7 +7,8 @@ InsightsService today).
 Repositories append events inside their own transaction with ``insert_events(conn, events)``; nothing
 else writes this table. ``poll`` returns the next batch after a consumer's cursor; ``advance`` moves the
 cursor once the consumer has handled the batch. ``purge_outbox`` drops rows every cursor has passed and
-that are older than the retention, so the table never grows without bound.
+that are older than the retention (INKCAST_OUTBOX_RETENTION_DAYS, handed down by ``Store.purge_expired``),
+so the table never grows without bound.
 """
 
 from __future__ import annotations
@@ -66,8 +67,9 @@ class OutboxRepo(Database):
             out[row["consumer"]] = (pending, age)
         return out
 
-    def purge_outbox(self, keep_seconds: float = 7 * 86400) -> int:
-        """Delete events older than ``keep_seconds`` that every consumer has passed."""
+    def purge_outbox(self, keep_seconds: float) -> int:
+        """Delete events older than ``keep_seconds`` that every consumer has passed. The retention is the caller's
+        (``Config.retention.outbox_seconds``): nothing here decides how long the replay window is."""
         row = self._one("SELECT MIN(seq) AS seq FROM outbox_cursors")
         if not row or row["seq"] is None:
             return 0

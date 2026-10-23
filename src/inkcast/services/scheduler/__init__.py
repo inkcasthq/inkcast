@@ -19,9 +19,15 @@ from ...libs.service import ServiceSpec
 HEARTBEAT = "scheduler"
 
 
+def housekeeping(ctx: Context) -> None:
+    """Every 90th tick: expired grants and tickets, then domain events and hourly KPI buckets past the configured
+    retention (INKCAST_OUTBOX_RETENTION_DAYS, INKCAST_KPI_HOURLY_RETENTION_DAYS; F1.10.S3, issue #91)."""
+    ctx.store.purge_expired(ctx.config.retention)
+
+
 async def run_scheduler(ctx: Context, stop: asyncio.Event) -> None:
     await ctx.publisher.run_forever(ctx.config.scheduler_interval_seconds, stop,
-                                    housekeeping=ctx.store.purge_expired, on_tick=lambda: ctx.store.beat(HEARTBEAT))
+                                    housekeeping=lambda: housekeeping(ctx), on_tick=lambda: ctx.store.beat(HEARTBEAT))
 
 
 SERVICE = ServiceSpec(

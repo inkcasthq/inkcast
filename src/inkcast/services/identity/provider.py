@@ -147,7 +147,7 @@ class InkcastOAuthProvider:
                 self.store.revoke_family(row["family"])
 
     def housekeeping(self) -> None:
-        self.store.purge_expired()
+        self.store.purge_expired(self.config.retention)
 
 
 __all__ = ["InkcastOAuthProvider", "SCOPE"]

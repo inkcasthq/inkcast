@@ -107,7 +107,7 @@ SLO burn-rate alerts carry `slo`, `burn_rate`, `long_window` and `short_window` 
 
 **Meaning:** the SQLite volume has under 10% free.
 
-1. Grow the PVC (most storage classes allow online expansion) or purge: `purge_expired` runs every 90 ticks and drops expired tokens, tickets, outbox rows older than 7 days and hourly KPI rows older than 90 days.
+1. Grow the PVC (most storage classes allow online expansion) or purge: `purge_expired` runs every 90 ticks and drops expired tokens, tickets, outbox rows older than `INKCAST_OUTBOX_RETENTION_DAYS` (7) that every consumer has passed, and hourly KPI rows older than `INKCAST_KPI_HOURLY_RETENTION_DAYS` (90); shortening either frees space at the next run. A consumer behind holds every outbox row it hasn't passed, whatever the setting: see InkcastOutboxConsumerLag first.
 2. With PostgreSQL (E3) this alert belongs to the database operator.
 
 ## InkcastBackupMissing

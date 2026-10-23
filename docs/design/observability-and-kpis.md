@@ -83,7 +83,7 @@ ADR-0003 already decides PostgreSQL via CloudNativePG, one schema per service, `
 - a `DomainEvent` is inserted in the same transaction as the row change (`PostsRepo.update_post(events=…)`), so there is never an event without the change or a change without the event;
 - consumers read in `seq` order after their own cursor (`OutboxPoller`), hand batches to `EventSink`s, and advance the cursor after success: **at-least-once**, so every sink is idempotent by `event.id`;
 - the event types are a catalogue (`EVENT_TYPES`), checked both ways by a test, like the log events;
-- retention: rows every consumer has passed are purged after seven days (housekeeping).
+- retention: rows every consumer has passed are purged once older than `INKCAST_OUTBOX_RETENTION_DAYS` (7 days by default, counted from when the event was written; housekeeping, §6).
 
 Consumers today: `insights` (KPI rollups). Next: `webhooks` (E7 F7.4, CloudEvents out), `billing` (E5: metering from `post.published`), and a broker sink (NATS JetStream or Kafka) only when an external system needs the stream; at that point the broker is one more `EventSink`, and the outbox stays as the durable source. Media work (E8) gets its own queue table with the same claim pattern and KEDA on its depth; a broker is still not required.
 
@@ -151,7 +151,7 @@ Rook-Ceph RGW on-prem, S3 in cloud, through one `ObjectStore` seam (put, presign
 | Usage against plan limits | `libs/entitlements` counters (E5) | now | planned |
 | Engagement | `engagement.sampled` read back from platform APIs (E8) | day | planned |
 
-**Retention:** hourly buckets 90 days, daily buckets kept (one row per scope per KPI per day per dim set is a few hundred bytes a day per customer). Day buckets are UTC; a customer's local-day view is assembled from hourly buckets in the API, which is why hourly is kept at all.
+**Retention:** hourly buckets 90 days (`INKCAST_KPI_HOURLY_RETENTION_DAYS`, §6), daily buckets kept (one row per scope per KPI per day per dim set is a few hundred bytes a day per customer). Day buckets are UTC; a customer's local-day view is assembled from hourly buckets in the API, which is why hourly is kept at all.
 
 **The API** (`services/insights/rest.py`; OpenAPI tag "Insights"; scope `insights:read`):
 
@@ -216,12 +216,14 @@ inhibit_rules:
 |---|---|---|
 | Prometheus | 15 days local; Thanos or the platform's long-term store for SLO windows | the 30-day SLO windows need 30 days of the recording rules |
 | JSON logs | 30 days (platform logging); `request_id` only, never bodies or query strings | debugging; nothing personal beyond ids |
-| Outbox rows | 7 days after every consumer passed | replay window |
-| Hourly KPI buckets | 90 days | local-day views |
+| Outbox rows | `INKCAST_OUTBOX_RETENTION_DAYS` (7; 1–30) from when written, once every consumer has passed them | replay window |
+| Hourly KPI buckets and `kpi_applied` | `INKCAST_KPI_HOURLY_RETENTION_DAYS` (90; 31–400) | local-day views; `grain=hour` serves up to 31 days, so the floor is 31 |
 | Daily KPI buckets | indefinitely, per scope | the customer's history; tiny |
 | Audit log (E3) | 365 days on Business, 90 on Team, per plan | the tier design |
 
-Erasure (a user or an organization leaves): the owning tables are deleted by the existing flows; KPI rows at `user` scope are deleted; rows at `workspace`/`org` scope keep their totals and have `member` rewritten to a tombstone (`user:deleted`), because the organization's history is the organization's data. Events in the outbox are purged within 7 days by retention. Prometheus holds no personal data.
+The two retentions are settings (F1.10.S3, issue #91), read into `Config.retention` and handed to `Store.purge_expired` by the scheduler's housekeeping (every 90 ticks); the defaults are the values above. The hourly retention may never be shorter than the outbox's: `kpi_applied` is purged at the hourly cutoff, and it is the record that stops an event replayed from the outbox counting twice, so it must outlive the events. The configuration refuses the reverse order, naming both variables. Production and staging state both explicitly.
+
+Erasure (a user or an organization leaves): the owning tables are deleted by the existing flows; KPI rows at `user` scope are deleted; rows at `workspace`/`org` scope keep their totals and have `member` rewritten to a tombstone (`user:deleted`), because the organization's history is the organization's data. Events in the outbox are purged within `INKCAST_OUTBOX_RETENTION_DAYS` (7 by default, at most 30) by retention. Prometheus holds no personal data.
 
 ## 7. Seams and ownership
 
@@ -244,6 +246,8 @@ Erasure (a user or an organization leaves): the owning tables are deleted by the
 | `INKCAST_CACHE_URL` | (empty: in-process) | `redis://host:6379/0` or `rediss://`; Valkey or Redis |
 | `INKCAST_CACHE_PASSWORD` / `_FILE` | | the `AUTH` password; a password in the URL is refused at startup |
 | `INKCAST_INSIGHTS_INTERVAL` | `10` | seconds between consumer passes |
+| `INKCAST_OUTBOX_RETENTION_DAYS` | `7` | days a domain event is kept in the outbox, counted from when it was written (the replay window); `1` to `30`. Purged once that old and every consumer has passed it |
+| `INKCAST_KPI_HOURLY_RETENTION_DAYS` | `90` | days hourly KPI buckets and their `kpi_applied` rows are kept; `31` to `400`, never shorter than `INKCAST_OUTBOX_RETENTION_DAYS` (§6). Daily buckets are kept indefinitely |
 | `INKCAST_OVERDUE_GRACE`, `INKCAST_SCHEDULER_INTERVAL`, `INKCAST_METRICS_PORT` | as before | |
 
 ## 9. Verification
