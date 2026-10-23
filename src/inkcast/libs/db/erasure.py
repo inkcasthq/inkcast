@@ -12,7 +12,11 @@ counts. Nothing else about the person survives in the database. Copies in backup
 (INKCAST_BACKUP_KEEP daily copies), and a restore brings them back: ``reapply_erasures`` (issue #94), run by every
 process when it opens the store, erases again anyone whose hash is in ``user_erasures`` but who has rows. The
 restore carries the audit rows of the database it replaces into the restored one (libs/db/backup.py), which is
-what makes that possible: a backup taken before the erasure holds the rows and not the record.
+what makes that possible: a backup taken before the erasure holds the rows and not the record. Each person's hash
+is stored with their row (``users.erasure_hash``, indexed; libs/db/identity.py), so finding them costs the records,
+not a hash of every user in every process (issue #113); ``backfill_erasure_hashes`` fills it once for rows from before
+it. A hash is under the key of the day it was written, in the record and in the row alike: after a rotation of
+INKCAST_SECRET_KEY the two match only when both were written under the same key, and nothing is re-hashed (#112).
 
 Whoever erases decided on a reading of the person (a 404 from Keycloak, a grace period over) that another replica
 may have overtaken by the time the transaction starts, so ``erase_user`` takes the row as the caller read it and
@@ -70,6 +74,7 @@ def user_hash(salt: bytes, user_id: str) -> str:
 
 class ErasureRepo(Database):
     _erasure_salt: bytes
+    ERASURE_HASH_BATCH = 10_000     # rows the backfill reads at a time: a million users in bounded memory
 
     @staticmethod
     def _delete_person(c: sqlite3.Connection, user_id: str) -> dict[str, int]:
@@ -106,20 +111,33 @@ class ErasureRepo(Database):
                           (user_hash(self._erasure_salt, user_id), now, json.dumps(counts, sort_keys=True)))
         return counts
 
+    def backfill_erasure_hashes(self) -> int:
+        """Fill ``users.erasure_hash`` for the rows that have none: those from before the column (issue #113), and
+        any a process from before it wrote during a rolling update. ``ERASURE_HASH_BATCH`` rows at a time, each batch
+        its own transaction, so a million rows take bounded memory and a start cut short leaves the rest to the next
+        one. Run at every open (``Store``); once filled it costs one indexed read. How many were filled."""
+        filled = 0
+        while True:
+            with self._tx() as c:
+                ids = [r["id"] for r in c.execute("SELECT id FROM users WHERE erasure_hash IS NULL ORDER BY id LIMIT ?",
+                                                  (self.ERASURE_HASH_BATCH,))]
+                if not ids:
+                    return filled
+                c.executemany("UPDATE users SET erasure_hash = ? WHERE id = ?",
+                              [(user_hash(self._erasure_salt, user_id), user_id) for user_id in ids])
+            filled += len(ids)
+
     def reapply_erasures(self) -> dict[str, dict[str, int]]:
         """Erase again every person whose hash is in ``user_erasures`` but who has rows: a database restored from a
         backup taken before their erasure (issue #94). Returns ``{user_id: counts}`` for those erased, in one
         transaction each; no second audit row (the record of the erasure is the one already there), so the caller
-        logs it and counts nothing as a new deletion. Cheap when there is nothing to do: with no audit rows nothing
-        is hashed; otherwise one HMAC per user and no write."""
-        hashes = {r["user_hash"] for r in self._all("SELECT user_hash FROM user_erasures")}
-        if not hashes:
-            return {}
-        ids = [r["id"] for r in self._all("SELECT id FROM users ORDER BY id")]
+        logs it and counts nothing as a new deletion. Nothing is hashed: ``users`` is joined against the records on
+        the hash stored with each row, through its index, so the cost is the records and the matches, not the users
+        (issue #113); with no record, one read and no write."""
+        ids = [r["id"] for r in self._all("SELECT id FROM users WHERE erasure_hash IN (SELECT user_hash FROM user_erasures)"
+                                          " ORDER BY id")]
         erased: dict[str, dict[str, int]] = {}
         for user_id in ids:
-            if user_hash(self._erasure_salt, user_id) not in hashes:
-                continue
             with self._tx() as c:
                 counts = self._delete_person(c, user_id)
             if any(counts.values()):
