@@ -87,7 +87,7 @@ COLUMNS = (("users", "disabled_at", "REAL"), ("users", "deleted_at", "REAL"), ("
            ("sync_breaker_trips", "disabled", "INTEGER NOT NULL DEFAULT 0"),
            ("sync_breaker_people", "kind", f"TEXT NOT NULL DEFAULT '{BREAKER_GONE}'"),
            ("users", "erasure_hash", "TEXT"))
-INDEXES = ("CREATE INDEX IF NOT EXISTS users_erasure_hash ON users(erasure_hash);",)
+INDEXES = ("CREATE INDEX IF NOT EXISTS users_erasure_hash ON users(erasure_hash)",)
 
 
 # Defence in depth behind disable_user(), hold_user() and erase_user(): a token or code minted in the moment a person

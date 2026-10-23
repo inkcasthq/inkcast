@@ -115,17 +115,17 @@ class ErasureRepo(Database):
         """Fill ``users.erasure_hash`` for the rows that have none: those from before the column (issue #113), and
         any a process from before it wrote during a rolling update. ``ERASURE_HASH_BATCH`` rows at a time, each batch
         its own transaction, so a million rows take bounded memory and a start cut short leaves the rest to the next
-        one. Run at every open (``Store``); once filled it costs one indexed read. How many were filled."""
+        one; the rows are taken as the index lists them (an order would sort every row left, in every batch). Run at
+        every open (``Store``); once filled it costs one indexed read and no lock. How many were filled."""
         filled = 0
-        while True:
+        while self._one("SELECT 1 FROM users WHERE erasure_hash IS NULL LIMIT 1") is not None:
             with self._tx() as c:
-                ids = [r["id"] for r in c.execute("SELECT id FROM users WHERE erasure_hash IS NULL ORDER BY id LIMIT ?",
+                ids = [r["id"] for r in c.execute("SELECT id FROM users WHERE erasure_hash IS NULL LIMIT ?",
                                                   (self.ERASURE_HASH_BATCH,))]
-                if not ids:
-                    return filled
                 c.executemany("UPDATE users SET erasure_hash = ? WHERE id = ?",
                               [(user_hash(self._erasure_salt, user_id), user_id) for user_id in ids])
             filled += len(ids)
+        return filled
 
     def reapply_erasures(self) -> dict[str, dict[str, int]]:
         """Erase again every person whose hash is in ``user_erasures`` but who has rows: a database restored from a
