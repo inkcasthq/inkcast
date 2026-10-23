@@ -141,5 +141,32 @@ class ASyncIntervalNoReconcileCanFollowIsRefusedAsItself(unittest.TestCase):
         self.assertIn("under 900", (root / ".env.example").read_text(encoding="utf-8"))
 
 
+class AShutdownGraceUnderASecondIsStillAGrace(unittest.TestCase):
+    """INKCAST_SHUTDOWN_GRACE is now refused at 0 or below, the hole being no grace at all for in-flight requests. But
+    the launcher hands it to uvicorn as ``int(grace)``, and uvicorn waits ``asyncio.wait_for(..., timeout=0)`` for the
+    requests in flight, which cancels them at once: ``0.5`` (or the ``0.001`` the PR's own test accepts) is exactly the
+    ``0`` it refuses, and ``1.5`` loses half its grace."""
+
+    def test_the_grace_load_config_accepts_reaches_uvicorn_whole(self):
+        from inkcast.launcher import _Server
+
+        async def app(scope, receive, send):                  # never called: the server is only configured
+            raise AssertionError("not served")
+
+        ran = 0
+        for grace in ("0.5", "0.001", "1.5", "25"):
+            with self.subTest(grace=grace):
+                try:
+                    cfg = load_config({**KEYCLOAK, "INKCAST_SHUTDOWN_GRACE": grace})
+                except ConfigError:
+                    continue                                   # refused at start-up: never a server
+                ran += 1
+                server = _Server(app, "127.0.0.1", 0, cfg.shutdown_grace_seconds, "127.0.0.1")
+                timeout = server.server.config.timeout_graceful_shutdown
+                self.assertGreater(timeout, 0, f"INKCAST_SHUTDOWN_GRACE={grace} gives in-flight requests no time at all")
+                self.assertGreaterEqual(timeout, cfg.shutdown_grace_seconds, f"INKCAST_SHUTDOWN_GRACE={grace}")
+        self.assertGreaterEqual(ran, 2, "1.5 and the default start")
+
+
 if __name__ == "__main__":
     unittest.main()

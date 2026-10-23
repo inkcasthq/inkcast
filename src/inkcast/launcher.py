@@ -102,8 +102,9 @@ class _Server:
             def capture_signals(self):  # noqa: D401 - signals are handled by main()
                 return contextlib.nullcontext()
 
+        # The grace as given: uvicorn waits asyncio.wait_for(..., timeout=grace), and int() would make 0.5 a 0 (no grace).
         self.server = Quiet(uvicorn.Config(asgi, host=host, port=port, proxy_headers=True,
-                                           forwarded_allow_ips=forwarded, timeout_graceful_shutdown=int(grace),
+                                           forwarded_allow_ips=forwarded, timeout_graceful_shutdown=grace,
                                            log_config=None))
 
     async def serve(self) -> None:
