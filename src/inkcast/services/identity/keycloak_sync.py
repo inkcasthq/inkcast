@@ -64,7 +64,7 @@ from urllib.parse import quote
 
 import httpx2
 
-from ...libs.db.identity import BREAKER_DISABLED, BREAKER_GONE
+from ...libs.db.identity import BREAKER_GONE
 
 log = logging.getLogger("inkcast.identity.sync")
 CURSOR = "keycloak-admin-events"
@@ -349,7 +349,7 @@ class KeycloakSync:
             self.store.mark_user_present(str(known["id"]))     # Keycloak has them: a running grace period stops
             if state == "active":                      # enabled (again): a hold on them is lifted by this pass (#135)
                 if held:                               # and they leave the pass, as at the reconcile
-                    self.store.release_breaker_people([str(known["id"])], BREAKER_DISABLED)
+                    self.store.release_breaker_people([str(known["id"])])
                 if known.get("held_at") is not None:
                     release_person(self.store, str(known["id"]), "event")
             elif held:                                 # disabled while a pass is held: held too, not cut off (#135)
