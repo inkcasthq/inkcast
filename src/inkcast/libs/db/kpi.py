@@ -65,12 +65,13 @@ class KpiRepo(Database, KpiStore):
 
     def purge_kpis(self, hourly_keep_seconds: float) -> int:
         """Drop hourly buckets older than ``hourly_keep_seconds`` (``Config.retention.kpi_hourly_seconds``) and the
-        ``kpi_applied`` rows from before the same cutoff; daily buckets are kept. The retention is the caller's, and it
-        is never shorter than the outbox's (the configuration refuses that), so every event the outbox can still
-        replay has its ``kpi_applied`` row."""
+        ``kpi_applied`` rows from before the same cutoff whose event the outbox no longer holds; daily buckets are kept.
+        The outbox keeps an event any consumer hasn't passed however old it is (a batch failing half-way, a consumer
+        stopped), so age alone can't say a replay is over: every event the outbox can still replay keeps its
+        ``kpi_applied`` row."""
         cutoff = int(time.time() - hourly_keep_seconds)
         n = self._exec("DELETE FROM kpi_rollups WHERE grain = 'hour' AND bucket < ?", cutoff)
-        self._exec("DELETE FROM kpi_applied WHERE at < ?", cutoff)
+        self._exec("DELETE FROM kpi_applied WHERE at < ? AND event_id NOT IN (SELECT id FROM outbox)", cutoff)
         return n
 
 

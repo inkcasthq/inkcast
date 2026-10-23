@@ -28,10 +28,11 @@ configMapGenerator:
       - INKCAST_PAT_DEFAULT_DAYS=90
       - INKCAST_PAT_MAX_DAYS=366
       - INKCAST_PAT_ALLOW_NO_EXPIRY=true
-      # Retention (F1.10.S3): days a domain event stays in the outbox after every consumer has passed it (the replay
-      # window, 1-30), and days hourly KPI buckets and their kpi_applied rows are kept (31-400; never shorter than the
-      # outbox's, since kpi_applied is what stops a replayed event counting twice). The design's values (§6), stated
-      # so they are a choice. Daily buckets are kept indefinitely.
+      # Retention (F1.10.S3): days a domain event is kept in the outbox, counted from when it was written (the replay
+      # window, 1-30; purged once that old and every consumer has passed it), and days hourly KPI buckets and their
+      # kpi_applied rows are kept (31-400; never shorter than the outbox's, since kpi_applied is what stops a replayed
+      # event counting twice). The design's values (§6), stated so they are a choice. Daily buckets are kept
+      # indefinitely.
       - INKCAST_OUTBOX_RETENTION_DAYS=7
       - INKCAST_KPI_HOURLY_RETENTION_DAYS=90
 images:
