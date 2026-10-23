@@ -106,12 +106,15 @@ class ErasureRepo(Database):
             if as_read is not None and not self._as_read(c, user_id, as_read):
                 return {table: 0 for table, _ in USER_TABLES}
             # The record carries the hash stored with the person (users.erasure_hash), so a restored row matches it
-            # whatever key was current when each was written (issue #113); computed only for a row from before it.
+            # whatever key was current when each was written (issue #113), and the hash under the key of the day when
+            # they differ: a backup from before the column is filled under the key current at the restore.
             row = c.execute("SELECT erasure_hash FROM users WHERE id = ?", (user_id,)).fetchone()
-            hashed = (row["erasure_hash"] if row is not None else None) or user_hash(self._erasure_salt, user_id)
+            hashes = dict.fromkeys(h for h in (row["erasure_hash"] if row is not None else None,
+                                               user_hash(self._erasure_salt, user_id)) if h)
             counts = self._delete_person(c, user_id)
             if any(counts.values()):
-                c.execute("INSERT INTO user_erasures VALUES (?, ?, ?)", (hashed, now, json.dumps(counts, sort_keys=True)))
+                c.executemany("INSERT INTO user_erasures VALUES (?, ?, ?)",
+                              [(hashed, now, json.dumps(counts, sort_keys=True)) for hashed in hashes])
         return counts
 
     def backfill_erasure_hashes(self) -> int:
