@@ -74,6 +74,12 @@ EVENTS: dict[str, tuple[str, str]] = {
                                          "period): every row of theirs was erased (ids and counts only)."),
     "identity.erasure.reapplied": ("warning", "A restore brought back rows of a person erased before; they were erased again at "
                                               "start-up, before anything served (id and count only; not a new deletion)."),
+    "identity.erasure_hash.backfill": ("info", "The one-off fill of users.erasure_hash at start-up, after the upgrade to it or "
+                                               "a restore of a backup from before it, one line per batch: rows filled so far, "
+                                               "of the rows without a hash at this start, and batches. A start cut short "
+                                               "keeps the batches it committed; the next start fills the rest."),
+    "identity.erasure_hash.backfilled": ("info", "That fill is done: every user has a hash (rows filled and batches at this "
+                                                 "start)."),
     "identity.sync.failed": ("warning", "A Keycloak user sync pass failed (service account refused, Keycloak down); retried."),
     "identity.sync.person.failed": ("warning", "Keycloak answered an error about one person, or gave the read about them no "
                                                "answer (Inkcast user id, read, status and the error's name only); nothing "
@@ -100,8 +106,9 @@ EVENTS: dict[str, tuple[str, str]] = {
     "backup.done": ("info", "A database backup was taken, checked and kept (name, size, rows)."),
     "backup.failed": ("critical", "A database backup failed; nothing was removed. The alert fires when none succeeds for 26 h."),
     "restore.done": ("warning", "The database was replaced by a backup; the previous one was kept beside it."),
-    "restore.erasures.carried": ("info", "The erasure records of the replaced database went into the restored copy, so the "
-                                         "server erases those people again at start-up (count only)."),
+    "restore.erasures.carried": ("info", "The erasure records of the replaced database, and their aliases from a key "
+                                         "rotation, went into the restored copy, so the server erases those people again "
+                                         "at start-up (counts only)."),
     "restore.refused": ("warning", "A restore did not run: the backup failed its checks, or the server was still running."),
 }
 
