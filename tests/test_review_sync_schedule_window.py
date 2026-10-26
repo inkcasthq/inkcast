@@ -125,5 +125,45 @@ class FindingARetriedReplacementKeepsTheTimeItKept(Window):
         self.assertEqual(len(self.posts()), 1)
 
 
+class FindingAPostponementInsideTheWindowIsNotSentAtOnce(Window):
+    def test_a_time_moved_later_inside_the_window_waits_for_it(self):
+        """The post is due in 60 s; the author pushes it back 30 s. The new time is under 2 minutes away, so the file
+        read as "now": the sync cancelled the post and sent it at once, before the time it already had, let alone
+        the later one asked for."""
+        created = self.scheduled()
+        when = self.clock_reaches(created.post_id, 60)
+        later = when + timedelta(seconds=30)
+        moved = self.sync(later)
+        self.assertEqual(self.platform.sends, 0, "postponed, yet sent at once, a minute before even its old time")
+        self.assertEqual((moved.action, moved.status), ("update", "scheduled"))
+        self.assertEqual(self.store.get_post(created.post_id)["status"], "cancelled")
+        self.assertAlmostEqual(self.store.get_post(moved.post_id)["run_at"], later.timestamp(), delta=1)
+        self.assertEqual(self.sync(later).action, "unchanged")
+        asyncio.run(self.publisher.run_due(now=later.timestamp() - 1))
+        self.assertEqual(self.platform.sends, 0, "not due yet")
+        asyncio.run(self.publisher.run_due(now=later.timestamp() + 1))
+        self.assertEqual((self.platform.sends, self.store.get_post(moved.post_id)["status"]), (1, "published"))
+
+    def test_a_rerun_after_a_failed_postponement_waits_for_it_too(self):
+        """The same postponement, its replacement failing to be made (a network blip), then CI running again."""
+        created = self.scheduled()
+        when = self.clock_reaches(created.post_id, 60)
+        later = when + timedelta(seconds=30)
+        self.platform.down = True
+        self.assertEqual(self.sync(later).action, "failed")
+        self.platform.down = False
+        rerun = self.sync(later)
+        self.assertEqual((rerun.status, self.platform.sends), ("scheduled", 0), "sent at once on the re-run")
+        self.assertAlmostEqual(self.store.get_post(rerun.post_id)["run_at"], later.timestamp(), delta=1)
+
+    def test_a_time_brought_forward_inside_the_window_still_sends_now(self):
+        """What the fix keeps (#194's Held tests): bringing the time forward to under 2 minutes away sends now."""
+        created = self.scheduled()
+        when = self.clock_reaches(created.post_id, 100)
+        moved = self.sync(when - timedelta(seconds=30))
+        self.assertEqual((moved.action, moved.status, self.platform.sends), ("update", "published", 1))
+        self.assertEqual(self.store.get_post(created.post_id)["status"], "cancelled")
+
+
 if __name__ == "__main__":
     unittest.main()

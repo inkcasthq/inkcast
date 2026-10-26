@@ -124,9 +124,9 @@ class GitSync:
         if entry is None or entry["status"] in ("failed", "syncing", "missing") or \
                 (entry["status"] == "cancelled" and changed):
             if post and post["status"] == "cancelled" and not post["attempts"] and story.publish_at_written is not None \
-                    and abs(post["run_at"] - story.publish_at_written.timestamp()) < 1:
-                # Its post was cancelled untried at the time the file still asks for (e.g. a replacement that failed
-                # to be made): the schedule didn't change, so the new post keeps that time, never "now" (#187).
+                    and story.publish_at_written.timestamp() > post["run_at"] - 1:
+                # Its post was cancelled untried at the time the file still asks for, or earlier (e.g. a replacement
+                # that failed to be made): the new post keeps the file's time, never "now" before it (#187).
                 story = replace(story, publish_at=story.publish_at_written)
             return await self._create(user_id, req, path, story, platform, prepared, digest, entry)
 
@@ -163,10 +163,11 @@ class GitSync:
                                   message="The scheduled post changed state during this sync; run the sync again.")
             # Ours to replace now: hold it as a claim, or a concurrent sync sees the cancelled post and creates one too.
             self.store.put_entry(user_id, src, path, pid, status="syncing")
-            if not schedule_changed and story.publish_at_written is not None:
-                # The content changed, not the schedule: the replacement keeps the time the file asks for, as
-                # written. Passed or under 2 minutes away, it is due at once, as a scheduled post the scheduler
-                # retries under its policy, never a "now" post sent early and never retried (#187).
+            if story.publish_at_written is not None and \
+                    (not schedule_changed or story.publish_at_written.timestamp() >= post["run_at"]):
+                # The content changed, not the schedule (or the time was moved later): the replacement keeps the time
+                # the file asks for, as written. Passed or under 2 minutes away, it is due at once, as a scheduled post
+                # the scheduler retries under its policy, never a "now" post sent early and never retried (#187).
                 story = replace(story, publish_at=story.publish_at_written)
             return await self._create(user_id, req, path, story, platform, prepared, digest, entry, replace=True)
 
