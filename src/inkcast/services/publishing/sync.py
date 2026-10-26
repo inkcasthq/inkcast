@@ -133,8 +133,10 @@ class GitSync:
                 # A post the scheduler has tried waits for its retry (INKCAST_PUBLISH_RETRY_DELAYS): its run_at is the
                 # retry's, so only a new time still ahead in the file is a change. A time that has passed, or is under
                 # SCHEDULE_LEAD away, has not changed: it is the file's own, which the scheduler passed when it tried
-                # the post (the lead is the tolerance between its clock and this one).
-                ahead = wanted is not None and wanted >= time.time() + SCHEDULE_LEAD.total_seconds()
+                # the post (the lead is the tolerance between its clock and this one). A time later than the retry is
+                # a change however near: the retry would send the post before it (ADR-0015).
+                ahead = wanted is not None and (wanted >= time.time() + SCHEDULE_LEAD.total_seconds() or
+                                                wanted > post["run_at"])
                 schedule_changed = ahead and abs(post["run_at"] - wanted) >= 1
             else:
                 # Not tried yet: its run_at is the time the file asked for. Compare with that, whatever the clock: in

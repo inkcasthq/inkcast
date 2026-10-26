@@ -24,7 +24,7 @@ The rule, for anyone changing Git sync (`services/publishing/sync.py`) or the pa
 - A `publish_at` is read as written (`read_when`), in UTC, and kept: `parse_story(schedule_as_written=True)`. It is never collapsed to "now", whether it has passed or is minutes away. The horizon (`SCHEDULE_HORIZON_DAYS`) still applies.
 - The post's `run_at` is that time. A time that has passed is due at once: the scheduler claims it at its next tick, and a rate limit or outage is retried under `INKCAST_PUBLISH_MAX_ATTEMPTS`, `INKCAST_PUBLISH_RETRY_DELAYS` and the 429's `Retry-After`, like any scheduled post.
 - **Nothing is ever sent before its written time.** The sync itself sends only a file with no `publish_at`.
-- A changed time (earlier, later, into the window or into the past) re-schedules at the new time as written. A removed time makes a "now" post. An unchanged file is unchanged whatever the clock (#187): a post the scheduler hasn't tried is compared with the written time; a post waiting for a retry keeps its retry unless the file names a new time still ahead (by more than `SCHEDULE_LEAD`, the tolerance between the scheduler's clock and the API's).
+- A changed time (earlier, later, into the window or into the past) re-schedules at the new time as written. A removed time makes a "now" post. An unchanged file is unchanged whatever the clock (#187): a post the scheduler hasn't tried is compared with the written time; a post waiting for a retry keeps its retry unless the file names a new time still ahead (by more than `SCHEDULE_LEAD`, the tolerance between the scheduler's clock and the API's) or later than the retry, which would send it before that time.
 - `parse_when` keeps its meaning for a person's publish (MCP, REST, the CLI): a past time, or one under `SCHEDULE_LEAD` (two minutes) away, is an error, because there a person is present to omit it and publish now. `past_is_now` is gone: Git sync was its only caller.
 
 ## Consequences
@@ -34,7 +34,7 @@ The rule, for anyone changing Git sync (`services/publishing/sync.py`) or the pa
 - **The `Held` tests change.** PR #194's `test_a_time_moved_inside_the_window_sends_now` and `test_a_time_moved_into_the_past_sends_now`, and PR #203's `test_a_time_brought_forward_inside_the_window_still_sends_now`, pinned the "now" reading of a changed time. They now pin the opposite: the replacement is scheduled at the time written, and goes out at that time, by the scheduler. `test_a_removed_time_sends_now` stands.
 - **MCP, REST and the CLI are unchanged.** A person scheduling by hand still gets the "in the past or under 2 minutes away; omit it to publish now" error. The CLI (`inkcast sync`) posts files to `/sync`, so it follows this ADR.
 - **A dry run** of a dated file reports `scheduled`, never `preview`, whatever the clock.
-- **Open, not changed here:** during a retry wait, a time removed or moved into the past or the window still reads as unchanged (the retry's `run_at` is not the file's time), and a schedule-only change to a post a person cancelled is still ignored (#203, concerns 3 and 5).
+- **Open, not changed here:** during a retry wait, a time removed, or moved into the past or into the window before the retry, still reads as unchanged (the retry's `run_at` is not the file's time; the post goes out at the retry, after the time written), and a schedule-only change to a post a person cancelled is still ignored (#203, concerns 3 and 5).
 
 ---
 <!-- inkcast-nav -->
