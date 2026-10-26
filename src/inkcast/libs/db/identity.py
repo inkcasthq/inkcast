@@ -65,6 +65,9 @@ CREATE TABLE IF NOT EXISTS sync_breaker_people (
 """
 BREAKER_PENDING, BREAKER_CONFIRMED, BREAKER_DISMISSED = "pending", "confirmed", "dismissed"
 BREAKER_GONE, BREAKER_DISABLED = "gone", "disabled"       # the kinds of person a pass holds (sync_breaker_people.kind)
+# sync_state row: when the Keycloak user sync last reconciled everyone it could (seconds since the epoch), written by
+# the sync, read by the inkcast_identity_sync_reconcile_age_seconds gauge in every process (#180).
+SYNC_RECONCILED = "keycloak-reconciled"
 # disabled_at: set when the identity provider disabled or deleted the person (E9.F9.5); cleared at their next
 # successful sign-in, which the provider only allows once they are enabled again.
 # deleted_at: when the identity provider was first found to have no such person any more (Keycloak's 404, whether an
