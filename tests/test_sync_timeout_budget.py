@@ -254,7 +254,8 @@ class AnOutageThatBeginsMidPass(Budget):
     def test_the_pass_ends_early_as_a_success_for_what_was_done(self):
         """Two people answer (one gone), then Keycloak's provider stops answering: the reconcile reads three more,
         each hangs, and the pass ends there, acting on what it read. The sixth is not tried (that would cost
-        another timeout), and the next reconcile is on schedule, not at the next tick."""
+        another timeout); not known to hang, it makes the reconcile due again at the next pass, which tries it before
+        the people known to hang, and then the next is on schedule (review of #178)."""
         people = self.people(*(f"kc-p{i}" for i in range(6)))
         gone, fine, *hang = people
         self.kc.gone.add(gone["kc"])
@@ -272,7 +273,7 @@ class AnOutageThatBeginsMidPass(Budget):
             self.assert_untouched(user)
         self.assertEqual(self.errors_counted(), 3)
         self.assertEqual(self.pass_failures_counted(), 0)
-        self.assertEqual((worker.last_reconcile, worker.last_success), (T0, T0), "a reconcile that ran")
+        self.assertEqual((worker.last_reconcile, worker.last_success), (0, T0), "a pass that ran; the sixth is untried")
         ended = self.ended(logs)
         self.assertEqual(len(ended), 1, "one line says the pass ended early")
         self.assertEqual((ended[0].timeouts, ended[0].stage), (3, "reconcile"))
@@ -280,6 +281,11 @@ class AnOutageThatBeginsMidPass(Budget):
         self.assertNotIn(DETAIL, ended[0].getMessage())
         reads = len(self.kc.read)
         self.tick(worker, T0 + 30)
+        self.assertEqual(self.kc.read[reads:], [u["kc"] for u in (gone, fine, hang[3], hang[0], hang[1])],
+                         "the sixth before the people known to hang")
+        self.assertEqual(worker.last_reconcile, T0 + 30, "everyone not known to hang was tried: on schedule")
+        reads = len(self.kc.read)
+        self.tick(worker, T0 + 60)
         self.assertEqual(len(self.kc.read), reads, "the events path alone: the reconcile is not due")
         self.assertEqual(self.pass_errors, [])
 

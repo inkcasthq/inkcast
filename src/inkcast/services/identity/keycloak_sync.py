@@ -505,11 +505,11 @@ class KeycloakSync:
         if due:
             if not reconcile:                       # still failing, but everyone is read again on schedule
                 raise SyncError("the last reconcile could act on nobody; everyone is read again at the next one")
-            await self._reconcile(done, p)
-            self.last_reconcile = self.clock()
-            self._budget_used(p, "reconcile")       # ran, on whoever it read: the next is on schedule
+            if not await self._reconcile(done, p):  # it tried everyone not known to hang: the next is on schedule
+                self.last_reconcile = self.clock()  # else due again at the next pass, which reads the new hangers last
+            self._budget_used(p, "reconcile")       # ran, on whoever it read
 
-    async def _reconcile(self, done: dict[str, int], p: _Pass) -> None:
+    async def _reconcile(self, done: dict[str, int], p: _Pass) -> int:
         """Everyone Inkcast knows from this Keycloak, the cut-off people too: one Keycloak no longer has is erased once
         the grace period is over; one it has again (restored from a backup under the same id) gets a whole grace
         period at a later deletion. Everyone is read before anyone is acted on, so the breaker can count (#105) and
@@ -583,6 +583,7 @@ class KeycloakSync:
                 over = self._grace_over(user)        # their row now, cut off; what the erasure re-checks
                 if over is not None and self._erase(over, "reconcile"):
                     done["erased"] += 1
+        return untried
 
     def _signed_in_since(self, listed: dict[str, Any]) -> bool:
         """Whether the person signed in (or was erased) since ``listed`` was read: everyone is read before anyone is
