@@ -333,10 +333,15 @@ class AReadOutsideAPass(unittest.TestCase):
         self.now = T0
         self.counted: list[tuple[str, tuple[tuple[str, str], ...]]] = []
 
-    def person(self, keycloak_id: str) -> dict:
-        user = self.store.upsert_user(PREFIX + keycloak_id, keycloak_id, None, None)
-        self.store.save_token(f"ic_at_{keycloak_id:x<43}", "access", "c1", user["id"], ["inkcast"], None, f"f-{keycloak_id}", 10 * DAY)
-        return {**user, "kc": keycloak_id}
+    def people(self, *names: str) -> list[dict]:
+        """Inkcast users for these Keycloak ids, in the order the reconcile walks them (by Inkcast id), as
+        ``Scenario.people`` does: which name gets which id is chance."""
+        rows = []
+        for name in names:
+            user = self.store.upsert_user(PREFIX + name, name, None, None)
+            self.store.save_token(f"ic_at_{name:x<43}", "access", "c1", user["id"], ["inkcast"], None, f"f-{name}", 10 * DAY)
+            rows.append({**user, "kc": name})
+        return sorted(rows, key=lambda u: u["id"])
 
     def armed(self, user: dict) -> str:
         """The person pressed Continue on the deletion page: the cookie that matches the armed request."""
@@ -344,9 +349,9 @@ class AReadOutsideAPass(unittest.TestCase):
         return self.store.arm_deletion_return(req["id"], user["kc"], 1800)
 
     def test_the_return_pages_read_does_not_move_the_workers_budget(self):
-        hangs, gone = self.person("kc-ada"), self.person("kc-bob")
+        hangs, gone = self.people("kc-ada", "kc-bob")               # hangs sorts first: the reconcile's first read
         cookie = self.armed(hangs)
-        self.kc.no_answer[hangs["kc"]] = httpx2.ReadTimeout         # her own read hangs (the page's too)
+        self.kc.no_answer[hangs["kc"]] = httpx2.ReadTimeout         # their own read hangs (the page's too)
         self.kc.gone.add(gone["kc"])
         config = Config(public_url="http://localhost:8787", secret_key=KEY, database_path=self.database, login="oidc",
                         oidc_issuer=ISSUER, oidc_client_id="inkcast", oidc_client_secret=SecretValue("s"),
@@ -377,12 +382,12 @@ class AReadOutsideAPass(unittest.TestCase):
                 self.fail(f"the page's read failed the worker's pass: {type(exc).__name__}: {exc}")
         self.assertEqual(len(pages), 1, "the page was served during the worker's pass")
         self.assertEqual(pages[0].status_code, 200)
-        self.assertIn("being finished", pages[0].text, "no answer about her: nothing erased, the record kept")
+        self.assertIn("being finished", pages[0].text, "no answer about them: nothing erased, the record kept")
         self.assertEqual((done["checked"], done["disabled"], done["erased"]), (2, 1, 0), "the worker's pass went on")
-        self.assertIsNotNone(ctx.store.get_user(gone["id"])["disabled_at"], "bob, after her, is cut off")
+        self.assertIsNotNone(ctx.store.get_user(gone["id"])["disabled_at"], "the person after them is cut off")
         self.assertIsNotNone(ctx.store.get_user(hangs["id"]))
         self.assertIsNotNone(self.store.deletion_request_by_cookie(cookie), "the record stays for a later visit")
-        self.assertEqual(self.kc.read, [hangs["kc"], hangs["kc"], gone["kc"]], "the page's read, the worker's, then bob")
+        self.assertEqual(self.kc.read, [hangs["kc"], hangs["kc"], gone["kc"]], "the page's read, the worker's, then the other")
         self.assertIn('inkcast_identity_sync_errors_total{stage="person"} 1', ctx.metrics.render(),
                       "the worker's failure counted; the page's read is nobody's failure")
         self.assertEqual(worker.last_reconcile, T0, "a reconcile that ran")
