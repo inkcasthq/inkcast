@@ -95,7 +95,8 @@ USER_EVENTS_CURSOR = "keycloak-user-events"
 LOOKBACK_MS = 60_000
 # A read about one person with no answer that can be that person's (#121, #152): the request reached Keycloak and
 # nothing came back, which is what a user-storage lookup that hangs for that one person looks like from here (the
-# client's read timeout; the connection closed, or cut by a proxy that gave up, without an answer). Every other
+# client's read timeout; the connection closed, or cut by a proxy that gave up, without an answer; a gateway's 504,
+# ``_read_person``). Every other
 # transport error happens on the way there (a connection refused or reset, a connect timeout, the proxy, the
 # client's own pool) and is never about one person: it fails the pass as a whole, at once.
 PERSON_NO_ANSWER = (httpx2.ReadTimeout, httpx2.ReadError, httpx2.RemoteProtocolError)
@@ -283,30 +284,35 @@ class KeycloakSync:
 
     async def _read_person(self, keycloak_id: str, path: str, params: Any, call: str) -> httpx2.Response:
         """``_get`` for a read about one person. No answer once the request reached Keycloak (``PERSON_NO_ANSWER``: a
-        timeout, the connection closed without an answer) is that person's alone, like an error Keycloak answers
-        (``PersonError``, status 0, the error's name), so one person whose read hangs blocks nobody after them (#121);
+        timeout, the connection closed without an answer; or a gateway in front of it that gave up waiting, 504,
+        ``GatewayTimeout``) is that person's alone, like an error Keycloak answers (``PersonError``, status 0, the
+        error's name), so one person whose read hangs blocks nobody after them (#121);
         inside a pass it is one of the pass's ``TIMEOUT_BUDGET`` (#152), and the pass reads them no more. A transport
         error on the way there (a connection refused or reset, the client's pool) is never one person's: it fails the
         pass (``SyncError``). Either way only the error's class name is kept: nothing of its message. An answer,
         whatever it says, is Keycloak answering about a person. Whose last read got no answer is remembered
         (``_hanging``), for the reconcile's order."""
         p = _PASS.get()
+        error: Exception | None = None
         try:
             r = await self._get(path, params)
         except httpx2.TransportError as exc:
-            cause = type(exc).__name__
+            cause, error = type(exc).__name__, exc
             if not isinstance(exc, PERSON_NO_ANSWER):
                 raise SyncError(f"no answer from Keycloak to the {call} read ({cause}): on the way there, not about a "
                                 "person") from exc
-            self._hanging[keycloak_id] = self.clock()
-            if p is not None:
-                p.timeouts += 1
-                p.hung.add(keycloak_id)
-            raise PersonError(f"the {call} read got no answer ({cause})", call, 0, cause) from exc
-        self._hanging.pop(keycloak_id, None)
+        else:
+            if r.status_code != 504:
+                self._hanging.pop(keycloak_id, None)
+                if p is not None:
+                    p.answered = True
+                return r
+            cause = "GatewayTimeout"                 # a gateway in front of Keycloak gave up waiting: no answer either
+        self._hanging[keycloak_id] = self.clock()
         if p is not None:
-            p.answered = True
-        return r
+            p.timeouts += 1
+            p.hung.add(keycloak_id)
+        raise PersonError(f"the {call} read got no answer ({cause})", call, 0, cause) from error
 
     async def person(self, keycloak_id: str) -> str:
         """'active', 'disabled' or 'deleted', as Keycloak sees them now. Only Keycloak's own answer for a missing

@@ -15,6 +15,7 @@ import unittest
 
 import httpx2
 from test_sync_breaker import Scenario as BreakerScenario
+from test_sync_per_person_errors import SyncError
 from test_sync_person_timeouts import T0, Keycloak, Scenario
 
 
@@ -133,6 +134,29 @@ class ThePeopleWhoHangDelayEachOtherOnly(Scenario):
         for user in deleted_own:
             self.assertIsNone(self.row(user))
         for user in hanging:
+            self.assert_untouched(user)
+
+
+class AGatewayThatGivesUp(Scenario):
+    """The base deployment's issuer is a public hostname (an ingress, a route, a load balancer), and the admin API is
+    on the same host. A gateway that gives up waiting for Keycloak answers 504 Gateway Timeout after its own timeout
+    (OpenShift's router: 30 s by default, the sync's own read timeout) instead of closing the connection: the same
+    no-answer as a ``ReadTimeout``, but the PR counts it as Keycloak answering about the person, outside the budget.
+    A user-storage provider down for everyone then costs the reconcile one gateway timeout per person (for 10,000
+    people, 83 hours), no pass ends meanwhile, so ``inkcast_identity_sync_total`` counts nothing and
+    ``InkcastIdentitySyncFailing`` cannot fire."""
+
+    def test_a_whole_realm_outage_behind_a_gateway_fails_the_pass_after_the_budget(self):
+        people = self.people(*(f"kc-p{i:02d}" for i in range(20)))
+        for user in people:
+            self.kc.failing[user["kc"]] = 504
+        worker = self.sync(30, reconcile_seconds=600)
+        self.assertIsNone(self.reconcile(worker, T0))
+        self.assertIs(type(self.pass_errors[0]), SyncError, "the sync failed, not a person")
+        self.assertEqual(len(self.kc.read), 3, f"{len(self.kc.read)} reads: the budget, not one gateway timeout each")
+        self.assertEqual(self.errors_counted(), 3)
+        self.assertEqual(worker.unread_until, T0 + 600, "#119: nobody could be read")
+        for user in people:
             self.assert_untouched(user)
 
 
