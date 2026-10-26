@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sqlite3
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -124,6 +125,21 @@ class Publisher:
             return Outcome(platform.id, "failed", post_id=post_id, message=f"{platform.name} was disconnected.")
         creds, account_data = connected
         account = Account.from_dict(account_data)
+        try:
+            return await self._deliver(post_id, user_id, platform, prepared, attempts, creds, account, scheduled, lag)
+        except sqlite3.Error:
+            raise  # the store, not the plug-in: it says nothing about the send, so the tick stops and recovery asks
+        except Exception as exc:
+            # An error the pipeline itself could not handle (a PlatformError subclass missing a flag it reads, an
+            # error whose text can't be rendered): one plug-in's odd exception must not leave the rest of the batch
+            # claimed until recovery (#174). This post is as ambiguous as a crash inside the plug-in.
+            log.exception("Platform %s raised an error the pipeline could not handle for %s", platform.id, post_id)
+            return self._crashed(post_id, user_id, platform, exc)
+
+    async def _deliver(self, post_id: str, user_id: str, platform: Platform, prepared: Prepared, attempts: int,
+                       creds: dict[str, str], account: Account, scheduled: bool, lag: float | None) -> Outcome:
+        """The send itself, from the plug-in's call to the recorded answer. Only this is guarded (``_send``): reading
+        the credentials before it says nothing about the send, and failing there must not mark the post unconfirmed."""
         started = time.perf_counter()
         try:
             destination = (
@@ -141,7 +157,9 @@ class Publisher:
                             extra={"event": "publish.unconfirmed", "post_id": post_id, "platform": platform.id})
                 return Outcome(platform.id, "unconfirmed", post_id=post_id, message=str(exc))
             if scheduled and exc.retryable and attempts < self.retry.max_attempts:
-                delay = self.retry.delay_after(attempts, asked=exc.retry_after)  # a 429's Retry-After, within the policy
+                # A 429's Retry-After, within the policy. getattr: a plug-in's subclass that skips the base constructor
+                # (written before the field existed) has none, and must not crash the tick (#174).
+                delay = self.retry.delay_after(attempts, asked=getattr(exc, "retry_after", None))
                 self.store.update_post(post_id, status="scheduled", run_at=time.time() + delay, error=f"retrying: {exc}",
                                        events=self._event("post.scheduled", post_id, user_id, platform.id, retry=attempts))
                 self._count(platform.id, "retry")
@@ -151,15 +169,8 @@ class Publisher:
             self._count(platform.id, "failed")
             return Outcome(platform.id, "failed", post_id=post_id, message=str(exc))
         except Exception as exc:  # a plug-in bug must not kill the scheduler
-            # It may have crashed after the platform accepted the post (reading the reply), so it is ambiguous like
-            # any uncertain failure: unconfirmed, never 'failed', which Git sync would create again.
             log.exception("Platform %s crashed publishing %s", platform.id, post_id)
-            self.store.update_post(post_id, status="unconfirmed", error=f"internal error: {exc}",
-                                   events=self._event("post.unconfirmed", post_id, user_id, platform.id))
-            self._count(platform.id, "unconfirmed")
-            return Outcome(platform.id, "unconfirmed", post_id=post_id, message=(
-                f"Internal error in the {platform.name} plug-in; the post may or may not have been published. "
-                f"Check {platform.name} before trying again."))
+            return self._crashed(post_id, user_id, platform, exc)
 
         self._observe("inkcast_publish_duration_seconds", time.perf_counter() - started, platform=platform.id)
         status = result.status if result.status in ("draft", "unlisted") else "published"
@@ -171,6 +182,16 @@ class Publisher:
         self._count(platform.id, status)
         return Outcome(platform.id, status, post_id=post_id, url=result.url, notes=result.notes, prepared=prepared,
                        remote_id=result.remote_id)
+
+    def _crashed(self, post_id: str, user_id: str, platform: Platform, exc: BaseException) -> Outcome:
+        """A plug-in bug while sending. It may have crashed after the platform accepted the post (reading the reply),
+        so it is ambiguous like any uncertain failure: unconfirmed, never 'failed', which Git sync would create again."""
+        self.store.update_post(post_id, status="unconfirmed", error=f"internal error: {exc}",
+                               events=self._event("post.unconfirmed", post_id, user_id, platform.id))
+        self._count(platform.id, "unconfirmed")
+        return Outcome(platform.id, "unconfirmed", post_id=post_id, message=(
+            f"Internal error in the {platform.name} plug-in; the post may or may not have been published. "
+            f"Check {platform.name} before trying again."))
 
     async def update(self, user_id: str, post_id: str | None, platform: Platform, prepared: Prepared,
                      remote_id: str) -> Outcome:
