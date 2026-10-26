@@ -34,7 +34,7 @@ from ...libs.db import Store
 from ...libs.db.ledger import CLAIM_TTL
 from ...libs.events import DomainEvent
 from ...libs.observability import Metrics
-from ...libs.pipeline import Publisher
+from ...libs.pipeline import Outcome, Publisher
 from ...libs.platforms import Platform, PlatformError, Prepared
 
 
@@ -113,7 +113,12 @@ class GitSync:
                                          remote_id=post["remote_id"])
 
         if entry and entry["status"] == "unconfirmed" and not req.dry_run:
-            entry = await self._confirm(user_id, src, path, platform, prepared, entry)
+            checked = await self.publisher.confirm(user_id, platform, prepared)
+            if checked is not None and checked.status == "unavailable":  # rate-limited, unreachable: ask again next time
+                return SyncResult(**base, action="skipped", status="unconfirmed", message=(
+                    f"The last publish to {platform.name} may or may not have gone through, and {platform.name} couldn't "
+                    f"be asked just now ({checked.message}). The next sync will ask again."))
+            entry = self._resolve(user_id, src, path, platform, entry, checked)
             if entry is None:
                 return SyncResult(**base, action="skipped", status="unconfirmed", message=(
                     f"The last publish to {platform.name} may or may not have gone through, and {platform.name} can't "
@@ -207,7 +212,9 @@ class GitSync:
             self.store.put_entry(user_id, src, path, pid, post_id=post_id)
 
         try:
-            [o] = await self.publisher.publish(user_id, story, [pid], on_created=on_record)
+            # retry: a "now" post the platform rate-limits waits for the scheduler's retry (and the 429's
+            # Retry-After) instead of failing, which the next CI run would create afresh, paced by nothing (#188).
+            [o] = await self.publisher.publish(user_id, story, [pid], on_created=on_record, retry=True)
         except Exception:
             if not replace:
                 self.store.put_entry(user_id, src, path, pid, status="failed", message="internal error")
@@ -219,14 +226,14 @@ class GitSync:
                 self.store.put_entry(user_id, src, path, pid, status="failed", content_hash=digest, message=o.message)
             return SyncResult(**base, action="failed" if o.status == "failed" else "skipped", message=o.message)
         self.store.put_entry(user_id, src, path, pid, content_hash=digest, post_id=o.post_id, status=o.status,
-                             url=o.url, remote_id=o.remote_id, message=o.message if o.status == "unconfirmed" else None)
+                             url=o.url, remote_id=o.remote_id,
+                             message=o.message if o.status in ("unconfirmed", "scheduled") else None)
         return SyncResult(**base, action=action, status=o.status, post_id=o.post_id, url=o.url,
                           message=o.message or ("; ".join(o.notes) or None))
 
-    async def _confirm(self, user_id: str, src: str, path: str, platform: Platform, prepared: Prepared,
-                       entry: dict) -> dict | None:
-        """Resolve an unconfirmed entry: published → record it; missing → allow a fresh create; None → can't tell."""
-        o = await self.publisher.confirm(user_id, platform, prepared)
+    def _resolve(self, user_id: str, src: str, path: str, platform: Platform, entry: dict, o: Outcome | None) -> dict | None:
+        """Resolve an unconfirmed entry from what the platform said (``Publisher.confirm``): published → record it;
+        missing → allow a fresh create; None → can't tell."""
         if o is None:
             return None
         if o.status == "missing":
