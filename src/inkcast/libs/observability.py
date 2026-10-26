@@ -72,6 +72,12 @@ EVENTS: dict[str, tuple[str, str]] = {
                                          "period): every row of theirs was erased (ids and counts only)."),
     "identity.erasure.reapplied": ("warning", "A restore brought back rows of a person erased before; they were erased again at "
                                               "start-up, before anything served (id and count only; not a new deletion)."),
+    "identity.erasure_hash.backfill": ("info", "The one-off fill of users.erasure_hash at start-up, after the upgrade to it or "
+                                               "a restore of a backup from before it, one line per batch: rows filled so far, "
+                                               "of the rows without a hash at this start, and batches. A start cut short "
+                                               "keeps the batches it committed; the next start fills the rest."),
+    "identity.erasure_hash.backfilled": ("info", "That fill is done: every user has a hash (rows filled and batches at this "
+                                                 "start)."),
     "identity.sync.failed": ("warning", "A Keycloak user sync pass failed (service account refused, Keycloak down); retried."),
     "identity.sync.person.failed": ("warning", "Keycloak answered an error about one person, or gave the read about them no "
                                                "answer (Inkcast user id, read, status and the error's name only); nothing "
