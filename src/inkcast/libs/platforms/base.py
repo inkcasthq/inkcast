@@ -233,6 +233,15 @@ class Platform(ABC):
             raise PlatformError(f"{self.name} had a server error ({response.status_code}).", retryable=True)
         if response.status_code >= 400:
             raise PlatformError(self.describe_error(response))
+        if response.status_code >= 300:
+            # A redirect (the client never follows one): the request did not reach the API we meant, so nothing was
+            # published and nothing will change on a retry. Definite, whatever the body says (#173).
+            where = response.headers.get("Location")
+            raise PlatformError(
+                f"{self.name} redirected the request ({response.status_code}"
+                + (f" to {where[:200]}" if where else "") + ") instead of answering it, so it never reached the "
+                f"{self.name} API and nothing was published. Check the {self.name} API URL (INKCAST_API_URL_"
+                f"{self.id.upper()}).")
         if not response.content:
             return None
         try:
