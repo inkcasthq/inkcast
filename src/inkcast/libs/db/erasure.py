@@ -151,11 +151,13 @@ class ErasureRepo(Database):
                                                   (self.ERASURE_HASH_BATCH,))]
                 c.executemany("UPDATE users SET erasure_hash = ? WHERE id = ?",
                               [(user_hash(self._erasure_salt, user_id), user_id) for user_id in ids])
+            if not ids:
+                continue                    # the other processes filled what this one saw: no batch, and none left
             filled += len(ids)
             batches += 1
             log.info("Filled the erasure hash of %d of the %d users who had none, in %d batch(es)", filled, left, batches,
                      extra={"event": "identity.erasure_hash.backfill", "rows": filled, "of": left, "batches": batches})
-        if filled:
+        if left is not None:
             log.info("Every user has an erasure hash: filled %d in %d batch(es) at this start", filled, batches,
                      extra={"event": "identity.erasure_hash.backfilled", "rows": filled, "batches": batches})
         return filled
