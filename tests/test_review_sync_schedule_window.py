@@ -156,13 +156,21 @@ class FindingAPostponementInsideTheWindowIsNotSentAtOnce(Window):
         self.assertEqual((rerun.status, self.platform.sends), ("scheduled", 0), "sent at once on the re-run")
         self.assertAlmostEqual(self.store.get_post(rerun.post_id)["run_at"], later.timestamp(), delta=1)
 
-    def test_a_time_brought_forward_inside_the_window_still_sends_now(self):
-        """What the fix keeps (#194's Held tests): bringing the time forward to under 2 minutes away sends now."""
+    def test_a_time_brought_forward_inside_the_window_waits_for_it(self):
+        """Bringing the time forward to under 2 minutes away re-schedules at that time (ADR-0015, #205): the post goes
+        out at the time written, by the scheduler, never before it. (Before #205 this read as "now" and was sent at
+        once, 70 s early, as a post never retried; #194's Held test pinned that.)"""
         created = self.scheduled()
         when = self.clock_reaches(created.post_id, 100)
-        moved = self.sync(when - timedelta(seconds=30))
-        self.assertEqual((moved.action, moved.status, self.platform.sends), ("update", "published", 1))
+        earlier = when - timedelta(seconds=30)
+        moved = self.sync(earlier)
+        self.assertEqual((moved.action, moved.status, self.platform.sends), ("update", "scheduled", 0))
         self.assertEqual(self.store.get_post(created.post_id)["status"], "cancelled")
+        self.assertAlmostEqual(self.store.get_post(moved.post_id)["run_at"], earlier.timestamp(), delta=1)
+        asyncio.run(self.publisher.run_due(now=earlier.timestamp() - 1))
+        self.assertEqual(self.platform.sends, 0, "not due yet")
+        asyncio.run(self.publisher.run_due(now=earlier.timestamp() + 1))
+        self.assertEqual((self.platform.sends, self.store.get_post(moved.post_id)["status"]), (1, "published"))
 
 
 if __name__ == "__main__":

@@ -20,6 +20,9 @@ import yaml
 # How far ahead a story may be scheduled, and how far ahead a listing can look (`days_ahead` on REST, MCP and in the
 # OpenAPI document): one number, so every accepted schedule can be listed and cancelled (#95).
 SCHEDULE_HORIZON_DAYS = 730
+# The least a schedule may be ahead when a person publishes (MCP, REST, the CLI): nearer, omit publish_at and publish
+# now. Git publishing keeps any time as written (ADR-0015) and uses it only as its clocks' tolerance (sync._one).
+SCHEDULE_LEAD = timedelta(minutes=2)
 
 _FRONT_MATTER = re.compile(r"\A﻿?---[ \t]*\r?\n(.*?)\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|\Z)", re.S)
 # The closing #s are trimmed by _heading, not here: a lazy group before \s*#*\s*$ backtracks cubically on spaces.
@@ -112,11 +115,9 @@ class Story:
     tags: list[str] = field(default_factory=list)
     canonical_url: str | None = None
     cover_image: str | None = None
-    publish_at: datetime | None = None  # UTC; None = now
-    # The time the front matter asks for, as written (UTC), kept even once it has passed and ``publish_at`` reads
-    # "now" (Git publishing): a sync compares it with a post already scheduled, so an unchanged file is left alone
-    # whatever the clock says (#187). None when the file names no time.
-    publish_at_written: datetime | None = None
+    # UTC; None = now. Git publishing: the time as written, whatever the clock, so a sync compares it with a post
+    # already scheduled and an unchanged file is left alone (#187), and a passed time is due at once (ADR-0015).
+    publish_at: datetime | None = None
     draft: bool = False
     platforms: list[str] = field(default_factory=list)
     # Per-platform overrides from front matter blocks / the `destinations` argument.
@@ -242,14 +243,8 @@ def read_when(value: Any) -> datetime:
         ) from exc
 
 
-def parse_when(value: Any, now: datetime, past_is_now: bool = False) -> datetime | None:
-    """A schedule time, in UTC. Past (or < 2 minutes away) is an error, or None ("now") if ``past_is_now``;
-    beyond SCHEDULE_HORIZON_DAYS is always an error."""
-    when = read_when(value)
-    if when < now + timedelta(minutes=2):
-        if past_is_now:
-            return None
-        raise StoryError(f"publish_at {when.isoformat()} is in the past or under 2 minutes away; omit it to publish now.")
+def within_horizon(when: datetime, now: datetime) -> datetime:
+    """``when`` unless it is more than SCHEDULE_HORIZON_DAYS ahead, which is an error whoever asks."""
     latest = now + timedelta(days=SCHEDULE_HORIZON_DAYS)
     if when > latest:
         raise StoryError(
@@ -257,6 +252,16 @@ def parse_when(value: Any, now: datetime, past_is_now: bool = False) -> datetime
             f"{latest.isoformat(timespec='seconds')}."
         )
     return when
+
+
+def parse_when(value: Any, now: datetime) -> datetime:
+    """A schedule time a person asks for (MCP, REST, the CLI), in UTC. Past (or under SCHEDULE_LEAD away) is an error:
+    omit it to publish now. Beyond SCHEDULE_HORIZON_DAYS is an error. Git publishing reads the time with ``read_when``
+    and ``within_horizon`` instead (``parse_story``'s ``schedule_as_written``): there a past time is kept."""
+    when = read_when(value)
+    if when < now + SCHEDULE_LEAD:
+        raise StoryError(f"publish_at {when.isoformat()} is in the past or under 2 minutes away; omit it to publish now.")
+    return within_horizon(when, now)
 
 
 def _heading(match: re.Match) -> str:
@@ -315,7 +320,7 @@ def parse_story(
     draft: bool = False,
     image_base_url: str | None = None,
     now: datetime | None = None,
-    past_schedule_is_now: bool = False,
+    schedule_as_written: bool = False,
 ) -> Story:
     """Merge explicit arguments over front matter and validate the platform-neutral parts."""
     now = now or datetime.now(timezone.utc)
@@ -357,10 +362,15 @@ def parse_story(
 
     when_raw = publish_at or _pick(meta, "publish_at")
     warnings: list[str] = []
-    # Git publishing re-reads files long after their date: there, a past publish_at means "now". The time as written
-    # is kept beside it (``publish_at_written``), for a sync to compare with a post already scheduled.
-    written = read_when(when_raw) if when_raw else None
-    when = parse_when(written, now, past_is_now=past_schedule_is_now) if written else None
+    if not when_raw:
+        when = None
+    elif schedule_as_written:
+        # Git publishing re-reads files long after their date: a time that has passed, or is under SCHEDULE_LEAD away,
+        # is kept as written, never refused or read as "now". The post is scheduled at it, due at once once it has
+        # passed, and the scheduler sends it (ADR-0015). Only a file with no publish_at is a "now" post.
+        when = within_horizon(read_when(when_raw), now)
+    else:
+        when = parse_when(when_raw, now)
     body, unresolved = _rewrite_images(body.strip() + "\n", check_url(base, "image_base_url") if base else None)
     if unresolved:
         shown = ", ".join(unresolved[:5]) + (" …" if len(unresolved) > 5 else "")
@@ -377,7 +387,6 @@ def parse_story(
         canonical_url=check_url(canonical, "canonical_url") if canonical else None,
         cover_image=check_url(cover, "cover_image") if cover else None,
         publish_at=when,
-        publish_at_written=written,
         draft=draft,
         platforms=chosen,
         overrides=overrides,

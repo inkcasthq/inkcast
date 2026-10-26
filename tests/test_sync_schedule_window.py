@@ -9,8 +9,9 @@ post and sent a new "now" post at once. A "now" post is never retried by the sch
 it failed, with the original scheduled post cancelled.
 
 The time the file asks for is now carried as written, and a post the scheduler hasn't tried yet is compared with
-that: an unchanged file is unchanged whatever the clock says. The "now" reading only applies when the file's schedule
-actually changed. The clock can't be moved in a test, so time passing is played by moving the post's time and the
+that: an unchanged file is unchanged whatever the clock says. Since #205 (ADR-0015) there is no "now" reading of a
+``publish_at`` at all: a changed time re-schedules the post at the new time as written, and only a file with no
+``publish_at`` is a "now" post. The clock can't be moved in a test, so time passing is played by moving the post's time and the
 file's ``publish_at`` together to the same new value: that is exactly what the sync sees when the clock reaches the
 window (the content hash doesn't include the time). Each ``Finding`` test failed on main before the fix committed
 with it; the ``Held`` tests pin what the fix keeps."""
@@ -154,20 +155,32 @@ class FindingAnUnchangedFileIsLeftAloneWhateverTheClock(Window):
 
 
 class HeldAChangedScheduleStillApplies(Window):
-    """A "now" reading of publish_at applies when the file's schedule actually changed, and so does a new time."""
+    """A changed schedule still replaces the post: at the new time as written, whatever the clock (ADR-0015, #205), or
+    now when the time was removed. Before #205 a time moved into the past or inside the window read as "now" and was
+    sent at once by the sync; it is the scheduler's now, and never goes out before the time written."""
 
-    def test_a_time_moved_into_the_past_sends_now(self):
+    def test_a_time_moved_into_the_past_is_due_at_once_as_a_scheduled_post(self):
         created = self.scheduled()
-        moved = self.sync(at(-3600))                                   # the author wants it out: dated an hour ago
-        self.assertEqual((moved.action, moved.status, self.platform.sends), ("update", "published", 1))
+        when = at(-3600)
+        moved = self.sync(when)                                        # the author wants it out: dated an hour ago
+        self.assertEqual((moved.action, moved.status, self.platform.sends), ("update", "scheduled", 0))
         self.assertNotEqual(moved.post_id, created.post_id)
         self.assertEqual(self.store.get_post(created.post_id)["status"], "cancelled")
+        self.assertAlmostEqual(self.store.get_post(moved.post_id)["run_at"], when.timestamp(), delta=1)
+        asyncio.run(self.publisher.run_due())
+        self.assertEqual((self.platform.sends, self.store.get_post(moved.post_id)["status"]), (1, "published"))
 
-    def test_a_time_moved_inside_the_window_sends_now(self):
+    def test_a_time_moved_inside_the_window_waits_for_it(self):
         created = self.scheduled()
-        moved = self.sync(at(90))                                      # changed to a time under 2 minutes away
-        self.assertEqual((moved.action, moved.status, self.platform.sends), ("update", "published", 1))
+        when = at(90)
+        moved = self.sync(when)                                        # changed to a time under 2 minutes away
+        self.assertEqual((moved.action, moved.status, self.platform.sends), ("update", "scheduled", 0))
         self.assertEqual(self.store.get_post(created.post_id)["status"], "cancelled")
+        self.assertAlmostEqual(self.store.get_post(moved.post_id)["run_at"], when.timestamp(), delta=1)
+        asyncio.run(self.publisher.run_due(now=when.timestamp() - 1))
+        self.assertEqual(self.platform.sends, 0, "not due yet")
+        asyncio.run(self.publisher.run_due(now=when.timestamp() + 1))
+        self.assertEqual((self.platform.sends, self.store.get_post(moved.post_id)["status"]), (1, "published"))
 
     def test_a_removed_time_sends_now(self):
         created = self.scheduled()
@@ -186,8 +199,8 @@ class HeldAChangedScheduleStillApplies(Window):
 
 
 class FindingAChangedFileKeepsAScheduleThatDidNotChange(Window):
-    """The "now" reading of publish_at applies only when the file's schedule changed. When only the content did, the
-    replacement keeps the time the file asks for, as written."""
+    """When only the content changed, the replacement keeps the time the file asks for, as written (before #205, the
+    "now" reading of publish_at applied only when the file's schedule changed; now it never does)."""
 
     def test_a_changed_body_inside_the_window_is_rescheduled_at_the_same_time(self):
         """The content changed, not the schedule: the replacement waits for the same time (under the scheduler's
