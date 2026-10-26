@@ -12,9 +12,12 @@ import unittest
 
 import httpx2
 
+from inkcast.libs.contracts.models import SyncFile, SyncRequest
 from inkcast.libs.db import Store
 from inkcast.libs.pipeline import STUCK_AFTER, Publisher
 from inkcast.libs.platforms import Account, Platform, Prepared, PublishResult
+from inkcast.libs.platforms.devto import DevtoPlatform
+from inkcast.services.publishing.sync import GitSync
 
 
 class Findable(Platform):
@@ -81,6 +84,53 @@ class TwoWorkersRecoverOnePost(unittest.TestCase):
         asyncio.run(a.run_due(now=time.time() + 1))   # the next tick
         self.assertEqual(platform.sent, ["t"], "the post was sent twice")
         self.assertEqual(a_store.get_post(post)["status"], "published")
+
+
+class OrganizationLookupRateLimited:
+    """A DEV API whose organization lookup is rate-limited (``Retry-After: 900``) until ``limited`` is cleared; the
+    article POST succeeds. Counts the sends."""
+
+    def __init__(self):
+        self.limited, self.sends = True, 0
+        self.platform = DevtoPlatform(httpx2.AsyncClient(transport=httpx2.MockTransport(self)))
+
+    def __call__(self, request: httpx2.Request) -> httpx2.Response:
+        if request.url.path == "/api/organizations/acme":
+            if self.limited:
+                return httpx2.Response(429, headers={"Retry-After": "900"}, json={"error": "slow down"})
+            return httpx2.Response(200, json={"id": 7, "name": "Acme", "username": "acme"})
+        if request.method == "POST" and request.url.path == "/api/articles":
+            self.sends += 1
+            return httpx2.Response(201, json={"id": 1000 + self.sends, "url": f"https://dev.to/acme/{self.sends}",
+                                              "published": True})
+        return httpx2.Response(404, json={"error": "not found"})
+
+
+class GitSyncNowPostToAnOrganization(unittest.TestCase):
+    """Item 2: a Git sync "now" post the platform rate-limits waits for the scheduler's retry. ``publish()`` resolves a
+    destination before the post row exists ("so a typo fails now"), and a 429 there still ends the post 'failed' at
+    once: no row, no retry, no Retry-After, and the next CI run creates it afresh, paced by nothing (the item's own
+    case, for any post with an organization or publication)."""
+
+    def test_a_429_on_the_destination_lookup_is_retried_by_the_scheduler(self):
+        store = Store(":memory:", "k" * 40)
+        self.addCleanup(store.close)
+        user = store.upsert_user("local:on-call", "on-call", None, None)["id"]
+        dev = OrganizationLookupRateLimited()
+        store.save_credentials(user, "devto", {"api_key": "k"}, {"id": "1", "name": "on-call"})
+        publisher = Publisher(store, {"devto": dev.platform})
+        sync = GitSync(store, {"devto": dev.platform}, publisher)
+        req = SyncRequest(source="github.com/acme/blog", files=[SyncFile(path="posts/now.md", markdown=(
+            "---\ntitle: Now\nplatforms: [devto]\ndevto:\n  organization: acme\n---\n\nBody.\n"))])
+        (first,) = asyncio.run(sync.sync(user, req)).results
+        self.assertEqual((first.action, first.status, dev.sends), ("create", "scheduled", 0))
+        post = store.get_post(first.post_id)
+        self.assertAlmostEqual(post["run_at"] - post["updated_at"], 900, delta=2, msg="the 429's Retry-After")
+        (again,) = asyncio.run(sync.sync(user, req)).results   # the next CI run, during the wait
+        self.assertEqual((again.action, again.post_id, dev.sends), ("unchanged", first.post_id, 0))
+        dev.limited = False
+        asyncio.run(publisher.run_due(now=time.time() + 901))
+        self.assertEqual((store.get_post(first.post_id)["status"], dev.sends), ("published", 1))
 
 
 if __name__ == "__main__":

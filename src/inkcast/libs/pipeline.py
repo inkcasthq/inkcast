@@ -109,8 +109,11 @@ class Publisher:
                 if prepared.destination:
                     await platform.resolve_destination(creds, Account.from_dict(account), prepared.destination)
             except PlatformError as exc:
-                outcomes.append(Outcome(platform.id, "failed", message=str(exc)))
-                continue
+                # A lookup that will pass (a 429) is no typo: when asked to retry, the send resolves it again, and
+                # its retryable failure goes to the scheduler under the policy and the Retry-After (#188).
+                if not (retry and getattr(exc, "retryable", False)):
+                    outcomes.append(Outcome(platform.id, "failed", message=str(exc)))
+                    continue
 
             run_at = story.publish_at.timestamp() if story.publish_at else time.time()
             post_id = self.store.create_post(
