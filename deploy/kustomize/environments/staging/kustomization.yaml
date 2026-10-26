@@ -42,4 +42,4 @@ configMapGenerator:
       - INKCAST_BACKUP_KEEP=14           # the backup CronJob's value (components/backup): change both together
 images:
   - name: ghcr.io/inkcasthq/inkcast
-    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    digest: sha256:b8149a1bc6b6d34df39722706c037a9e4ca079bb37733d81e8b5e80275ac7b01
