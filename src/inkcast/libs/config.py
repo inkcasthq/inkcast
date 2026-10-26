@@ -148,22 +148,36 @@ def _whole(value: Any) -> bool:
 @dataclass(frozen=True)
 class RetryPolicy:
     """How the scheduler retries a post whose send certainly never happened (a connection failure, a 429):
-    ``max_attempts`` sends in all, ``delays`` seconds between them, the last delay repeating. Built from
-    INKCAST_PUBLISH_MAX_ATTEMPTS and INKCAST_PUBLISH_RETRY_DELAYS and handed to the Publisher (libs/pipeline), which
-    applies it only to ``retryable`` platform errors: an ``uncertain`` one (the post may have gone out) is never retried,
-    whatever the policy."""
+    ``max_attempts`` sends in all, ``delays`` seconds between them, the last delay repeating; a 429's ``Retry-After``
+    lengthens a wait, up to the largest delay. Built from INKCAST_PUBLISH_MAX_ATTEMPTS and INKCAST_PUBLISH_RETRY_DELAYS
+    and handed to the Publisher (libs/pipeline), which applies it only to ``retryable`` platform errors: an
+    ``uncertain`` one (the post may have gone out) is never retried, whatever the policy."""
 
     max_attempts: int = 4
     delays: tuple[int, ...] = (60, 300, 1800)
 
-    def delay_after(self, attempt: int) -> int:
-        """Seconds to wait after the ``attempt``-th send (counted from 1) before the next; the last delay repeats."""
-        return self.delays[min(attempt, len(self.delays)) - 1]
+    def delay_after(self, attempt: int, asked: int | float | None = None) -> int:
+        """Seconds to wait after the ``attempt``-th send (counted from 1) before the next; the last delay repeats.
+        ``asked`` is what the platform's ``Retry-After`` asked for (issue #126): the wait is the longer of the two,
+        rounded up to a whole second, but never more than the largest delay listed, so a hostile value can't park a
+        post for a week. A value that isn't a finite number is ignored."""
+        delay = self.delays[min(attempt, len(self.delays)) - 1]
+        try:
+            wanted = math.ceil(asked)
+        except (TypeError, ValueError, OverflowError):  # None or a string; nan; inf
+            return delay
+        return min(wanted, max(self.delays)) if wanted > delay else delay
 
     @property
     def window_seconds(self) -> int:
         """From the first send to the last: how long a post that keeps failing is retried before it is marked failed."""
         return sum(self.delay_after(attempt) for attempt in range(1, self.max_attempts))
+
+    @property
+    def longest_window_seconds(self) -> int:
+        """The window when a 429's ``Retry-After`` stretches every wait to the largest delay: the longest a post that
+        keeps failing can be retried before it is marked failed."""
+        return sum(self.delay_after(attempt, asked=max(self.delays)) for attempt in range(1, self.max_attempts))
 
 
 def publish_retry_problems(policy: RetryPolicy, got: tuple[Any, Any] | None = None) -> list[str]:

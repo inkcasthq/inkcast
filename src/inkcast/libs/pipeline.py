@@ -6,7 +6,8 @@ A publish request becomes one post row per platform (sharing a group id).
 "Now" posts are sent immediately; scheduled posts wait in the database and
 the scheduler loop sends them when due, retrying transient failures under the
 ``RetryPolicy`` the Publisher was built with (INKCAST_PUBLISH_MAX_ATTEMPTS and
-INKCAST_PUBLISH_RETRY_DELAYS; libs/config). Only a failure whose send certainly
+INKCAST_PUBLISH_RETRY_DELAYS; libs/config). A 429's ``Retry-After`` lengthens
+the wait, up to the policy's largest delay. Only a failure whose send certainly
 never happened is retried: an uncertain one is ``unconfirmed``, whatever the policy.
 """
 
@@ -140,7 +141,7 @@ class Publisher:
                             extra={"event": "publish.unconfirmed", "post_id": post_id, "platform": platform.id})
                 return Outcome(platform.id, "unconfirmed", post_id=post_id, message=str(exc))
             if scheduled and exc.retryable and attempts < self.retry.max_attempts:
-                delay = self.retry.delay_after(attempts)
+                delay = self.retry.delay_after(attempts, asked=exc.retry_after)  # a 429's Retry-After, within the policy
                 self.store.update_post(post_id, status="scheduled", run_at=time.time() + delay, error=f"retrying: {exc}",
                                        events=self._event("post.scheduled", post_id, user_id, platform.id, retry=attempts))
                 self._count(platform.id, "retry")
