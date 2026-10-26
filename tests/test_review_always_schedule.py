@@ -233,5 +233,23 @@ class FindingAnEditDoesNotHideHowLateAPostIs(Measured):
         self.assertLess(self.lag_of_the_send(), 60)
 
 
+class FindingAPostDueFirstIsClaimedFirst(Measured):
+    def test_a_post_due_before_another_writers_old_files_were_synced_is_not_queued_behind_them(self):
+        """A post due a minute ago, the scheduler behind. Another writer then syncs an old blog: 20 files dated last
+        year, all due at once (before ADR-0015 the sync sent them itself). The claim took the oldest ``run_at``
+        first, a batch of 20 per tick, so the post that was due first waited behind every one of them."""
+        created = self.sync(at(2 * 24 * 3600))
+        self.behind(created.post_id, 60)
+        other = self.store.upsert_user("local:writer", "writer", None, None)["id"]
+        self.store.save_credentials(other, "pubs", {"k": "v"}, {"id": "2", "name": "writer"})
+        last_year = at(-365 * 24 * 3600)
+        for n in range(20):
+            self.assertEqual(self.sync(last_year, path=f"posts/old-{n}.md", user=other).status, "scheduled")
+        asyncio.run(self.publisher.run_due())                      # one tick: a batch of 20
+        self.assertEqual(self.store.get_post(created.post_id)["status"], "published",
+                         "due first, yet left for a later tick behind posts made after it")
+        self.assertEqual(self.store.due_count(time.time()), 1, "one of the old files waits for the next tick")
+
+
 if __name__ == "__main__":
     unittest.main()

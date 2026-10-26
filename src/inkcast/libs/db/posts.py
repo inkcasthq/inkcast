@@ -84,10 +84,13 @@ class PostsRepo(Database):
         return dict(row) if row else None
 
     def claim_due_posts(self, now: float, limit: int = 20) -> list[dict[str, Any]]:
-        """Atomically move due scheduled posts to 'publishing' and return them."""
+        """Atomically move due scheduled posts to 'publishing' and return them, the one that has waited longest first:
+        from its time, or its creation when that came later (``oldest_due_age``), so a Git file dated last year
+        doesn't jump ahead of a post that was due before it was synced (ADR-0015)."""
         with self._tx() as c:
             rows = c.execute(
-                "SELECT * FROM posts WHERE status = 'scheduled' AND run_at <= ? ORDER BY run_at LIMIT ?", (now, limit)
+                "SELECT * FROM posts WHERE status = 'scheduled' AND run_at <= ? ORDER BY MAX(run_at, created_at), run_at"
+                " LIMIT ?", (now, limit)
             ).fetchall()
             for r in rows:
                 c.execute(
