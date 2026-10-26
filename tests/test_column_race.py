@@ -126,8 +126,8 @@ class TwoPodsAddingTheSameColumn(unittest.TestCase):
             self.assertTrue(b_has_read.wait(60), "B read the table")
         with opening_with(pod_a_waits_for_b_to_read):
             Widgets(str(self.db)).close()
-        a_is_done.set()
-        outcome["thread"].join(60)
+            a_is_done.set()                 # B's patch began inside A's, so it ends first: each restores what it saw
+            outcome["thread"].join(60)
         self.assertEqual(outcome.get("b"), "up", f"B's open: {outcome.get('b')!r}")   # on main: duplicate column name
         self.assertEqual(self.columns("widgets"), ["id", "colour"])
         conn = sqlite3.connect(self.db)
