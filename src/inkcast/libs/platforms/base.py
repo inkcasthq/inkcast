@@ -233,6 +233,12 @@ class Platform(ABC):
             raise PlatformError(f"{self.name} had a server error ({response.status_code}).", retryable=True)
         if response.status_code >= 400:
             raise PlatformError(self.describe_error(response))
+        if response.status_code == 303 and mutating:
+            # See Other is the server's indirect answer (RFC 9110 §15.4.4): it acted on the request, and its result
+            # is at the Location. So the post may be out: uncertain, never "nothing was published".
+            raise PlatformError(
+                f"{self.name} answered with a redirect (303) instead of the post; it may or may not have been "
+                f"published. Check {self.name} before trying again.", uncertain=True)
         if response.status_code >= 300:
             # A redirect (the client never follows one): the request did not reach the API we meant, so nothing was
             # published and nothing will change on a retry. Definite, whatever the body says (#173).
