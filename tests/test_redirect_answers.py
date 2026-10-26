@@ -23,7 +23,7 @@ from inkcast.libs.platforms import Account, Platform, PlatformError
 from inkcast.libs.platforms.devto import DevtoPlatform
 from inkcast.libs.platforms.medium import MediumPlatform
 
-REDIRECTS = (301, 302, 303, 307, 308)
+REDIRECTS = (301, 302, 307, 308)  # a 303 on a publish is uncertain: tests/test_review_redirect_answers.py
 BODIES = {"empty": b"", "html": b"<html><body>Moved</body></html>", "json": b'{"id": 1, "url": "https://x/1"}'}
 
 
