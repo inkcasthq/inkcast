@@ -6,14 +6,17 @@
 alone: counted, logged with ids, and the pass goes on. A read that got no answer at all (a timeout, a connection
 refused or reset: ``httpx2.TransportError``) still failed the whole pass, so one user whose ``users/{id}`` read hangs
 (an LDAP referral to an unreachable server, past the client's 30 s) stopped the reconcile for everyone after them on
-every pass: the #103 flaw for this cause. Now the first such read in a pass is a person error too (``PersonError``
-with status 0 and the error's name), and the second in a row, with no answer from Keycloak in between, fails the
-pass as a whole (``SyncError``): a Keycloak outage costs a pass two timeouts, not one per person. What must still
-hold: the DELETE_ACCOUNT cursor never passes the event of a person whose erasure did not happen; a person whose read
-got no answer is neither gone nor present, so the breaker neither counts them nor acts on them; and no answer from
-the token endpoint is the service account's failure, never a person's.
+every pass: the #103 flaw for this cause. Now such a read is a person error too (``PersonError`` with status 0 and
+the error's name). #121 failed the pass on the second in a row, so that a Keycloak outage cost a pass two timeouts
+rather than one per person; #152 replaced that with a budget per pass (``TIMEOUT_BUDGET``, 3: ``test_sync_timeout_budget``),
+since two people whose reads hang and who are read next to each other failed every pass. A pass now ends at the
+third such read, as a success for what it did, and fails as a whole only when no read about a person answered. A
+transport error on the way to Keycloak (a connection refused, the client's pool) is never a person's. What must
+still hold: the DELETE_ACCOUNT cursor never passes the event of a person whose erasure did not happen; a person
+whose read got no answer is neither gone nor present, so the breaker neither counts them nor acts on them; and no
+answer from the token endpoint is the service account's failure, never a person's.
 
-Each test fails on main, where the first timeout raises out of ``tick``."""
+Each test fails on the code before #121, where the first timeout raises out of ``tick``."""
 
 import asyncio
 import logging
@@ -22,7 +25,7 @@ import unittest
 import httpx2
 from test_sync_per_person_errors import DAY, T0, USER_EVENTS_CURSOR, Keycloak as _Keycloak, Scenario as _Scenario, SyncError
 
-NO_ANSWER = (httpx2.ReadTimeout, httpx2.ConnectError)
+NO_ANSWER = (httpx2.ReadTimeout, httpx2.ReadError)     # the request reached Keycloak: a person's (#152 shape 6)
 DETAIL = "the transport's own words: never logged"
 
 
@@ -160,37 +163,40 @@ class OnePersonWhoseReadHangs(Scenario):
 
 
 class TwoInARow(Scenario):
-    def test_no_answer_to_two_reads_in_a_row_fails_the_pass_and_nobody_after_is_tried(self):
+    """#121 failed the pass on the second read with no answer in a row, so two people whose reads hang and who are
+    read next to each other failed every pass (#152). Now each such read is that person's alone, next to each other
+    or not, up to the pass's budget (``test_sync_timeout_budget``)."""
+
+    def test_no_answer_to_two_reads_in_a_row_no_longer_fails_the_pass_and_the_person_after_is_tried(self):
         first, second, after = self.people("ada", "bob", "carol")
-        self.kc.no_answer[first["kc"]] = httpx2.ReadTimeout         # Keycloak went away mid-pass
+        self.kc.no_answer[first["kc"]] = httpx2.ReadTimeout         # two people whose reads hang, next to each other
         self.kc.no_answer[second["kc"]] = httpx2.ReadTimeout
         self.kc.gone.add(after["kc"])
         worker = self.sync(30)
-        self.assertIsNone(self.reconcile(worker, T0))
-        self.assertEqual(len(self.pass_errors), 1)
-        self.assertIs(type(self.pass_errors[0]), SyncError, "the sync failed, not a person (PersonError)")
-        self.assertIsInstance(self.pass_errors[0].__cause__, httpx2.ReadTimeout)
-        self.assertEqual(self.kc.read, [first["kc"], second["kc"]], "carol was not tried: that would cost a timeout per person")
-        self.assertEqual(self.errors_counted(), 1, "the first is that person's failure; the second is the sync's")
-        self.assertEqual(worker.last_reconcile, 0, "not a reconcile that ran: retried at the next tick, as before")
-        self.assertEqual(worker.last_success, 0.0)
-        for user in (first, second, after):
-            self.assert_untouched(user)
+        done = self.reconcile(worker, T0)
+        self.assertEqual(self.pass_errors, [], "the second read with no answer in a row failed the pass (#121)")
+        self.assertEqual(self.kc.read, [first["kc"], second["kc"], after["kc"]], "carol was tried: two is under the budget")
+        self.assertEqual((done["checked"], done["disabled"]), (3, 1))
+        self.assert_cut_off(after)
+        self.assertEqual(self.errors_counted(), 2, "each is that person's failure; neither is the sync's")
+        self.assertEqual((worker.last_reconcile, worker.last_success), (T0, T0), "a reconcile that ran")
+        self.assert_untouched(first)
+        self.assert_untouched(second)
 
-    def test_an_answer_in_between_starts_the_count_again_and_so_does_each_pass(self):
+    def test_each_is_that_persons_alone_and_each_pass_starts_at_nought(self):
         hangs, fine, hangs_too, gone = self.people("ada", "bob", "carol", "dave")
         self.kc.no_answer[hangs["kc"]] = httpx2.ReadTimeout
-        self.kc.no_answer[hangs_too["kc"]] = httpx2.ConnectError
+        self.kc.no_answer[hangs_too["kc"]] = httpx2.ReadError
         self.kc.gone.add(gone["kc"])
         worker = self.sync(30)
         done = self.reconcile(worker, T0)
-        self.assertEqual(self.pass_errors, [], "two reads with no answer, but not in a row: each is that person's alone")
+        self.assertEqual(self.pass_errors, [], "two reads with no answer: each is that person's alone")
         self.assertEqual((done["checked"], done["disabled"]), (4, 1))
         self.assert_cut_off(gone)
         self.assert_untouched(hangs)
         self.assert_untouched(hangs_too)
         self.assertEqual(self.errors_counted(), 2)
-        self.assertEqual(self.reconcile(worker, T0 + 600)["checked"], 4, "the next pass: the count starts at nought")
+        self.assertEqual(self.reconcile(worker, T0 + 600)["checked"], 4, "the next pass: the budget starts at nought")
         self.assertEqual((self.errors_counted(), self.pass_errors), (4, []))
 
     def test_no_answer_from_the_token_endpoint_is_the_service_accounts_failure_not_a_persons(self):
@@ -286,31 +292,35 @@ class TheDeleteAccountCursor(Scenario):
                          [(("via", "event"),)] * 3, "each erased once, by the events pass")
         self.assertEqual(self.pass_errors, [])
 
-    def test_two_in_a_row_in_the_events_pass_fail_it_and_the_cursor_stays_where_it_was(self):
+    def test_two_in_a_row_in_the_events_pass_no_longer_fail_it_and_the_cursor_stays_before_their_events(self):
+        """#121 failed this pass on the second read with no answer, before it reached the oldest event (#152 shape 1:
+        two hanging people with pending DELETE_ACCOUNT events, and nobody between them). Now the pass goes on past
+        them, erases past them, and the cursor stays before the oldest event not acted on."""
         by_kc = {u["kc"]: u for u in self.people("ada", "bob", "carol")}
         ada, bob, carol = by_kc["ada"], by_kc["bob"], by_kc["carol"]
         worker = self.sync(30)
         self.assertEqual(self.tick(worker)["erased"], 0, "the cursor is set")
-        was = self.cursor()
         self.kc.gone.add("carol")
-        self.kc.no_answer.update({"ada": httpx2.ReadTimeout, "bob": httpx2.ConnectError})
+        self.kc.no_answer.update({"ada": httpx2.ReadTimeout, "bob": httpx2.ReadError})
         self.kc.events += [self.event("carol", 1_000), self.event("ada", 2_000), self.event("bob", 3_000)]
-        bob_at = self.kc.events[2]["time"]
+        ada_at, bob_at = self.kc.events[1]["time"], self.kc.events[2]["time"]
 
-        self.assertIsNone(self.tick(worker, T0 + 4), "newest first: bob's read, then ada's, got no answer")
-        self.assertIs(type(self.pass_errors[0]), SyncError)
-        self.assertEqual(self.kc.read, ["bob", "ada"], "carol, whose event is the oldest, was not reached")
-        self.assertEqual(self.cursor(), was, "the pass failed: the cursor did not move")
-        self.assertIsNotNone(self.row(carol))
-        self.assertEqual(self.errors_counted(), 1)
+        self.assertEqual(self.tick(worker, T0 + 4)["erased"], 1, "newest first: bob's read, then ada's, got no answer; carol was reached")
+        self.assertEqual(self.pass_errors, [], "two reads with no answer in a row failed the pass (#121)")
+        self.assertEqual(self.kc.read, ["bob", "ada", "carol"])
+        self.assertIsNone(self.row(carol))
+        self.assertEqual(self.cursor(), ada_at, "the cursor stays before the oldest event of a person whose erasure did not happen")
+        self.assertIsNotNone(self.row(ada))
+        self.assertIsNotNone(self.row(bob))
+        self.assertEqual(self.errors_counted(), 2)
 
-        self.kc.no_answer.clear()                                   # Keycloak is back: all three are gone
+        self.kc.no_answer.clear()                                   # Keycloak answers about them: both are gone
         self.kc.gone.update({"ada", "bob"})
-        self.assertEqual(self.tick(worker, T0 + 34)["erased"], 3, "no event was passed over")
-        for user in (ada, bob, carol):
+        self.assertEqual(self.tick(worker, T0 + 34)["erased"], 2, "no event was passed over")
+        for user in (ada, bob):
             self.assertIsNone(self.row(user))
-        self.assertEqual(self.cursor(), bob_at)
-        self.assertEqual(len(self.pass_errors), 1)
+        self.assertEqual(self.cursor(), bob_at, "every event acted on: the cursor moves")
+        self.assertEqual(self.pass_errors, [])
 
 
 if __name__ == "__main__":

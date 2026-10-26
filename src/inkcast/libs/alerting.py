@@ -160,7 +160,8 @@ ALERTS: tuple[Alert, ...] = (
           "Inkcast tokens until it recovers. Sign-in itself is unaffected.", "identity"),
     # #103: a failure Keycloak answers about one person is that person's alone; the pass goes on and reads them again
     # at the next reconcile (every 10 minutes by default), so a person it keeps failing for shows up in every 30 m.
-    # #121: so is a read about one person that gets no answer (a timeout), unless the next read gets none either.
+    # #121: so is a read about one person that gets no answer (a timeout); #152: up to a budget of three per pass,
+    # after which the pass ends (as a success for what it did, unless no read about a person answered).
     Alert("InkcastIdentitySyncPersonFailing",
           'sum by (stage) (increase(inkcast_identity_sync_errors_total[30m])) > 0',
           "warning", "The Keycloak user sync keeps failing at stage {{ $labels.stage }}",
