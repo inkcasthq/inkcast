@@ -113,6 +113,10 @@ class Story:
     canonical_url: str | None = None
     cover_image: str | None = None
     publish_at: datetime | None = None  # UTC; None = now
+    # The time the front matter asks for, as written (UTC), kept even once it has passed and ``publish_at`` reads
+    # "now" (Git publishing): a sync compares it with a post already scheduled, so an unchanged file is left alone
+    # whatever the clock says (#187). None when the file names no time.
+    publish_at_written: datetime | None = None
     draft: bool = False
     platforms: list[str] = field(default_factory=list)
     # Per-platform overrides from front matter blocks / the `destinations` argument.
@@ -212,9 +216,8 @@ def check_url(url: str, what: str) -> str:
     return str(url).strip()
 
 
-def parse_when(value: Any, now: datetime, past_is_now: bool = False) -> datetime | None:
-    """A schedule time, in UTC. Past (or < 2 minutes away) is an error, or None ("now") if ``past_is_now``;
-    beyond SCHEDULE_HORIZON_DAYS is always an error."""
+def read_when(value: Any) -> datetime:
+    """A schedule time as written, in UTC: an ISO 8601 date-time with a zone, whatever the clock says."""
     if isinstance(value, datetime):
         when = value
     else:
@@ -232,11 +235,17 @@ def parse_when(value: Any, now: datetime, past_is_now: bool = False) -> datetime
             f"publish_at {value!r} has no time zone. Add a UTC offset, e.g. 2026-10-21T09:00:00-05:00."
         )
     try:
-        when = when.astimezone(timezone.utc)
+        return when.astimezone(timezone.utc)
     except OverflowError as exc:  # e.g. 9999-12-31T23:00:00-05:00, which is in year 10000 in UTC
         raise StoryError(
             f"publish_at {when.isoformat()} is out of range; schedule it at most {SCHEDULE_HORIZON_DAYS} days ahead."
         ) from exc
+
+
+def parse_when(value: Any, now: datetime, past_is_now: bool = False) -> datetime | None:
+    """A schedule time, in UTC. Past (or < 2 minutes away) is an error, or None ("now") if ``past_is_now``;
+    beyond SCHEDULE_HORIZON_DAYS is always an error."""
+    when = read_when(value)
     if when < now + timedelta(minutes=2):
         if past_is_now:
             return None
@@ -348,8 +357,10 @@ def parse_story(
 
     when_raw = publish_at or _pick(meta, "publish_at")
     warnings: list[str] = []
-    # Git publishing re-reads files long after their date: there, a past publish_at means "now".
-    when = parse_when(when_raw, now, past_is_now=past_schedule_is_now) if when_raw else None
+    # Git publishing re-reads files long after their date: there, a past publish_at means "now". The time as written
+    # is kept beside it (``publish_at_written``), for a sync to compare with a post already scheduled.
+    written = read_when(when_raw) if when_raw else None
+    when = parse_when(written, now, past_is_now=past_schedule_is_now) if written else None
     body, unresolved = _rewrite_images(body.strip() + "\n", check_url(base, "image_base_url") if base else None)
     if unresolved:
         shown = ", ".join(unresolved[:5]) + (" …" if len(unresolved) > 5 else "")
@@ -366,6 +377,7 @@ def parse_story(
         canonical_url=check_url(canonical, "canonical_url") if canonical else None,
         cover_image=check_url(cover, "cover_image") if cover else None,
         publish_at=when,
+        publish_at_written=written,
         draft=draft,
         platforms=chosen,
         overrides=overrides,

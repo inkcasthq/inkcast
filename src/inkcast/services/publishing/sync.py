@@ -25,6 +25,7 @@ from __future__ import annotations
 import hashlib
 import json
 import time
+from dataclasses import replace
 from datetime import datetime, timezone
 
 from ...libs.content.story import StoryError, parse_story
@@ -124,12 +125,21 @@ class GitSync:
                 (entry["status"] == "cancelled" and changed):
             return await self._create(user_id, req, path, story, platform, prepared, digest, entry)
 
+        schedule_changed = False
         if post and post["status"] == "scheduled":  # not sent yet: the schedule time matters too
-            wanted = story.publish_at.timestamp() if story.publish_at else None
-            # A post the scheduler has tried waits for its retry (INKCAST_PUBLISH_RETRY_DELAYS): its run_at is the
-            # retry's, so a file that still says "now" (its publish_at has passed) has not changed.
-            if (wanted is None and not post["attempts"]) or (wanted is not None and abs(post["run_at"] - wanted) >= 1):
-                changed = True
+            if post["attempts"]:
+                # A post the scheduler has tried waits for its retry (INKCAST_PUBLISH_RETRY_DELAYS): its run_at is the
+                # retry's, so only a new time still ahead in the file is a change; a file that reads "now" (its
+                # publish_at has passed) has not changed.
+                wanted = story.publish_at.timestamp() if story.publish_at else None
+                schedule_changed = wanted is not None and abs(post["run_at"] - wanted) >= 1
+            else:
+                # Not tried yet: its run_at is the time the file asked for. Compare with the time as written, whatever
+                # the clock: in the 2 minutes before it (or once it has passed, the scheduler behind) the file reads
+                # as "now", but it has not changed, and the post is the scheduler's to send at its time (#187).
+                written = story.publish_at_written.timestamp() if story.publish_at_written else None
+                schedule_changed = written is None or abs(post["run_at"] - written) >= 1
+            changed = changed or schedule_changed
 
         if not changed:
             if entry["message"] and not req.dry_run:  # e.g. a "stale" note, now resolved by reverting the file
@@ -148,6 +158,11 @@ class GitSync:
                                   message="The scheduled post changed state during this sync; run the sync again.")
             # Ours to replace now: hold it as a claim, or a concurrent sync sees the cancelled post and creates one too.
             self.store.put_entry(user_id, src, path, pid, status="syncing")
+            if not schedule_changed and story.publish_at_written is not None:
+                # The content changed, not the schedule: the replacement keeps the time the file asks for, as
+                # written. Passed or under 2 minutes away, it is due at once, as a scheduled post the scheduler
+                # retries under its policy, never a "now" post sent early and never retried (#187).
+                story = replace(story, publish_at=story.publish_at_written)
             return await self._create(user_id, req, path, story, platform, prepared, digest, entry, replace=True)
 
         if "update" not in platform.capabilities or not entry["remote_id"]:
