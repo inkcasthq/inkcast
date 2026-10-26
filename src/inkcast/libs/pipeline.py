@@ -109,8 +109,11 @@ class Publisher:
                 if prepared.destination:
                     await platform.resolve_destination(creds, Account.from_dict(account), prepared.destination)
             except PlatformError as exc:
-                outcomes.append(Outcome(platform.id, "failed", message=str(exc)))
-                continue
+                # A lookup that will pass (a 429) is no typo: when asked to retry, the send resolves it again, and
+                # its retryable failure goes to the scheduler under the policy and the Retry-After (#188).
+                if not (retry and getattr(exc, "retryable", False)):
+                    outcomes.append(Outcome(platform.id, "failed", message=str(exc)))
+                    continue
 
             run_at = story.publish_at.timestamp() if story.publish_at else time.time()
             post_id = self.store.create_post(
@@ -167,7 +170,7 @@ class Publisher:
             if retry and exc.retryable and self._asked_beyond_cap(getattr(exc, "retry_after", None)):
                 # The retries ran out at the policy's cap while the platform kept asking for longer (#188).
                 message += (f" {platform.name} asked for a longer wait than INKCAST_PUBLISH_RETRY_DELAYS allows (at most "
-                            f"{max(self.retry.delays)} s), so the {attempts} sends were spaced at that cap.")
+                            f"{max(self.retry.delays)} s), which caps every wait.")
             self.store.update_post(post_id, status="failed", error=message,
                                    events=self._event("post.failed", post_id, user_id, platform.id, reason="platform"))
             self._count(platform.id, "failed")
@@ -264,9 +267,11 @@ class Publisher:
         def recovered(status: str) -> list[DomainEvent]:
             return self._event("post.recovered", post_id, row["user_id"], platform.id, status=status)
 
+        # Each answer is written only while the post is still 'recovering': another worker may have taken it over
+        # (a pass longer than STUCK_AFTER), re-queued it and sent it while this lookup was out.
         if found is not None and found.status == "unavailable":
             message = f"Could not check {platform.name} yet ({found.message}); it will be checked again."
-            self.store.update_post(post_id, status="recovering", error=message)
+            self.store.update_post(post_id, status="recovering", error=message, only_if="recovering")
             log.warning("Post %s on %s was interrupted mid-send and %s could not be asked yet; checking again later",
                         post_id, platform.id, platform.id,
                         extra={"event": "publish.recovery.deferred", "post_id": post_id, "platform": platform.id})
@@ -274,15 +279,17 @@ class Publisher:
         if found is None:
             message = (f"Inkcast restarted while this post was being sent to {platform.name}, which can't be checked "
                        f"automatically. Check {platform.name} before publishing it again.")
-            self.store.update_post(post_id, status="unconfirmed", error=message, events=recovered("unconfirmed"))
+            self.store.update_post(post_id, status="unconfirmed", error=message, events=recovered("unconfirmed"),
+                                   only_if="recovering")
             outcome = Outcome(platform.id, "unconfirmed", post_id=post_id, message=message)
         elif found.status == "missing":
             self.store.update_post(post_id, status="scheduled", run_at=time.time(), events=recovered("scheduled"),
-                                   error=f"Interrupted before {platform.name} received it; sending again.")
+                                   error=f"Interrupted before {platform.name} received it; sending again.",
+                                   only_if="recovering")
             outcome = Outcome(platform.id, "scheduled", post_id=post_id, message="Interrupted; sending again.")
         else:
             self.store.update_post(post_id, status=found.status, result_url=found.url, remote_id=found.remote_id, error=None,
-                                   events=recovered(found.status))
+                                   events=recovered(found.status), only_if="recovering")
             outcome = Outcome(platform.id, found.status, post_id=post_id, url=found.url, remote_id=found.remote_id)
         self._count(platform.id, "recovered")
         log.warning("Post %s on %s was interrupted mid-send; now %s", post_id, platform.id, outcome.status,
