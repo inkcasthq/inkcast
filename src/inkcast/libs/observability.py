@@ -68,6 +68,9 @@ EVENTS: dict[str, tuple[str, str]] = {
                                       "tokens were cut, their PATs are refused but not revoked, until an operator decides."),
     "identity.user.released": ("info", "The hold on a person was lifted (Keycloak reports them enabled again, or the pass was "
                                        "dismissed): their PATs work again."),
+    "identity.erasure.orphans_swept": ("warning", "Housekeeping removed rows written for people in the instant of their "
+                                                  "erasure, before the write-time guard refused such writes (rows and tables, "
+                                                  "counts only); once per database, not a new deletion, no audit row."),
     "identity.user.deleted": ("warning", "A person's account is gone (deleted by them, or in Keycloak and past the grace "
                                          "period): every row of theirs was erased (ids and counts only)."),
     "identity.erasure.reapplied": ("warning", "A restore brought back rows of a person erased before; they were erased again at "
