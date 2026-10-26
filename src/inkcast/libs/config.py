@@ -173,6 +173,12 @@ class RetryPolicy:
         """From the first send to the last: how long a post that keeps failing is retried before it is marked failed."""
         return sum(self.delay_after(attempt) for attempt in range(1, self.max_attempts))
 
+    @property
+    def longest_window_seconds(self) -> int:
+        """The window when a 429's ``Retry-After`` stretches every wait to the largest delay: the longest a post that
+        keeps failing can be retried before it is marked failed."""
+        return sum(self.delay_after(attempt, asked=max(self.delays)) for attempt in range(1, self.max_attempts))
+
 
 def publish_retry_problems(policy: RetryPolicy, got: tuple[Any, Any] | None = None) -> list[str]:
     """The rules of INKCAST_PUBLISH_MAX_ATTEMPTS and INKCAST_PUBLISH_RETRY_DELAYS, as problems naming the variable;
