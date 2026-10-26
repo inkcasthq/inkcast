@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sqlite3
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -124,6 +125,21 @@ class Publisher:
             return Outcome(platform.id, "failed", post_id=post_id, message=f"{platform.name} was disconnected.")
         creds, account_data = connected
         account = Account.from_dict(account_data)
+        try:
+            return await self._deliver(post_id, user_id, platform, prepared, attempts, creds, account, scheduled, lag)
+        except sqlite3.Error:
+            raise  # the store, not the plug-in: it says nothing about the send, so the tick stops and recovery asks
+        except Exception as exc:
+            # An error the pipeline itself could not handle (a PlatformError subclass missing a flag it reads, an
+            # error whose text can't be rendered): one plug-in's odd exception must not leave the rest of the batch
+            # claimed until recovery (#174). This post is as ambiguous as a crash inside the plug-in.
+            log.exception("Platform %s raised an error the pipeline could not handle for %s", platform.id, post_id)
+            return self._crashed(post_id, user_id, platform, exc)
+
+    async def _deliver(self, post_id: str, user_id: str, platform: Platform, prepared: Prepared, attempts: int,
+                       creds: dict[str, str], account: Account, scheduled: bool, lag: float | None) -> Outcome:
+        """The send itself, from the plug-in's call to the recorded answer. Only this is guarded (``_send``): reading
+        the credentials before it says nothing about the send, and failing there must not mark the post unconfirmed."""
         started = time.perf_counter()
         try:
             destination = (
@@ -273,16 +289,8 @@ class Publisher:
                                        events=self._event("post.failed", row["id"], row["user_id"], row["platform"], reason="plugin"))
                 continue
             prepared = Prepared.from_dict(json.loads(row["payload"]))
-            try:
-                outcome = await self._send(row["id"], row["user_id"], platform, prepared, row["attempts"], scheduled=True,
-                                           lag=lag)
-            except Exception as exc:
-                # An error the pipeline itself could not handle (a PlatformError subclass missing a flag it reads, an
-                # error whose text can't be rendered): one plug-in's odd exception must not leave the rest of the batch
-                # claimed until recovery (#174). This post is as ambiguous as a crash inside the plug-in.
-                log.exception("Platform %s raised an error the pipeline could not handle for %s", platform.id, row["id"])
-                outcome = self._crashed(row["id"], row["user_id"], platform, exc)
-            outcomes.append(outcome)
+            outcomes.append(await self._send(row["id"], row["user_id"], platform, prepared, row["attempts"], scheduled=True,
+                                             lag=lag))
         return outcomes
 
     async def run_forever(self, interval: float, stop: asyncio.Event, housekeeping: Any = None,
