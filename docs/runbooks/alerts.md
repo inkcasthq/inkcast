@@ -102,6 +102,7 @@ SLO burn-rate alerts carry `slo`, `burn_rate`, `long_window` and `short_window` 
 **Meaning:** a container restarted more than 3 times in an hour.
 
 1. `oc describe pod` for the last state: OOMKilled (raise the memory limit; the default is 256Mi), exit 78 (configuration; the log says what), or a failing liveness probe (the process is wedged; the metrics port must answer `/livez`).
+2. A failing *startup* probe right after a rollout, with `identity.erasure_hash.backfill` lines in the previous container's log (`oc logs --previous`), is the one-off fill of `users.erasure_hash` outlasting the probe's 60 seconds on a large database: each start gets further, and nothing is lost or filled twice. See [Upgrading to the hash column](backup-restore.md#upgrading-to-the-hash-column).
 
 ## InkcastDataVolumeNearlyFull
 
