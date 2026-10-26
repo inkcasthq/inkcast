@@ -33,7 +33,7 @@ SLO burn-rate alerts carry `slo`, `burn_rate`, `long_window` and `short_window` 
 
 ## InkcastPostsOverdue
 
-**Meaning:** posts are past due by more than `INKCAST_OVERDUE_GRACE` (600 s). The scheduler is stopped, behind, or every tick fails.
+**Meaning:** posts have waited more than `INKCAST_OVERDUE_GRACE` (600 s) since they could first be sent: their time, or their creation when that came later (a Git file dated in the past is due at once, [ADR-0015](../adr/0015-publish-at-is-always-scheduled.md), and does not count as overdue until the grace has passed). The scheduler is stopped, behind, or every tick fails.
 
 1. Is `InkcastSchedulerStalled` also firing? Follow it first.
 2. `inkcast_posts_oldest_due_age_seconds` and `inkcast_posts_due` on the dashboard: a growing queue with ticks running means the batch (20 per tick) is too small for the burst, or a platform is slow (`inkcast_publish_duration_seconds`). Scale the scheduler (E3: several replicas are safe; the claim is atomic) or lower `INKCAST_SCHEDULER_INTERVAL`.
@@ -205,7 +205,7 @@ Attempts a platform accepted over all attempts, objective 99%. Burning: `Inkcast
 
 ### slo-schedule-timeliness
 
-Scheduled posts claimed within two minutes of their time, objective 99%. Burning: `InkcastPostsOverdue` and `InkcastQueueHeadLagHigh`.
+Scheduled posts claimed within two minutes of their time (or of their creation, for a post made after its time: [ADR-0015](../adr/0015-publish-at-is-always-scheduled.md)), objective 99%. Burning: `InkcastPostsOverdue` and `InkcastQueueHeadLagHigh`.
 
 ---
 <!-- inkcast-nav -->

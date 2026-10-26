@@ -62,11 +62,22 @@ devto:
 The story. Relative images like ![diagram](img/flow.png) are rewritten to raw GitHub URLs at the commit.
 ```
 
+### How `publish_at` is read
+
+A file with a `publish_at` is always a scheduled post, at the time as written ([ADR-0015](adr/0015-publish-at-is-always-scheduled.md)):
+
+- **In the future:** the post waits for that time, even if it is only seconds away when you push. It is never sent before it.
+- **Already passed** (files are often re-read long after their date): the post is due at once, and the scheduler sends it at its next tick, with the usual retries if the platform is rate-limited or down.
+- **Changed:** a time moved earlier or later re-schedules the post at the new time; a time removed makes it a "now" post, published on the next sync.
+- **No `publish_at`:** the file is published on the sync itself.
+
+Publishing by hand (`inkcast_publish`, `POST /api/v1/posts`) is different: there a past time, or one under two minutes away, is refused; omit it to publish now.
+
 ## What each result means
 
 | Result | Meaning |
 |---|---|
-| `create` | New: published, or scheduled if `publish_at` is in the future |
+| `create` | New: published, or scheduled at its `publish_at` (due at once if that has passed) |
 | `update` | Changed: edited in place (DEV), or re-scheduled if it hadn't gone out yet |
 | `unchanged` | Same content as last time: nothing sent |
 | `stale` | Changed, but the platform can't edit posts (Medium). Edit it by hand at the URL shown; Inkcast won't post it again |
