@@ -13,10 +13,12 @@ Inkcast user id and fixed fields only, and the pass goes on. What must still hol
 passes the event of a person whose erasure did not happen (it is read again every pass until it does), the
 reconcile keeps its schedule (the failed person is re-read at the next one, not in a tight loop), and the pass as a
 whole still fails as before when the sync, not a person, is the problem: a reconcile that could act on nobody (so
-``InkcastIdentitySyncFailing`` keeps its meaning for a realm-wide 403 or 500), the service account refused, or no
-answer at all to two reads in a row (#121 makes the first such read that person's alone, since one user whose read
-hangs must not block everyone after them; catching every one per person would cost a timeout per person while
-Keycloak is down, so the second in a row fails the pass; ``test_sync_person_timeouts``)."""
+``InkcastIdentitySyncFailing`` keeps its meaning for a realm-wide 403 or 500), the service account refused, a
+transport error on the way to Keycloak (a connection refused: never one person's, #152), or no answer to a pass's
+budget of reads about people with none answered (#121 made a read about one person with no answer that person's
+alone, since one user whose read hangs must not block everyone after them; #152 gave a pass a budget of three such
+reads, so that Keycloak being down costs it the budget, not a timeout per person; ``test_sync_person_timeouts``,
+``test_sync_timeout_budget``)."""
 
 import asyncio
 import unittest
@@ -322,16 +324,16 @@ class WhatStillFailsThePass(Scenario):
         for user in people:
             self.assert_untouched(user)
 
-    def test_connection_errors_on_two_reads_in_a_row_still_fail_the_pass_as_a_whole(self):
+    def test_a_connection_error_still_fails_the_pass_as_a_whole_at_once(self):
         down, still_down, after = self.people("ada", "bob", "carol")
         self.kc.unreachable.update({down["kc"], still_down["kc"]})  # Keycloak went away mid-pass
         worker = self.sync(30)
         self.assertIsNone(self.reconcile(worker, T0))
         self.assertEqual(len(self.pass_errors), 1)
-        self.assertIs(type(self.pass_errors[0]), SyncError, "the sync failed, not a person: the second in a row (#121)")
+        self.assertIs(type(self.pass_errors[0]), SyncError, "the sync failed, not a person: on the way there (#152)")
         self.assertIsInstance(self.pass_errors[0].__cause__, httpx2.ConnectError)
-        self.assertEqual(self.kc.read, [down["kc"], still_down["kc"]], "nobody else was tried: that would cost a timeout per person")
-        self.assertEqual(self.errors_counted(), 1, "the first is that person's failure (#121); the second is the sync's")
+        self.assertEqual(self.kc.read, [down["kc"]], "nobody else was tried: a connection refused is nobody's")
+        self.assertEqual(self.errors_counted(), 0, "not a person's failure")
         self.assertEqual(worker.last_reconcile, 0)
         self.assert_untouched(after)
 
