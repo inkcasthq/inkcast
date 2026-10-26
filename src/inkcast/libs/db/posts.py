@@ -122,18 +122,21 @@ class PostsRepo(Database):
         rows = self._all("SELECT status, COUNT(*) AS n FROM posts GROUP BY status")
         return {r["status"]: r["n"] for r in rows}
 
+    # The queue gauges count what ``claim_due_posts`` would take (``_OWNED``): a post no claim takes is not behind.
     def due_count(self, now: float) -> int:
-        row = self._one("SELECT COUNT(*) AS n FROM posts WHERE status = 'scheduled' AND run_at <= ?", now)
+        row = self._one("SELECT COUNT(*) AS n FROM posts WHERE status = 'scheduled' AND run_at <= ?" + self._OWNED, now)
         return int(row["n"]) if row else 0
 
     def oldest_due_age(self, now: float) -> float:
         """Seconds the oldest due, still-scheduled post has waited; 0.0 when nothing is due."""
-        row = self._one("SELECT MIN(run_at) AS oldest FROM posts WHERE status = 'scheduled' AND run_at <= ?", now)
+        row = self._one("SELECT MIN(run_at) AS oldest FROM posts WHERE status = 'scheduled' AND run_at <= ?" + self._OWNED,
+                        now)
         return max(0.0, now - float(row["oldest"])) if row and row["oldest"] is not None else 0.0
 
     def overdue_count(self, now: float, grace: float) -> int:
         """Scheduled posts more than ``grace`` seconds past due: the scheduler is behind or stopped."""
-        row = self._one("SELECT COUNT(*) AS n FROM posts WHERE status = 'scheduled' AND run_at <= ?", now - grace)
+        row = self._one("SELECT COUNT(*) AS n FROM posts WHERE status = 'scheduled' AND run_at <= ?" + self._OWNED,
+                        now - grace)
         return int(row["n"]) if row else 0
 
     def post_status_counts(self, user_id: str, since: float) -> dict[str, dict[str, int]]:
