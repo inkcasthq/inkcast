@@ -111,7 +111,7 @@ class Publisher:
             if story.publish_at:
                 outcomes.append(Outcome(platform.id, "scheduled", post_id=post_id, prepared=prepared))
             else:
-                outcomes.append(await self._send(post_id, user_id, platform, prepared, attempts=1))
+                outcomes.append(await self._guarded_send(post_id, user_id, platform, prepared, attempts=1))
         order = {pid: i for i, pid in enumerate(platform_ids)}
         return sorted(outcomes, key=lambda o: order.get(o.platform, 99))
 
@@ -273,17 +273,22 @@ class Publisher:
                                        events=self._event("post.failed", row["id"], row["user_id"], row["platform"], reason="plugin"))
                 continue
             prepared = Prepared.from_dict(json.loads(row["payload"]))
-            try:
-                outcome = await self._send(row["id"], row["user_id"], platform, prepared, row["attempts"], scheduled=True,
-                                           lag=lag)
-            except Exception as exc:
-                # An error the pipeline itself could not handle (a PlatformError subclass missing a flag it reads, an
-                # error whose text can't be rendered): one plug-in's odd exception must not leave the rest of the batch
-                # claimed until recovery (#174). This post is as ambiguous as a crash inside the plug-in.
-                log.exception("Platform %s raised an error the pipeline could not handle for %s", platform.id, row["id"])
-                outcome = self._crashed(row["id"], row["user_id"], platform, exc)
-            outcomes.append(outcome)
+            outcomes.append(await self._guarded_send(row["id"], row["user_id"], platform, prepared, row["attempts"],
+                                                     scheduled=True, lag=lag))
         return outcomes
+
+    async def _guarded_send(self, post_id: str, user_id: str, platform: Platform, prepared: Prepared, attempts: int,
+                            **kwargs: Any) -> Outcome:
+        """``_send`` for a scheduled post and a "now" one alike: Git sync marks an entry whose send raised 'failed'
+        and creates it again on the next sync."""
+        try:
+            return await self._send(post_id, user_id, platform, prepared, attempts, **kwargs)
+        except Exception as exc:
+            # An error the pipeline itself could not handle (a PlatformError subclass missing a flag it reads, an
+            # error whose text can't be rendered): one plug-in's odd exception must not leave the rest of the batch
+            # claimed until recovery (#174). This post is as ambiguous as a crash inside the plug-in.
+            log.exception("Platform %s raised an error the pipeline could not handle for %s", platform.id, post_id)
+            return self._crashed(post_id, user_id, platform, exc)
 
     async def run_forever(self, interval: float, stop: asyncio.Event, housekeeping: Any = None,
                           on_tick: Any = None) -> None:
