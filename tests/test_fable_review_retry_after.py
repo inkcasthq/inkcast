@@ -3,7 +3,7 @@
 """Deferred review of #168 (issue #126): a 429's ``Retry-After`` sets the retry delay, capped by the policy.
 
 Each test in a ``Finding`` class failed on main at 57f83d1 (#168 and its adversarial review merged) before the fix
-committed with it."""
+committed with it. The ``Held`` classes pin behaviour that was checked by hand and found right, so it stays right."""
 
 import asyncio
 import time
@@ -13,7 +13,7 @@ import httpx2
 
 from inkcast.libs.config import RetryPolicy, load_config
 from inkcast.libs.db import Store
-from inkcast.libs.pipeline import Publisher
+from inkcast.libs.pipeline import STUCK_AFTER, Publisher
 from inkcast.libs.platforms.devto import DevtoPlatform
 from inkcast.libs.secrets import Redactor, run_checks
 
@@ -121,6 +121,52 @@ class FindingThePostureCheckQuotesOnlyTheShortestWindow(Scheduler):
         self.assertEqual(check.status, "warn", check.detail)
         self.assertIn("30 h", check.detail)
         self.assertNotIn("Retry-After", check.detail)
+
+
+class HeldTheWaitIsNeverTakenForAStuckSend(Scheduler):
+    """Checked and held (no product change). A Retry-After wait is a ``scheduled`` row with a future ``run_at``, never
+    a claim: ``claim_stuck`` takes only ``publishing`` and ``recovering`` rows, so a wait longer than STUCK_AFTER (10
+    min) is not recovered, and recovery is what re-sends. Here a second worker, with its own DEV client, ticks past
+    STUCK_AFTER and just before the wait ends: nothing is sent, nothing is recovered, and the attempt count stands."""
+
+    def test_a_wait_longer_than_stuck_after_is_not_recovered_or_resent_by_another_worker(self):
+        self.assertGreater(1800, STUCK_AFTER, "the default policy's largest delay outlasts the stuck clock")
+        devto, requests = rate_limited("1800")
+        publisher = self.publisher(devto)
+        post_id = self.due()
+        asyncio.run(publisher.run_due())
+        post = self.store.get_post(post_id)
+        self.assertEqual((post["status"], post["attempts"], len(requests)), ("scheduled", 1, 1))
+        sent_at, due_at = post["updated_at"], post["run_at"]
+        self.assertAlmostEqual(due_at - sent_at, 1800, delta=2)
+        other_devto, other_requests = rate_limited("1800")
+        other = Publisher(self.store, {other_devto.id: other_devto})
+        for later in (STUCK_AFTER + 1, 2 * STUCK_AFTER + 1, 1799):
+            with self.subTest(later=later):
+                outcomes = asyncio.run(other.run_due(now=sent_at + later))
+                self.assertEqual(outcomes, [])
+                post = self.store.get_post(post_id)
+                self.assertEqual((post["status"], post["attempts"]), ("scheduled", 1))
+        self.assertEqual((len(requests), len(other_requests)), (1, 0))
+        asyncio.run(other.run_due(now=due_at + 1))
+        self.assertEqual((len(requests), len(other_requests)), (1, 1), "the other worker sends it when the wait ends")
+        self.assertEqual(self.store.get_post(post_id)["attempts"], 2)
+
+
+class HeldTheAskRidesOnTheDestinationLookupToo(Scheduler):
+    """Checked and held (no product change). A scheduled send resolves the destination first (a GET through the same
+    helper). A 429 there is retryable and carries Retry-After, so the post waits as asked instead of the policy's
+    60 s, and nothing was published."""
+
+    def test_a_429_on_the_organization_lookup_waits_as_asked(self):
+        devto, requests = rate_limited("900", paths=("/api/organizations/on-call",))
+        publisher = self.publisher(devto)
+        post_id = self.due(organization="on-call")
+        asyncio.run(publisher.run_due())
+        post = self.store.get_post(post_id)
+        self.assertEqual((post["status"], post["attempts"]), ("scheduled", 1))
+        self.assertAlmostEqual(post["run_at"] - post["updated_at"], 900, delta=2)
+        self.assertEqual([r.url.path for r in requests], ["/api/organizations/on-call"], "the article was never posted")
 
 
 if __name__ == "__main__":
