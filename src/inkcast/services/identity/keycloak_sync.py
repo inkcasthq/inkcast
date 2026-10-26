@@ -107,7 +107,8 @@ PERSON_NO_ANSWER = (httpx2.ReadTimeout, httpx2.ReadError, httpx2.RemoteProtocolE
 # server disconnected without sending a response), and a Keycloak pod restart resets a connection under a read
 # (``ReadError``). Such a read is made once more, on another connection: httpcore2 closes a connection that raised
 # mid-request and the pool drops it before it assigns the next one, so the retry never reuses it. But only when the
-# error came back within ``STALE_WITHIN`` seconds: a connection the server had already closed fails within a round
+# error came back within ``STALE_WITHIN`` seconds (on the monotonic clock: a wall clock stepped back would make a long
+# wait look short): a connection the server had already closed fails within a round
 # trip, while one cut after waiting (a proxy or firewall between here and Keycloak giving up on a lookup that hangs,
 # at its own timeout) is the hang itself, counted at once as before, so a retry never doubles what a hang costs the
 # pass and no hang escapes the budget. A ``ReadTimeout`` is never retried: the client waited its whole timeout. Only
@@ -250,6 +251,8 @@ def release_person(store: Any, user_id: str, via: str) -> bool:
 class KeycloakSync:
     def __init__(self, config: Any, store: Any, http: httpx2.AsyncClient, metrics: Any = None, clock=time.time):
         self.config, self.store, self.http, self.metrics, self.clock = config, store, http, metrics, clock
+        # How long a read took (``STALE_WITHIN``) is timed on a clock no NTP step moves; a scenario's clock stands in.
+        self.monotonic = time.monotonic if clock is time.time else clock
         issuer = config.oidc_issuer.rstrip("/")
         self.issuer = issuer
         self.admin = issuer.replace("/realms/", "/admin/realms/", 1)
@@ -315,7 +318,7 @@ class KeycloakSync:
         p = _PASS.get()
         error: Exception | None = None
         for attempt in (1, 2):
-            started = self.clock()
+            started = self.monotonic()
             try:
                 r = await self._get(path, params)
             except httpx2.TransportError as exc:
@@ -323,7 +326,7 @@ class KeycloakSync:
                 if not isinstance(exc, PERSON_NO_ANSWER):
                     raise SyncError(f"no answer from Keycloak to the {call} read ({cause}): on the way there, not about "
                                     "a person") from exc
-                if attempt == 1 and isinstance(exc, STALE_CONNECTION) and self.clock() - started < STALE_WITHIN:
+                if attempt == 1 and isinstance(exc, STALE_CONNECTION) and self.monotonic() - started < STALE_WITHIN:
                     continue                         # the connection, not the person: once more, on another one (#182)
                 break
             if r.status_code != 504:
