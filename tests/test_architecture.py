@@ -169,6 +169,7 @@ class Architecture(unittest.TestCase):
             "outbox_cursors": "consumer positions in the outbox",
             "kpi_applied": "event ids already folded into rollups (opaque)",
             "user_erasures": "the audit record: a salted hash, the time and counts",
+            "user_erasure_aliases": "the other salted hash an erasure is known by, after a key rotation",
         }
         store = Store(":memory:", "k" * 40)
         tables = [r["name"] for r in store._all("SELECT name FROM sqlite_master WHERE type = 'table'")
