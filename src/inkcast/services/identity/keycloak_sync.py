@@ -7,7 +7,8 @@ gave them would keep working until they expire. This worker closes that gap, in 
 polling (the ADR-0008 option that needs no Keycloak plug-in, so it works air-gapped):
 
 * every ``keycloak_sync_interval_seconds`` it reads the realm's admin events for USER updates and deletes since its
-  cursor, and re-reads each such person from the admin API;
+  cursor, and re-reads each such person Inkcast knows from the admin API (a realm is often shared with other
+  applications: their people are never read, #181);
 * in the same pass it reads the realm's user events of type DELETE_ACCOUNT since a cursor of its own, with the same
   look-back: a person who deleted their own account (through Inkcast's "Delete my account", E9.F9.5.S4, or
   Keycloak's account console) is erased from Inkcast (``Store.erase_user``, every table in one transaction) rather
@@ -401,12 +402,12 @@ class KeycloakSync:
             return None
         return user if self.clock() - float(user["deleted_at"]) >= days * 86400 else None
 
-    def _person_failed(self, user_id: str | None, via: str, exc: PersonError) -> None:
+    def _person_failed(self, user_id: str, via: str, exc: PersonError) -> None:
         """Keycloak answered about one person, but not something the sync can act on, or gave the read no answer at
         all (#121): counted and logged, and the pass goes on with the others (#103); the person is read again at the
-        next pass or reconcile. Only the Inkcast user id (None for a person Inkcast does not know), which read it
-        was, the HTTP status and the transport error's name reach the log: never the Keycloak id, nor anything from
-        the answer or the error."""
+        next pass or reconcile. Only the Inkcast user id (every pass reads only people Inkcast knows, #181), which
+        read it was, the HTTP status and the transport error's name reach the log: never the Keycloak id, nor
+        anything from the answer or the error."""
         extra = {"event": "identity.sync.person.failed", "user_id": user_id, "via": via, "call": exc.call,
                  "status": exc.status, "cause": exc.cause}
         if exc.status:
@@ -484,14 +485,14 @@ class KeycloakSync:
                 break
             if keycloak_id in p.hung or (reconcile and keycloak_id in self._hanging):   # the reconcile reads them, last (#152)
                 continue
-            done["checked"] += 1
             known = self.store.find_user_by_identity(self.prefix + keycloak_id)     # as they stand before the answer (#102)
+            if not known:                              # another application's person in a shared realm (#181): no read,
+                continue                               # so their hang costs no budget and no line
+            done["checked"] += 1
             try:
                 state = await self.person(keycloak_id)
             except PersonError as exc:                 # the reconcile re-reads everyone: like an event the pass missed
-                self._person_failed(str(known["id"]) if known else None, "event", exc)
-                continue
-            if not known:
+                self._person_failed(str(known["id"]), "event", exc)
                 continue
             if state == "deleted":                     # held: the reconcile reads them again, and acts once an operator decides
                 if not held and self._cut_off(known, state, "event"):

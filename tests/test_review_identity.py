@@ -376,7 +376,7 @@ class KeycloakSyncSeesLateEvents(unittest.TestCase):
                 return first, await sync.tick()
 
         first, second = asyncio.run(two_passes())
-        self.assertEqual(first, {"checked": 1, "disabled": 0, "erased": 0})
+        self.assertEqual(first, {"checked": 0, "disabled": 0, "erased": 0}, "bob has no Inkcast account: not read (#181)")
         self.assertEqual(second["disabled"], 1, "ada stays signed in until the next reconcile (10 minutes)")
         self.assertIsNone(store.get_token("ic_at_" + "a" * 43, "access"))
 
