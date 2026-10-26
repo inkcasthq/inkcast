@@ -105,5 +105,36 @@ class AConfirmationAfterAReconcileTheBudgetEnded(BreakerScenario):
             self.assert_untouched(user)
 
 
+class ThePeopleWhoHangDelayEachOtherOnly(Scenario):
+    """The PR reads the people known to hang last "so they delay each other only". But the reconcile reads the
+    DELETE_ACCOUNT events of the people found gone after everyone's ``users/{id}``, and skips them once the budget
+    is used: with three people known to hang, at every reconcile, so nobody found gone has their events read. A
+    self-deletion the events pass missed (a replica's clock running fast, a burst of more than 500) then counts for
+    the breaker as an administrator's deletion: five of them trip it, and the open breaker holds every 404 (their
+    tokens keep working) and every ``enabled: false`` until an operator dismisses a pass that held nothing to hold."""
+
+    def test_the_events_of_the_people_found_gone_are_read_before_the_people_who_hang(self):
+        people = self.people(*(f"kc-p{i:02d}" for i in range(20)))
+        hanging = people[0:5:2]                                     # 0, 2, 4: none next to another
+        deleted_own = [people[1], people[3], *people[5:8]]          # five who deleted their own accounts
+        for user in hanging:
+            self.kc.no_answer[user["kc"]] = httpx2.ReadTimeout
+        worker = self.sync(30, reconcile_seconds=600)
+        self.reconcile(worker, T0)                                  # at start: the three become known to hang
+        self.assertEqual(self.pass_errors, [])
+        self.store.set_sync_state("keycloak-user-events", str(int((T0 + 600) * 1000) + 120_000))   # a replica ran fast
+        for user in deleted_own:
+            self.kc.gone.add(user["kc"])
+            self.kc.events.append(self.event(user["kc"], 590_000))  # before the cursor's look-back: missed
+        done = self.reconcile(worker, T0 + 600)
+        self.assertEqual(self.pass_errors, [])
+        self.assertEqual(self.store.breaker_trips(), [], "five self-deletions counted as an administrator's")
+        self.assertEqual(done["erased"], 5, "erased: they asked, and the event is specific")
+        for user in deleted_own:
+            self.assertIsNone(self.row(user))
+        for user in hanging:
+            self.assert_untouched(user)
+
+
 if __name__ == "__main__":
     unittest.main()
