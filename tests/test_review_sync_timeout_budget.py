@@ -45,5 +45,31 @@ class TheBreakerCountsEveryoneOrNobody(Scenario):
         self.assertEqual(self.pass_errors, [])
 
 
+class AReconcileTheBudgetEndedIsNotAReconcileOfEveryone(Scenario):
+    """The PR advances ``last_reconcile`` after a reconcile the budget ended early, so the people it left untried
+    wait a whole interval, and each reconcile learns only the three people whose reads used its budget. With six
+    people who hang spread through the order (none next to another: #121 read them all, each costing its timeout),
+    a person disabled in Keycloak with no admin event (an LDAP-imported user disabled in the directory: the
+    reconcile is the only path) who sorts after them is cut off at the third reconcile, two intervals later; with
+    3n hangers, n intervals."""
+
+    def test_a_person_after_people_not_yet_known_to_hang_is_cut_off_within_one_reconcile_interval(self):
+        people = self.people(*(f"kc-p{i:02d}" for i in range(12)))
+        hanging, disabled = people[0:11:2], people[11]              # positions 0, 2, ..., 10 hang; 11 is disabled
+        for user in hanging:
+            self.kc.no_answer[user["kc"]] = httpx2.ReadTimeout
+        self.kc.disabled.add(disabled["kc"])
+        worker = self.sync(30, reconcile_seconds=600)
+        self.reconcile(worker, T0)                                  # at start (or after a restart): none known
+        for at in range(30, 601, 30):                               # one reconcile interval of passes
+            if self.row(disabled)["disabled_at"] is not None:
+                break
+            self.tick(worker, T0 + at)
+        self.assertEqual(self.pass_errors, [])
+        self.assert_cut_off(disabled)
+        for user in hanging:
+            self.assert_untouched(user)
+
+
 if __name__ == "__main__":
     unittest.main()
