@@ -23,6 +23,7 @@ from inkcast.libs.pipeline import Publisher
 from inkcast.libs.platforms import Account, Destination, Platform, PlatformError, Prepared, PublishResult
 from inkcast.libs.runtime import build_metrics
 from inkcast.services.publishing.sync import GitSync
+from inkcast.services.publishing.usecases import InkcastService
 
 SOURCE = "github.com/acme/blog"
 PATH = "posts/review-205.md"
@@ -249,6 +250,28 @@ class FindingAPostDueFirstIsClaimedFirst(Measured):
         self.assertEqual(self.store.get_post(created.post_id)["status"], "published",
                          "due first, yet left for a later tick behind posts made after it")
         self.assertEqual(self.store.due_count(time.time()), 1, "one of the old files waits for the next tick")
+
+
+class FindingAPostSentTodayIsListedToday(Review):
+    def test_a_file_dated_last_year_is_listed_while_it_waits_and_once_sent(self):
+        """A file dated 400 days ago, synced today. The posts list (inkcast_posts, GET /api/v1/posts) picks posts by
+        ``run_at``, the time written, so the post was in no window a person can ask for (``days_back`` is at most
+        366): not while it waited for its tick, so it couldn't be found to be cancelled (#95), and never once sent
+        today. Before ADR-0015 it was a "now" post, listed today."""
+        service = InkcastService(self.store, {"pubs": self.platform}, self.publisher, "http://localhost:8787")
+        created = self.sync(at(-400 * 24 * 3600))
+        self.assertEqual([p.id for p in service.list_posts(self.user, days_back=366)], [created.post_id],
+                         "waiting to be sent, and in no list")
+        asyncio.run(self.publisher.run_due())
+        self.assertEqual([(p.id, p.status) for p in service.list_posts(self.user)], [(created.post_id, "published")],
+                         "sent today, and not in the list of the last 7 days")
+
+    def test_the_window_still_picks_posts_by_their_time(self):
+        """What the fix keeps: a post scheduled beyond ``days_ahead`` stays out, and a wider window takes it in."""
+        service = InkcastService(self.store, {"pubs": self.platform}, self.publisher, "http://localhost:8787")
+        ahead = self.sync(at(100 * 24 * 3600), path="posts/ahead.md")
+        self.assertEqual(service.list_posts(self.user, days_ahead=90), [])
+        self.assertEqual([p.id for p in service.list_posts(self.user, days_ahead=120)], [ahead.post_id])
 
 
 if __name__ == "__main__":

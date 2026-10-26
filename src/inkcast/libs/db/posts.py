@@ -153,8 +153,11 @@ class PostsRepo(Database):
         return out
 
     def list_posts(self, user_id: str, start: float, end: float) -> list[dict[str, Any]]:
+        """Posts whose time is up to ``end`` and that could be sent from ``start`` on: a post made after its time (a Git
+        file dated last year, ADR-0015) is listed from its creation, so it can be found while it waits and once sent."""
         rows = self._all(
-            "SELECT * FROM posts WHERE user_id = ? AND run_at BETWEEN ? AND ? ORDER BY run_at", user_id, start, end
+            "SELECT * FROM posts WHERE user_id = ? AND run_at <= ? AND MAX(run_at, created_at) >= ? ORDER BY run_at",
+            user_id, end, start,
         )
         return [dict(r) for r in rows]
 
