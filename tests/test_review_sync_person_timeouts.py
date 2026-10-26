@@ -1,7 +1,10 @@
 # SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 # Copyright 2026 ScalarOps Technologies LLC
 """Adversarial review of PR #146 (issue #121): a read about one person that gets no answer is that person's alone,
-and only the second in a row fails the pass. Each test failed on the PR's head."""
+and only the second in a row fails the pass. Each test failed on the PR's head. #152 replaced the count in a row
+with a budget per pass, and reads nobody twice in one pass: a person whose read got no answer in the admin-events
+pass is not read again by the reconcile (``test_sync_timeout_budget.NotTwiceInAPass``), so each pass costs them one
+read, and one person error, not two."""
 
 import unittest
 
@@ -34,13 +37,14 @@ class TheAdminEventsPassDoesNotCarryIntoTheReconcile(_Scenario):
         self.assertEqual(self.tick(worker, T0 + 60)["checked"], 1, "the newest admin event is read at every pass")
         done = self.reconcile(worker, T0 + 90)
         self.assertEqual(self.pass_errors, [], "one person whose read hangs failed the whole reconcile (#121)")
-        self.assertEqual((done["checked"], done["disabled"], done["erased"]), (4, 2, 0))
-        self.assertEqual(self.kc.read[-4:], [hangs["kc"], hangs["kc"], gone["kc"], disabled["kc"]])
+        self.assertEqual((done["checked"], done["disabled"], done["erased"]), (3, 2, 0), "read once in the pass (#152)")
+        self.assertEqual(self.kc.read[-3:], [gone["kc"], disabled["kc"], hangs["kc"]],
+                         "known to hang: the admin-events pass leaves them to the reconcile, which reads them last")
         self.assert_cut_off(gone)
         self.assert_cut_off(disabled)
         self.assert_untouched(hangs)
         self.assertEqual(worker.last_reconcile, T0 + 90, "a reconcile that ran")
-        self.assertEqual(self.errors_counted(), 4, "one person error per read: theirs alone")
+        self.assertEqual(self.errors_counted(), 3, "one person error per read: theirs alone, once per pass")
 
     def test_two_people_whose_reads_hang_far_apart_in_the_reconciles_order_do_not_fail_it(self):
         first, gone, edited, after = self.people("ada", "bob", "carol", "dave")   # by id: first and edited are apart
@@ -51,12 +55,12 @@ class TheAdminEventsPassDoesNotCarryIntoTheReconcile(_Scenario):
         self.edited(edited["kc"])
         done = self.reconcile(worker, T0 + 30)
         self.assertEqual(self.pass_errors, [], "not next to each other in the reconcile's order (the runbook's rule)")
-        self.assertEqual(self.kc.read, [edited["kc"], first["kc"], gone["kc"], edited["kc"], after["kc"]])
-        self.assertEqual((done["checked"], done["disabled"]), (5, 1))
+        self.assertEqual(self.kc.read, [edited["kc"], first["kc"], gone["kc"], after["kc"]], "the edited one not again (#152)")
+        self.assertEqual((done["checked"], done["disabled"]), (4, 1))
         self.assert_cut_off(gone)
         for user in (first, edited, after):
             self.assert_untouched(user)
-        self.assertEqual(self.errors_counted(), 3)
+        self.assertEqual(self.errors_counted(), 2, "one person error per person per pass")
 
 
 if __name__ == "__main__":

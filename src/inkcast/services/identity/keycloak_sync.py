@@ -33,12 +33,20 @@ never erased. The worker signs in to Keycloak as its own service account (client
 they are logged, counted and retried. An answer about one person that the sync cannot act on (a 500 for that user,
 a malformed id; ``PersonError``) is counted as ``inkcast_identity_sync_errors_total{stage="person"}``, logged with the
 Inkcast user id only, and the pass goes on with the others (#103): that person is read again at the next pass or
-reconcile. So is a read about one person that got no answer at all (a timeout, a connection refused or reset: one
-user whose read hangs on an LDAP referral must not block everyone after them, #121), but only once in a row: the
-second read with no answer, with no answer from Keycloak to anything in between, fails the pass as a whole, so a
-Keycloak outage costs a pass two timeouts, not one per person. Anything else (the service account refused or without
-an answer, a realm-wide read, the database) fails the pass as a whole, and so does a reconcile that could act on
-nobody.
+reconcile. So is a read about one person that reached Keycloak and got no answer (a timeout, the connection closed
+without an answer: one user whose read hangs on an LDAP referral must not block everyone after them, #121), and the
+pass does not read them again. A pass has a budget of ``TIMEOUT_BUDGET`` such reads (#152): at the third it ends,
+as a success for what it did (the DELETE_ACCOUNT cursor stops before every event not acted on; a reconcile acts on
+whoever it read, and the next is on schedule), so that an outage that begins mid-pass costs it three timeouts, not
+one per person, and two people who hang never block the rest. The reconcile reads the people whose last read got no
+answer last, so they delay each other only, and in the pass that reconciles the event passes leave those people to
+it, so that three of them with an event each cannot use the budget before it: everyone else is read first. A pass
+none of whose reads about a person answered fails as a whole instead (the sync cannot tell an outage from a pass
+that read only people who hang), and a reconcile that could read nobody, for that or any reason, sets
+``unread_until`` (#119). A read outside a pass (the return page's) counts for no pass. A transport error on the way
+to Keycloak (a connection refused or reset, a connect timeout, the client's own pool) is never one person's: it
+fails the pass at once. Anything else (the service account refused or without an answer, a realm-wide read, the
+database) fails the pass as a whole, and so does a reconcile that could act on nobody.
 
 **The circuit breaker (E9.F9.5.S7, issue #105; a mass "disabled", E9.F9.5.S8, issue #135).** Some Keycloak failures
 make it answer 404 about many people who still exist: a realm restored from an older backup, the issuer pointing at
@@ -65,6 +73,8 @@ DELETE_ACCOUNT event is never held: the person asked, and the event is specific.
 from __future__ import annotations
 
 import asyncio
+import contextvars
+import dataclasses
 import logging
 import time
 from datetime import datetime, timezone
@@ -82,6 +92,22 @@ USER_EVENTS_CURSOR = "keycloak-user-events"
 # their own clocks), so each pass also re-reads the minute before each cursor (admin and user events alike).
 # Re-checking a person is harmless, and re-seeing an erased one is a no-op.
 LOOKBACK_MS = 60_000
+# A read about one person with no answer that can be that person's (#121, #152): the request reached Keycloak and
+# nothing came back, which is what a user-storage lookup that hangs for that one person looks like from here (the
+# client's read timeout; the connection closed, or cut by a proxy that gave up, without an answer). Every other
+# transport error happens on the way there (a connection refused or reset, a connect timeout, the proxy, the
+# client's own pool) and is never about one person: it fails the pass as a whole, at once.
+PERSON_NO_ANSWER = (httpx2.ReadTimeout, httpx2.ReadError, httpx2.RemoteProtocolError)
+# How many reads about people may get no answer in one pass before it ends (#152). Each costs the client's read
+# timeout (30 s, libs/runtime), so a pass waits at most 90 s on them: two people who hang never block anyone, and
+# an outage that begins mid-pass costs the pass three timeouts, not one per person. A constant, not a setting: it
+# guards the pass's own duration, against the client's timeout and the sync interval, and is no policy an operator
+# should tune. From three people who hang on, the passes that read only them (an events pass with their events and
+# nobody else's) fail, and the pass that reconciles reads everyone else before them, so the rest are still cut off
+# within one reconcile interval; such a realm needs those people fixed (InkcastIdentitySyncPersonFailing names
+# them), not a longer pass. A smaller budget would let one or two hanging people end every pass, which is what #152
+# removes.
+TIMEOUT_BUDGET = 3
 
 
 class SyncError(Exception):
@@ -92,11 +118,30 @@ class PersonError(SyncError):
     """Keycloak answered an error about one person (``users/{id}``, or their events), or gave that read no answer at
     all (#121): that person's alone, and the pass goes on (#103). ``call`` names the read (``user``, ``events``),
     ``status`` the HTTP status (``0`` for no answer) and ``cause`` the transport error's class name (``ReadTimeout``,
-    ``ConnectError``; empty when Keycloak answered): fixed strings and an int, all a log line about them carries."""
+    ``ReadError``; empty when Keycloak answered): fixed strings and an int, all a log line about them carries."""
 
     def __init__(self, message: str, call: str, status: int, cause: str = ""):
         super().__init__(message)
         self.call, self.status, self.cause = call, status, cause
+
+
+@dataclasses.dataclass
+class _Pass:
+    """What one pass (``tick``) knows about its reads about people (#152): whether any answered, how many got no
+    answer (at ``TIMEOUT_BUDGET`` the pass ends) and whose, so nobody is read twice in one pass. It lives in the
+    pass's own task (``_PASS``): a read outside a pass, the return page's in the request's task, has none of this and
+    is one read that answers or not."""
+
+    answered: bool = False
+    timeouts: int = 0
+    hung: set[str] = dataclasses.field(default_factory=set)
+
+    @property
+    def ended(self) -> bool:
+        return self.timeouts >= TIMEOUT_BUDGET
+
+
+_PASS: contextvars.ContextVar[_Pass | None] = contextvars.ContextVar("inkcast.identity.sync.pass", default=None)
 
 
 def _user_not_found(r: httpx2.Response) -> bool:
@@ -199,7 +244,9 @@ class KeycloakSync:
         self.last_success = 0.0
         self.last_reconcile = 0.0
         self.unread_until = 0.0     # after a reconcile that could act on nobody: no full re-read before this
-        self._no_answer = 0         # reads about one person with no answer in a row (#121): the second fails the pass
+        # Keycloak id -> when their last read got no answer (#152): the reconcile reads them last, the longest ago
+        # first, so people who hang delay each other and nobody else. A read that answers takes them out.
+        self._hanging: dict[str, float] = {}
 
     @property
     def enabled(self) -> bool:
@@ -227,35 +274,44 @@ class KeycloakSync:
         for attempt in (1, 2):
             r = await self.http.get(f"{self.admin}/{path}", params=params,
                                     headers={"Authorization": f"Bearer {await self._access_token()}"})
-            self._no_answer = 0                        # an answer, whatever it says: Keycloak is reachable
             if r.status_code == 401 and attempt == 1:  # the token expired early or was revoked: once more
                 self._token = None
                 continue
             return r
         return r
 
-    async def _read_person(self, path: str, params: Any, call: str) -> httpx2.Response:
-        """``_get`` for a read about one person. No answer at all (a timeout, a connection refused or reset) is that
-        person's alone the first time, like an error Keycloak answers (``PersonError``, status 0, the error's name), so
-        one person whose read hangs blocks nobody after them (#121); the second time in a row, with no answer from
-        Keycloak to anything in between, it fails the pass (``SyncError``): Keycloak is unreachable, not a person, and
-        an outage then costs a pass two timeouts, not one per person. Only the error's class name is kept: nothing
-        of its message."""
+    async def _read_person(self, keycloak_id: str, path: str, params: Any, call: str) -> httpx2.Response:
+        """``_get`` for a read about one person. No answer once the request reached Keycloak (``PERSON_NO_ANSWER``: a
+        timeout, the connection closed without an answer) is that person's alone, like an error Keycloak answers
+        (``PersonError``, status 0, the error's name), so one person whose read hangs blocks nobody after them (#121);
+        inside a pass it is one of the pass's ``TIMEOUT_BUDGET`` (#152), and the pass reads them no more. A transport
+        error on the way there (a connection refused or reset, the client's pool) is never one person's: it fails the
+        pass (``SyncError``). Either way only the error's class name is kept: nothing of its message. An answer,
+        whatever it says, is Keycloak answering about a person. Whose last read got no answer is remembered
+        (``_hanging``), for the reconcile's order."""
+        p = _PASS.get()
         try:
-            return await self._get(path, params)
+            r = await self._get(path, params)
         except httpx2.TransportError as exc:
-            self._no_answer += 1
             cause = type(exc).__name__
-            if self._no_answer >= 2:
-                raise SyncError(f"no answer from Keycloak to two reads in a row ({cause}, the second on the {call} read "
-                                "about one person): unreachable, not a person") from exc
+            if not isinstance(exc, PERSON_NO_ANSWER):
+                raise SyncError(f"no answer from Keycloak to the {call} read ({cause}): on the way there, not about a "
+                                "person") from exc
+            self._hanging[keycloak_id] = self.clock()
+            if p is not None:
+                p.timeouts += 1
+                p.hung.add(keycloak_id)
             raise PersonError(f"the {call} read got no answer ({cause})", call, 0, cause) from exc
+        self._hanging.pop(keycloak_id, None)
+        if p is not None:
+            p.answered = True
+        return r
 
     async def person(self, keycloak_id: str) -> str:
         """'active', 'disabled' or 'deleted', as Keycloak sees them now. Only Keycloak's own answer for a missing
         user (404 ``{"error": "User not found"}``, UsersResource) means 'deleted': a 404 from anything else (a proxy
         that doesn't expose /admin/, a wrong URL) is an error, never a reason to erase or cut anyone off."""
-        r = await self._read_person(f"users/{quote(keycloak_id, safe='')}", None, "user")   # one path segment: '#', '?' or '/' ask about another id
+        r = await self._read_person(keycloak_id, f"users/{quote(keycloak_id, safe='')}", None, "user")   # one path segment: '#', '?' or '/' ask about another id
         if r.status_code == 404 and _user_not_found(r):
             return "deleted"
         if r.status_code != 200:
@@ -309,8 +365,8 @@ class KeycloakSync:
         Keycloak who deleted the account themselves is erased even when the pass above missed the event (more than
         LOOKBACK_MS late, a replica's clock running fast, a burst of more than 500); one an administrator deleted,
         or whose event retention has trimmed, is cut off and erased after ``keycloak_erase_after_days``."""
-        r = await self._read_person("events", [("type", "DELETE_ACCOUNT"), ("user", keycloak_id), ("first", "0"),
-                                               ("max", "1")], "events")
+        r = await self._read_person(keycloak_id, "events", [("type", "DELETE_ACCOUNT"), ("user", keycloak_id),
+                                                            ("first", "0"), ("max", "1")], "events")
         if r.status_code != 200:
             raise PersonError(f"reading events answered HTTP {r.status_code}", "events", r.status_code)
         return any(e.get("type") == "DELETE_ACCOUNT" and e.get("userId") == keycloak_id for e in r.json())
@@ -350,22 +406,55 @@ class KeycloakSync:
             log.warning("Keycloak answered HTTP %d to the %s read about Inkcast user %s (%s): retried at the next read; "
                         "the others go on", exc.status, exc.call, user_id, via, extra=extra)
         else:
-            log.warning("Keycloak gave no answer (%s) to the %s read about Inkcast user %s (%s): retried at the next "
-                        "read; the others go on, unless the next read gets no answer either", exc.cause, exc.call,
-                        user_id, via, extra=extra)
+            log.warning("Keycloak gave no answer (%s) to the %s read about Inkcast user %s (%s): not read again this "
+                        "pass, retried at the next; the others go on", exc.cause, exc.call, user_id, via, extra=extra)
         if self.metrics:
             self.metrics.inc("inkcast_identity_sync_errors_total", stage="person")
+
+    def _budget_used(self, p: _Pass, stage: str) -> bool:
+        """Whether the pass ends here, its ``TIMEOUT_BUDGET`` of reads about people with no answer used (#152). With
+        no read about a person answered since it began, the sync cannot tell three people from an outage and must
+        not call it a success: ``SyncError``, and the pass fails as a whole (its cursors unmoved, the reconcile not
+        done; the person lines name them). Otherwise it is a success for what was done, logged once with the stage it
+        ended in and the count: fixed strings and ints."""
+        if not p.ended:
+            return False
+        if not p.answered:
+            raise SyncError(f"no answer from Keycloak to {p.timeouts} reads about people, and no read about a person "
+                            f"answered since the pass began (the {stage} pass): an outage, or only people who hang")
+        log.warning("The Keycloak user sync pass ends early: %d reads about people got no answer (the budget), in the %s "
+                    "pass; what it did not reach waits for the next pass or reconcile", p.timeouts, stage,
+                    extra={"event": "identity.sync.pass.ended", "stage": stage, "timeouts": p.timeouts})
+        return True
 
     async def tick(self) -> dict[str, int]:
         """One pass: the events since the cursors, then a reconcile when it is due. Returns what it did. A
         ``PersonError`` is that person's alone (``_person_failed``); any other error, or a reconcile that could act
-        on nobody (a realm-wide 403 or 500), fails the pass as a whole, as before. Reads with no answer are counted in
-        a row within a pass (``_read_person``): the second fails it, and the next pass, and the reconcile, start at
-        nought."""
+        on nobody (a realm-wide 403 or 500), fails the pass as a whole, as before. Reads about people with no answer
+        are counted per pass (``_Pass``, in this task's context, so a read outside the pass counts for no pass): at
+        ``TIMEOUT_BUDGET`` the pass ends, as a success for what it did unless none of them answered
+        (``_budget_used``), and the next pass starts at nought."""
         done = {"checked": 0, "disabled": 0, "erased": 0}
-        self._no_answer = 0
+        p = _Pass()
+        token = _PASS.set(p)
+        try:
+            await self._pass(done, p)
+        finally:
+            _PASS.reset(token)
+        self.last_success = self.clock()
+        return done
+
+    async def _pass(self, done: dict[str, int], p: _Pass) -> None:
+        # When the reconcile runs in this pass it reads everyone, the people whose last read got no answer last
+        # (#152), so the event passes leave those people to it: three of them with an event each, or edited within
+        # the same minute, would otherwise use the budget at every pass before the reconcile, and block everyone else.
+        due = self.clock() - self.last_reconcile >= self.config.keycloak_reconcile_seconds
+        reconcile = due and self.clock() >= self.unread_until
         deleted, cursor, newest = await self.deleted_accounts()
         for keycloak_id, at in deleted.items():
+            if p.ended or (reconcile and keycloak_id in self._hanging):   # not acted on: the cursor stops before their event
+                newest = min(newest, at)
+                continue
             # The look-back reads an event again on later passes, and Keycloak can have the person again under the
             # same id (restored from a realm export, LDAP without import): erase only once it confirms they are gone,
             # and only while they stand as read here, before that answer (#102).
@@ -378,9 +467,16 @@ class KeycloakSync:
             except PersonError as exc:
                 self._person_failed(str(user["id"]), "event", exc)
                 newest = min(newest, at)         # the cursor stops before their event: read again until erased
+        ended = self._budget_used(p, "events")     # raises when nothing answered: the cursor stays, as for any failure
         self.store.set_sync_state(USER_EVENTS_CURSOR, str(max(cursor, newest)))
+        if ended:
+            return
         held = self._breaker_open()                # no 404 without an event, and no enabled: false, is acted on until an operator decides
         for keycloak_id in await self.changed_people():
+            if p.ended:                            # the rest are left to the reconcile, as a burst beyond one page is
+                break
+            if keycloak_id in p.hung or (reconcile and keycloak_id in self._hanging):   # the reconcile reads them, last (#152)
+                continue
             done["checked"] += 1
             known = self.store.find_user_by_identity(self.prefix + keycloak_id)     # as they stand before the answer (#102)
             try:
@@ -404,46 +500,53 @@ class KeycloakSync:
                 hold_person(self.store, known, "event", self.clock())
             elif cut_off_person(self.store, self.metrics, known, state, "event", self.clock()):
                 done["disabled"] += 1
-        if self.clock() - self.last_reconcile >= self.config.keycloak_reconcile_seconds:
-            if self.clock() < self.unread_until:         # still failing, but everyone is read again on schedule
+        if self._budget_used(p, "admin-events"):   # the reconcile is not done: due again at the next pass
+            return
+        if due:
+            if not reconcile:                       # still failing, but everyone is read again on schedule
                 raise SyncError("the last reconcile could act on nobody; everyone is read again at the next one")
-            await self._reconcile(done)
+            await self._reconcile(done, p)
             self.last_reconcile = self.clock()
-        self.last_success = self.clock()
-        return done
+            self._budget_used(p, "reconcile")       # ran, on whoever it read: the next is on schedule
 
-    async def _reconcile(self, done: dict[str, int]) -> None:
+    async def _reconcile(self, done: dict[str, int], p: _Pass) -> None:
         """Everyone Inkcast knows from this Keycloak, the cut-off people too: one Keycloak no longer has is erased once
         the grace period is over; one it has again (restored from a backup under the same id) gets a whole grace
         period at a later deletion. Everyone is read before anyone is acted on, so the breaker can count (#105) and
-        so an error that fails the pass as a whole leaves nobody half done."""
+        so an error that fails the pass as a whole leaves nobody half done. The people whose last read got no answer
+        are read last, the longest ago first (#152): once the pass's budget of such reads is used, nobody else is
+        read, and whoever was read is acted on."""
         people = self.store.users_with_identity_prefix(self.prefix, include_disabled=True)
-        # Its own count: the admin-events pass reads the newest event's person at every pass, who may be this one's first.
-        self._no_answer = 0
+        ids = [user["identity"][len(self.prefix):] for user in people]
+        self._hanging = {k: at for k, at in self._hanging.items() if k in set(ids)}        # the erased leave it
+        order = sorted(range(len(people)), key=lambda i: (ids[i] in self._hanging, self._hanging.get(ids[i], 0.0)))
         read: list[tuple[dict[str, Any], str, str]] = []           # (row as listed, Keycloak id, state)
-        unread = 0
-        for user in people:
-            keycloak_id, user_id = user["identity"][len(self.prefix):], str(user["id"])
+        for i in order:
+            user, keycloak_id = people[i], ids[i]
+            if p.ended or keycloak_id in p.hung:     # the budget is used, or no answer about them this pass already:
+                continue                             # read at the next reconcile, on schedule
             done["checked"] += 1
             try:
                 state = await self.person(keycloak_id)
             except PersonError as exc:               # read again at the next reconcile, on schedule
-                unread += 1
-                self._person_failed(user_id, "reconcile", exc)
+                self._person_failed(str(user["id"]), "reconcile", exc)
                 continue
             read.append((user, keycloak_id, state))
-        if unread and unread == len(people):         # nobody could be read: the sync is failing, not a person
+        if people and not read:                      # nobody could be read: the sync is failing, not a person
             self.unread_until = self.clock() + self.config.keycloak_reconcile_seconds
-            raise SyncError(f"the reconcile could act on nobody: every one of {unread} reads failed")
+            raise SyncError(f"the reconcile could act on nobody: none of {len(people)} people could be read")
         gone: list[tuple[dict[str, Any], str, bool]] = []          # (row, Keycloak id, deleted their own account)
         for user, keycloak_id, state in read:
             if state != "deleted":
                 continue
-            try:
-                own_deletion = await self.deleted_own_account(keycloak_id)
-            except PersonError as exc:               # gone for certain: cut off now; the event, next reconcile
-                self._person_failed(str(user["id"]), "reconcile", exc)
-                own_deletion = False
+            if p.ended:                              # no read after the budget: gone for certain, cut off now; the
+                own_deletion = False                 # event, next reconcile, as when this read gets no answer
+            else:
+                try:
+                    own_deletion = await self.deleted_own_account(keycloak_id)
+                except PersonError as exc:           # gone for certain: cut off now; the event, next reconcile
+                    self._person_failed(str(user["id"]), "reconcile", exc)
+                    own_deletion = False
             gone.append((user, keycloak_id, own_deletion))
         disabled = [(user, keycloak_id) for user, keycloak_id, state in read if state == "disabled"]
         held = self._breaker(gone, disabled, len(read))
