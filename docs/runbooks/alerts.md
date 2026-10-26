@@ -56,7 +56,7 @@ SLO burn-rate alerts carry `slo`, `burn_rate`, `long_window` and `short_window` 
 **Meaning:** more than 20% of attempts to one platform failed in 30 minutes (with at least 5 attempts).
 
 1. The error text is in the posts' `error` column and in the `publish.*` log lines; 401/403 means revoked credentials (customers must reconnect; E7 channel health will tell them), 5xx or timeouts mean a platform outage (a plug-in crash ends `unconfirmed`: see `InkcastUnconfirmedPublishes`).
-2. Check the platform's status page; nothing to do for an outage except watch retries (`INKCAST_PUBLISH_MAX_ATTEMPTS` sends, `INKCAST_PUBLISH_RETRY_DELAYS` apart: by default 4 sends, 60 s, 5 m and 30 m apart) and unconfirmed posts.
+2. Check the platform's status page; nothing to do for an outage except watch retries (`INKCAST_PUBLISH_MAX_ATTEMPTS` sends, `INKCAST_PUBLISH_RETRY_DELAYS` apart: by default 4 sends, 60 s, 5 m and 30 m apart; a 429's `Retry-After` can stretch a wait up to the largest delay) and unconfirmed posts.
 
 ## InkcastHttp5xxRateHigh
 

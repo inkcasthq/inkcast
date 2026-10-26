@@ -23,11 +23,21 @@ group; see docs/writing-a-platform-plugin.md.
 
 from __future__ import annotations
 
+import math
+import re
+import time
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
+from datetime import timezone
+from email.utils import parsedate_to_datetime
 from typing import Any, ClassVar
 
 import httpx2
+
+_DELAY_SECONDS = re.compile(r"[0-9]+")  # Retry-After's delay-seconds form: ASCII digits only, no sign, no fraction
+# The longest wait a Retry-After is read as (over 31 years): far past any retry policy's cap, so a longer value is capped
+# like any other, and int() never parses the thousands of digits a hostile header can carry.
+RETRY_AFTER_CEILING = 10 ** 9
 
 
 @dataclass(frozen=True)
@@ -90,6 +100,30 @@ class PublishResult:
     notes: list[str] = field(default_factory=list)
 
 
+def retry_after_seconds(value: str | None, now: float | None = None) -> int | None:
+    """The wait a ``Retry-After`` header asks for, in whole seconds up to ``RETRY_AFTER_CEILING``, or None when there is
+    no header or it can't be read. RFC 9110 §10.2.3 allows two forms: delay-seconds, a non-negative integer, and an
+    HTTP-date, measured from ``now`` (a date already past is 0: the platform is ready). Anything else (a sign, a
+    fraction, words, an impossible date) is None, and the retry policy's own delay applies."""
+    if value is None:
+        return None
+    text = value.strip()
+    if _DELAY_SECONDS.fullmatch(text):
+        digits = text.lstrip("0") or "0"
+        return int(digits) if len(digits) < len(str(RETRY_AFTER_CEILING)) else RETRY_AFTER_CEILING
+    try:
+        when = parsedate_to_datetime(text)
+    except (TypeError, ValueError):
+        return None
+    if when.tzinfo is None:  # the asctime form, or a "-0000" zone: an HTTP-date is always UTC
+        when = when.replace(tzinfo=timezone.utc)
+    try:
+        wait = math.ceil(when.timestamp() - (time.time() if now is None else now))
+    except (OverflowError, ValueError, OSError):
+        return None
+    return min(max(0, wait), RETRY_AFTER_CEILING)
+
+
 class PlatformError(Exception):
     """A failure worded for the person reading Claude's reply.
 
@@ -98,12 +132,17 @@ class PlatformError(Exception):
     ``uncertain``: a publishing request may or may not have taken effect (timeout
     after sending, 5xx). Retrying could post twice, so the post is marked
     ``unconfirmed`` for a human to check instead.
+    ``retry_after``: the seconds a 429's ``Retry-After`` asked for, carried on a
+    retryable error only; the scheduler waits at least that long, within its
+    policy's largest delay (libs/config.RetryPolicy.delay_after).
     """
 
-    def __init__(self, message: str, *, retryable: bool = False, uncertain: bool = False):
+    def __init__(self, message: str, *, retryable: bool = False, uncertain: bool = False,
+                 retry_after: int | float | None = None):
         super().__init__(message)
         self.retryable = retryable and not uncertain
         self.uncertain = uncertain
+        self.retry_after = retry_after if self.retryable else None
 
 
 class Platform(ABC):
@@ -184,7 +223,8 @@ class Platform(ABC):
                     f"have been published. Check {self.name} before trying again.", uncertain=True) from exc
             raise PlatformError(f"Could not reach {self.name}: {exc}", retryable=True) from exc
         if response.status_code == 429:
-            raise PlatformError(f"{self.name} rate limit hit; try again shortly.", retryable=True)
+            raise PlatformError(f"{self.name} rate limit hit; try again shortly.", retryable=True,
+                                retry_after=retry_after_seconds(response.headers.get("Retry-After")))
         if response.status_code >= 500:
             if mutating:
                 raise PlatformError(
