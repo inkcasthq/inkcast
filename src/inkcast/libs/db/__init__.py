@@ -42,11 +42,13 @@ class Store(IdentityRepo, VaultRepo, PostsRepo, LedgerRepo, OutboxRepo, KpiRepo,
     SCHEMAS = (identity.SCHEMA, vault.SCHEMA, posts.SCHEMA, ledger.SCHEMA, outbox.SCHEMA, kpi.SCHEMA, authz.SCHEMA,
                erasure.SCHEMA)
     COLUMNS = identity.COLUMNS
+    INDEXES = identity.INDEXES
 
     def __init__(self, path: str, secret_key: "str | SecretValue"):
         super().__init__(path)
         self.sealer = Sealer(secret_key)
         self._erasure_salt = derive_key(secret_key, "erasure")
+        self.backfill_erasure_hashes()      # the rows from before users.erasure_hash (issue #113); then one read per open
 
     def purge_expired(self, retention: RetentionPolicy = RetentionPolicy()) -> None:
         """Housekeeping: expired grants and tickets, then domain events every consumer has passed and hourly KPI buckets
