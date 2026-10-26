@@ -260,7 +260,11 @@ class Publisher:
         for row in self.store.claim_due_posts(now):
             if not self.store.renew_claim(row["id"], row["attempts"]):
                 continue  # another worker took it over as stuck while this batch was being sent: it is theirs now
-            lag = max(0.0, now - float(row["run_at"]))
+            # Lag from when the post could first be sent: its time, or its creation when that came later (a Git file
+            # dated in the past is scheduled at that time and due at once, ADR-0015). Measured from its time alone, a
+            # file dated a week ago read as a week late on the first tick after it was known, burning the
+            # schedule-timeliness SLO and the customer's on-time rate for a post sent as soon as it could be.
+            lag = max(0.0, now - max(float(row["run_at"]), float(row["created_at"])))
             self._observe("inkcast_publish_lag_seconds", lag, platform=row["platform"])
             platform = self.platforms.get(row["platform"])
             if platform is None:

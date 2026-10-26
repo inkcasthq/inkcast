@@ -120,14 +120,20 @@ class PostsRepo(Database):
         row = self._one("SELECT COUNT(*) AS n FROM posts WHERE status = 'scheduled' AND run_at <= ?", now)
         return int(row["n"]) if row else 0
 
+    # A post has waited since it could first be sent: its time, or its creation when that came later (a post made
+    # after its time, a Git file dated in the past, is due at once, ADR-0015). It is due by its time alone. SQLite's
+    # scalar MAX(a, b) is GREATEST(a, b) on PostgreSQL (ADR-0014).
+
     def oldest_due_age(self, now: float) -> float:
         """Seconds the oldest due, still-scheduled post has waited; 0.0 when nothing is due."""
-        row = self._one("SELECT MIN(run_at) AS oldest FROM posts WHERE status = 'scheduled' AND run_at <= ?", now)
+        row = self._one("SELECT MIN(MAX(run_at, created_at)) AS oldest FROM posts WHERE status = 'scheduled' AND run_at <= ?",
+                        now)
         return max(0.0, now - float(row["oldest"])) if row and row["oldest"] is not None else 0.0
 
     def overdue_count(self, now: float, grace: float) -> int:
-        """Scheduled posts more than ``grace`` seconds past due: the scheduler is behind or stopped."""
-        row = self._one("SELECT COUNT(*) AS n FROM posts WHERE status = 'scheduled' AND run_at <= ?", now - grace)
+        """Scheduled posts that have waited more than ``grace`` seconds: the scheduler is behind or stopped."""
+        row = self._one("SELECT COUNT(*) AS n FROM posts WHERE status = 'scheduled' AND run_at <= ? AND created_at <= ?",
+                        now - grace, now - grace)
         return int(row["n"]) if row else 0
 
     def post_status_counts(self, user_id: str, since: float) -> dict[str, dict[str, int]]:
