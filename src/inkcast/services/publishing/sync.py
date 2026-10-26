@@ -123,6 +123,11 @@ class GitSync:
         changed = entry is not None and entry["content_hash"] != digest
         if entry is None or entry["status"] in ("failed", "syncing", "missing") or \
                 (entry["status"] == "cancelled" and changed):
+            if post and post["status"] == "cancelled" and not post["attempts"] and story.publish_at_written is not None \
+                    and abs(post["run_at"] - story.publish_at_written.timestamp()) < 1:
+                # Its post was cancelled untried at the time the file still asks for (e.g. a replacement that failed
+                # to be made): the schedule didn't change, so the new post keeps that time, never "now" (#187).
+                story = replace(story, publish_at=story.publish_at_written)
             return await self._create(user_id, req, path, story, platform, prepared, digest, entry)
 
         schedule_changed = False
