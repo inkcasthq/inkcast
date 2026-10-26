@@ -10,6 +10,7 @@ import json
 import unittest
 
 import httpx2
+from fakes import seed_people
 
 from inkcast.libs.authz import (
     EngineError, Evaluator, Instrumented, InvalidRequest, LocalEngine, Model, OpenFgaEngine, Ref, Tuple, parse_user,
@@ -52,6 +53,7 @@ class StaleTuplesAfterAModelChange(unittest.TestCase):
     def test_a_userset_grant_the_new_model_drops_grants_nothing(self):
         store = Store(":memory:", "k" * 40)
         self.addCleanup(store.close)
+        seed_people(store, "user:carol")
         run(LocalEngine(store).write([
             Tuple("organization:acme", "org", "workspace:w"), Tuple("workspace:w", "workspace", "post:p"),
             Tuple("user:carol", "member", "organization:agency"),
@@ -251,6 +253,7 @@ class WriteSizeParity(unittest.TestCase):
         self.addCleanup(store.close)
         engine = LocalEngine(store)
         grants = [Tuple(f"user:u{i}", "viewer", "workspace:w") for i in range(101)]
+        seed_people(store, *(g.user for g in grants))
         with self.assertRaisesRegex(InvalidRequest, "at most 100"):
             run(engine.write(grants))
         self.assertEqual(run(engine.read(obj=Ref("workspace", "w"))), [], "nothing was written")
@@ -268,6 +271,7 @@ class ReadFilterParity(unittest.TestCase):
     def test_the_local_engine_refuses_what_openfga_refuses(self):
         store = Store(":memory:", "k" * 40)
         self.addCleanup(store.close)
+        seed_people(store, "user:erin")              # a tuple for a person without a users row is refused (#196)
         engine = LocalEngine(store)
         run(engine.write([Tuple("user:erin", "author", "post:p"), Tuple("workspace:w", "workspace", "post:p")]))
         for name, kwargs in (("user only", {"user": "user:erin"}), ("type only", {"type_": "post"}),

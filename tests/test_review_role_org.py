@@ -11,6 +11,7 @@ import pathlib
 import unittest
 
 import yaml
+from fakes import people_named, seed_people
 
 from inkcast.libs.authz import LocalEngine, Ref, Tuple
 from inkcast.libs.db import Store
@@ -35,6 +36,7 @@ class UsersetSubjectThroughMemberFromOrg(unittest.TestCase):
         self.addCleanup(store.close)
         self.engine = LocalEngine(store)
         doc = yaml.safe_load(MODEL_TESTS.read_text())
+        seed_people(store, *people_named(doc))      # a tuple for a person without a users row is refused (#196)
         run(self.engine.write([Tuple(t["user"], t["relation"], t["object"]) for t in doc["tuples"]]))
         run(self.engine.write([Tuple("organization:acme#member", "assignee", "role:acme-copy-editor")]))
 
