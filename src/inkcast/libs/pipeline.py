@@ -170,7 +170,7 @@ class Publisher:
             if retry and exc.retryable and self._asked_beyond_cap(getattr(exc, "retry_after", None)):
                 # The retries ran out at the policy's cap while the platform kept asking for longer (#188).
                 message += (f" {platform.name} asked for a longer wait than INKCAST_PUBLISH_RETRY_DELAYS allows (at most "
-                            f"{max(self.retry.delays)} s), so the {attempts} sends were spaced at that cap.")
+                            f"{max(self.retry.delays)} s), which caps every wait.")
             self.store.update_post(post_id, status="failed", error=message,
                                    events=self._event("post.failed", post_id, user_id, platform.id, reason="platform"))
             self._count(platform.id, "failed")

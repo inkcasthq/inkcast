@@ -12,10 +12,11 @@ import unittest
 
 import httpx2
 
+from inkcast.libs.config import RetryPolicy
 from inkcast.libs.contracts.models import SyncFile, SyncRequest
 from inkcast.libs.db import Store
 from inkcast.libs.pipeline import STUCK_AFTER, Publisher
-from inkcast.libs.platforms import Account, Platform, Prepared, PublishResult
+from inkcast.libs.platforms import Account, Platform, PlatformError, Prepared, PublishResult
 from inkcast.libs.platforms.devto import DevtoPlatform
 from inkcast.services.publishing.sync import GitSync
 
@@ -131,6 +132,56 @@ class GitSyncNowPostToAnOrganization(unittest.TestCase):
         dev.limited = False
         asyncio.run(publisher.run_due(now=time.time() + 901))
         self.assertEqual((store.get_post(first.post_id)["status"], dev.sends), ("published", 1))
+
+
+class RateLimited(Platform):
+    """Answers every publish with a 429 asking for the next wait in ``asks`` (None: no Retry-After)."""
+
+    id, name, default_api_url, credential_fields = "limited", "Limited", "https://limited.invalid", []
+
+    def __init__(self, asks: list[int | None]):
+        super().__init__(httpx2.AsyncClient())
+        self.asks = list(asks)
+
+    async def verify(self, creds):
+        return Account(id="1", name="limited")
+
+    def prepare(self, fields, body):
+        return Prepared(platform=self.id, title=fields["title"], payload={}, preview={})
+
+    async def publish(self, creds, account, prepared, destination):
+        raise PlatformError("Limited rate limit hit.", retryable=True, retry_after=self.asks.pop(0))
+
+
+class TheFinalErrorOnlySaysWhatHappened(unittest.TestCase):
+    """Item 4: the final error says the last ask was beyond the policy's cap, and adds "so the N sends were spaced at
+    that cap". That holds only when every wait was capped. With one send there was no wait at all, and when only the
+    last 429 asked for longer, the waits were the policy's own (60, 300 and 1800 s by default)."""
+
+    def final_error(self, policy: RetryPolicy, asks: list[int | None]) -> str:
+        store = Store(":memory:", "k" * 40)
+        self.addCleanup(store.close)
+        user = store.upsert_user("local:on-call", "on-call", None, None)["id"]
+        platform = RateLimited(asks)
+        store.save_credentials(user, platform.id, {"k": "v"}, {"id": "1", "name": "limited"})
+        publisher = Publisher(store, {platform.id: platform}, retry=policy)
+        prepared = platform.prepare({"title": "t"}, "Body.")
+        post_id = store.create_post(group_id="g", user_id=user, platform=platform.id, title="t", status="scheduled",
+                                    run_at=time.time() - 1, payload=prepared.to_dict())
+        while (post := store.get_post(post_id))["status"] == "scheduled":
+            asyncio.run(publisher.run_due(now=post["run_at"] + 1))
+        self.assertEqual((post["status"], post["attempts"]), ("failed", policy.max_attempts))
+        return post["error"]
+
+    def test_one_send_with_no_wait_is_not_said_to_be_spaced_at_the_cap(self):
+        error = self.final_error(RetryPolicy(1, (60,)), [86400])
+        self.assertIn("INKCAST_PUBLISH_RETRY_DELAYS allows (at most 60 s)", error)
+        self.assertNotIn("spaced", error, "one send, no wait")
+
+    def test_waits_the_policy_chose_are_not_said_to_be_spaced_at_the_cap(self):
+        error = self.final_error(RetryPolicy(4, (60, 300, 1800)), [None, None, None, 86400])   # waited 60, 300, 1800 s
+        self.assertIn("INKCAST_PUBLISH_RETRY_DELAYS allows (at most 1800 s)", error)
+        self.assertNotIn("spaced", error, "the first two waits were 60 and 300 s")
 
 
 if __name__ == "__main__":
