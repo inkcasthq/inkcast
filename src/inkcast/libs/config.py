@@ -170,7 +170,8 @@ class RetryPolicy:
 
     @property
     def window_seconds(self) -> int:
-        """From the first send to the last: how long a post that keeps failing is retried before it is marked failed."""
+        """From the first send to the last: how long a post that keeps failing is retried before it is marked failed,
+        by the policy's own delays (a 429's ``Retry-After`` can stretch it: ``longest_window_seconds``)."""
         return sum(self.delay_after(attempt) for attempt in range(1, self.max_attempts))
 
     @property
