@@ -83,7 +83,9 @@ class LedgerRepo(Database):
 
     def reserve_idempotency_key(self, user_id: str, key: str, request_hash: str) -> tuple[str, str] | None:
         """None when this request now holds the key (run it, then `complete_` or `release_` it). Otherwise the
-        (request hash, response JSON) of the request holding it; the response is '' while that one is running."""
+        (request hash, response JSON) of the request holding it; the response is '' while that one is running.
+        A person who has no users row any more (erased since the request authenticated; issue #196) gets no row and
+        holds nothing, and runs as if they held the key: nothing the request writes is kept either."""
         now = time.time()
         with self._tx() as c:
             c.execute("DELETE FROM idempotency WHERE user_id = ? AND key = ? AND (created_at <= ? OR"
@@ -94,7 +96,7 @@ class LedgerRepo(Database):
                 return None
             row = c.execute("SELECT request_hash, response FROM idempotency WHERE user_id = ? AND key = ?",
                             (user_id, key)).fetchone()
-        return row["request_hash"], row["response"]
+        return (row["request_hash"], row["response"]) if row is not None else None
 
     def complete_idempotency_key(self, user_id: str, key: str, response: str) -> None:
         self._exec("UPDATE idempotency SET response = ? WHERE user_id = ? AND key = ?", response, user_id, key)

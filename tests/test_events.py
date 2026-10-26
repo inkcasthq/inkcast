@@ -6,6 +6,8 @@ import re
 import time
 import unittest
 
+from fakes import seed_people
+
 from inkcast.libs.db import Store
 from inkcast.libs.events import EVENT_TYPES, DomainEvent, MemorySink
 from inkcast.libs.outbox import OutboxPoller
@@ -31,6 +33,7 @@ class Outbox(unittest.TestCase):
     def setUp(self):
         self.store = Store(":memory:", "k" * 40)
         self.addCleanup(self.store.close)
+        seed_people(self.store, "usr")          # a row for a person without a users row is refused (#196)
 
     def post(self, status="scheduled", run_at=None):
         return self.store.create_post(group_id="g", user_id="usr", platform="devto", title="t", status=status,
