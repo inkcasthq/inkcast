@@ -164,7 +164,9 @@ class GitSync:
             # The replacement is scheduled at the time the file asks for, as written: passed or under SCHEDULE_LEAD
             # away, it is due at once, as a scheduled post the scheduler retries under its policy, never a "now" post
             # sent early and never retried (#187, ADR-0015). Only a file whose publish_at was removed sends now.
-            self.store.put_entry(user_id, src, path, pid, status="syncing")
+            # The claim names no post until its own exists (on_record): stopped before that, it is taken over, never
+            # followed to the cancelled one.
+            self.store.put_entry(user_id, src, path, pid, status="syncing", post_id=None)
             return await self._create(user_id, req, path, story, platform, prepared, digest, entry, replace=True)
 
         if "update" not in platform.capabilities or not entry["remote_id"]:

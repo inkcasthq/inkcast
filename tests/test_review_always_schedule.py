@@ -17,6 +17,7 @@ import httpx2
 from inkcast.libs.config import RetryPolicy
 from inkcast.libs.contracts.models import SyncFile, SyncRequest, SyncResult
 from inkcast.libs.db import Store
+from inkcast.libs.db.ledger import CLAIM_TTL
 from inkcast.libs.pipeline import Publisher
 from inkcast.libs.platforms import Account, Destination, Platform, PlatformError, Prepared, PublishResult
 from inkcast.services.publishing.sync import GitSync
@@ -25,9 +26,13 @@ SOURCE = "github.com/acme/blog"
 PATH = "posts/review-205.md"
 
 
+class Stopped(BaseException):
+    """The process stopped right here (OOM kill, node drain, deploy): nothing after this line runs."""
+
+
 class Pubs(Platform):
     """Counts the sends. Posts go to a publication, resolved over the network before a post row is made. ``error``
-    answers a send with that error."""
+    answers a send with that error; ``stop`` stops the process during that lookup."""
 
     id, name, default_api_url, credential_fields = "pubs", "Pubs", "https://pubs.invalid", []
     destination_label = "publication"
@@ -36,6 +41,7 @@ class Pubs(Platform):
         super().__init__(httpx2.AsyncClient())
         self.sends = 0
         self.error: PlatformError | None = None
+        self.stop = False
 
     async def verify(self, creds):
         return Account(id="1", name="pubs")
@@ -44,6 +50,8 @@ class Pubs(Platform):
         return Prepared(platform=self.id, title=fields["title"], payload={"body": body}, preview={}, destination="team")
 
     async def resolve_destination(self, creds, account, wanted):
+        if self.stop:
+            raise Stopped()
         return Destination(id="team", name="Team")
 
     async def publish(self, creds, account, prepared, destination):
@@ -104,6 +112,65 @@ class FindingARetryWaitNeverSendsBeforeANewTime(Review):
         asyncio.run(self.publisher.run_due(now=later.timestamp() + 1))
         self.assertEqual(self.platform.sends, 2)
         self.assertEqual([p["status"] for p in self.posts()], ["cancelled", "published"], "one send, no twin")
+
+
+class FindingAReplacementCutOffIsNotLost(Review):
+    """The sync cancels a scheduled post, then makes its replacement. Stopped in between (the publication lookup is a
+    network call), the ledger's claim still named the cancelled post. Once the claim expired the sync followed that
+    post as the claim's own: cancelled, so the file read as unchanged, and the post was never sent."""
+
+    def cut_off(self, publish_at: datetime | None, body: str = "Body.") -> None:
+        self.platform.stop = True
+        with self.assertRaises(Stopped):
+            self.sync(publish_at, body)
+        self.platform.stop = False
+
+    def claim_expires(self) -> None:
+        self.store._exec("UPDATE ledger SET synced_at = synced_at - ?", CLAIM_TTL)
+
+    def test_a_rescheduled_post_cut_off_mid_replacement_is_made_once_the_claim_expires(self):
+        created = self.sync(at(2 * 24 * 3600))
+        later = at(3 * 24 * 3600)
+        self.cut_off(later)
+        self.assertEqual(self.store.get_post(created.post_id)["status"], "cancelled")
+        self.assertEqual(self.sync(later).action, "skipped", "the claim still holds")
+        self.claim_expires()
+        rerun = self.sync(later)
+        live = [p for p in self.posts() if p["status"] == "scheduled"]
+        self.assertEqual(len(live), 1, f"cancelled by the sync and never made again ({rerun.action}): lost")
+        self.assertAlmostEqual(live[0]["run_at"], later.timestamp(), delta=1, msg="at the time as written")
+        self.assertEqual((rerun.action, rerun.status, rerun.post_id), ("create", "scheduled", live[0]["id"]))
+        self.assertEqual(self.sync(later).action, "unchanged")
+        asyncio.run(self.publisher.run_due(now=later.timestamp() + 1))
+        self.assertEqual((self.platform.sends, self.store.get_post(live[0]["id"])["status"]), (1, "published"))
+
+    def test_a_removed_time_cut_off_mid_replacement_is_sent_once_the_claim_expires(self):
+        self.sync(at(2 * 24 * 3600))
+        self.cut_off(None)
+        self.claim_expires()
+        rerun = self.sync(None)
+        self.assertEqual((rerun.status, self.platform.sends), ("published", 1), "the author asked for it now: lost")
+
+    def test_a_cancelled_post_the_author_edits_again_is_made_once_a_cut_off_claim_expires(self):
+        """The same on the create path: a person cancelled the post, the author edits the file to have it sent after
+        all, and the sync is stopped making it. The claim named the cancelled post, and its hash is the new file's."""
+        when = at(2 * 24 * 3600)
+        created = self.sync(when)
+        self.publisher.cancel(self.user, created.post_id)
+        self.cut_off(when, body="Better body.")
+        self.claim_expires()
+        rerun = self.sync(when, body="Better body.")
+        self.assertEqual((rerun.action, rerun.status), ("create", "scheduled"), "the author's edit was lost")
+
+    def test_a_body_edit_cut_off_mid_replacement_is_still_made(self):
+        """What the fix keeps: a changed body was re-made before too (its hash differs from the claim's)."""
+        when = at(2 * 24 * 3600)
+        self.sync(when)
+        self.cut_off(when, body="Better body.")
+        self.claim_expires()
+        rerun = self.sync(when, body="Better body.")
+        self.assertEqual((rerun.action, rerun.status), ("create", "scheduled"))
+        self.assertEqual([p["status"] for p in self.posts()], ["cancelled", "scheduled"], "one post, no twin")
 
 
 if __name__ == "__main__":
