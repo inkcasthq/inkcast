@@ -522,7 +522,8 @@ class KeycloakSync:
         hanging = set(self._hanging)                 # known to hang before this reconcile's reads
         order = sorted(range(len(people)), key=lambda i: (ids[i] in self._hanging, self._hanging.get(ids[i], 0.0)))
         read: list[tuple[dict[str, Any], str, str]] = []           # (row as listed, Keycloak id, state)
-        untried = 0                                  # left by the budget, not known to hang: the breaker can't count them
+        own: set[str] = set()                        # found gone, with a DELETE_ACCOUNT event: they deleted their own
+        untried = 0                                 # left by the budget, not known to hang: the breaker can't count them
         for i in order:
             user, keycloak_id = people[i], ids[i]
             if p.ended or keycloak_id in p.hung:     # the budget is used, or no answer about them this pass already:
@@ -535,22 +536,17 @@ class KeycloakSync:
                 self._person_failed(str(user["id"]), "reconcile", exc)
                 continue
             read.append((user, keycloak_id, state))
+            if state != "deleted":
+                continue
+            try:                                     # their events now, before the people known to hang use the budget
+                if await self.deleted_own_account(keycloak_id):
+                    own.add(keycloak_id)
+            except PersonError as exc:               # gone for certain: cut off now; the event, next reconcile
+                self._person_failed(str(user["id"]), "reconcile", exc)
         if people and not read:                      # nobody could be read: the sync is failing, not a person
             self.unread_until = self.clock() + self.config.keycloak_reconcile_seconds
             raise SyncError(f"the reconcile could act on nobody: none of {len(people)} people could be read")
-        gone: list[tuple[dict[str, Any], str, bool]] = []          # (row, Keycloak id, deleted their own account)
-        for user, keycloak_id, state in read:
-            if state != "deleted":
-                continue
-            if p.ended:                              # no read after the budget: gone for certain, cut off now; the
-                own_deletion = False                 # event, next reconcile, as when this read gets no answer
-            else:
-                try:
-                    own_deletion = await self.deleted_own_account(keycloak_id)
-                except PersonError as exc:           # gone for certain: cut off now; the event, next reconcile
-                    self._person_failed(str(user["id"]), "reconcile", exc)
-                    own_deletion = False
-            gone.append((user, keycloak_id, own_deletion))
+        gone = [(user, keycloak_id, keycloak_id in own) for user, keycloak_id, state in read if state == "deleted"]
         disabled = [(user, keycloak_id) for user, keycloak_id, state in read if state == "disabled"]
         held = self._breaker(gone, disabled, len(read), untried)
         deferred = held is None                      # the breaker could not count: what it would hold waits (#152)
