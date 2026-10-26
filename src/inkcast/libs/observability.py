@@ -104,8 +104,9 @@ EVENTS: dict[str, tuple[str, str]] = {
     "backup.done": ("info", "A database backup was taken, checked and kept (name, size, rows)."),
     "backup.failed": ("critical", "A database backup failed; nothing was removed. The alert fires when none succeeds for 26 h."),
     "restore.done": ("warning", "The database was replaced by a backup; the previous one was kept beside it."),
-    "restore.erasures.carried": ("info", "The erasure records of the replaced database went into the restored copy, so the "
-                                         "server erases those people again at start-up (count only)."),
+    "restore.erasures.carried": ("info", "The erasure records of the replaced database, and their aliases from a key "
+                                         "rotation, went into the restored copy, so the server erases those people again "
+                                         "at start-up (counts only)."),
     "restore.refused": ("warning", "A restore did not run: the backup failed its checks, or the server was still running."),
 }
 
