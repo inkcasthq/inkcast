@@ -734,3 +734,29 @@ class FakeRedis:
         if rate > 0:
             self._dispatch("PEXPIRE", [keys[0], str(int(capacity / rate * 1000 + 0.999))])
         return repr(wait)
+
+
+def seed_people(store, *subjects: str) -> None:
+    """``users`` rows under the given ids, for tests whose people are names (``u1``, ``user:alice``) rather than ids
+    ``upsert_user`` made up: the guard of issue #196 refuses a row for a person who has no ``users`` row. A subject
+    may be written as the authorization model spells it (``user:<id>``); usersets and wildcards are not people.
+    Nothing else is set about them, and seeding twice is harmless."""
+    from inkcast.libs.db.erasure import user_hash
+    ids = []
+    for subject in subjects:
+        if subject.startswith("user:"):
+            subject = subject[5:]
+        if subject and subject != "*" and "#" not in subject:
+            ids.append(subject)
+    with store._tx() as c:
+        c.executemany("INSERT OR IGNORE INTO users (id, identity, display, created_at, last_login_at, erasure_hash)"
+                      " VALUES (?, ?, ?, 0, 0, ?)", [(i, f"test:{i}", i, user_hash(store._erasure_salt, i)) for i in ids])
+
+
+def people_named(doc) -> set[str]:
+    """Every ``user:<name>`` a model test document names, in tuples and assertions alike, for ``seed_people``."""
+    if isinstance(doc, dict):
+        return set().union(*(people_named(v) for v in doc.values()))
+    if isinstance(doc, list):
+        return set().union(*(people_named(v) for v in doc))
+    return {doc} if isinstance(doc, str) and doc.startswith("user:") else set()
