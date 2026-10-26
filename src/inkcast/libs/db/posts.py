@@ -51,13 +51,17 @@ class PostsRepo(Database):
             insert_events(c, events)
         return post_id
 
-    def update_post(self, post_id: str, events: Iterable[DomainEvent] | None = None, **fields: Any) -> None:
+    def update_post(self, post_id: str, events: Iterable[DomainEvent] | None = None, only_if: str | None = None,
+                    **fields: Any) -> None:
         """Change fields; ``events`` are written in the same transaction (the outbox). A post that no longer exists
-        (its owner was erased while the scheduler held it) is left alone, and its events are not written either."""
+        (its owner was erased while the scheduler held it) is left alone, and its events are not written either.
+        ``only_if``: change it only while it still has this status (another worker may have moved it on)."""
         fields["updated_at"] = time.time()
         cols = ", ".join(f"{k} = ?" for k in fields)
+        status = " AND status = ?" if only_if else ""
         with self._tx() as c:
-            if c.execute(f"UPDATE posts SET {cols} WHERE id = ?", (*fields.values(), post_id)).rowcount == 1:
+            if c.execute(f"UPDATE posts SET {cols} WHERE id = ?{status}",
+                         (*fields.values(), post_id, *([only_if] if only_if else []))).rowcount == 1:
                 insert_events(c, events)
 
     def cancel_if_scheduled(self, post_id: str, user_id: str, events: Iterable[DomainEvent] | None = None) -> bool:
