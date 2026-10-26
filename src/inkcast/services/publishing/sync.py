@@ -191,7 +191,9 @@ class GitSync:
             self.store.put_entry(user_id, src, path, pid, post_id=post_id)
 
         try:
-            [o] = await self.publisher.publish(user_id, story, [pid], on_created=on_record)
+            # retry: a "now" post the platform rate-limits waits for the scheduler's retry (and the 429's
+            # Retry-After) instead of failing, which the next CI run would create afresh, paced by nothing (#188).
+            [o] = await self.publisher.publish(user_id, story, [pid], on_created=on_record, retry=True)
         except Exception:
             if not replace:
                 self.store.put_entry(user_id, src, path, pid, status="failed", message="internal error")
@@ -203,7 +205,8 @@ class GitSync:
                 self.store.put_entry(user_id, src, path, pid, status="failed", content_hash=digest, message=o.message)
             return SyncResult(**base, action="failed" if o.status == "failed" else "skipped", message=o.message)
         self.store.put_entry(user_id, src, path, pid, content_hash=digest, post_id=o.post_id, status=o.status,
-                             url=o.url, remote_id=o.remote_id, message=o.message if o.status == "unconfirmed" else None)
+                             url=o.url, remote_id=o.remote_id,
+                             message=o.message if o.status in ("unconfirmed", "scheduled") else None)
         return SyncResult(**base, action=action, status=o.status, post_id=o.post_id, url=o.url,
                           message=o.message or ("; ".join(o.notes) or None))
 

@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -61,6 +62,13 @@ class Publisher:
         if self.metrics:
             self.metrics.observe(name, value, **labels)
 
+    def _asked_beyond_cap(self, asked: Any) -> bool:
+        """Whether a platform's Retry-After asked for longer than the policy's largest delay, the cap on any wait."""
+        try:
+            return math.ceil(asked) > max(self.retry.delays)
+        except (TypeError, ValueError, OverflowError):  # None or a string; nan; inf
+            return False
+
     @staticmethod
     def _event(type: str, post_id: str, user_id: str, platform: str, **attrs: Any) -> list[DomainEvent]:
         """The domain event written with a post's status change (libs/events; the outbox)."""
@@ -78,8 +86,11 @@ class Publisher:
         return ready, problems
 
     async def publish(self, user_id: str, story: Story, platform_ids: list[str],
-                      on_created: Any = None) -> list[Outcome]:
-        """``on_created(platform_id, post_id)`` runs once each post row exists and before anything is sent."""
+                      on_created: Any = None, retry: bool = False) -> list[Outcome]:
+        """``on_created(platform_id, post_id)`` runs once each post row exists and before anything is sent.
+        ``retry``: a "now" post whose send certainly never happened (a 429, say) is handed to the scheduler, which
+        retries it under the policy, instead of failing at once. Git sync asks for it (there is nobody reading the
+        reply to try again later, #188); a person's MCP or REST publish is told what happened and decides."""
         ready, outcomes = self.prepare(story, platform_ids)
         group = "grp_" + uuid.uuid4().hex[:10]
         for prepared in ready:
@@ -111,12 +122,15 @@ class Publisher:
             if story.publish_at:
                 outcomes.append(Outcome(platform.id, "scheduled", post_id=post_id, prepared=prepared))
             else:
-                outcomes.append(await self._send(post_id, user_id, platform, prepared, attempts=1))
+                outcomes.append(await self._send(post_id, user_id, platform, prepared, attempts=1, retry=retry))
         order = {pid: i for i, pid in enumerate(platform_ids)}
         return sorted(outcomes, key=lambda o: order.get(o.platform, 99))
 
     async def _send(self, post_id: str, user_id: str, platform: Platform, prepared: Prepared, attempts: int,
-                    scheduled: bool = False, lag: float | None = None) -> Outcome:
+                    scheduled: bool = False, lag: float | None = None, retry: bool = False) -> Outcome:
+        """``scheduled``: sent by the scheduler at its time (recorded on the event). ``retry``: a retryable failure
+        is put back in the queue under the policy; always for the scheduler, for a "now" post only when asked."""
+        retry = retry or scheduled
         connected = self.store.get_credentials(user_id, platform.id)
         if not connected:
             self.store.update_post(post_id, status="failed", error=f"{platform.name} was disconnected.",
@@ -140,16 +154,24 @@ class Publisher:
                 log.warning("Post %s on %s is unconfirmed: %s", post_id, platform.id, exc,
                             extra={"event": "publish.unconfirmed", "post_id": post_id, "platform": platform.id})
                 return Outcome(platform.id, "unconfirmed", post_id=post_id, message=str(exc))
-            if scheduled and exc.retryable and attempts < self.retry.max_attempts:
+            if retry and exc.retryable and attempts < self.retry.max_attempts:
                 delay = self.retry.delay_after(attempts, asked=exc.retry_after)  # a 429's Retry-After, within the policy
-                self.store.update_post(post_id, status="scheduled", run_at=time.time() + delay, error=f"retrying: {exc}",
+                # attempts: the sends so far. The scheduler's claim counted its own; a "now" post's first send is
+                # counted here, so the policy's budget holds and Git sync sees a post the scheduler has tried.
+                self.store.update_post(post_id, status="scheduled", run_at=time.time() + delay, attempts=attempts,
+                                       error=f"retrying: {exc}",
                                        events=self._event("post.scheduled", post_id, user_id, platform.id, retry=attempts))
                 self._count(platform.id, "retry")
                 return Outcome(platform.id, "scheduled", post_id=post_id, message=f"Will retry: {exc}")
-            self.store.update_post(post_id, status="failed", error=str(exc),
+            message = str(exc)
+            if retry and exc.retryable and self._asked_beyond_cap(getattr(exc, "retry_after", None)):
+                # The retries ran out at the policy's cap while the platform kept asking for longer (#188).
+                message += (f" {platform.name} asked for a longer wait than INKCAST_PUBLISH_RETRY_DELAYS allows (at most "
+                            f"{max(self.retry.delays)} s), so the {attempts} sends were spaced at that cap.")
+            self.store.update_post(post_id, status="failed", error=message,
                                    events=self._event("post.failed", post_id, user_id, platform.id, reason="platform"))
             self._count(platform.id, "failed")
-            return Outcome(platform.id, "failed", post_id=post_id, message=str(exc))
+            return Outcome(platform.id, "failed", post_id=post_id, message=message)
         except Exception as exc:  # a plug-in bug must not kill the scheduler
             # It may have crashed after the platform accepted the post (reading the reply), so it is ambiguous like
             # any uncertain failure: unconfirmed, never 'failed', which Git sync would create again.

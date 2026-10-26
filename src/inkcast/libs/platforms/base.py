@@ -124,6 +124,24 @@ def retry_after_seconds(value: str | None, now: float | None = None) -> int | No
     return min(max(0, wait), RETRY_AFTER_CEILING)
 
 
+def wait_text(seconds: int | float | None) -> str:
+    """How long a platform asked to wait, for a person: "shortly" when it didn't say (or said 0), else "in 5 seconds",
+    "in 15 minutes", "in 24 hours", "in 2 days", rounded up to the unit."""
+    try:
+        whole = math.ceil(seconds)
+    except (TypeError, ValueError, OverflowError):  # None, nan, inf
+        return "shortly"
+    if whole <= 0:
+        return "shortly"
+    for unit, size, limit in (("second", 1, 120), ("minute", 60, 120 * 60), ("hour", 3600, 48 * 3600)):
+        if whole < limit:
+            break
+    else:
+        unit, size = "day", 86400
+    count = math.ceil(whole / size)
+    return f"in {count} {unit}" + ("" if count == 1 else "s")
+
+
 class PlatformError(Exception):
     """A failure worded for the person reading Claude's reply.
 
@@ -223,8 +241,11 @@ class Platform(ABC):
                     f"have been published. Check {self.name} before trying again.", uncertain=True) from exc
             raise PlatformError(f"Could not reach {self.name}: {exc}", retryable=True) from exc
         if response.status_code == 429:
-            raise PlatformError(f"{self.name} rate limit hit; try again shortly.", retryable=True,
-                                retry_after=retry_after_seconds(response.headers.get("Retry-After")))
+            asked = retry_after_seconds(response.headers.get("Retry-After"))
+            # The ask is in the words too: a "now" publish is not retried, so the person (or assistant) reading
+            # the reply decides when to try again (#188).
+            raise PlatformError(f"{self.name} rate limit hit; try again {wait_text(asked)}.", retryable=True,
+                                retry_after=asked)
         if response.status_code >= 500:
             if mutating:
                 raise PlatformError(
