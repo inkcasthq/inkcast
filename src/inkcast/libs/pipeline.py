@@ -202,7 +202,9 @@ class Publisher:
                        remote_id=result.remote_id or remote_id)
 
     async def confirm(self, user_id: str, platform: Platform, prepared: Prepared) -> Outcome | None:
-        """For an ``unconfirmed`` publish: ask the platform whether the post exists. None = can't tell."""
+        """For an ``unconfirmed`` publish: ask the platform whether the post exists. None = can't tell. An
+        ``unavailable`` outcome = the platform couldn't be asked just now (rate-limited, unreachable: a retryable
+        error on the lookup), so asking again later will tell."""
         if "find" not in platform.capabilities:
             return None
         connected = self.store.get_credentials(user_id, platform.id)
@@ -211,7 +213,9 @@ class Publisher:
         creds, account_data = connected
         try:
             found = await platform.find_existing(creds, Account.from_dict(account_data), prepared)
-        except PlatformError:
+        except PlatformError as exc:
+            if getattr(exc, "retryable", False):
+                return Outcome(platform.id, "unavailable", message=str(exc))
             return None
         except Exception:  # a plug-in bug: can't tell, and it must not stop the other posts being resolved
             log.exception("Platform %s crashed looking up an existing post", platform.id)
@@ -224,7 +228,9 @@ class Publisher:
     async def recover(self, row: dict[str, Any]) -> Outcome:
         """A post the process was sending when it stopped. The request may or may not have reached the platform,
         so: ask the platform (``find_existing``) when it can tell; otherwise mark it ``unconfirmed`` for a person.
-        Only a post the platform says is *missing* goes back in the queue."""
+        Only a post the platform says is *missing* goes back in the queue. A platform that couldn't be asked just
+        now (rate-limited, unreachable) is asked again on the next stuck pass, STUCK_AFTER later: the post stays
+        ``recovering``, which only ever asks, never sends (#188)."""
         post_id, platform = row["id"], self.platforms.get(row["platform"])
         if platform is None:
             self.store.update_post(post_id, status="failed", error=f"Platform plug-in {row['platform']!r} is not installed.",
@@ -236,6 +242,13 @@ class Publisher:
         def recovered(status: str) -> list[DomainEvent]:
             return self._event("post.recovered", post_id, row["user_id"], platform.id, status=status)
 
+        if found is not None and found.status == "unavailable":
+            message = f"Could not check {platform.name} yet ({found.message}); it will be checked again."
+            self.store.update_post(post_id, status="recovering", error=message)
+            log.warning("Post %s on %s was interrupted mid-send and %s could not be asked yet; checking again later",
+                        post_id, platform.id, platform.id,
+                        extra={"event": "publish.recovery.deferred", "post_id": post_id, "platform": platform.id})
+            return Outcome(platform.id, "recovering", post_id=post_id, message=message)
         if found is None:
             message = (f"Inkcast restarted while this post was being sent to {platform.name}, which can't be checked "
                        f"automatically. Check {platform.name} before publishing it again.")
