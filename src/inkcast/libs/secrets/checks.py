@@ -310,22 +310,22 @@ def _check_publish_retry_window(ctx: _Ctx) -> Check:
     settings = (f"INKCAST_PUBLISH_MAX_ATTEMPTS={policy.max_attempts}, "
                 f"INKCAST_PUBLISH_RETRY_DELAYS={','.join(str(d) for d in policy.delays)}")
     window, longest = policy.window_seconds, policy.longest_window_seconds
+    # The window is a range once a 429's Retry-After can stretch a wait: say both ends whenever they differ.
+    after = _duration(window) + (f", or after {_duration(longest)} when a 429's Retry-After stretches every wait to "
+                                 "the largest delay" if longest > window else "")
     if window > 24 * 3600:
         return Check("publish-retry-window", title, "warn",
-                     f"{settings}: a post whose send keeps failing is retried for {_duration(window)} before it is marked "
-                     "failed, and could go out that long after its time with nobody told. Fewer attempts or shorter delays "
-                     "keep the window within a day.")
+                     f"{settings}: a post whose send keeps failing is marked failed after {after}, and could go out that "
+                     "long after its time with nobody told. Fewer attempts or shorter delays keep the window within a day.")
     if longest > 24 * 3600:
         return Check("publish-retry-window", title, "warn",
-                     f"{settings}: a post whose send keeps failing is marked failed after {_duration(window)}, or after "
-                     f"{_duration(longest)} when a 429's Retry-After stretches every wait to the largest delay, and could "
-                     "go out that long after its time with nobody told. Fewer attempts or a smaller largest delay keep "
-                     "the window within a day.")
+                     f"{settings}: a post whose send keeps failing is marked failed after {after}, and could go out that "
+                     "long after its time with nobody told. Fewer attempts or a smaller largest delay keep the window "
+                     "within a day.")
     if policy.max_attempts == 1:
         return Check("publish-retry-window", title, "pass", f"{settings}: one send, no retry.")
     return Check("publish-retry-window", title, "pass",
-                 f"{settings}: a post whose send keeps failing is marked failed after {_duration(window)} "
-                 f"({policy.max_attempts} sends).")
+                 f"{settings}: a post whose send keeps failing is marked failed after {after} ({policy.max_attempts} sends).")
 
 
 def _check_pat_expiry(ctx: _Ctx) -> Check:
