@@ -20,6 +20,9 @@ class Database:
     # Columns added after a table first shipped: (table, column, declaration). CREATE TABLE IF NOT EXISTS never
     # adds a column to an existing database, so each is added here once, when it is missing (SQLite until E3).
     COLUMNS: tuple[tuple[str, str, str], ...] = ()
+    # Indexes on columns from COLUMNS, each a CREATE INDEX IF NOT EXISTS: created after the columns, since the schemas
+    # run before them and an index on a column the table doesn't have yet fails.
+    INDEXES: tuple[str, ...] = ()
 
     def __init__(self, path: str):
         self._conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None, timeout=30)
@@ -31,6 +34,8 @@ class Database:
             have = {r["name"] for r in self._conn.execute(f"PRAGMA table_info({table})")}
             if column not in have:
                 self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
+        for statement in self.INDEXES:
+            self._conn.execute(statement)
 
     @contextmanager
     def _tx(self) -> Iterator[sqlite3.Connection]:

@@ -174,8 +174,8 @@ def _heartbeat_age(database: pathlib.Path, now: float) -> float | None:
 
 
 def _carry_erasures(current: pathlib.Path, incoming: pathlib.Path) -> int:
-    """Copy the ``user_erasures`` rows of the database being replaced into the restored copy, skipping any it already
-    has; how many were carried. Zero when there is no current database or it predates the table. A current database
+    """Copy the ``user_erasures`` rows of the database being replaced, and their ``user_erasure_aliases``, into the
+    restored copy, skipping any it already has; how many records were carried. Zero when there is no current database or it predates the table. A current database
     that can't be read refuses the restore (the heartbeat read above has already needed it), before anything is
     swapped."""
     if not current.exists():
@@ -184,6 +184,7 @@ def _carry_erasures(current: pathlib.Path, incoming: pathlib.Path) -> int:
     try:
         try:
             rows = source.execute("SELECT user_hash, erased_at, counts FROM user_erasures").fetchall()
+            aliases = _erasure_aliases(source)          # the other hash an erasure is known by (issue #113)
         except sqlite3.DatabaseError as exc:
             if "no such table" in str(exc):
                 return 0
@@ -202,10 +203,22 @@ def _carry_erasures(current: pathlib.Path, incoming: pathlib.Path) -> int:
                 have.add((h, t))
                 new.append((h, t, c))
         target.executemany("INSERT INTO user_erasures VALUES (?, ?, ?)", new)
+        known = set(_erasure_aliases(target))
+        target.executemany("INSERT INTO user_erasure_aliases VALUES (?, ?)", [a for a in dict.fromkeys(aliases) if a not in known])
         target.commit()
-        return target.total_changes
+        return len(new)
     finally:
         target.close()
+
+
+def _erasure_aliases(conn: sqlite3.Connection) -> list[tuple[str, str]]:
+    """``user_erasure_aliases`` as (user_hash, alias) pairs; none in a database from before the table."""
+    try:
+        return [tuple(r) for r in conn.execute("SELECT user_hash, alias FROM user_erasure_aliases")]
+    except sqlite3.OperationalError as exc:
+        if "no such table" in str(exc):
+            return []
+        raise
 
 
 def restore_backup(path: pathlib.Path, database: pathlib.Path, *, force: bool = False,
