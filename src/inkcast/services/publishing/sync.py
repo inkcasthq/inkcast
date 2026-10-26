@@ -167,7 +167,11 @@ class GitSync:
             # The claim names no post until its own exists (on_record): stopped before that, it is taken over, never
             # followed to the cancelled one.
             self.store.put_entry(user_id, src, path, pid, status="syncing", post_id=None)
-            return await self._create(user_id, req, path, story, platform, prepared, digest, entry, replace=True)
+            # Only the content changed, and the scheduler hasn't tried the post: the replacement keeps its schedule, so
+            # it keeps its creation too, and a post the scheduler is behind on stays as late as it is (ADR-0015).
+            kept = post["created_at"] if not schedule_changed and not post["attempts"] else None
+            return await self._create(user_id, req, path, story, platform, prepared, digest, entry, replace=True,
+                                      created_at=kept)
 
         if "update" not in platform.capabilities or not entry["remote_id"]:
             message = (f"Changed since it was published, but {platform.name} doesn't let Inkcast edit posts. "
@@ -191,7 +195,8 @@ class GitSync:
                           message="; ".join(o.notes) or None)
 
     async def _create(self, user_id: str, req: SyncRequest, path: str, story, platform: Platform, prepared: Prepared,
-                      digest: str, entry: dict | None, replace: bool = False) -> SyncResult:
+                      digest: str, entry: dict | None, replace: bool = False,
+                      created_at: float | None = None) -> SyncResult:
         src, pid = req.source, platform.id
         base = {"path": path, "platform": pid}
         action = "update" if replace else "create"
@@ -205,7 +210,7 @@ class GitSync:
             self.store.put_entry(user_id, src, path, pid, post_id=post_id)
 
         try:
-            [o] = await self.publisher.publish(user_id, story, [pid], on_created=on_record)
+            [o] = await self.publisher.publish(user_id, story, [pid], on_created=on_record, created_at=created_at)
         except Exception:
             if not replace:
                 self.store.put_entry(user_id, src, path, pid, status="failed", message="internal error")

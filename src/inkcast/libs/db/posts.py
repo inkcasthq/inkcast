@@ -35,7 +35,9 @@ UPDATE posts SET status = 'unconfirmed' WHERE status = 'unknown';
 
 class PostsRepo(Database):
     def create_post(self, *, group_id: str, user_id: str, platform: str, title: str, status: str,
-                    run_at: float, payload: dict[str, Any]) -> str:
+                    run_at: float, payload: dict[str, Any], created_at: float | None = None) -> str:
+        """``created_at`` is now unless the post replaces one whose schedule it keeps (Git sync): then that one's, so
+        how late it is counts from when its time was first asked for (``overdue_count``, the lag; ADR-0015)."""
         post_id = "pst_" + uuid.uuid4().hex[:12]
         now = time.time()
         # A scheduled post is a fact worth an event the moment it exists; a "publishing" one gets its event
@@ -46,7 +48,8 @@ class PostsRepo(Database):
             c.execute(
                 "INSERT INTO posts (id, group_id, user_id, platform, title, status, run_at, payload, created_at, updated_at)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (post_id, group_id, user_id, platform, title, status, run_at, json.dumps(payload), now, now),
+                (post_id, group_id, user_id, platform, title, status, run_at, json.dumps(payload),
+                 now if created_at is None else created_at, now),
             )
             insert_events(c, events)
         return post_id
