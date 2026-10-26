@@ -48,7 +48,11 @@ that read only people who hang), and a reconcile that could read nobody, for tha
 ``unread_until`` (#119). A read outside a pass (the return page's) counts for no pass. A transport error on the way
 to Keycloak (a connection refused or reset, a connect timeout, the client's own pool) is never one person's: it
 fails the pass at once. Anything else (the service account refused or without an answer, a realm-wide read, the
-database) fails the pass as a whole, and so does a reconcile that could act on nobody.
+database) fails the pass as a whole, and so does a reconcile that could act on nobody. What the pass counter cannot
+show is counted apart (#180): a pass that ended on its budget, by stage (``inkcast_identity_sync_ended_early_total``;
+a partial outage ends every reconcile that way while every pass succeeds), and when everyone who could answer was
+last read (``sync_state``'s ``keycloak-reconciled``, for the ``inkcast_identity_sync_reconcile_age_seconds`` gauge in
+every process: a pass that never finishes, or reconciles that keep leaving people untried, show as age).
 
 **The circuit breaker (E9.F9.5.S7, issue #105; a mass "disabled", E9.F9.5.S8, issue #135).** Some Keycloak failures
 make it answer 404 about many people who still exist: a realm restored from an older backup, the issuer pointing at
@@ -85,7 +89,7 @@ from urllib.parse import quote
 
 import httpx2
 
-from ...libs.db.identity import BREAKER_GONE
+from ...libs.db.identity import BREAKER_GONE, SYNC_RECONCILED
 
 log = logging.getLogger("inkcast.identity.sync")
 CURSOR = "keycloak-admin-events"
@@ -424,7 +428,9 @@ class KeycloakSync:
         no read about a person answered since it began, the sync cannot tell three people from an outage and must
         not call it a success: ``SyncError``, and the pass fails as a whole (its cursors unmoved, the reconcile not
         done; the person lines name them). Otherwise it is a success for what was done, logged once with the stage it
-        ended in and the count: fixed strings and ints."""
+        ended in and the count (fixed strings and ints) and counted by that stage
+        (``inkcast_identity_sync_ended_early_total``, #180: a partial outage ends every reconcile this way while every
+        pass succeeds, so ``InkcastIdentitySyncReconcileEndingEarly`` sees what ``InkcastIdentitySyncFailing`` cannot)."""
         if not p.ended:
             return False
         if not p.answered:
@@ -433,6 +439,8 @@ class KeycloakSync:
         log.warning("The Keycloak user sync pass ends early: %d reads about people got no answer (the budget), in the %s "
                     "pass; what it did not reach waits for the next pass or reconcile", p.timeouts, stage,
                     extra={"event": "identity.sync.pass.ended", "stage": stage, "timeouts": p.timeouts})
+        if self.metrics:
+            self.metrics.inc("inkcast_identity_sync_ended_early_total", stage=stage)
         return True
 
     async def tick(self) -> dict[str, int]:
@@ -515,6 +523,7 @@ class KeycloakSync:
                 raise SyncError("the last reconcile could act on nobody; everyone is read again at the next one")
             if not await self._reconcile(done, p):  # it tried everyone not known to hang: the next is on schedule
                 self.last_reconcile = self.clock()  # else due again at the next pass, which reads the new hangers last
+                self.store.set_sync_state(SYNC_RECONCILED, str(self.last_reconcile))   # the age gauge, every process (#180)
             self._budget_used(p, "reconcile")       # ran, on whoever it read
 
     async def _reconcile(self, done: dict[str, int], p: _Pass) -> int:
