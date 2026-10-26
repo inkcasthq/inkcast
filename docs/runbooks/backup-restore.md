@@ -80,7 +80,7 @@ After a restore:
 
 ## Upgrading to the hash column
 
-The first start on an image with `users.erasure_hash` (issue #113) fills the hash of every existing user before `/livez` answers: in batches of 10,000 rows, each its own transaction, which holds the write lock for a fraction of a second. **The one-off cost is about 10 to 20 seconds per million users** (measured; a slow volume or a busy node takes longer). The same fill runs after a restore of a backup from before the column, and in split mode every service pod runs it at the same time, sharing the work. Nothing serves until it is done, and nobody is erased by it: it writes one hash per person and nothing else.
+The first start on an image with `users.erasure_hash` (issue #113) fills the hash of every existing user before `/livez` answers: in batches of 10,000 rows, each its own transaction, which holds the write lock for a fraction of a second (longer as the table grows: about a quarter of a second per batch at a million users). **The one-off cost is about 10 to 25 seconds per million users** (measured; a slow volume or a busy node takes longer). The same fill runs after a restore of a backup from before the column, and in split mode every service pod runs it at the same time, sharing the work. Nothing serves until it is done, and nobody is erased by it: it writes one hash per person and nothing else.
 
 The log says how far it has got, one line per batch (`identity.erasure_hash.backfill`: the rows filled so far, the rows without a hash when that process started, the batches), and one line when every user has a hash (`identity.erasure_hash.backfilled`). A start with nothing to fill logs nothing.
 
