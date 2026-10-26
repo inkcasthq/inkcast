@@ -38,7 +38,7 @@ without an answer: one user whose read hangs on an LDAP referral must not block 
 pass does not read them again. A pass has a budget of ``TIMEOUT_BUDGET`` such reads (#152): at the third it ends,
 as a success for what it did (the DELETE_ACCOUNT cursor stops before every event not acted on; a reconcile acts on
 whoever it read, but for what the breaker would hold while the people it left untried, not known to hang, could take
-its count to the minimum; the next is on schedule), so that an outage that begins mid-pass costs it three timeouts, not
+its count to the minimum; the next is on schedule, or at the next pass when it left such people untried), so that an outage that begins mid-pass costs it three timeouts, not
 one per person, and two people who hang never block the rest. The reconcile reads the people whose last read got no
 answer last, so they delay each other only, and in the pass that reconciles the event passes leave those people to
 it, so that three of them with an event each cannot use the budget before it: everyone else is read first. A pass
@@ -506,18 +506,19 @@ class KeycloakSync:
         if due:
             if not reconcile:                       # still failing, but everyone is read again on schedule
                 raise SyncError("the last reconcile could act on nobody; everyone is read again at the next one")
-            await self._reconcile(done, p)
-            self.last_reconcile = self.clock()
-            self._budget_used(p, "reconcile")       # ran, on whoever it read: the next is on schedule
+            if not await self._reconcile(done, p):  # it tried everyone not known to hang: the next is on schedule
+                self.last_reconcile = self.clock()  # else due again at the next pass, which reads the new hangers last
+            self._budget_used(p, "reconcile")       # ran, on whoever it read
 
-    async def _reconcile(self, done: dict[str, int], p: _Pass) -> None:
+    async def _reconcile(self, done: dict[str, int], p: _Pass) -> int:
         """Everyone Inkcast knows from this Keycloak, the cut-off people too: one Keycloak no longer has is erased once
         the grace period is over; one it has again (restored from a backup under the same id) gets a whole grace
         period at a later deletion. Everyone is read before anyone is acted on, so the breaker can count (#105) and
         so an error that fails the pass as a whole leaves nobody half done. The people whose last read got no answer
         are read last, the longest ago first (#152): once the pass's budget of such reads is used, nobody else is
         read, and whoever was read is acted on, but for what the breaker would hold while the people left untried,
-        not known to hang, could take its count to the minimum."""
+        not known to hang, could take its count to the minimum. Returns how many such people it left untried: the
+        reconcile is due again at the next pass, which reads the people found hanging last."""
         people = self.store.users_with_identity_prefix(self.prefix, include_disabled=True)
         ids = [user["identity"][len(self.prefix):] for user in people]
         self._hanging = {k: at for k, at in self._hanging.items() if k in set(ids)}        # the erased leave it
@@ -529,7 +530,7 @@ class KeycloakSync:
             user, keycloak_id = people[i], ids[i]
             if p.ended or keycloak_id in p.hung:     # the budget is used, or no answer about them this pass already:
                 untried += keycloak_id not in p.hung and keycloak_id not in hanging
-                continue                             # read at the next reconcile, on schedule
+                continue                             # read at the next reconcile
             done["checked"] += 1
             try:
                 state = await self.person(keycloak_id)
@@ -585,6 +586,7 @@ class KeycloakSync:
                 over = self._grace_over(user)        # their row now, cut off; what the erasure re-checks
                 if over is not None and self._erase(over, "reconcile"):
                     done["erased"] += 1
+        return untried
 
     def _signed_in_since(self, listed: dict[str, Any]) -> bool:
         """Whether the person signed in (or was erased) since ``listed`` was read: everyone is read before anyone is

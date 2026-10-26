@@ -10,10 +10,12 @@ whenever several people start hanging at once (an LDAP referral server going awa
 reconcile's order and the budget ends it with people who would answer still untried. Keycloak ids carry non-hex
 letters (``kc-p00``) so an Inkcast id (``usr_<hex>``) can't contain one by chance."""
 
+import asyncio
 import unittest
 
 import httpx2
-from test_sync_person_timeouts import T0, Scenario
+from test_sync_breaker import Scenario as BreakerScenario
+from test_sync_person_timeouts import T0, Keycloak, Scenario
 
 
 class TheBreakerCountsEveryoneOrNobody(Scenario):
@@ -43,6 +45,64 @@ class TheBreakerCountsEveryoneOrNobody(Scenario):
         for user in gone:
             self.assert_untouched(user)
         self.assertEqual(self.pass_errors, [])
+
+
+class AReconcileTheBudgetEndedIsNotAReconcileOfEveryone(Scenario):
+    """The PR advances ``last_reconcile`` after a reconcile the budget ended early, so the people it left untried
+    wait a whole interval, and each reconcile learns only the three people whose reads used its budget. With six
+    people who hang spread through the order (none next to another: #121 read them all, each costing its timeout),
+    a person disabled in Keycloak with no admin event (an LDAP-imported user disabled in the directory: the
+    reconcile is the only path) who sorts after them is cut off at the third reconcile, two intervals later; with
+    3n hangers, n intervals."""
+
+    def test_a_person_after_people_not_yet_known_to_hang_is_cut_off_within_one_reconcile_interval(self):
+        people = self.people(*(f"kc-p{i:02d}" for i in range(12)))
+        hanging, disabled = people[0:11:2], people[11]              # positions 0, 2, ..., 10 hang; 11 is disabled
+        for user in hanging:
+            self.kc.no_answer[user["kc"]] = httpx2.ReadTimeout
+        self.kc.disabled.add(disabled["kc"])
+        worker = self.sync(30, reconcile_seconds=600)
+        self.reconcile(worker, T0)                                  # at start (or after a restart): none known
+        for at in range(30, 601, 30):                               # one reconcile interval of passes
+            if self.row(disabled)["disabled_at"] is not None:
+                break
+            self.tick(worker, T0 + at)
+        self.assertEqual(self.pass_errors, [])
+        self.assert_cut_off(disabled)
+        for user in hanging:
+            self.assert_untouched(user)
+
+
+class AConfirmationAfterAReconcileTheBudgetEnded(BreakerScenario):
+    """While the breaker holds a pass, a reconcile that reads a held person as present releases them from it, so an
+    operator's confirmation does not cut them off (review of #131). People the budget left untried are not read, and
+    with ``last_reconcile`` advanced they stay unread for the interval: a confirmation then cuts off, and revokes the
+    personal access tokens of, people Keycloak has again."""
+
+    def setUp(self):
+        super().setUp()
+        self.kc = Keycloak()                                        # the breaker's harness, with reads that hang
+        self.http = httpx2.AsyncClient(transport=httpx2.MockTransport(self.kc))
+        self.addCleanup(lambda: asyncio.run(self.http.aclose()))
+
+    def test_does_not_cut_off_people_keycloak_has_again_whom_the_budget_left_unread(self):
+        people = self.people(20)
+        held = people[5:10]
+        self.kc.gone.update(user["kc"] for user in held)
+        worker = self.sync(30)
+        self.reconcile(worker)                                      # five of twenty gone: the breaker trips
+        pass_id = self.trips()[0]["id"]
+        for user in held:                                           # Keycloak is fixed: it has all five again
+            self.kc.gone.discard(user["kc"])
+        for user in people[0:5:2]:                                  # meanwhile three people start hanging
+            self.kc.no_answer[user["kc"]] = httpx2.ReadTimeout
+        self.reconcile(worker, T0 + 600)
+        for at in range(630, 901, 30):
+            self.tick(worker, T0 + at)
+        status, _ = self.operator("confirm-deletions", "--pass", pass_id, "--by", "on-call")
+        self.assertEqual(status, 0)
+        for user in held:
+            self.assert_untouched(user)
 
 
 if __name__ == "__main__":
