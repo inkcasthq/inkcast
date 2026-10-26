@@ -80,11 +80,17 @@ class PostsRepo(Database):
         row = self._one("SELECT * FROM posts WHERE id = ?", post_id)
         return dict(row) if row else None
 
+    # A post whose person has no users row is never the scheduler's: left by a write in the instant of their erasure
+    # (issue #196; refused at the write now, and swept from a database from before that), it is neither sent nor
+    # recovered, whatever its status.
+    _OWNED = " AND EXISTS (SELECT 1 FROM users WHERE users.id = posts.user_id)"
+
     def claim_due_posts(self, now: float, limit: int = 20) -> list[dict[str, Any]]:
-        """Atomically move due scheduled posts to 'publishing' and return them."""
+        """Atomically move due scheduled posts to 'publishing' and return them; never one whose person has no row."""
         with self._tx() as c:
             rows = c.execute(
-                "SELECT * FROM posts WHERE status = 'scheduled' AND run_at <= ? ORDER BY run_at LIMIT ?", (now, limit)
+                "SELECT * FROM posts WHERE status = 'scheduled' AND run_at <= ?" + self._OWNED + " ORDER BY run_at LIMIT ?",
+                (now, limit)
             ).fetchall()
             for r in rows:
                 c.execute(
@@ -106,8 +112,8 @@ class PostsRepo(Database):
         are never simply put back in the queue (that is how schedulers post twice). A post left 'recovering' (that
         worker stopped too) is taken again: recovering only asks the platform, it never sends."""
         with self._tx() as c:
-            rows = c.execute("SELECT * FROM posts WHERE status IN ('publishing', 'recovering') AND updated_at < ?",
-                             (older_than,)).fetchall()
+            rows = c.execute("SELECT * FROM posts WHERE status IN ('publishing', 'recovering') AND updated_at < ?"
+                             + self._OWNED, (older_than,)).fetchall()
             for r in rows:
                 c.execute("UPDATE posts SET status = 'recovering', updated_at = ? WHERE id = ?", (time.time(), r["id"]))
         return [dict(r) for r in rows]
@@ -116,18 +122,21 @@ class PostsRepo(Database):
         rows = self._all("SELECT status, COUNT(*) AS n FROM posts GROUP BY status")
         return {r["status"]: r["n"] for r in rows}
 
+    # The queue gauges count what ``claim_due_posts`` would take (``_OWNED``): a post no claim takes is not behind.
     def due_count(self, now: float) -> int:
-        row = self._one("SELECT COUNT(*) AS n FROM posts WHERE status = 'scheduled' AND run_at <= ?", now)
+        row = self._one("SELECT COUNT(*) AS n FROM posts WHERE status = 'scheduled' AND run_at <= ?" + self._OWNED, now)
         return int(row["n"]) if row else 0
 
     def oldest_due_age(self, now: float) -> float:
         """Seconds the oldest due, still-scheduled post has waited; 0.0 when nothing is due."""
-        row = self._one("SELECT MIN(run_at) AS oldest FROM posts WHERE status = 'scheduled' AND run_at <= ?", now)
+        row = self._one("SELECT MIN(run_at) AS oldest FROM posts WHERE status = 'scheduled' AND run_at <= ?" + self._OWNED,
+                        now)
         return max(0.0, now - float(row["oldest"])) if row and row["oldest"] is not None else 0.0
 
     def overdue_count(self, now: float, grace: float) -> int:
         """Scheduled posts more than ``grace`` seconds past due: the scheduler is behind or stopped."""
-        row = self._one("SELECT COUNT(*) AS n FROM posts WHERE status = 'scheduled' AND run_at <= ?", now - grace)
+        row = self._one("SELECT COUNT(*) AS n FROM posts WHERE status = 'scheduled' AND run_at <= ?" + self._OWNED,
+                        now - grace)
         return int(row["n"]) if row else 0
 
     def post_status_counts(self, user_id: str, since: float) -> dict[str, dict[str, int]]:
