@@ -35,7 +35,9 @@ a malformed id; ``PersonError``) is counted as ``inkcast_identity_sync_errors_to
 Inkcast user id only, and the pass goes on with the others (#103): that person is read again at the next pass or
 reconcile. So is a read about one person that reached Keycloak and got no answer (a timeout, the connection closed
 without an answer: one user whose read hangs on an LDAP referral must not block everyone after them, #121), and the
-pass does not read them again. A pass has a budget of ``TIMEOUT_BUDGET`` such reads (#152): at the third it ends,
+pass does not read them again; a connection that failed under the read at once (closed while idle, reset by a pod
+restart) is read again on another connection first, since that is the connection's fault, not the person's (#182).
+A pass has a budget of ``TIMEOUT_BUDGET`` such reads (#152): at the third it ends,
 as a success for what it did (the DELETE_ACCOUNT cursor stops before every event not acted on; a reconcile acts on
 whoever it read, but for what the breaker would hold while the people it left untried, not known to hang, could take
 its count to the minimum; the next is on schedule, or at the next pass when it left such people untried), so that an outage that begins mid-pass costs it three timeouts, not
