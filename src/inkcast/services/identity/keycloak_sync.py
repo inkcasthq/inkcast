@@ -37,7 +37,8 @@ reconcile. So is a read about one person that reached Keycloak and got no answer
 without an answer: one user whose read hangs on an LDAP referral must not block everyone after them, #121), and the
 pass does not read them again. A pass has a budget of ``TIMEOUT_BUDGET`` such reads (#152): at the third it ends,
 as a success for what it did (the DELETE_ACCOUNT cursor stops before every event not acted on; a reconcile acts on
-whoever it read, and the next is on schedule), so that an outage that begins mid-pass costs it three timeouts, not
+whoever it read, but for what the breaker would hold while the people it left untried, not known to hang, could take
+its count to the minimum; the next is on schedule), so that an outage that begins mid-pass costs it three timeouts, not
 one per person, and two people who hang never block the rest. The reconcile reads the people whose last read got no
 answer last, so they delay each other only, and in the pass that reconciles the event passes leave those people to
 it, so that three of them with an event each cannot use the budget before it: everyone else is read first. A pass
@@ -515,15 +516,19 @@ class KeycloakSync:
         period at a later deletion. Everyone is read before anyone is acted on, so the breaker can count (#105) and
         so an error that fails the pass as a whole leaves nobody half done. The people whose last read got no answer
         are read last, the longest ago first (#152): once the pass's budget of such reads is used, nobody else is
-        read, and whoever was read is acted on."""
+        read, and whoever was read is acted on, but for what the breaker would hold while the people left untried,
+        not known to hang, could take its count to the minimum."""
         people = self.store.users_with_identity_prefix(self.prefix, include_disabled=True)
         ids = [user["identity"][len(self.prefix):] for user in people]
         self._hanging = {k: at for k, at in self._hanging.items() if k in set(ids)}        # the erased leave it
+        hanging = set(self._hanging)                 # known to hang before this reconcile's reads
         order = sorted(range(len(people)), key=lambda i: (ids[i] in self._hanging, self._hanging.get(ids[i], 0.0)))
         read: list[tuple[dict[str, Any], str, str]] = []           # (row as listed, Keycloak id, state)
+        untried = 0                                  # left by the budget, not known to hang: the breaker can't count them
         for i in order:
             user, keycloak_id = people[i], ids[i]
             if p.ended or keycloak_id in p.hung:     # the budget is used, or no answer about them this pass already:
+                untried += keycloak_id not in p.hung and keycloak_id not in hanging
                 continue                             # read at the next reconcile, on schedule
             done["checked"] += 1
             try:
@@ -549,7 +554,8 @@ class KeycloakSync:
                     own_deletion = False
             gone.append((user, keycloak_id, own_deletion))
         disabled = [(user, keycloak_id) for user, keycloak_id, state in read if state == "disabled"]
-        held = self._breaker(gone, disabled, len(read))
+        held = self._breaker(gone, disabled, len(read), untried)
+        deferred = held is None                      # the breaker could not count: what it would hold waits (#152)
         if held:                                     # Keycloak has them again: a confirmation no longer applies to them
             self.store.release_breaker_people([str(user["id"]) for user, _, state in read if state == "active"])
             self.store.release_breaker_people([str(user["id"]) for user, _ in disabled], BREAKER_GONE)   # present, still disabled
@@ -563,13 +569,15 @@ class KeycloakSync:
                     release_person(self.store, str(user["id"]), "reconcile")
             elif held:                               # disabled, and the breaker holds a pass: held, not cut off (#135)
                 self._hold(user, "reconcile")
+            elif deferred:                           # judged by a reconcile that reads everyone it can
+                continue
             elif self._cut_off(user, state, "reconcile"):    # as listed, before the reads (#102)
                 done["disabled"] += 1
         for user, keycloak_id, own_deletion in gone:
             if own_deletion:                         # an event the pass missed: erased, as the pass would have
                 if self._erase(user, "reconcile"):   # as listed: nothing in this pass has touched them since
                     done["erased"] += 1
-            elif held or self._signed_in_since(user):
+            elif held or deferred or self._signed_in_since(user):
                 continue                             # held for an operator, or Keycloak let them in after the 404
             else:                                    # an administrator's deletion, or the event is past retention
                 if self._cut_off(user, "deleted", "reconcile"):    # as listed: a sign-in since the check declines it
@@ -597,13 +605,15 @@ class KeycloakSync:
         return bool(self.config.keycloak_breaker and self.store.pending_breaker_trip())
 
     def _breaker(self, gone: list[tuple[dict[str, Any], str, bool]], disabled: list[tuple[dict[str, Any], str]],
-                 read: int) -> bool:
+                 read: int, untried: int = 0) -> bool | None:
         """The circuit breaker (#105, #135): whether this reconcile holds every 404 without a DELETE_ACCOUNT event
         and every ``enabled: false``. It counts the people newly found gone (no event, no ``deleted_at`` yet) and
         newly found disabled (no ``disabled_at`` yet) together against the people read (one already cut off was
         counted when it was found, and confirming a pass marks its people); at the minimum and above the share it
         records the pass, each person with their kind, and trips. An open breaker stays open, and records no second
-        pass, until an operator resolves the first (``inkcast identity``)."""
+        pass, until an operator resolves the first (``inkcast identity``). None when the pass's budget left
+        ``untried`` people not known to hang who could take the count to the minimum (#152): it cannot count, so
+        nothing it would hold is done until a reconcile reads them."""
         if not self.config.keycloak_breaker:
             return False
         pending = self.store.pending_breaker_trip()
@@ -621,6 +631,8 @@ class KeycloakSync:
         newly_disabled = [user for user, _ in disabled if user.get("disabled_at") is None
                           and (row := self.store.get_user(str(user["id"]))) is not None and row.get("disabled_at") is None]
         newly, cfg = len(newly_gone) + len(newly_disabled), self.config
+        if untried and newly + untried >= cfg.keycloak_breaker_min:
+            return None
         if not (newly >= cfg.keycloak_breaker_min and newly * 100 > cfg.keycloak_breaker_percent * read):
             return False
         pass_id = self.store.record_breaker_trip(self.clock(), len(newly_gone), read,
