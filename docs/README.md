@@ -31,6 +31,7 @@
 - [Screenshots](screenshots.md): Inkcast in use, from consent to connecting a platform, publishing, tokens, the API reference and deleting an account.
 - [End-to-end walkthrough](walkthrough.md): the whole journey driven for real by an MCP client and a browser, pictured and checked by CI; published to the `ci-captures` branch.
 - [Writing a platform plug-in](writing-a-platform-plugin.md)
+- [tokensave dashboard (developer tooling)](tooling/tokensave-dashboard/design.md): workspaces, agent and model discovery, and a local dashboard of the tokens our AI agents spend and save; with mockups.
 - API reference: served by every deployment at `/api` (Swagger UI) and `/api/redoc`. Screenshots: [Swagger UI](images/api-swagger-ui.png), [ReDoc](images/api-redoc.png).
 
 ## Roadmap

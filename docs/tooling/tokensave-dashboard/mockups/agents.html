@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>tokensave dashboard: Agents</title>
+<style>
+body{margin:0;background:#F6F7F9}
+a{color:#1D4ED8}a:hover{color:#1E3A8A}
+</style>
+</head>
+<body>
+<div style="font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #1A1D21; background: #F6F7F9; min-height: 100%">
+  <header style="background: #FFFFFF; border-bottom: 1px solid #E3E5E8">
+    <div style="max-width: 1440px; margin: 0 auto; padding: 16px 32px 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 14px">
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; justify-content: space-between">
+        <div style="display: flex; align-items: center; gap: 12px">
+          <div style="width: 32px; height: 32px; border-radius: 8px; background: #1D4ED8; display: flex; align-items: center; justify-content: center">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"></path></svg>
+          </div>
+          <div style="display: flex; flex-direction: column">
+            <span style="font-size: 18px; font-weight: 600">tokensave</span>
+            <span style="font-size: 12px; color: #555E6B">Dashboard · 127.0.0.1:7311</span>
+          </div>
+          <span style="font-size: 12px; font-weight: 500; color: #8A4B00; background: #FFF4E5; border: 1px solid #F5C98B; border-radius: 999px; padding: 3px 10px">Sample data · layout mockup</span>
+        </div>
+        <label style="font-size: 12px; color: #555E6B; display: flex; align-items: center; gap: 6px">Workspace
+          <select style="font: inherit; font-size: 13px; color: #1A1D21; padding: 6px 8px; border: 1px solid #CDD1D6; border-radius: 6px; background: #FFFFFF"><option>~/gitRepos</option></select>
+        </label>
+      </div>
+      <nav aria-label="Dashboard sections" style="display: flex; flex-wrap: wrap; gap: 4px">
+        <a href="overview.html" style="font-size: 14px; color: #555E6B; text-decoration: none; padding: 10px 14px; border-bottom: 2px solid transparent">Overview</a>
+        <a href="agents.html" aria-current="page" style="font-size: 14px; font-weight: 600; color: #1A1D21; text-decoration: none; padding: 10px 14px; border-bottom: 2px solid #1D4ED8">Agents</a>
+        <a href="models-and-effort.html" style="font-size: 14px; color: #555E6B; text-decoration: none; padding: 10px 14px; border-bottom: 2px solid transparent">Models and effort</a>
+        <a href="repos.html" style="font-size: 14px; color: #555E6B; text-decoration: none; padding: 10px 14px; border-bottom: 2px solid transparent">Repos</a>
+        <a href="savings.html" style="font-size: 14px; color: #555E6B; text-decoration: none; padding: 10px 14px; border-bottom: 2px solid transparent">Savings</a>
+        <a href="sources.html" style="font-size: 14px; color: #555E6B; text-decoration: none; padding: 10px 14px; border-bottom: 2px solid transparent">Sources</a>
+      </nav>
+    </div>
+  </header>
+
+  <main style="max-width: 1440px; margin: 0 auto; padding: 24px 32px 40px; box-sizing: border-box; display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+    <section aria-label="Sessions and subagents" style="flex: 999 1 640px; min-width: 0; background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px">
+        <div style="display: flex; flex-direction: column; gap: 2px">
+          <h2 style="margin: 0; font-size: 16px; font-weight: 600">Sessions and the agents they started</h2>
+          <span style="font-size: 12px; color: #555E6B">Roles come from each subagent's own record (type and description); nothing is read from prompts.</span>
+        </div>
+        <label style="font-size: 12px; color: #555E6B; display: flex; align-items: center; gap: 6px">Sort <select style="font: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid #CDD1D6; border-radius: 6px; background: #FFFFFF; color: #1A1D21"><option>Cost</option><option>Tokens</option><option>Started</option></select></label>
+      </div>
+      <div style="overflow-x: auto">
+        <table style="width: 100%; min-width: 860px; border-collapse: collapse; font-size: 13px">
+          <thead>
+            <tr style="text-align: left; color: #555E6B">
+              <th style="padding: 8px; border-bottom: 1px solid #E3E5E8; font-weight: 500">Run</th>
+              <th style="padding: 8px; border-bottom: 1px solid #E3E5E8; font-weight: 500">Tool</th>
+              <th style="padding: 8px; border-bottom: 1px solid #E3E5E8; font-weight: 500">Model · effort</th>
+              <th style="padding: 8px; border-bottom: 1px solid #E3E5E8; font-weight: 500; text-align: right">In / out</th>
+              <th style="padding: 8px; border-bottom: 1px solid #E3E5E8; font-weight: 500; text-align: right">Thinking</th>
+              <th style="padding: 8px; border-bottom: 1px solid #E3E5E8; font-weight: 500; text-align: right">Cost</th>
+              <th style="padding: 8px; border-bottom: 1px solid #E3E5E8; font-weight: 500; text-align: right">Time</th>
+              <th style="padding: 8px; border-bottom: 1px solid #E3E5E8; font-weight: 500">State</th>
+            </tr>
+          </thead>
+          <tbody>
+            
+              <tr style="background: #FAFBFC">
+                <td style="padding: 8px 8px 8px 8px; border-bottom: 1px solid #EEF0F3">
+                  <div style="display: flex; flex-direction: column; gap: 2px">
+                    <span style="font-weight: 600">inkcast · main session</span>
+                    <span style="font-size: 12px; color: #555E6B">main</span>
+                  </div>
+                </td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3">Claude Code</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace">opus-5-5 · high</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">412k / 38k</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">21k</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">$7.90</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">5h 12m</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3"><span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #EEF2FF; color: #1E3A8A">running</span></td>
+              </tr>
+            
+              <tr style="background: #FFFFFF">
+                <td style="padding: 8px 8px 8px 32px; border-bottom: 1px solid #EEF0F3">
+                  <div style="display: flex; flex-direction: column; gap: 2px">
+                    <span style="font-weight: 400">Build #226</span>
+                    <span style="font-size: 12px; color: #555E6B">builder · general-purpose</span>
+                  </div>
+                </td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3">Claude Code</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace">fable-5-1 · xhigh</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">1.81M / 230k</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">140k</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">$16.10</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">41m</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3"><span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #E7F6EC; color: #14532D">finished</span></td>
+              </tr>
+            
+              <tr style="background: #FFFFFF">
+                <td style="padding: 8px 8px 8px 32px; border-bottom: 1px solid #EEF0F3">
+                  <div style="display: flex; flex-direction: column; gap: 2px">
+                    <span style="font-weight: 400">Review PR #178</span>
+                    <span style="font-size: 12px; color: #555E6B">reviewer · general-purpose</span>
+                  </div>
+                </td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3">Claude Code</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace">opus-5-5 · xhigh</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">2.02M / 290k</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">188k</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">$18.70</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">32m</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3"><span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #E7F6EC; color: #14532D">finished</span></td>
+              </tr>
+            
+              <tr style="background: #FFFFFF">
+                <td style="padding: 8px 8px 8px 32px; border-bottom: 1px solid #EEF0F3">
+                  <div style="display: flex; flex-direction: column; gap: 2px">
+                    <span style="font-weight: 400">Review PR #221 (first try)</span>
+                    <span style="font-size: 12px; color: #555E6B">reviewer · general-purpose</span>
+                  </div>
+                </td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3">Claude Code</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace">opus-5-5 · xhigh</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">640k / 80k</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">51k</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">$5.30</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">18m</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3"><span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #FDECEC; color: #7F1D1D">stopped</span></td>
+              </tr>
+            
+              <tr style="background: #FFFFFF">
+                <td style="padding: 8px 8px 8px 32px; border-bottom: 1px solid #EEF0F3">
+                  <div style="display: flex; flex-direction: column; gap: 2px">
+                    <span style="font-weight: 400">Find sync callers</span>
+                    <span style="font-size: 12px; color: #555E6B">Explore</span>
+                  </div>
+                </td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3">Claude Code</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace">sonnet-5-5 · medium</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">96k / 4k</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">2k</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">$0.40</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">2m</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3"><span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #E7F6EC; color: #14532D">finished</span></td>
+              </tr>
+            
+              <tr style="background: #FAFBFC">
+                <td style="padding: 8px 8px 8px 8px; border-bottom: 1px solid #EEF0F3">
+                  <div style="display: flex; flex-direction: column; gap: 2px">
+                    <span style="font-weight: 600">service-a · session</span>
+                    <span style="font-size: 12px; color: #555E6B">main</span>
+                  </div>
+                </td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3">Codex</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace">[Codex model] · high</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">380k / 22k</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">9k</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">$2.10</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">1h 04m</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3"><span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #E7F6EC; color: #14532D">finished</span></td>
+              </tr>
+            
+              <tr style="background: #FAFBFC">
+                <td style="padding: 8px 8px 8px 8px; border-bottom: 1px solid #EEF0F3">
+                  <div style="display: flex; flex-direction: column; gap: 2px">
+                    <span style="font-weight: 600">infra-lab</span>
+                    <span style="font-size: 12px; color: #555E6B">main</span>
+                  </div>
+                </td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3">Cursor</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace">[Cursor model]</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">120k / —</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">—</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">—</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">—</td>
+                <td style="padding: 8px; border-bottom: 1px solid #EEF0F3"><span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #E7F6EC; color: #14532D">partial</span></td>
+              </tr>
+            
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <aside aria-label="Cost by role" style="flex: 1 1 320px; background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 14px">
+      <h2 style="margin: 0; font-size: 16px; font-weight: 600">Cost by role</h2>
+      
+        <div style="display: flex; flex-direction: column; gap: 4px">
+          <div style="display: flex; justify-content: space-between; font-size: 13px"><span>reviewer</span><span style="font-family: 'IBM Plex Mono', monospace; color: #555E6B">$128.40 · 41%</span></div>
+          <div style="height: 8px; background: #EEF0F3; border-radius: 4px"><div style="height: 8px; border-radius: 4px; background: #1D4ED8; width: 41%"></div></div>
+        </div>
+      
+        <div style="display: flex; flex-direction: column; gap: 4px">
+          <div style="display: flex; justify-content: space-between; font-size: 13px"><span>builder</span><span style="font-family: 'IBM Plex Mono', monospace; color: #555E6B">$109.60 · 35%</span></div>
+          <div style="height: 8px; background: #EEF0F3; border-radius: 4px"><div style="height: 8px; border-radius: 4px; background: #1D4ED8; width: 35%"></div></div>
+        </div>
+      
+        <div style="display: flex; flex-direction: column; gap: 4px">
+          <div style="display: flex; justify-content: space-between; font-size: 13px"><span>main</span><span style="font-family: 'IBM Plex Mono', monospace; color: #555E6B">$62.50 · 20%</span></div>
+          <div style="height: 8px; background: #EEF0F3; border-radius: 4px"><div style="height: 8px; border-radius: 4px; background: #1D4ED8; width: 20%"></div></div>
+        </div>
+      
+        <div style="display: flex; flex-direction: column; gap: 4px">
+          <div style="display: flex; justify-content: space-between; font-size: 13px"><span>Explore</span><span style="font-family: 'IBM Plex Mono', monospace; color: #555E6B">$9.30 · 3%</span></div>
+          <div style="height: 8px; background: #EEF0F3; border-radius: 4px"><div style="height: 8px; border-radius: 4px; background: #1D4ED8; width: 3%"></div></div>
+        </div>
+      
+        <div style="display: flex; flex-direction: column; gap: 4px">
+          <div style="display: flex; justify-content: space-between; font-size: 13px"><span>other</span><span style="font-family: 'IBM Plex Mono', monospace; color: #555E6B">$2.60 · 1%</span></div>
+          <div style="height: 8px; background: #EEF0F3; border-radius: 4px"><div style="height: 8px; border-radius: 4px; background: #1D4ED8; width: 1%"></div></div>
+        </div>
+      
+      <div style="border-top: 1px solid #EEF0F3; padding-top: 12px; display: flex; flex-direction: column; gap: 6px; font-size: 13px">
+        <div style="display: flex; justify-content: space-between"><span style="color: #555E6B">Subagent share of spend</span><span style="font-family: 'IBM Plex Mono', monospace">78%</span></div>
+        <div style="display: flex; justify-content: space-between"><span style="color: #555E6B">Runs that didn't finish</span><span style="font-family: 'IBM Plex Mono', monospace">4</span></div>
+        <div style="display: flex; justify-content: space-between"><span style="color: #555E6B">Deepest nesting</span><span style="font-family: 'IBM Plex Mono', monospace">2</span></div>
+      </div>
+    </aside>
+  </main>
+</div>
+</body>
+</html>

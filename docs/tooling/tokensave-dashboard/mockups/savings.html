@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>tokensave dashboard: Savings</title>
+<style>
+body{margin:0;background:#F6F7F9}
+a{color:#1D4ED8}a:hover{color:#1E3A8A}
+</style>
+</head>
+<body>
+<div style="font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #1A1D21; background: #F6F7F9; min-height: 100%">
+  <header style="background: #FFFFFF; border-bottom: 1px solid #E3E5E8">
+    <div style="max-width: 1440px; margin: 0 auto; padding: 16px 32px 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 14px">
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">
+        <div style="width: 32px; height: 32px; border-radius: 8px; background: #1D4ED8; display: flex; align-items: center; justify-content: center">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"></path></svg>
+        </div>
+        <div style="display: flex; flex-direction: column">
+          <span style="font-size: 18px; font-weight: 600">tokensave</span>
+          <span style="font-size: 12px; color: #555E6B">Dashboard · 127.0.0.1:7311</span>
+        </div>
+        <span style="font-size: 12px; font-weight: 500; color: #8A4B00; background: #FFF4E5; border: 1px solid #F5C98B; border-radius: 999px; padding: 3px 10px">Sample data · layout mockup</span>
+      </div>
+      <nav aria-label="Dashboard sections" style="display: flex; flex-wrap: wrap; gap: 4px">
+        <a href="overview.html" style="font-size: 14px; color: #555E6B; text-decoration: none; padding: 10px 14px; border-bottom: 2px solid transparent">Overview</a>
+        <a href="agents.html" style="font-size: 14px; color: #555E6B; text-decoration: none; padding: 10px 14px; border-bottom: 2px solid transparent">Agents</a>
+        <a href="models-and-effort.html" style="font-size: 14px; color: #555E6B; text-decoration: none; padding: 10px 14px; border-bottom: 2px solid transparent">Models and effort</a>
+        <a href="repos.html" style="font-size: 14px; color: #555E6B; text-decoration: none; padding: 10px 14px; border-bottom: 2px solid transparent">Repos</a>
+        <a href="savings.html" aria-current="page" style="font-size: 14px; font-weight: 600; color: #1A1D21; text-decoration: none; padding: 10px 14px; border-bottom: 2px solid #1D4ED8">Savings</a>
+        <a href="sources.html" style="font-size: 14px; color: #555E6B; text-decoration: none; padding: 10px 14px; border-bottom: 2px solid transparent">Sources</a>
+      </nav>
+    </div>
+  </header>
+
+  <main style="max-width: 1440px; margin: 0 auto; padding: 24px 32px 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 20px">
+    <section aria-label="Totals" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px">
+      <div style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 6px">
+        <span style="font-size: 13px; color: #555E6B">Tokens saved</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 28px; font-weight: 500">6.9M</span><span style="font-size: 12px; color: #555E6B">before 7.8M → after 0.9M</span>
+      </div>
+      <div style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 6px">
+        <span style="font-size: 13px; color: #555E6B">Graph calls</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 28px; font-weight: 500">2,418</span><span style="font-size: 12px; color: #555E6B">from the savings ledger</span>
+      </div>
+      <div style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 6px">
+        <span style="font-size: 13px; color: #555E6B">Missed savings</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 28px; font-weight: 500; color: #9A3412">3.4M</span><span style="font-size: 12px; color: #555E6B">turns a graph call could have replaced</span>
+      </div>
+    </section>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px">
+      <section aria-label="By tokensave tool" style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px">
+        <h2 style="margin: 0; font-size: 16px; font-weight: 600">Saved, by tokensave tool</h2>
+        
+          <div style="display: flex; flex-direction: column; gap: 4px">
+            <div style="display: flex; justify-content: space-between; font-size: 13px"><span style="font-family: 'IBM Plex Mono', monospace">tokensave_context</span><span style="font-family: 'IBM Plex Mono', monospace; color: #555E6B">2.9M · 42%</span></div>
+            <div style="height: 8px; background: #EEF0F3; border-radius: 4px"><div style="height: 8px; border-radius: 4px; background: #D97706; width: 42%"></div></div>
+          </div>
+        
+          <div style="display: flex; flex-direction: column; gap: 4px">
+            <div style="display: flex; justify-content: space-between; font-size: 13px"><span style="font-family: 'IBM Plex Mono', monospace">tokensave_search</span><span style="font-family: 'IBM Plex Mono', monospace; color: #555E6B">1.6M · 23%</span></div>
+            <div style="height: 8px; background: #EEF0F3; border-radius: 4px"><div style="height: 8px; border-radius: 4px; background: #D97706; width: 23%"></div></div>
+          </div>
+        
+          <div style="display: flex; flex-direction: column; gap: 4px">
+            <div style="display: flex; justify-content: space-between; font-size: 13px"><span style="font-family: 'IBM Plex Mono', monospace">tokensave_impact</span><span style="font-family: 'IBM Plex Mono', monospace; color: #555E6B">0.9M · 13%</span></div>
+            <div style="height: 8px; background: #EEF0F3; border-radius: 4px"><div style="height: 8px; border-radius: 4px; background: #D97706; width: 13%"></div></div>
+          </div>
+        
+          <div style="display: flex; flex-direction: column; gap: 4px">
+            <div style="display: flex; justify-content: space-between; font-size: 13px"><span style="font-family: 'IBM Plex Mono', monospace">tokensave_files</span><span style="font-family: 'IBM Plex Mono', monospace; color: #555E6B">0.7M · 10%</span></div>
+            <div style="height: 8px; background: #EEF0F3; border-radius: 4px"><div style="height: 8px; border-radius: 4px; background: #D97706; width: 10%"></div></div>
+          </div>
+        
+          <div style="display: flex; flex-direction: column; gap: 4px">
+            <div style="display: flex; justify-content: space-between; font-size: 13px"><span style="font-family: 'IBM Plex Mono', monospace">tokensave_diff</span><span style="font-family: 'IBM Plex Mono', monospace; color: #555E6B">0.5M · 7%</span></div>
+            <div style="height: 8px; background: #EEF0F3; border-radius: 4px"><div style="height: 8px; border-radius: 4px; background: #D97706; width: 7%"></div></div>
+          </div>
+        
+          <div style="display: flex; flex-direction: column; gap: 4px">
+            <div style="display: flex; justify-content: space-between; font-size: 13px"><span style="font-family: 'IBM Plex Mono', monospace">other</span><span style="font-family: 'IBM Plex Mono', monospace; color: #555E6B">0.3M · 5%</span></div>
+            <div style="height: 8px; background: #EEF0F3; border-radius: 4px"><div style="height: 8px; border-radius: 4px; background: #D97706; width: 5%"></div></div>
+          </div>
+        
+      </section>
+
+      <section aria-label="Missed savings" style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px">
+        <div style="display: flex; flex-direction: column; gap: 2px">
+          <h2 style="margin: 0; font-size: 16px; font-weight: 600">Missed savings, by kind</h2>
+          <span style="font-size: 12px; color: #555E6B">From tokensave discover: agent turns that used a plain tool where a graph call fits.</span>
+        </div>
+        
+          <div style="display: flex; flex-direction: column; gap: 6px; padding: 12px; background: #FAFBFC; border: 1px solid #EEF0F3; border-radius: 8px">
+            <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 13px"><span style="font-weight: 500">Whole-file reads</span><span style="font-family: 'IBM Plex Mono', monospace; color: #555E6B">2.1M · 1,204 turns</span></div>
+            <span style="font-size: 12px; color: #555E6B">Use instead: <span style="font-family: 'IBM Plex Mono', monospace; color: #1A1D21">outline / read / node</span></span>
+          </div>
+        
+          <div style="display: flex; flex-direction: column; gap: 6px; padding: 12px; background: #FAFBFC; border: 1px solid #EEF0F3; border-radius: 8px">
+            <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 13px"><span style="font-weight: 500">Symbol searches with grep</span><span style="font-family: 'IBM Plex Mono', monospace; color: #555E6B">0.9M · 611 turns</span></div>
+            <span style="font-size: 12px; color: #555E6B">Use instead: <span style="font-family: 'IBM Plex Mono', monospace; color: #1A1D21">search / callers / impact</span></span>
+          </div>
+        
+          <div style="display: flex; flex-direction: column; gap: 6px; padding: 12px; background: #FAFBFC; border: 1px solid #EEF0F3; border-radius: 8px">
+            <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 13px"><span style="font-weight: 500">File discovery with glob</span><span style="font-family: 'IBM Plex Mono', monospace; color: #555E6B">0.4M · 188 turns</span></div>
+            <span style="font-size: 12px; color: #555E6B">Use instead: <span style="font-family: 'IBM Plex Mono', monospace; color: #1A1D21">files / search</span></span>
+          </div>
+        
+        <span style="font-size: 12px; color: #555E6B">Most missed savings come from subagents whose prompts ask them to read whole modules. That is intended for adversarial reviews.</span>
+      </section>
+    </div>
+  </main>
+</div>
+</body>
+</html>
