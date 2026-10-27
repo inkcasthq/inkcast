@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from ..events import DomainEvent
 from .database import Database
@@ -42,9 +42,12 @@ COLUMNS = (("posts", "recovering_since", "REAL"),)
 
 class PostsRepo(Database):
     def create_post(self, *, group_id: str, user_id: str, platform: str, title: str, status: str,
-                    run_at: float, payload: dict[str, Any], created_at: float | None = None) -> str:
+                    run_at: float, payload: dict[str, Any], created_at: float | None = None,
+                    on_created: Callable[[str], None] | None = None) -> str:
         """``created_at`` is now unless the post replaces one whose schedule it keeps (Git sync): then that one's, so
-        how late it is counts from when its time was first asked for (``overdue_count``, the lag; ADR-0015)."""
+        how late it is counts from when its time was first asked for (``overdue_count``, the lag; ADR-0015).
+        ``on_created(post_id)`` runs in the transaction that makes the row (Git sync's ledger write naming it): if it
+        raises, there is no row, so none is ever left that nothing names (#213)."""
         post_id = "pst_" + uuid.uuid4().hex[:12]
         now = time.time()
         # A scheduled post is a fact worth an event the moment it exists; a "publishing" one gets its event
@@ -59,6 +62,8 @@ class PostsRepo(Database):
                  now if created_at is None else created_at, now),
             )
             insert_events(c, events)
+            if on_created:
+                on_created(post_id)
         return post_id
 
     def update_post(self, post_id: str, events: Iterable[DomainEvent] | None = None, only_if: str | None = None,
