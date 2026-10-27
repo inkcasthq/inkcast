@@ -84,55 +84,36 @@ RETENTION_ORDER_RULE = ("INKCAST_KPI_HOURLY_RETENTION_DAYS ({hourly}) must not b
 ONE_TIME_LINK_MINUTES = (5, 60)
 ONE_TIME_LINK_DEFAULT_MINUTES = 15
 ONE_TIME_LINK_RULE = "INKCAST_ONE_TIME_LINK_MINUTES must be a whole number of minutes from 5 to 60 (got {got!r})."
-# The intervals, the overdue grace, the rate limit and the backup copies (F1.10.S5, issue #93; the remaining bounds,
-# #157): settings that existed before the newer ones above and took unsafe values silently. Every interval is a finite
-# number of seconds, 1 or more (0, a negative, nan or inf is a tight loop, or no wait at all, and 0.0001 is the same
-# loop); only the shutdown grace may be a fraction of a second. The Keycloak reconcile may not run more often than the
-# events pass (it is the catch-up for events that pass missed), and never so rarely that the InkcastIdentitySyncPersonFailing
-# alert (libs/alerting), which looks at a 30-minute window, could miss a person who fails only in the reconcile: the
-# reconcile interval, plus the up to one sync interval it waits for the first pass after it is due, plus a margin for
-# the reconcile's own run (the next is due that long after the last one *ends*), for Prometheus's scrape (30 s) and for
-# its rule evaluation (up to a minute), stays within the window. That is a hard bound, not a posture warning: the alert
-# is the operator's only signal that someone is neither cut off nor erased, and a warning logged once at start-up would
-# be missed for the lifetime of a deployment whose alert stays blind. The scheduler tick is 1 to 60 s: 120 s or more
-# fails the on-time KPI and SLO by design. The overdue grace is at least two ticks and at most an hour: below that, posts
-# due between two ticks count as overdue and the critical InkcastPostsOverdue alert fires in normal operation; above it,
-# that alert, the operator's only signal that the scheduler is behind or stopped, stays quiet for over an hour (86400
-# silences it for a day). The shutdown grace stays under the Deployment's terminationGracePeriodSeconds: at that point
-# Kubernetes kills the pod, grace or no grace (scripts/gen-manifests.py and deploy/kustomize/base/deployment.yaml give
-# it this number). The rate limit has a ceiling because the limiter keeps the bucket as a float: a value no float can
-# hold (310 digits) made every rate-limited request, sign-in included, a 500; 10000 a minute from one client address is
-# more than this service serves, so above it the setting is 0 spelled longer, and 0 is how to say off. The sync interval
-# at 60 s or more, the rate limit off or above 600 with password sign-in, and backups kept beyond 35 days are posture
-# checks (libs/secrets/checks).
-KEYCLOAK_RECONCILE_CEILING = 1800      # seconds: the InkcastIdentitySyncPersonFailing alert's window
-KEYCLOAK_RECONCILE_MARGIN = 120        # seconds of the window kept free: the reconcile's run, a scrape, an evaluation
+# The intervals, the overdue grace, the rate limit and the backup copies (F1.10.S5, issue #93): settings that existed
+# before the newer ones above and took unsafe values silently. Every interval is a positive, finite number of seconds
+# (0, a negative, nan or inf is a tight loop, or no wait at all). The Keycloak reconcile may not run more often than the
+# events pass (it is the catch-up for events that pass missed), and never 30 minutes or more apart, counting the up to
+# one sync interval it waits for the first pass after it is due (so the two add up to under 30 minutes): the
+# InkcastIdentitySyncPersonFailing alert (libs/alerting) looks at a 30-minute window, so a person who fails only in the
+# reconcile could never raise it. That is a hard bound, not a posture warning: the alert is the operator's only signal
+# that someone is neither cut off nor erased, and a warning logged once at start-up would be missed for the lifetime of
+# a deployment whose alert stays blind. The scheduler tick is 1 to 60 s: 120 s or more fails the on-time KPI and SLO
+# by design. The overdue grace is at least two ticks: below that, posts due between two ticks count as overdue and the
+# critical InkcastPostsOverdue alert fires in normal operation. The sync interval at 60 s or more, the rate limit off
+# with password sign-in, and backups kept beyond 35 days are posture checks (libs/secrets/checks).
+KEYCLOAK_RECONCILE_CEILING = 1800      # seconds, excluded: the InkcastIdentitySyncPersonFailing alert's window
 SCHEDULER_INTERVAL = (1, 60)           # seconds, inclusive
-INTERVAL_FLOOR = 1                     # seconds: the sync and insights intervals (the scheduler's is SCHEDULER_INTERVAL[0])
 OVERDUE_GRACE_TICKS = 2                # the overdue grace is at least this many scheduler intervals
-OVERDUE_GRACE_CEILING = 3600           # seconds, inclusive: an hour
-SHUTDOWN_GRACE_CEILING = 40            # seconds, excluded: the Deployment's terminationGracePeriodSeconds
-RATE_LIMIT_CEILING = 10000             # per minute per client address, inclusive
-# The reconcile and the sync interval add up to the window less the margin, and the reconcile is no shorter than the
-# sync interval, so the sync interval is at most half of that.
-SYNC_INTERVAL_CEILING = (KEYCLOAK_RECONCILE_CEILING - KEYCLOAK_RECONCILE_MARGIN) // 2
-SYNC_INTERVAL_RULE = ("INKCAST_KEYCLOAK_SYNC_INTERVAL must be a number of seconds from 1 to 840: the reconcile, no shorter "
-                      "than it, must follow it within the InkcastIdentitySyncPersonFailing alert's 30-minute window, less a "
-                      "120 s margin (got {got!r}).")
+# The sync interval stays under half the ceiling: the reconcile is no shorter than it, and the two add up to under it.
+SYNC_INTERVAL_CEILING = KEYCLOAK_RECONCILE_CEILING // 2
+SYNC_INTERVAL_RULE = ("INKCAST_KEYCLOAK_SYNC_INTERVAL must be a positive number of seconds under 900: the reconcile, no "
+                      "shorter than it, must follow it within the InkcastIdentitySyncPersonFailing alert's 30-minute window "
+                      "(got {got!r}).")
 RECONCILE_INTERVAL_RULE = ("INKCAST_KEYCLOAK_RECONCILE_INTERVAL must be a number of seconds from INKCAST_KEYCLOAK_SYNC_INTERVAL "
-                           "({sync}) to {limit}: the InkcastIdentitySyncPersonFailing alert looks at a 30-minute window "
-                           "(1800), the reconcile runs at the first pass after it is due, up to one sync interval late, and "
-                           "a 120 s margin covers its own run, Prometheus's scrape and the rule's evaluation; a rarer "
-                           "reconcile could never raise the alert (got {got!r}).")
+                           "({sync}) to under {limit}, under 1800 with the sync interval: the reconcile runs at the first pass "
+                           "after it is due, up to one sync interval late, and the InkcastIdentitySyncPersonFailing alert looks "
+                           "at a 30-minute window, so a rarer reconcile could never raise it (got {got!r}).")
 SCHEDULER_INTERVAL_RULE = "INKCAST_SCHEDULER_INTERVAL must be a number of seconds from 1 to 60 (got {got!r})."
-OVERDUE_GRACE_RULE = ("INKCAST_OVERDUE_GRACE must be a number of seconds from twice INKCAST_SCHEDULER_INTERVAL ({twice}) to 3600: "
+OVERDUE_GRACE_RULE = ("INKCAST_OVERDUE_GRACE must be a number of seconds, at least twice INKCAST_SCHEDULER_INTERVAL ({twice}): "
                       "below that, posts due between two ticks count as overdue and the critical InkcastPostsOverdue alert "
-                      "fires in normal operation; above an hour, that alert, the only signal that the scheduler is behind "
-                      "or stopped, stays quiet that long (got {got!r}).")
-SECONDS_FLOOR_RULE = "{name} must be a number of seconds, 1 or more (got {got!r})."
-SHUTDOWN_GRACE_RULE = ("INKCAST_SHUTDOWN_GRACE must be a positive number of seconds under 40, the Deployment's "
-                       "terminationGracePeriodSeconds: at that point Kubernetes kills the pod, grace or no grace (got {got!r}).")
-RATE_LIMIT_RULE = "INKCAST_RATE_LIMIT_PER_MINUTE must be a whole number from 0 (off) to 10000 (got {got!r})."
+                      "fires in normal operation (got {got!r}).")
+POSITIVE_SECONDS_RULE = "{name} must be a positive number of seconds (got {got!r})."
+RATE_LIMIT_RULE = "INKCAST_RATE_LIMIT_PER_MINUTE must be a whole number, 0 (off) or more (got {got!r})."
 BACKUP_KEEP_RULE = "INKCAST_BACKUP_KEEP must be a whole number, 1 or more (the backup keeps that many daily copies) (got {got!r})."
 _SWITCH = {"true": True, "yes": True, "on": True, "1": True, "false": False, "no": False, "off": False, "0": False}
 
@@ -296,26 +277,24 @@ INTERVAL_SETTINGS = ("INKCAST_KEYCLOAK_SYNC_INTERVAL", "INKCAST_KEYCLOAK_RECONCI
 
 def interval_problems(*, sync: Any, reconcile: Any, scheduler: Any, grace: Any, insights: Any, shutdown: Any,
                       got: Mapping[str, Any] | None = None) -> list[str]:
-    """The rules of the six interval settings (F1.10.S5, issue #93; #157), as problems naming the variable: each a finite
-    number of seconds, 1 or more (the shutdown grace: positive); the sync interval at most SYNC_INTERVAL_CEILING; the
-    reconcile from the sync interval to KEYCLOAK_RECONCILE_CEILING less KEYCLOAK_RECONCILE_MARGIN less the sync interval
-    (it runs at the first pass after it is due); the scheduler tick from 1 to 60; the overdue grace from
-    OVERDUE_GRACE_TICKS ticks to OVERDUE_GRACE_CEILING; the shutdown grace under SHUTDOWN_GRACE_CEILING. ``got`` is what
-    to quote, by variable name (the raw strings at load; the values themselves for a Config built by hand)."""
+    """The rules of the six interval settings (F1.10.S5, issue #93), as problems naming the variable: each a positive,
+    finite number of seconds; the sync interval under SYNC_INTERVAL_CEILING; the reconcile from the sync interval to
+    under KEYCLOAK_RECONCILE_CEILING less the sync interval (it runs at the first pass after it is due); the scheduler
+    tick from 1 to 60; the overdue grace at least OVERDUE_GRACE_TICKS ticks. ``got`` is what to quote, by variable
+    name (the raw strings at load; the values themselves for a Config built by hand)."""
     raw = dict(got or {})
 
     def quote(name: str, value: Any) -> Any:
         return raw.get(name, value)
 
     problems = []
-    sync_ok = _seconds(sync) and INTERVAL_FLOOR <= sync <= SYNC_INTERVAL_CEILING
+    sync_ok = _seconds(sync) and sync < SYNC_INTERVAL_CEILING
     if not sync_ok:
         problems.append(SYNC_INTERVAL_RULE.format(got=quote("INKCAST_KEYCLOAK_SYNC_INTERVAL", sync)))
     # Judged against a sync interval within its rule: one outside it is the problem, not the order.
     floor = sync if sync_ok else 0
-    # It runs at the first pass after it is due, up to one sync interval late; the margin is for its own run and Prometheus.
-    limit = KEYCLOAK_RECONCILE_CEILING - KEYCLOAK_RECONCILE_MARGIN - floor
-    if not (_seconds(reconcile) and floor <= reconcile <= limit):
+    limit = KEYCLOAK_RECONCILE_CEILING - floor     # it runs at the first pass after it is due: up to one sync interval late
+    if not (_seconds(reconcile) and floor <= reconcile < limit):
         problems.append(RECONCILE_INTERVAL_RULE.format(sync=_show(quote("INKCAST_KEYCLOAK_SYNC_INTERVAL", sync)),
                                                        limit=_show(limit),
                                                        got=quote("INKCAST_KEYCLOAK_RECONCILE_INTERVAL", reconcile)))
@@ -323,21 +302,18 @@ def interval_problems(*, sync: Any, reconcile: Any, scheduler: Any, grace: Any, 
     if not scheduler_ok:
         problems.append(SCHEDULER_INTERVAL_RULE.format(got=quote("INKCAST_SCHEDULER_INTERVAL", scheduler)))
     twice = OVERDUE_GRACE_TICKS * (scheduler if scheduler_ok else SCHEDULER_INTERVAL[0])
-    if not (_seconds(grace) and twice <= grace <= OVERDUE_GRACE_CEILING):
+    if not (_seconds(grace) and grace >= twice):
         problems.append(OVERDUE_GRACE_RULE.format(twice=_show(twice), got=quote("INKCAST_OVERDUE_GRACE", grace)))
-    if not (_seconds(insights) and insights >= INTERVAL_FLOOR):
-        problems.append(SECONDS_FLOOR_RULE.format(name="INKCAST_INSIGHTS_INTERVAL", got=quote("INKCAST_INSIGHTS_INTERVAL", insights)))
-    if not (_seconds(shutdown) and shutdown < SHUTDOWN_GRACE_CEILING):
-        problems.append(SHUTDOWN_GRACE_RULE.format(got=quote("INKCAST_SHUTDOWN_GRACE", shutdown)))
+    for name, value in (("INKCAST_INSIGHTS_INTERVAL", insights), ("INKCAST_SHUTDOWN_GRACE", shutdown)):
+        if not _seconds(value):
+            problems.append(POSITIVE_SECONDS_RULE.format(name=name, got=quote(name, value)))
     return problems
 
 
 def rate_limit_problems(per_minute: Any, got: Any = None) -> list[str]:
-    """The rule of INKCAST_RATE_LIMIT_PER_MINUTE (a whole number from 0 to RATE_LIMIT_CEILING), as a problem naming it.
-    0 turns the limit off, which is a posture check (rate-limit), not a refusal: a negative only looked like a setting.
-    The ceiling is there because the limiter holds the bucket as a float: a value no float can hold was a 500 on every
-    rate-limited request (#157)."""
-    if _whole(per_minute) and 0 <= per_minute <= RATE_LIMIT_CEILING:
+    """The rule of INKCAST_RATE_LIMIT_PER_MINUTE (a whole number, 0 or more), as a problem naming it. 0 turns the limit
+    off, which is a posture check (rate-limit), not a refusal: a negative only looked like a setting."""
+    if _whole(per_minute) and per_minute >= 0:
         return []
     return [RATE_LIMIT_RULE.format(got=per_minute if got is None else got)]
 
@@ -587,10 +563,10 @@ class Config:
     # Empty client id = off. The realm's client is inkcast-sync (deploy/keycloak/realm-inkcast.json).
     keycloak_sync_client_id: str = ""
     keycloak_sync_secret: SecretValue = SecretValue("")
-    # How often admin events are read (INKCAST_KEYCLOAK_SYNC_INTERVAL, 1 to 840; 60 s or more is a posture warning: the
+    # How often admin events are read (INKCAST_KEYCLOAK_SYNC_INTERVAL, under 900; 60 s or more is a posture warning: the
     # "within a minute" promise), and how often every Keycloak-backed user is re-checked for missed events
-    # (INKCAST_KEYCLOAK_RECONCILE_INTERVAL, from the sync interval to 1680 less it, since it runs at the first pass after
-    # it is due: the InkcastIdentitySyncPersonFailing alert's 30-minute window, less a 120 s margin). F1.10.S5, #93, #157.
+    # (INKCAST_KEYCLOAK_RECONCILE_INTERVAL, from the sync interval to under 1800 less it, since it runs at the first pass
+    # after it is due: the InkcastIdentitySyncPersonFailing alert's 30-minute window). F1.10.S5, issue #93.
     keycloak_sync_interval_seconds: float = 30.0
     keycloak_reconcile_seconds: float = 600.0
     # Days a person Keycloak no longer has (an administrator's deletion, or a self-deletion whose event was never
@@ -633,7 +609,7 @@ class Config:
     # INKCAST_PUBLISH_MAX_ATTEMPTS sends in all, INKCAST_PUBLISH_RETRY_DELAYS seconds apart (the last repeats).
     # The default is 4 sends over about 36 minutes. A window over 24 h is a posture warning (publish-retry-window).
     publish_retry: RetryPolicy = RetryPolicy()
-    insights_interval_seconds: float = 10.0  # how often InsightsService folds new domain events into KPI rollups (1 or more)
+    insights_interval_seconds: float = 10.0  # how often InsightsService folds new domain events into KPI rollups (positive)
     # Retention (F1.10.S3, issue #91): INKCAST_OUTBOX_RETENTION_DAYS (7, 1-30) keeps domain events every consumer has
     # passed, the replay window; INKCAST_KPI_HOURLY_RETENTION_DAYS (90, 31-400, never shorter than the outbox's) keeps
     # hourly KPI buckets and the kpi_applied rows that make a replay harmless. Daily buckets are kept. The scheduler's
@@ -642,12 +618,11 @@ class Config:
     log_format: str = "text"  # "json" in containers
     log_level: str = "INFO"
     metrics_port: int = 9090  # Prometheus /metrics on its own port; 0 disables
-    shutdown_grace_seconds: float = 25.0  # INKCAST_SHUTDOWN_GRACE, positive and under the Deployment's terminationGracePeriodSeconds (40)
+    shutdown_grace_seconds: float = 25.0  # INKCAST_SHUTDOWN_GRACE, positive; the Deployment's terminationGracePeriodSeconds exceeds it
     max_body_bytes: int = 10 * 1024 * 1024  # a request body above this is refused with 413 before any handler runs
     # Writes per minute per client address on the endpoints anyone can call without a token (client
-    # registration, the token page, the password form, the connect page), 0 to 10000. 0 disables the limit, which with
-    # password sign-in is unbounded password guessing: a posture failure in production (rate-limit); above 600 with
-    # password sign-in (ten guesses a second) is a posture warning. Never negative.
+    # registration, the token page, the password form, the connect page). 0 disables the limit, which with password
+    # sign-in is unbounded password guessing: a posture failure in production (rate-limit). Never negative.
     rate_limit_per_minute: int = 60
     # Shared cache and coordination (libs/cache): empty = in-process; redis://host:6379/0 or rediss:// for
     # Redis/Valkey shared by every replica. The password never goes in the URL: INKCAST_CACHE_PASSWORD(_FILE).
@@ -676,8 +651,7 @@ class Config:
     # e.g. INKCAST_UPSTREAM_PUBLISHING_API=http://publishing-api:8080/publishing-api
     upstreams: dict[str, str] = field(default_factory=dict)
     # Scheduled posts this long past due mean the scheduler is behind or stopped (alert + readiness). At least two
-    # scheduler intervals: below that, a post due between ticks is "overdue" and InkcastPostsOverdue fires on a healthy
-    # system. At most an hour: beyond that the alert stays quiet about a stopped scheduler that long.
+    # scheduler intervals: below that, a post due between ticks is "overdue" and InkcastPostsOverdue fires on a healthy system.
     overdue_grace_seconds: float = 600.0
     # How many daily backups the backup CronJob keeps (its INKCAST_BACKUP_KEEP; libs/db/backup.DEFAULT_KEEP): the
     # deletion pages tell a person that copies of their data in backups age out within this many days (issue #94).

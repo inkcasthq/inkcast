@@ -2,7 +2,7 @@
 id: E8
 title: Social platforms
 status: planned
-goal: Instagram, Facebook Pages, YouTube, TikTok, X; batch review (see docs/design/social-platforms-epic.md and docs/design/video-platforms-and-review.md).
+goal: X, TikTok, Instagram (see docs/design/social-platforms-epic.md).
 features:
 - id: F8.1
   title: Interface v2
@@ -22,38 +22,3 @@ features:
   - id: F8.2.S3
     title: TikTok (consent UI designed before the audit)
     status: planned
-  - id: F8.2.S4
-    title: 'YouTube: OAuth, resumable upload, audience and synthetic-media fields, quota (docs/issues 33)'
-    status: planned
-    change: new
-    acceptance:
-    - A video uploads by the resumable protocol and resumes after an interrupted chunk
-    - Audience (selfDeclaredMadeForKids) and visibility have no default; the post can't be sent until both are chosen
-    - containsSyntheticMedia is shown on every upload and is required when the post is marked realistic AI-generated
-    - The quota ledger reserves units per Google Cloud project before sending; quota() reports what's left
-    - Delete and metadata edit work; the permalink is stored after processing
-  - id: F8.2.S5
-    title: 'Facebook Pages: Reels through the Meta app shared with Instagram (docs/issues 34)'
-    status: planned
-    change: new
-    acceptance:
-    - A Reel publishes to a Page through the video_reels upload session, by byte upload or file_url pull
-    - is_ai_generated is a composer field, never set silently
-    - The 30-per-24-hours Page limit is enforced by the quota ledger before sending
-- id: F8.3
-  title: Review and engagement
-  stories:
-  - id: F8.3.S1
-    title: 'Batch review queue: reviews API, inkcast_submit_for_review, per-post consent, web and mobile screens (docs/issues
-      35)'
-    status: planned
-    change: new
-    acceptance:
-    - Approving a review writes one consent record per post with its own payload hash; an edit needs a new approval
-    - '"Approve all unchanged" skips any item with a required choice open (TikTok privacy, YouTube audience)'
-    - Only can_approve can decide; the MCP tool returns a one-time review link and can't approve
-    - review.requested, post.approved and post.rejected events are emitted; review latency is measured
-  - id: F8.3.S2
-    title: 'Engagement inbox (later): read, draft, approve, send through official APIs (docs/issues 36)'
-    status: planned
-    change: new

@@ -18,7 +18,7 @@ spec:
       serviceAccountName: inkcast
       automountServiceAccountToken: false
       enableServiceLinks: false
-      terminationGracePeriodSeconds: 40   # INKCAST_SHUTDOWN_GRACE (25) stays under it (libs/config.SHUTDOWN_GRACE_CEILING), so in-flight posts finish
+      terminationGracePeriodSeconds: 40   # > INKCAST_SHUTDOWN_GRACE (25s) so in-flight posts finish
       securityContext:
         runAsNonRoot: true
         seccompProfile:
