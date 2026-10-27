@@ -19,8 +19,8 @@ A brand-new entry is claimed in the ledger *before* anything is sent, so two CI 
 the same file can't both create a post. An ``unconfirmed`` entry (the platform may or may not
 have published) is checked with ``Platform.find_existing`` before anything else happens. Once a
 post row exists, an error (the database locked on the write after the send, say) leaves the entry
-on that post with the post's own status, never ``failed``, which the next sync would create again:
-the post's status decides what happens next (``_after_error``).
+on that post with the post's own status, never ``failed`` once it may have been sent, which the
+next sync would create again: the post's status decides what happens next (``_after_error``).
 """
 
 from __future__ import annotations
@@ -219,6 +219,7 @@ class GitSync:
         def on_record(_pid: str, post_id: str) -> None:  # before the send, so a crash mid-send can't orphan the post
             made["post_id"] = post_id
             self.store.put_entry(user_id, src, path, pid, post_id=post_id)
+            made["named"] = post_id  # publish() goes on to the send only once this returns
 
         try:
             # retry: a "now" post the platform rate-limits waits for the scheduler's retry (and the 429's
@@ -235,17 +236,28 @@ class GitSync:
                                  url=o.url, remote_id=o.remote_id,
                                  message=o.message if o.status in ("unconfirmed", "scheduled") else None)
         except Exception:
-            self._after_error(user_id, src, path, pid, digest, made.get("post_id"))
+            # unsent: a "now" post whose naming write failed. publish() made it 'publishing' and stopped before the send.
+            self._after_error(user_id, src, path, pid, digest, made.get("post_id"),
+                              unsent="named" not in made and not story.publish_at)
             raise
         return SyncResult(**base, action=action, status=o.status, post_id=o.post_id, url=o.url,
                           message=o.message or ("; ".join(o.notes) or None))
 
-    def _after_error(self, user_id: str, src: str, path: str, pid: str, digest: str, post_id: str | None) -> None:
+    def _after_error(self, user_id: str, src: str, path: str, pid: str, digest: str, post_id: str | None,
+                     unsent: bool = False) -> None:
         """The publish, or the ledger write of its outcome, raised (a locked database, say). Once the post row exists
         the entry points at it, with the post's own status, so the next sync follows the post and never creates it
         again: 'publishing' is the scheduler's to recover (asked, never re-sent), 'scheduled' waits for its time,
-        'unconfirmed' is checked (#213). Only an error before any post row exists marks the entry 'failed', which
-        the next sync creates afresh; so too on the replace path, whose claim names no post until its own exists."""
+        'unconfirmed' is checked (#213). Only an error before any post row exists, or before a "now" post is sent
+        (``unsent``), marks the entry 'failed', which the next sync creates afresh; so too on the replace path, whose
+        claim names no post until its own exists."""
+        if post_id and unsent:
+            # The write naming the post failed, before publish() sends anything: this "now" post certainly wasn't sent.
+            # Left 'publishing', recovery could only ask the platform, and one that can't be asked (Medium) would mark
+            # it unconfirmed, never sent. Failed, as _resolve marks a post never published, the next sync makes it.
+            # Never a scheduled post: the scheduler may have claimed it ('publishing') and be sending it.
+            self.store.update_post(post_id, status="failed", error="Internal error before it was sent.",
+                                   only_if="publishing")
         post = self.store.get_post(post_id) if post_id else None
         if post is None:
             self.store.put_entry(user_id, src, path, pid, status="failed", message="internal error")

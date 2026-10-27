@@ -169,17 +169,17 @@ class ANowPostAfterTheRowExists(SyncCase):
         self.assertEqual(self.entry()["remote_id"], "1")
         self.assertEqual((self.platform.sent, len(self.posts())), (["Body."], 1))
 
-    def test_a_locked_write_before_the_send_leaves_the_post_to_the_scheduler(self):
-        """The ledger write naming the post (before the send) was locked: the row exists, nothing was sent. The entry
-        follows it; recovery finds nothing on the platform and the scheduler sends it, once."""
+    def test_a_locked_write_before_the_send_is_made_by_the_next_sync(self):
+        """The ledger write naming the post (before the send) was locked: the row exists, nothing was sent, and the
+        sync knows it. The post is failed and the entry follows it; the next sync makes the post, once, and recovery
+        never sends the first row."""
         self.sync_locked(Flaky(self.store.put_entry, the_post_pointer), "put_entry")
         (post,) = self.posts()
         self.assertEqual(self.platform.sent, [])
-        self.assert_points_at(post, "publishing")
-        self.assertEqual(self.sync().action, "unchanged")
-        self.assertEqual(len(self.posts()), 1, "created again while the first row waits for recovery")
-        self.recover()                                                 # missing on the platform: queued, and sent
-        self.assertEqual((self.platform.sent, self.store.get_post(post["id"])["status"]), (["Body."], "published"))
+        self.assert_points_at(post, "failed")
+        self.assertEqual(self.sync().action, "create")
+        self.recover()
+        self.assertEqual((self.platform.sent, self.store.get_post(post["id"])["status"]), (["Body."], "failed"))
         self.assertEqual((self.sync().status, self.entry()["url"]), ("published", "https://findable/1"))
 
     def test_a_locked_write_after_publish_returned_still_records_the_post(self):
