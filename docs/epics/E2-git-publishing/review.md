@@ -13,7 +13,7 @@ Findings that concern Git publishing directly:
 
 Also checked and found correct: `claim_new` before any create in `sync.py`, the Idempotency-Key fingerprint check, PAT scope intersection, `oauth_only` on token management, and the Action keeping the token in the environment and dry-running on pull requests.
 
-## Second review (2026-10-18, `main` at `44501c2`)
+## Second review (2026-10-18, `main` at `1940309`)
 
 A second, independent review looked for check-then-act races. All four findings were real; the first review had missed them (it checked the Idempotency-Key fingerprint, but not two identical requests at once). Each fix has a test that fails on the old code.
 
