@@ -51,6 +51,15 @@ PUBLISH_RETRY_DELAY = (30, 21600)   # seconds, each
 PUBLISH_ATTEMPTS_RULE = "INKCAST_PUBLISH_MAX_ATTEMPTS must be a whole number from 1 to 10 (got {got!r})."
 PUBLISH_DELAYS_RULE = ("INKCAST_PUBLISH_RETRY_DELAYS must be 1 to 9 whole numbers of seconds, comma-separated, each from 30 "
                        "to 21600 and never decreasing (got {got!r}).")
+# How long a post whose send was interrupted stays 'recovering' (#216): asked about at the platform every stuck pass,
+# while the platform refuses the lookup. Past the cap it is 'unconfirmed' for a person: it is never sent late on its own.
+# The floor is an hour, the InkcastPostRecoveringTooLong alert's threshold: below it a platform that rate-limits its
+# lookups for a few minutes would end posts unconfirmed that it could have resolved. The ceiling is a week: the cap
+# bounds how late a post the platform finally reports missing may go out without a person deciding.
+PUBLISH_RECOVERY_MAX_HOURS = (1, 168)
+PUBLISH_RECOVERY_MAX_RULE = ("INKCAST_PUBLISH_RECOVERY_MAX_HOURS must be a whole number of hours from 1 to 168: how long a post "
+                             "whose send was interrupted is checked with the platform before it is unconfirmed for a person, "
+                             "never sent late on its own (got {got!r}).")
 ON_OFF_RULE = "{name} must be 'on' or 'off' (got {got!r})."
 BREAKER_PERCENT_RULE = "INKCAST_KEYCLOAK_BREAKER_PERCENT must be a whole number from 1 to 100 (got {got!r})."
 BREAKER_MIN_RULE = "INKCAST_KEYCLOAK_BREAKER_MIN must be a whole number, 1 or more (got {got!r})."
@@ -194,6 +203,13 @@ def publish_retry_problems(policy: RetryPolicy, got: tuple[Any, Any] | None = No
             and all(earlier <= later for earlier, later in zip(delays, delays[1:]))):
         problems.append(PUBLISH_DELAYS_RULE.format(got=got_delays))
     return problems
+
+
+def publish_recovery_problems(hours: Any, got: Any = None) -> list[str]:
+    """The rule of INKCAST_PUBLISH_RECOVERY_MAX_HOURS (a whole number of hours from 1 to 168), as a problem naming it."""
+    if _whole(hours) and PUBLISH_RECOVERY_MAX_HOURS[0] <= hours <= PUBLISH_RECOVERY_MAX_HOURS[1]:
+        return []
+    return [PUBLISH_RECOVERY_MAX_RULE.format(got=hours if got is None else got)]
 
 
 @dataclass(frozen=True)
@@ -451,6 +467,16 @@ class _Env:
             raise ConfigError("Inkcast configuration problems:\n- " + "\n- ".join(problems))
         return policy
 
+    def publish_recovery_max_hours(self) -> int:
+        """INKCAST_PUBLISH_RECOVERY_MAX_HOURS, a whole number of hours from 1 to 168; anything else is a ConfigError naming it."""
+        raw = self.get("INKCAST_PUBLISH_RECOVERY_MAX_HOURS", "24")
+        try:
+            hours: Any = int(raw)
+        except ValueError:
+            hours = raw                               # fails the whole-number rule below, with the same message
+        _problems(publish_recovery_problems(hours, got=raw))
+        return hours
+
     def on_off(self, name: str, default: str) -> bool:
         """``on`` or ``off`` and nothing else: a safety switch must not read a typo as either."""
         raw = self.get(name, default)
@@ -648,6 +674,11 @@ class Config:
     # INKCAST_PUBLISH_MAX_ATTEMPTS sends in all, INKCAST_PUBLISH_RETRY_DELAYS seconds apart (the last repeats).
     # The default is 4 sends over about 36 minutes. A window over 24 h is a posture warning (publish-retry-window).
     publish_retry: RetryPolicy = RetryPolicy()
+    # Hours a post whose send was interrupted (the process stopped mid-send) stays 'recovering' while the platform
+    # refuses the lookup that would tell whether it arrived (INKCAST_PUBLISH_RECOVERY_MAX_HOURS, 1-168; #216). Past the
+    # cap it is 'unconfirmed' for a person: it is never sent late on its own. The InkcastPostRecoveringTooLong alert
+    # fires after an hour of it. Handed to the Publisher as seconds (publish_recovery_max_seconds).
+    publish_recovery_max_hours: int = 24
     insights_interval_seconds: float = 10.0  # how often InsightsService folds new domain events into KPI rollups (1 or more)
     # Retention (F1.10.S3, issue #91): INKCAST_OUTBOX_RETENTION_DAYS (7, 1-30) keeps domain events every consumer has
     # passed, the replay window; INKCAST_KPI_HOURLY_RETENTION_DAYS (90, 31-400, never shorter than the outbox's) keeps
@@ -730,6 +761,11 @@ class Config:
     def one_time_link_seconds(self) -> int:
         """What a connect or deletion ticket is made with, and what the replies' ``expires_in`` says."""
         return self.one_time_link_minutes * 60
+
+    @property
+    def publish_recovery_max_seconds(self) -> int:
+        """The recovery cap as the Publisher measures it (libs/pipeline ``recovery_max``)."""
+        return self.publish_recovery_max_hours * 3600
 
     @property
     def allowed_hosts(self) -> list[str]:
@@ -818,6 +854,7 @@ class Config:
         if not (_whole(minimum) and minimum >= 1):
             problems.append(BREAKER_MIN_RULE.format(got=minimum))
         problems += publish_retry_problems(self.publish_retry)  # load_config refuses already; a Config built by hand
+        problems += publish_recovery_problems(self.publish_recovery_max_hours)   # likewise
         problems += pat_policy_problems(self.pat)              # likewise
         problems += refresh_token_problems(self.refresh_token_days)
         problems += one_time_link_problems(self.one_time_link_minutes)
@@ -945,6 +982,7 @@ def load_config(environ: Mapping[str, str] | None = None) -> Config:
         backup_keep=env.backup_keep(),
         scheduler_interval_seconds=intervals["INKCAST_SCHEDULER_INTERVAL"],
         publish_retry=env.publish_retry(),
+        publish_recovery_max_hours=env.publish_recovery_max_hours(),
         insights_interval_seconds=intervals["INKCAST_INSIGHTS_INTERVAL"],
         retention=env.retention(),
         log_format=env.get("INKCAST_LOG_FORMAT", "text").lower(),

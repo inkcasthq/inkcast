@@ -106,6 +106,7 @@ Rook-Ceph RGW on-prem, S3 in cloud, through one `ObjectStore` seam (put, presign
 | `inkcast_publish_duration_seconds` | histogram | `platform` | one platform call |
 | `inkcast_publish_lag_seconds` | histogram | `platform` | how late a scheduled post was claimed |
 | `inkcast_posts{status}`, `inkcast_posts_due`, `inkcast_posts_overdue`, `inkcast_posts_oldest_due_age_seconds` | gauge | `status` on the first | the queue: depth, overdue, head-of-line lag |
+| `inkcast_posts_recovering_oldest_age_seconds` | gauge | — | how long the oldest post whose send was interrupted has been `recovering`, the platform refusing to say whether it arrived (`InkcastPostRecoveringTooLong` past an hour; `INKCAST_PUBLISH_RECOVERY_MAX_HOURS` ends it unconfirmed) |
 | `inkcast_scheduler_ticks_total` | counter | — | the loop is alive |
 | `inkcast_sync_total` | counter | `platform`, `action` | Git publishing outcomes |
 | `inkcast_gateway_requests_total` | counter | `upstream`, `code` | the built-in Gateway |
