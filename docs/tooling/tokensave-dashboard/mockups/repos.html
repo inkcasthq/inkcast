@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>tokensave dashboard: Repos</title>
+<style>
+body{margin:0;background:#F6F7F9}
+a{color:#1D4ED8}a:hover{color:#1E3A8A}
+</style>
+</head>
+<body>
+<div style="font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #1A1D21; background: #F6F7F9; min-height: 100%">
+  <header style="background: #FFFFFF; border-bottom: 1px solid #E3E5E8">
+    <div style="max-width: 1440px; margin: 0 auto; padding: 16px 32px 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 14px">
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">
+        <div style="width: 32px; height: 32px; border-radius: 8px; background: #1D4ED8; display: flex; align-items: center; justify-content: center">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"></path></svg>
+        </div>
+        <div style="display: flex; flex-direction: column">
+          <span style="font-size: 18px; font-weight: 600">tokensave</span>
+          <span style="font-size: 12px; color: #555E6B">Dashboard · 127.0.0.1:7311</span>
+        </div>
+        <span style="font-size: 12px; font-weight: 500; color: #8A4B00; background: #FFF4E5; border: 1px solid #F5C98B; border-radius: 999px; padding: 3px 10px">Sample data · layout mockup</span>
+      </div>
+      <nav aria-label="Dashboard sections" style="display: flex; flex-wrap: wrap; gap: 4px">
+        <a href="overview.html" style="font-size: 14px; color: #555E6B; text-decoration: none; padding: 10px 14px; border-bottom: 2px solid transparent">Overview</a>
+        <a href="agents.html" style="font-size: 14px; color: #555E6B; text-decoration: none; padding: 10px 14px; border-bottom: 2px solid transparent">Agents</a>
+        <a href="models-and-effort.html" style="font-size: 14px; color: #555E6B; text-decoration: none; padding: 10px 14px; border-bottom: 2px solid transparent">Models and effort</a>
+        <a href="repos.html" aria-current="page" style="font-size: 14px; font-weight: 600; color: #1A1D21; text-decoration: none; padding: 10px 14px; border-bottom: 2px solid #1D4ED8">Repos</a>
+        <a href="savings.html" style="font-size: 14px; color: #555E6B; text-decoration: none; padding: 10px 14px; border-bottom: 2px solid transparent">Savings</a>
+        <a href="sources.html" style="font-size: 14px; color: #555E6B; text-decoration: none; padding: 10px 14px; border-bottom: 2px solid transparent">Sources</a>
+      </nav>
+    </div>
+  </header>
+
+  <main style="max-width: 1440px; margin: 0 auto; padding: 24px 32px 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 20px">
+    <section aria-label="Workspace" style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 18px 20px; display: flex; flex-wrap: wrap; gap: 24px; align-items: center; justify-content: space-between">
+      <div style="display: flex; flex-direction: column; gap: 4px">
+        <span style="font-size: 13px; color: #555E6B">Workspace</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 18px">~/gitRepos</span>
+        <span style="font-size: 12px; color: #555E6B">marked by ~/gitRepos/.tokensave-workspace.toml · scan depth 1</span>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 24px">
+        <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12px; color: #555E6B">Repos</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 22px">6</span></div>
+        <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12px; color: #555E6B">Indexed</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 22px">4</span></div>
+        <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12px; color: #555E6B">Not indexed</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 22px; color: #9A3412">2</span></div>
+      </div>
+    </section>
+
+    <section aria-label="Repos in the workspace" style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px">
+      <h2 style="margin: 0; font-size: 16px; font-weight: 600">Repos</h2>
+      <div style="overflow-x: auto">
+        <table style="width: 100%; min-width: 820px; border-collapse: collapse; font-size: 13px">
+          <thead>
+            <tr style="text-align: left; color: #555E6B">
+              <th style="padding: 8px; border-bottom: 1px solid #E3E5E8; font-weight: 500">Repo</th>
+              <th style="padding: 8px; border-bottom: 1px solid #E3E5E8; font-weight: 500">Status</th>
+              <th style="padding: 8px; border-bottom: 1px solid #E3E5E8; font-weight: 500; text-align: right">Spent</th>
+              <th style="padding: 8px; border-bottom: 1px solid #E3E5E8; font-weight: 500; text-align: right">Saved</th>
+              <th style="padding: 8px; border-bottom: 1px solid #E3E5E8; font-weight: 500; text-align: right">Saving rate</th>
+              <th style="padding: 8px; border-bottom: 1px solid #E3E5E8; font-weight: 500">Agent tools</th>
+              <th style="padding: 8px; border-bottom: 1px solid #E3E5E8; font-weight: 500">Last activity</th>
+            </tr>
+          </thead>
+          <tbody>
+            
+              <tr>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3">
+                  <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-weight: 500">inkcast</span><span style="font-size: 12px; color: #555E6B; font-family: 'IBM Plex Mono', monospace">~/gitRepos/inkcast</span></div>
+                </td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3"><span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #E7F6EC; color: #14532D">indexed</span></td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">41.3M</td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">6.2M</td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">13.1%</td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3">Claude Code</td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3; color: #555E6B">2 min ago</td>
+              </tr>
+            
+              <tr>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3">
+                  <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-weight: 500">service-a</span><span style="font-size: 12px; color: #555E6B; font-family: 'IBM Plex Mono', monospace">~/gitRepos/service-a</span></div>
+                </td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3"><span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #E7F6EC; color: #14532D">indexed</span></td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">3.1M</td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">0.4M</td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">11.4%</td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3">Claude Code, Codex</td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3; color: #555E6B">yesterday</td>
+              </tr>
+            
+              <tr>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3">
+                  <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-weight: 500">secrets-demo</span><span style="font-size: 12px; color: #555E6B; font-family: 'IBM Plex Mono', monospace">~/gitRepos/secrets-demo</span></div>
+                </td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3"><span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #E7F6EC; color: #14532D">indexed</span></td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">1.9M</td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">0.2M</td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">9.5%</td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3">Codex</td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3; color: #555E6B">4 days ago</td>
+              </tr>
+            
+              <tr>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3">
+                  <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-weight: 500">docs-site</span><span style="font-size: 12px; color: #555E6B; font-family: 'IBM Plex Mono', monospace">~/gitRepos/docs-site</span></div>
+                </td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3"><span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #E7F6EC; color: #14532D">indexed</span></td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">0.8M</td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">0.1M</td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">11.1%</td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3">Claude Code</td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3; color: #555E6B">1 week ago</td>
+              </tr>
+            
+              <tr>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3">
+                  <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-weight: 500">infra-lab</span><span style="font-size: 12px; color: #555E6B; font-family: 'IBM Plex Mono', monospace">~/gitRepos/infra-lab</span></div>
+                </td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3"><span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #FDEFE3; color: #7C2D12">not indexed</span></td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">1.5M</td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">—</td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">—</td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3">Cursor (partial)</td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3; color: #555E6B">3 days ago</td>
+              </tr>
+            
+              <tr>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3">
+                  <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-weight: 500">data-lab</span><span style="font-size: 12px; color: #555E6B; font-family: 'IBM Plex Mono', monospace">~/gitRepos/data-lab</span></div>
+                </td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3"><span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #FDEFE3; color: #7C2D12">not indexed</span></td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">—</td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">—</td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; text-align: right">—</td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3">—</td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3; color: #555E6B">never</td>
+              </tr>
+            
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section aria-label="Fix coverage" style="background: #FFF8EF; border: 1px solid #F5C98B; border-radius: 10px; padding: 16px 20px; display: flex; flex-direction: column; gap: 10px">
+      <h2 style="margin: 0; font-size: 15px; font-weight: 600; color: #7C2D12">2 repos aren't indexed, so tokensave saves nothing there</h2>
+      <span style="font-size: 13px; color: #5B3A12">Index them all at once (it asks first), or see what would be indexed with --dry-run:</span>
+      <code style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; background: #FFFFFF; border: 1px solid #F0DDC2; border-radius: 6px; padding: 10px 12px; color: #1A1D21">tokensave workspace init-all --dry-run</code>
+    </section>
+
+    <section aria-label="Other repos" style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px">
+      <div style="display: flex; flex-direction: column; gap: 2px">
+        <h2 style="margin: 0; font-size: 16px; font-weight: 600">Other</h2>
+        <span style="font-size: 12px; color: #555E6B">Repos tokensave has served that sit outside any workspace.</span>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 13px; padding: 10px 12px; background: #FAFBFC; border: 1px solid #EEF0F3; border-radius: 8px">
+        <span style="font-family: 'IBM Plex Mono', monospace">~/scratch/tokensave</span>
+        <span style="color: #555E6B">0.4M spent · 0.1M saved · 3 days ago</span>
+      </div>
+    </section>
+  </main>
+</div>
+</body>
+</html>
