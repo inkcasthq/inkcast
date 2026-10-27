@@ -11,6 +11,15 @@ methods, branch clean-up, secret scanning with push protection, Dependabot secur
 private vulnerability reporting, and the Actions token: read-only by default, allowed to open pull requests, which
 promote.yml needs; issue #80). Uses the gh CLI, so it runs with whatever token gh has: the owner's for apply,
 GITHUB_TOKEN in the scheduled check (.github/workflows/repo-settings.yml).
+
+In an organisation, letting Actions open pull requests is first an organisation policy: until an org admin allows it,
+the repository setting is refused with 409 (issue #240). The one-time fix, with the owner's login:
+
+    gh auth refresh -h github.com -s admin:org
+    gh api -X PUT orgs/<org>/actions/permissions/workflow \\
+      -f default_workflow_permissions=read -F can_approve_pull_request_reviews=true
+
+apply attempts every step and lists each one that failed, so one refusal never leaves the ruleset unapplied.
 """
 
 from __future__ import annotations
@@ -27,6 +36,21 @@ REPO = "inkcasthq/inkcast"
 UNVERIFIED: list[str] = []   # reads this token may not make (admin-only paths): reported, not counted as drift
 
 
+class GhError(Exception):
+    """A gh api call that failed: the method, path, HTTP status (0 if none came back) and GitHub's message."""
+
+    def __init__(self, method: str, path: str, status: int, message: str):
+        super().__init__(f"gh api {method} {path}: HTTP {status} {message}")
+        self.method, self.path, self.status, self.message = method, path, status, message
+
+
+def org_policy_fix(org: str) -> str:
+    return (f"the organisation {org} doesn't allow GitHub Actions to create or approve pull requests, and it overrides "
+            f"the repository. An org admin runs: gh auth refresh -h github.com -s admin:org && gh api -X PUT "
+            f"orgs/{org}/actions/permissions/workflow -f default_workflow_permissions=read "
+            f"-F can_approve_pull_request_reviews=true")
+
+
 def gh(method: str, path: str, body: dict | None = None, ok404: bool = False, soft: bool = False) -> tuple[int, object]:
     args = ["gh", "api", "-X", method, path, "-H", "Accept: application/vnd.github+json", "--include"]
     if body is not None:
@@ -38,7 +62,7 @@ def gh(method: str, path: str, body: dict | None = None, ok404: bool = False, so
         UNVERIFIED.append(path)
         return -1, None
     if r.returncode and not (ok404 and status == 404):
-        sys.exit(f"gh api {method} {path}: HTTP {status} {r.stderr.strip() or payload.strip()[:300]}")
+        raise GhError(method, path, status, r.stderr.strip() or payload.strip()[:300])
     try:
         return status, json.loads(payload) if payload.strip() else None
     except json.JSONDecodeError:
@@ -105,24 +129,46 @@ def check(repo: str) -> list[str]:
         for key, value in settings["actions_workflow_permissions"].items():
             if (workflow or {}).get(key) != value:
                 drift.append(f"actions workflow permissions {key} is {(workflow or {}).get(key)!r}, want {value!r}")
+    owner = live.get("owner") or {}
+    if settings["actions_workflow_permissions"].get("can_approve_pull_request_reviews") and owner.get("type") == "Organization":
+        # Reading it needs admin:org, which GITHUB_TOKEN never has: unreadable is NOT VERIFIED, not drift.
+        status, policy = gh("GET", f"orgs/{owner['login']}/actions/permissions/workflow", soft=True)
+        if status != -1 and not (policy or {}).get("can_approve_pull_request_reviews"):
+            drift.append(org_policy_fix(owner["login"]))
     return drift
 
 
-def apply(repo: str) -> None:
+def apply_ruleset(repo: str, want: dict) -> None:
+    have = live_ruleset(repo, want["name"])
+    if have:
+        gh("PUT", f"repos/{repo}/rulesets/{have['id']}", want)
+        print(f"ruleset {want['name']!r} updated (id {have['id']})")
+    else:
+        _, made = gh("POST", f"repos/{repo}/rulesets", want)
+        print(f"ruleset {want['name']!r} created (id {made['id']})")
+
+
+def apply(repo: str) -> list[str]:
+    """Make the live repository match the files. Every step is attempted; returns one line per step that failed."""
     settings = json.loads((ROOT / ".github" / "repo-settings.json").read_text())
-    gh("PATCH", f"repos/{repo}", {**settings["repository"], "security_and_analysis": {
-        k: {"status": v} for k, v in settings["security_and_analysis"].items()}})
-    gh("PUT" if settings["vulnerability_alerts"] else "DELETE", f"repos/{repo}/vulnerability-alerts")
-    gh("PUT" if settings["private_vulnerability_reporting"] else "DELETE", f"repos/{repo}/private-vulnerability-reporting")
-    gh("PUT", f"repos/{repo}/actions/permissions/workflow", settings["actions_workflow_permissions"])
-    for want in rulesets():
-        have = live_ruleset(repo, want["name"])
-        if have:
-            gh("PUT", f"repos/{repo}/rulesets/{have['id']}", want)
-            print(f"ruleset {want['name']!r} updated (id {have['id']})")
-        else:
-            _, made = gh("POST", f"repos/{repo}/rulesets", want)
-            print(f"ruleset {want['name']!r} created (id {made['id']})")
+    steps = [
+        ("repository settings", lambda: gh("PATCH", f"repos/{repo}", {**settings["repository"], "security_and_analysis": {
+            k: {"status": v} for k, v in settings["security_and_analysis"].items()}})),
+        ("vulnerability alerts", lambda: gh("PUT" if settings["vulnerability_alerts"] else "DELETE",
+                                            f"repos/{repo}/vulnerability-alerts")),
+        ("private vulnerability reporting", lambda: gh("PUT" if settings["private_vulnerability_reporting"] else "DELETE",
+                                                       f"repos/{repo}/private-vulnerability-reporting")),
+        ("actions workflow permissions", lambda: gh("PUT", f"repos/{repo}/actions/permissions/workflow",
+                                                    settings["actions_workflow_permissions"])),
+    ] + [(f"ruleset {want['name']!r}", lambda want=want: apply_ruleset(repo, want)) for want in rulesets()]
+    failed = []
+    for name, step in steps:
+        try:
+            step()
+        except GhError as e:
+            org_refused = e.status == 409 and e.path.endswith("/actions/permissions/workflow")
+            failed.append(f"{name}: {e}" + (f"; {org_policy_fix(repo.split('/')[0])}" if org_refused else ""))
+    return failed
 
 
 def main() -> int:
@@ -130,15 +176,21 @@ def main() -> int:
         print(__doc__)
         return 2
     repo = sys.argv[2] if len(sys.argv) > 2 else REPO
-    if sys.argv[1] == "apply":
-        apply(repo)
-    drift = check(repo)
+    try:
+        failed = apply(repo) if sys.argv[1] == "apply" else []
+        drift = check(repo)
+    except GhError as e:
+        sys.exit(str(e))
+    for line in failed:
+        print(f"FAILED: {line}")
     for line in drift:
         print(f"DRIFT: {line}")
     for path in UNVERIFIED:
         print(f"NOT VERIFIED (this token can't read it): {path}")
+    if failed:
+        print(f"{len(failed)} apply step(s) failed (above)")
     print("repository settings match the files" if not drift else f"{len(drift)} difference(s) from the files")
-    return 1 if drift else 0
+    return 1 if drift or failed else 0
 
 
 if __name__ == "__main__":
