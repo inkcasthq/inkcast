@@ -18,7 +18,7 @@ from inkcast.libs.pipeline import STUCK_AFTER, Publisher
 from inkcast.libs.platforms import PlatformError
 from inkcast.services.publishing.usecases import InkcastService, ServiceError
 
-from test_person_decides import Harness, SyncHarness
+from test_person_decides import PATH, SOURCE, Harness, SyncHarness
 
 
 def in_another_process(work):
@@ -149,6 +149,29 @@ class FindingTheSendersLateAnswerNeitherCountsNorLogsACancelledPost(Harness):
         self.tick()
         self.assertEqual(self.publisher.metrics.snapshot()["inkcast_publish_total"][
             (("platform", "findable"), ("status", "unconfirmed"))], 1)
+
+
+class FindingARefusedLookupStillNamesTheDecision(SyncHarness):
+    def test_a_capped_post_whose_platform_still_refuses_is_reported_as_the_persons_decision(self):
+        """The cap ends a post 'unconfirmed' because the platform refused the lookup for a day; at the next push it
+        typically still does. The sync then said only "couldn't be asked just now ... The next sync will ask again", on
+        every push, and never that the person has to resend or cancel it: the decision the issue requires it to
+        report."""
+        post_id = self.synced_then_capped()
+        self.platform.refuse = True
+        result = self.sync()
+        self.assertEqual((result.action, result.status, result.post_id), ("skipped", "unconfirmed", post_id))
+        self.assertIn("couldn't be asked just now", result.message)
+        self.assertIn(f"resend post {post_id} (inkcast_resend, or POST /api/v1/posts/{post_id}/resend)", result.message)
+        self.assertIn(f"cancel it (inkcast_cancel, or POST /api/v1/posts/{post_id}/cancel)", result.message)
+        self.assertEqual((self.platform.sent, self.status(post_id)), ([], "unconfirmed"))
+
+    def test_an_entry_naming_no_post_keeps_its_message(self):
+        self.store.put_entry(self.user, SOURCE, PATH, self.platform.id, status="unconfirmed", content_hash="h")
+        self.platform.refuse = True
+        result = self.sync()
+        self.assertEqual((result.action, result.status), ("skipped", "unconfirmed"))
+        self.assertIn("The next sync will ask again", result.message)
 
 
 if __name__ == "__main__":

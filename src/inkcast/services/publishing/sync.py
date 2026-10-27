@@ -124,6 +124,9 @@ class GitSync:
         if entry and entry["status"] == "unconfirmed" and not req.dry_run:
             checked = await self.publisher.confirm(user_id, platform, prepared)
             if checked is not None and checked.status == "unavailable":  # rate-limited, unreachable: ask again next time
+                if post is not None:  # the person's to decide meanwhile, like any unconfirmed post (#226)
+                    return SyncResult(**base, action="skipped", status="unconfirmed", post_id=post["id"],
+                                      message=self._decision(platform, post["id"], checked))
                 return SyncResult(**base, action="skipped", status="unconfirmed", post_id=entry["post_id"], message=(
                     f"The last publish to {platform.name} may or may not have gone through, and {platform.name} couldn't "
                     f"be asked just now ({checked.message}). The next sync will ask again."))
@@ -268,8 +271,9 @@ class GitSync:
     @staticmethod
     def _decision(platform: Platform, post_id: str, checked: Outcome | None) -> str:
         """What the sync says of a file whose post is unconfirmed: the person decides (#226)."""
-        said = (f"{platform.name} says it isn't there" if checked is not None
-                else f"{platform.name} can't be checked automatically")
+        said = (f"{platform.name} can't be checked automatically" if checked is None
+                else f"{platform.name} couldn't be asked just now ({checked.message}); the next sync asks again"
+                if checked.status == "unavailable" else f"{platform.name} says it isn't there")
         return (f"The last publish to {platform.name} may or may not have gone through, and {said}. Inkcast never publishes "
                 f"it again on its own: check {platform.name}, then resend post {post_id} (inkcast_resend, or POST "
                 f"/api/v1/posts/{post_id}/resend) to send it as it was, or cancel it (inkcast_cancel, or POST "
