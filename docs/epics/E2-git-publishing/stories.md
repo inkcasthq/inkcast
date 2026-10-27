@@ -35,7 +35,7 @@ Status key: ✅ done in this epic · ⏭ moved to a later epic (reason given).
 ## F2.6 Pipeline hardening
 - ✅ **S1 No blind retries.** Unconfirmed results are checked with `find_existing` before anything is retried (`test_unconfirmed_publish_is_checked_before_anything_is_retried`).
 - ✅ **S2 `unknown` → `unconfirmed`** in the API, the MCP output and stored data (migration).
-- ✅ **Scheduled files** are re-scheduled when content or `publish_at` changes before they go out (`test_scheduled_files_are_rescheduled_when_they_change`).
+- ✅ **Scheduled files** are re-scheduled when content or `publish_at` changes before they go out (`test_scheduled_files_are_rescheduled_when_they_change`). Any `publish_at` is a scheduled post at the time written, due at once if it has passed ([ADR-0015](../../adr/0015-publish-at-is-always-scheduled.md), `tests/test_sync_always_schedule.py`).
 - ⏭ **Idempotency keys passed to platforms that accept one.** Neither Medium nor DEV accepts one; revisit per platform in E8.
 
 ---

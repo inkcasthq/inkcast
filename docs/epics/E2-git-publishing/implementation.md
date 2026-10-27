@@ -8,7 +8,7 @@
 | Scopes in REST and MCP | `libs/http/rest.py` (`Authed`, problem+json), `services/publishing/rest.py`, `services/publishing/mcp_tools.py` |
 | Ledger and sync | `libs/db/ledger.py` (entries, claims, idempotency), `services/publishing/sync.py` (`GitSync`) |
 | Platform contract | `libs/platforms/base.py` (`capabilities`, `update`, `find_existing`), `libs/platforms/devto.py` (PUT, list mine), `libs/pipeline.py` (`update`, `confirm`, remote ids on outcomes) |
-| Content | `libs/content/story.py`: `past_schedule_is_now` for files re-read after their date |
+| Content | `libs/content/story.py`: `schedule_as_written` for files re-read after their date, kept as scheduled posts at the time written ([ADR-0015](../../adr/0015-publish-at-is-always-scheduled.md)) |
 | Contracts | `libs/contracts/models.py` (Token*, Sync*, LedgerEntry), `libs/contracts/openapi.py` (new operations and the scope table) |
 | CLI and Action | `cli.py` (`inkcast sync`), `action/action.yml`, `docs/examples/publish-on-push.yml` |
 | Tests | `tests/test_git_publishing.py` (single process and split), `tests/fakes.py` (DEV `PUT` and `GET /articles/me/all`) |

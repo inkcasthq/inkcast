@@ -52,7 +52,9 @@ class TheQueueGauges(unittest.TestCase):
         self.assertEqual(gauge(self.store, "inkcast_posts_overdue"), 0, "InkcastPostsOverdue: max(...) > 0, critical")
         self.assertEqual(gauge(self.store, "inkcast_posts_oldest_due_age_seconds"), 0, "InkcastQueueHeadLagHigh")
         # A living person's due post counts as it did, and is the one claimed.
-        self.post(bob, now - 1200)
+        bobs = self.post(bob, now - 1200)
+        # scheduled ahead, made two hours ago: it has waited since its time (ADR-0015 measures from the later of the two)
+        self.store._exec("UPDATE posts SET created_at = ? WHERE id = ?", now - 7200, bobs)
         self.assertEqual((self.store.due_count(now), self.store.overdue_count(now, 600)), (1, 1))
         self.assertAlmostEqual(self.store.oldest_due_age(now), 1200, delta=1)
         self.assertEqual([p["user_id"] for p in self.store.claim_due_posts(now)], [bob])

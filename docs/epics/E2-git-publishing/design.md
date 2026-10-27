@@ -11,7 +11,7 @@ A writer keeps stories as markdown in a Git repository. Pushing to `main` publis
 | Writer | "I merge `posts/hello.md`; it appears on DEV and Medium with the canonical link to my blog." |
 | Writer | "I fix a typo and push; the DEV article is edited in place. Medium can't be edited, and I'm told so, with the link to edit by hand." |
 | Writer | "I open a PR; a comment shows the title, tags and status each platform will get." |
-| Writer | "A file with `publish_at` in its front matter is scheduled. If I change it before then, the scheduled post is replaced." |
+| Writer | "A file with `publish_at` in its front matter is scheduled at that time, never sent before it. If I change it before then, the scheduled post is replaced." ([ADR-0015](../../adr/0015-publish-at-is-always-scheduled.md)) |
 | CI | "A retried job, or two jobs racing, never posts twice." |
 | Security | "The CI credential can only sync stories. It can be revoked at once and can't create more credentials." |
 

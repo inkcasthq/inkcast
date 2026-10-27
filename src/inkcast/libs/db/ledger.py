@@ -64,8 +64,10 @@ class LedgerRepo(Database):
             if row["status"] in ("syncing",) and now - row["synced_at"] < CLAIM_TTL:
                 return False
             if row["status"] in ("syncing", "failed", "missing", "cancelled"):
-                c.execute("UPDATE ledger SET status = 'syncing', content_hash = ?, synced_at = ? WHERE user_id = ? AND"
-                          " source = ? AND path = ? AND platform = ?", (content_hash, now, user_id, source, path, platform))
+                # No post until the claim makes its own: a claim cut off before that is taken over (sync._one).
+                c.execute("UPDATE ledger SET status = 'syncing', content_hash = ?, post_id = NULL, synced_at = ? WHERE"
+                          " user_id = ? AND source = ? AND path = ? AND platform = ?",
+                          (content_hash, now, user_id, source, path, platform))
                 return True
             return False
 

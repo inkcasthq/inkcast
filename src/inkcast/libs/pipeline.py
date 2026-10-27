@@ -87,8 +87,9 @@ class Publisher:
         return ready, problems
 
     async def publish(self, user_id: str, story: Story, platform_ids: list[str],
-                      on_created: Any = None, retry: bool = False) -> list[Outcome]:
+                      on_created: Any = None, created_at: float | None = None, retry: bool = False) -> list[Outcome]:
         """``on_created(platform_id, post_id)`` runs once each post row exists and before anything is sent.
+        ``created_at``: for a replacement that keeps the schedule of the post it replaces (``PostsRepo.create_post``).
         ``retry``: a "now" post whose send certainly never happened (a 429, say) is handed to the scheduler, which
         retries it under the policy, instead of failing at once. Git sync asks for it (there is nobody reading the
         reply to try again later, #188); a person's MCP or REST publish is told what happened and decides."""
@@ -120,6 +121,7 @@ class Publisher:
             post_id = self.store.create_post(
                 group_id=group, user_id=user_id, platform=platform.id, title=prepared.title,
                 status="scheduled" if story.publish_at else "publishing", run_at=run_at, payload=prepared.to_dict(),
+                created_at=created_at,
             )
             if on_created:
                 on_created(platform.id, post_id)
@@ -324,7 +326,11 @@ class Publisher:
         for row in self.store.claim_due_posts(now):
             if not self.store.renew_claim(row["id"], row["attempts"]):
                 continue  # another worker took it over as stuck while this batch was being sent: it is theirs now
-            lag = max(0.0, now - float(row["run_at"]))
+            # Lag from when the post could first be sent: its time, or its creation when that came later (a Git file
+            # dated in the past is scheduled at that time and due at once, ADR-0015). Measured from its time alone, a
+            # file dated a week ago read as a week late on the first tick after it was known, burning the
+            # schedule-timeliness SLO and the customer's on-time rate for a post sent as soon as it could be.
+            lag = max(0.0, now - max(float(row["run_at"]), float(row["created_at"])))
             self._observe("inkcast_publish_lag_seconds", lag, platform=row["platform"])
             platform = self.platforms.get(row["platform"])
             if platform is None:

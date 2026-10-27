@@ -619,8 +619,10 @@ class PipelineRecoveryTests(unittest.TestCase):
         self.publisher.metrics = build_metrics(self.store, {"fake": self.fake}, cfg)
         self.assertIsInstance(self.publisher.metrics, Metrics)
         now = time.time()
-        self.store.create_post(group_id="g", user_id="usr", platform="fake", title="late", status="scheduled",
-                               run_at=now - 90, payload={"platform": "fake", "title": "late", "payload": {}, "preview": {}})
+        post_id = self.store.create_post(group_id="g", user_id="usr", platform="fake", title="late", status="scheduled",
+                                         run_at=now - 90, payload={"platform": "fake", "title": "late", "payload": {}, "preview": {}})
+        # Scheduled an hour ago for 90 s ago: lag counts from the later of a post's time and its creation (ADR-0015).
+        self.store._exec("UPDATE posts SET created_at = ? WHERE id = ?", now - 3600, post_id)
         self.assertGreaterEqual(self.store.oldest_due_age(now), 90)           # head-of-line lag before the tick
         self.asyncio.run(self.publisher.run_due(now))
         text = self.publisher.metrics.render()

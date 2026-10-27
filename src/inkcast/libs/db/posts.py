@@ -35,7 +35,9 @@ UPDATE posts SET status = 'unconfirmed' WHERE status = 'unknown';
 
 class PostsRepo(Database):
     def create_post(self, *, group_id: str, user_id: str, platform: str, title: str, status: str,
-                    run_at: float, payload: dict[str, Any]) -> str:
+                    run_at: float, payload: dict[str, Any], created_at: float | None = None) -> str:
+        """``created_at`` is now unless the post replaces one whose schedule it keeps (Git sync): then that one's, so
+        how late it is counts from when its time was first asked for (``overdue_count``, the lag; ADR-0015)."""
         post_id = "pst_" + uuid.uuid4().hex[:12]
         now = time.time()
         # A scheduled post is a fact worth an event the moment it exists; a "publishing" one gets its event
@@ -46,7 +48,8 @@ class PostsRepo(Database):
             c.execute(
                 "INSERT INTO posts (id, group_id, user_id, platform, title, status, run_at, payload, created_at, updated_at)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (post_id, group_id, user_id, platform, title, status, run_at, json.dumps(payload), now, now),
+                (post_id, group_id, user_id, platform, title, status, run_at, json.dumps(payload),
+                 now if created_at is None else created_at, now),
             )
             insert_events(c, events)
         return post_id
@@ -90,11 +93,13 @@ class PostsRepo(Database):
     _OWNED = " AND EXISTS (SELECT 1 FROM users WHERE users.id = posts.user_id)"
 
     def claim_due_posts(self, now: float, limit: int = 20) -> list[dict[str, Any]]:
-        """Atomically move due scheduled posts to 'publishing' and return them; never one whose person has no row."""
+        """Atomically move due scheduled posts to 'publishing' and return them, the one that has waited longest first:
+        from its time, or its creation when that came later (``oldest_due_age``), so a Git file dated last year
+        doesn't jump ahead of a post that was due before it was synced (ADR-0015); never one whose person has no row."""
         with self._tx() as c:
             rows = c.execute(
-                "SELECT * FROM posts WHERE status = 'scheduled' AND run_at <= ?" + self._OWNED + " ORDER BY run_at LIMIT ?",
-                (now, limit)
+                "SELECT * FROM posts WHERE status = 'scheduled' AND run_at <= ?" + self._OWNED
+                + " ORDER BY MAX(run_at, created_at), run_at LIMIT ?", (now, limit)
             ).fetchall()
             for r in rows:
                 c.execute(
@@ -131,16 +136,21 @@ class PostsRepo(Database):
         row = self._one("SELECT COUNT(*) AS n FROM posts WHERE status = 'scheduled' AND run_at <= ?" + self._OWNED, now)
         return int(row["n"]) if row else 0
 
+    # A post has waited since it could first be sent: its time, or its creation when that came later (a post made
+    # after its time, a Git file dated in the past, is due at once, ADR-0015). It is due by its time alone. SQLite's
+    # scalar MAX(a, b) is GREATEST(a, b) on PostgreSQL (ADR-0014).
+
     def oldest_due_age(self, now: float) -> float:
         """Seconds the oldest due, still-scheduled post has waited; 0.0 when nothing is due."""
-        row = self._one("SELECT MIN(run_at) AS oldest FROM posts WHERE status = 'scheduled' AND run_at <= ?" + self._OWNED,
+        row = self._one("SELECT MIN(MAX(run_at, created_at)) AS oldest FROM posts WHERE status = 'scheduled' AND run_at <= ?"
+                        + self._OWNED,
                         now)
         return max(0.0, now - float(row["oldest"])) if row and row["oldest"] is not None else 0.0
 
     def overdue_count(self, now: float, grace: float) -> int:
-        """Scheduled posts more than ``grace`` seconds past due: the scheduler is behind or stopped."""
-        row = self._one("SELECT COUNT(*) AS n FROM posts WHERE status = 'scheduled' AND run_at <= ?" + self._OWNED,
-                        now - grace)
+        """Scheduled posts that have waited more than ``grace`` seconds: the scheduler is behind or stopped."""
+        row = self._one("SELECT COUNT(*) AS n FROM posts WHERE status = 'scheduled' AND run_at <= ? AND created_at <= ?"
+                        + self._OWNED, now - grace, now - grace)
         return int(row["n"]) if row else 0
 
     def post_status_counts(self, user_id: str, since: float) -> dict[str, dict[str, int]]:
@@ -154,8 +164,11 @@ class PostsRepo(Database):
         return out
 
     def list_posts(self, user_id: str, start: float, end: float) -> list[dict[str, Any]]:
+        """Posts whose time is up to ``end`` and that could be sent from ``start`` on: a post made after its time (a Git
+        file dated last year, ADR-0015) is listed from its creation, so it can be found while it waits and once sent."""
         rows = self._all(
-            "SELECT * FROM posts WHERE user_id = ? AND run_at BETWEEN ? AND ? ORDER BY run_at", user_id, start, end
+            "SELECT * FROM posts WHERE user_id = ? AND run_at <= ? AND MAX(run_at, created_at) >= ? ORDER BY run_at",
+            user_id, end, start,
         )
         return [dict(r) for r in rows]
 
