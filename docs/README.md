@@ -1,5 +1,7 @@
 # Inkcast documentation
 
+**Picking up the work?** [Handover and resume](handover.md): where things stand, how the work is done, and what's next.
+
 **Start here:** [Bootstrap](bootstrap.md) — organisations, repository settings, CLA, legal, business set-up, platform developer accounts, first deployment.
 
 > **Licensing in one line:** source-available ([PolyForm Shield](../LICENSE)). Free for your own content; agencies, monetised services and embedding need a [commercial licence](../legal/COMMERCIAL-LICENSE.md). [Details](../LICENSING.md).
