@@ -191,9 +191,10 @@ class Publisher:
                 written = self.store.update_post(post_id, status="unconfirmed", error=str(exc), unless="cancelled",
                                                  unless_found_at=held,
                                                  events=self._event("post.unconfirmed", post_id, user_id, platform.id))
-                self._count(platform.id, "unconfirmed")
-                log.warning("Post %s on %s is unconfirmed: %s", post_id, platform.id, exc,
-                            extra={"event": "publish.unconfirmed", "post_id": post_id, "platform": platform.id})
+                if written:  # counted, logged and alerted on only as the post's answer, never over a cancel (#226)
+                    self._count(platform.id, "unconfirmed")
+                    log.warning("Post %s on %s is unconfirmed: %s", post_id, platform.id, exc,
+                                extra={"event": "publish.unconfirmed", "post_id": post_id, "platform": platform.id})
                 return self._as_now(written, Outcome(platform.id, "unconfirmed", post_id=post_id, message=str(exc)))
             if retry and exc.retryable and attempts < self.retry.max_attempts:
                 # A 429's Retry-After, within the policy. getattr: a plug-in's subclass that skips the base constructor
@@ -209,7 +210,8 @@ class Publisher:
                     post_id, status="scheduled", run_at=time.time() + delay, attempts=attempts, error=f"retrying: {exc}",
                     only_if="publishing", if_attempts=held,
                     events=self._event("post.scheduled", post_id, user_id, platform.id, retry=attempts))
-                self._count(platform.id, "retry")
+                if written:
+                    self._count(platform.id, "retry")
                 return self._as_now(written, Outcome(platform.id, "scheduled", post_id=post_id, message=f"Will retry: {exc}"))
             message = str(exc)
             if retry and exc.retryable and self._asked_beyond_cap(getattr(exc, "retry_after", None)):
@@ -219,7 +221,8 @@ class Publisher:
             written = self.store.update_post(post_id, status="failed", error=message, only_if="publishing",  # likewise
                                              if_attempts=held,
                                              events=self._event("post.failed", post_id, user_id, platform.id, reason="platform"))
-            self._count(platform.id, "failed")
+            if written:
+                self._count(platform.id, "failed")
             return self._as_now(written, Outcome(platform.id, "failed", post_id=post_id, message=message))
         except Exception as exc:  # a plug-in bug must not kill the scheduler
             log.exception("Platform %s crashed publishing %s", platform.id, post_id)
@@ -242,7 +245,8 @@ class Publisher:
         written = self.store.update_post(post_id, status="unconfirmed", error=f"internal error: {exc}", unless="cancelled",
                                          unless_found_at=held,  # as an uncertain answer (_deliver)
                                          events=self._event("post.unconfirmed", post_id, user_id, platform.id))
-        self._count(platform.id, "unconfirmed")
+        if written:
+            self._count(platform.id, "unconfirmed")
         return self._as_now(written, Outcome(platform.id, "unconfirmed", post_id=post_id, message=(
             f"Internal error in the {platform.name} plug-in; the post may or may not have been published. "
             f"Check {platform.name} before trying again.")))

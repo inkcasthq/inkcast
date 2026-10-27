@@ -8,10 +8,12 @@ never by sleeps; a second process is a second ``Store`` on the same file, run to
 there, so its event loop is its own)."""
 
 import asyncio
+import logging
 import threading
 import time
 import unittest
 
+from inkcast.libs.observability import Metrics
 from inkcast.libs.pipeline import STUCK_AFTER, Publisher
 from inkcast.libs.platforms import PlatformError
 from inkcast.services.publishing.usecases import InkcastService, ServiceError
@@ -101,6 +103,52 @@ class FindingTheSendersLateUncertainAnswerDoesNotUndoAConfirmedPost(Harness):
         self.platform.answer = PlatformError("Findable timed out after the request was sent.", uncertain=True)
         self.tick()
         self.assertEqual(self.status(post_id), "unconfirmed")
+
+
+class FindingTheSendersLateAnswerNeitherCountsNorLogsACancelledPost(Harness):
+    def test_the_alert_does_not_fire_for_a_post_the_person_cancelled_while_the_send_was_out(self):
+        """Item 6's flaw on the sender's side: worker A's send is out; worker B's stuck pass takes the post over (the
+        platform refuses the lookup: 'recovering'); the person cancels it. A's answer then lands, uncertain (or a
+        plug-in crash): not written, the cancel holds, but it was still counted and logged as 'unconfirmed', so
+        InkcastUnconfirmedPublishes fired for a cancelled post. A late 400 or 429, not written either, was counted
+        'failed' or 'retry' likewise: the failure-rate alert and the publish SLO burn for a post that never failed."""
+        answers = {"uncertain": PlatformError("Findable timed out after the request was sent.", uncertain=True),
+                   "crash": RuntimeError("the plug-in fell over reading the reply"),
+                   "refused": PlatformError("Findable refused the post (400)."),
+                   "retryable": PlatformError("Findable rate limit hit.", retryable=True, retry_after=60)}
+        for how, answer in answers.items():
+            with self.subTest(how=how):
+                post_id = self.post("scheduled", how)
+                b, api = self.replica(), self.replica()
+                self.publisher.metrics = Metrics()
+                self.publisher.metrics.counter("inkcast_publish_total", "")
+
+                async def while_a_waits(prepared, post_id=post_id, b=b, api=api, answer=answer):
+                    self.platform.refuse = True
+                    await b.run_due(now=time.time() + STUCK_AFTER + 1)        # B: recovering, the lookup refused
+                    self.platform.refuse = False
+                    api.cancel(self.user, post_id)                            # the person decides
+                    raise answer
+
+                self.platform.during_publish = while_a_waits
+                logging.getLogger("inkcast.libs.pipeline").level = logging.NOTSET
+                with self.assertLogs("inkcast.libs.pipeline", "WARNING") as logs:
+                    (outcome,) = asyncio.run(self.publisher.run_due(now=time.time()))
+                logging.getLogger("inkcast.libs.pipeline").level = logging.CRITICAL
+                self.assertEqual((outcome.status, self.status(post_id)), ("cancelled", "cancelled"))
+                self.assertEqual(self.publisher.metrics.snapshot().get("inkcast_publish_total", {}), {},
+                                 "counted for a cancelled post")
+                unconfirmed = [r for r in logs.records if getattr(r, "event", "") == "publish.unconfirmed"]
+                self.assertEqual(unconfirmed, [], "logged as unconfirmed")
+
+    def test_an_uncertain_answer_written_is_still_counted(self):
+        self.post("scheduled")
+        self.publisher.metrics = Metrics()
+        self.publisher.metrics.counter("inkcast_publish_total", "")
+        self.platform.answer = PlatformError("Findable timed out after the request was sent.", uncertain=True)
+        self.tick()
+        self.assertEqual(self.publisher.metrics.snapshot()["inkcast_publish_total"][
+            (("platform", "findable"), ("status", "unconfirmed"))], 1)
 
 
 if __name__ == "__main__":
