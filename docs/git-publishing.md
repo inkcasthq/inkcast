@@ -86,6 +86,8 @@ Publishing by hand (`inkcast_publish`, `POST /api/v1/posts`) is different: there
 
 Files are matched to earlier posts by repository, path and platform. If you rename a file, it counts as a new story; to keep it linked, keep the path.
 
+If a sync fails part-way (the request errors because Inkcast's database was busy, say), run it again: a post it had already made is picked up where it stands, never made a second time, and only a file that had no post yet is created afresh.
+
 ## Any other CI, or your laptop
 
 ```bash
