@@ -60,6 +60,8 @@ EVENTS: dict[str, tuple[str, str]] = {
     "scheduler.tick.failed": ("critical", "A scheduler tick crashed; the next tick retries."),
     "publish.unconfirmed": ("warning", "A platform may or may not have published a post; it is never retried automatically."),
     "publish.recovered": ("warning", "A post left 'publishing' by a restart was resolved: confirmed, rescheduled or unconfirmed."),
+    "publish.recovery.deferred": ("warning", "A post left 'publishing' by a restart could not be checked yet (the platform "
+                                             "rate-limited or unreachable); it stays 'recovering' and is checked again."),
     "auth.login.refused": ("warning", "A sign-in was refused by the allow-list, role or password check."),
     "cache.backend.unavailable": ("warning", "Redis/Valkey did not answer; rate limits are per replica until it is back."),
     "outbox.consumer.failed": ("warning", "An event sink failed on a batch; the cursor stayed and the batch is retried."),
@@ -68,6 +70,9 @@ EVENTS: dict[str, tuple[str, str]] = {
                                       "tokens were cut, their PATs are refused but not revoked, until an operator decides."),
     "identity.user.released": ("info", "The hold on a person was lifted (Keycloak reports them enabled again, or the pass was "
                                        "dismissed): their PATs work again."),
+    "identity.erasure.orphans_swept": ("warning", "Housekeeping removed rows written for people in the instant of their "
+                                                  "erasure, before the write-time guard refused such writes (rows and tables, "
+                                                  "counts only); once per database, not a new deletion, no audit row."),
     "identity.user.deleted": ("warning", "A person's account is gone (deleted by them, or in Keycloak and past the grace "
                                          "period): every row of theirs was erased (ids and counts only)."),
     "identity.erasure.reapplied": ("warning", "A restore brought back rows of a person erased before; they were erased again at "

@@ -36,6 +36,7 @@ class Publication(Platform):
         super().__init__(httpx2.AsyncClient())
         self.sends = 0
         self.down = False
+        self.refuses = False
 
     async def verify(self, creds):
         return Account(id="1", name="pubs")
@@ -46,6 +47,8 @@ class Publication(Platform):
     async def resolve_destination(self, creds, account, wanted):
         if self.down:
             raise PlatformError("Could not reach Pubs: connection reset", retryable=True)
+        if self.refuses:                # a lookup the scheduler can't retry: the replacement fails to be made
+            raise PlatformError("Pubs refused the publication lookup (HTTP 400)")
         return Destination(id="team", name="Team")
 
     async def publish(self, creds, account, prepared, destination):
@@ -99,12 +102,12 @@ class FindingARetriedReplacementKeepsTheTimeItKept(Window):
         once, a minute early, as a "now" post that is never retried."""
         created = self.scheduled()
         when = self.clock_reaches(created.post_id, 90)
-        self.platform.down = True
+        self.platform.refuses = True    # since #199 a retryable blip is the scheduler's to retry: a refusal fails it
         failed = self.sync(when, body="Better body.")
         self.assertEqual((failed.action, self.platform.sends), ("failed", 0))
         self.assertEqual(self.store.get_post(created.post_id)["status"], "cancelled")
 
-        self.platform.down = False
+        self.platform.refuses = False
         rerun = self.sync(when, body="Better body.")
         self.assertEqual(self.platform.sends, 0, "sent at once, before its time, as a 'now' post")
         self.assertEqual(rerun.status, "scheduled")
@@ -149,9 +152,9 @@ class FindingAPostponementInsideTheWindowIsNotSentAtOnce(Window):
         created = self.scheduled()
         when = self.clock_reaches(created.post_id, 60)
         later = when + timedelta(seconds=30)
-        self.platform.down = True
+        self.platform.refuses = True    # since #199 a retryable blip is the scheduler's to retry: a refusal fails it
         self.assertEqual(self.sync(later).action, "failed")
-        self.platform.down = False
+        self.platform.refuses = False
         rerun = self.sync(later)
         self.assertEqual((rerun.status, self.platform.sends), ("scheduled", 0), "sent at once on the re-run")
         self.assertAlmostEqual(self.store.get_post(rerun.post_id)["run_at"], later.timestamp(), delta=1)

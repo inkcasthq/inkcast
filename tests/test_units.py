@@ -4,6 +4,7 @@ import unittest
 from datetime import datetime, timezone
 
 import httpx2
+from fakes import seed_people
 
 from inkcast.auth.provider import InkcastOAuthProvider
 from inkcast.config import Config
@@ -571,6 +572,7 @@ class PipelineRecoveryTests(unittest.TestCase):
         self.asyncio, self.STUCK_AFTER, self.PublishResult = asyncio, STUCK_AFTER, PublishResult
         self.store = Store(":memory:", "k" * 40)
         self.store.upsert_user("u", "u", None, None)
+        seed_people(self.store, "usr")          # a row for a person without a users row is refused (#196)
         self.fake = Fake(httpx2.AsyncClient())
         self.store.save_credentials("usr", "fake", {"k": "v"}, {"id": "1", "name": "fake"})
         self.publisher = Publisher(self.store, {"fake": self.fake})

@@ -11,6 +11,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 import httpx2
+from fakes import seed_people
 
 from inkcast.libs.content.story import StoryError, parse_story
 from inkcast.libs.contracts.models import SyncFile, SyncRequest
@@ -159,6 +160,7 @@ class SchedulerReplicas(unittest.TestCase):
         ``claim_stuck`` takes it over, finds it missing, re-queues and sends it; then the first worker sends it too."""
         path = shared_db()
         one, two = Store(path, "k" * 40), Store(path, "k" * 40)       # two scheduler replicas, one database
+        seed_people(one, "usr")                                       # a row for a person without a users row is refused (#196)
         one.save_credentials("usr", "fake", {"k": "v"}, {"id": "1", "name": "fake"})
         fake = Fake()
         first, second = Publisher(one, {"fake": fake}), Publisher(two, {"fake": fake})
