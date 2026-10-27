@@ -31,6 +31,13 @@ CREATE TABLE IF NOT EXISTS heartbeats (name TEXT PRIMARY KEY, at REAL NOT NULL);
 -- v0.2: "unknown" was renamed "unconfirmed" (the platform may or may not have published).
 UPDATE posts SET status = 'unconfirmed' WHERE status = 'unknown';
 """
+# recovering_since: when the post became stuck in 'publishing' (STUCK_AFTER after its send began; ``claim_stuck``
+# records it, however late its pass comes), kept while it stays 'recovering' and set afresh by a later interruption;
+# meaningful only while the status is 'recovering'. The age of the oldest such post is the
+# inkcast_posts_recovering_oldest_age_seconds gauge (the InkcastPostRecoveringTooLong alert), and
+# INKCAST_PUBLISH_RECOVERY_MAX_HOURS is measured from it (#216). NULL on a row from before the column: counted from its
+# last change until the next stuck pass sets it, from the row's run_at (the earliest its send can have begun).
+COLUMNS = (("posts", "recovering_since", "REAL"),)
 
 
 class PostsRepo(Database):
@@ -55,29 +62,41 @@ class PostsRepo(Database):
         return post_id
 
     def update_post(self, post_id: str, events: Iterable[DomainEvent] | None = None, only_if: str | None = None,
-                    **fields: Any) -> None:
+                    unless: str | None = None, **fields: Any) -> bool:
         """Change fields; ``events`` are written in the same transaction (the outbox). A post that no longer exists
         (its owner was erased while the scheduler held it) is left alone, and its events are not written either.
-        ``only_if``: change it only while it still has this status (another worker may have moved it on)."""
+        ``only_if``: change it only while it still has this status (another worker may have moved it on).
+        ``unless``: change it only while it does not have this status (a person cancelled it meanwhile).
+        True when the post was changed."""
         fields["updated_at"] = time.time()
         cols = ", ".join(f"{k} = ?" for k in fields)
-        status = " AND status = ?" if only_if else ""
+        status = (" AND status = ?" if only_if else "") + (" AND status != ?" if unless else "")
         with self._tx() as c:
-            if c.execute(f"UPDATE posts SET {cols} WHERE id = ?{status}",
-                         (*fields.values(), post_id, *([only_if] if only_if else []))).rowcount == 1:
+            changed = c.execute(f"UPDATE posts SET {cols} WHERE id = ?{status}",
+                                (*fields.values(), post_id, *([only_if] if only_if else []),
+                                 *([unless] if unless else []))).rowcount == 1
+            if changed:
                 insert_events(c, events)
+        return changed
 
-    def cancel_if_scheduled(self, post_id: str, user_id: str, events: Iterable[DomainEvent] | None = None) -> bool:
-        """Move one of the user's posts from 'scheduled' to 'cancelled' in a single conditional statement.
+    def cancel_if_pending(self, post_id: str, user_id: str, events: Iterable[DomainEvent] | None = None,
+                          recovering_note: str | None = None) -> bool:
+        """Move one of the user's posts from 'scheduled' or 'recovering' to 'cancelled' in a single conditional
+        statement. A 'recovering' post (its send was interrupted, and the platform has not said whether it arrived)
+        is the person's to cancel too (#216): recovery writes its answer only while the post is still 'recovering'
+        (``update_post(only_if=)``), so a cancel wins over an answer that lands after it.
 
-        False when the post isn't 'scheduled' any more: the scheduler claimed it a moment ago, or it was already
-        cancelled. Checking the status and then updating it separately would let a claim slip in between, and the
-        post would go out after the cancel reported success. ``events`` are written only when the cancel happened,
-        in the same transaction (the outbox)."""
+        False when the post is neither any more: the scheduler claimed it a moment ago, it was already cancelled, or
+        recovery resolved it. Checking the status and then updating it separately would let a claim slip in between,
+        and the post would go out after the cancel reported success. ``events`` are written only when the cancel
+        happened, in the same transaction (the outbox). ``recovering_note`` replaces a 'recovering' post's error (what
+        recovery said it would do next), in the same statement."""
         with self._tx() as c:
             changed = c.execute(
-                "UPDATE posts SET status = 'cancelled', updated_at = ? WHERE id = ? AND user_id = ? AND status = 'scheduled'",
-                (time.time(), post_id, user_id),
+                "UPDATE posts SET status = 'cancelled', updated_at = ?,"
+                " error = CASE WHEN status = 'recovering' THEN COALESCE(?, error) ELSE error END"
+                " WHERE id = ? AND user_id = ? AND status IN ('scheduled', 'recovering')",
+                (time.time(), recovering_note, post_id, user_id),
             ).rowcount == 1
             if changed:
                 insert_events(c, events)
@@ -115,17 +134,38 @@ class PostsRepo(Database):
         return self._exec("UPDATE posts SET updated_at = ? WHERE id = ? AND status = 'publishing' AND attempts = ?",
                           time.time(), post_id, attempts) == 1
 
-    def claim_stuck(self, older_than: float) -> list[dict[str, Any]]:
+    def claim_stuck(self, older_than: float, now: float | None = None) -> list[dict[str, Any]]:
         """Posts left 'publishing' by a crash or restart, moved atomically to 'recovering' so one worker resolves
         each. The caller decides what they become: a send may or may not have reached the platform, so they
         are never simply put back in the queue (that is how schedulers post twice). A post left 'recovering' (that
-        worker stopped too) is taken again: recovering only asks the platform, it never sends."""
+        worker stopped too, or the platform refused its lookup) is taken again: recovering only asks the platform,
+        it never sends. Each row comes back with its ``recovering_since``: when a post taken from 'publishing'
+        became stuck (at most ``now``), kept for one taken again (#216), from its run_at for one from before the column."""
+        now = now or time.time()
+        out = []
         with self._tx() as c:
             rows = c.execute("SELECT * FROM posts WHERE status IN ('publishing', 'recovering') AND updated_at < ?"
                              + self._OWNED, (older_than,)).fetchall()
             for r in rows:
-                c.execute("UPDATE posts SET status = 'recovering', updated_at = ? WHERE id = ?", (time.time(), r["id"]))
-        return [dict(r) for r in rows]
+                # Since it became stuck (its send began ``now - older_than`` before that), not since this pass. A pass
+                # that comes late (no scheduler ran: an outage, a crash loop) must not restart the cap's clock, or the
+                # post goes out that much later on its own (#216). A post 'recovering' from before the column has no
+                # clock: its send began no earlier than its run_at.
+                if r["status"] == "recovering" and r["recovering_since"] is not None:
+                    since = r["recovering_since"]
+                else:
+                    began = r["run_at"] if r["status"] == "recovering" else r["updated_at"]
+                    since = min(now, began + (now - older_than))
+                c.execute("UPDATE posts SET status = 'recovering', updated_at = ?, recovering_since = ? WHERE id = ?",
+                          (now, since, r["id"]))
+                out.append({**dict(r), "recovering_since": since})
+        return out
+
+    def oldest_recovering_age(self, now: float) -> float:
+        """Seconds the oldest 'recovering' post has been so (a row from before ``recovering_since``: since its last
+        change); 0.0 when none is. The inkcast_posts_recovering_oldest_age_seconds gauge (#216)."""
+        row = self._one("SELECT MIN(COALESCE(recovering_since, updated_at)) AS oldest FROM posts WHERE status = 'recovering'")
+        return max(0.0, now - float(row["oldest"])) if row and row["oldest"] is not None else 0.0
 
     def post_counts(self) -> dict[str, int]:
         rows = self._all("SELECT status, COUNT(*) AS n FROM posts GROUP BY status")

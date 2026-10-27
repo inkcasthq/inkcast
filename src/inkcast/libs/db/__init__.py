@@ -42,7 +42,7 @@ from .vault import VaultRepo
 class Store(IdentityRepo, VaultRepo, PostsRepo, LedgerRepo, OutboxRepo, KpiRepo, AuthzRepo, ErasureRepo):
     SCHEMAS = (identity.SCHEMA, vault.SCHEMA, posts.SCHEMA, ledger.SCHEMA, outbox.SCHEMA, kpi.SCHEMA, authz.SCHEMA,
                erasure.SCHEMA)
-    COLUMNS = identity.COLUMNS
+    COLUMNS = identity.COLUMNS + posts.COLUMNS
     INDEXES = identity.INDEXES
 
     def __init__(self, path: str, secret_key: "str | SecretValue"):

@@ -121,8 +121,8 @@ class RaceTests(unittest.TestCase):
         other = self.store.create_post(group_id="g", user_id=self.user["id"], platform="devto", title="U",
                                        status="scheduled", run_at=time.time() + 3600, payload={})
         self.assertEqual(Publisher(self.store, {}).cancel(self.user["id"], other), "U")
-        self.assertFalse(self.store.cancel_if_scheduled(other, self.user["id"]))  # second cancel: nothing to do
-        self.assertFalse(self.store.cancel_if_scheduled(post_id, "someone-else"))
+        self.assertFalse(self.store.cancel_if_pending(other, self.user["id"]))  # second cancel: nothing to do
+        self.assertFalse(self.store.cancel_if_pending(post_id, "someone-else"))
 
     def _refresh(self, scopes):
         from mcp.shared.auth import OAuthClientInformationFull

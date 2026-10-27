@@ -105,6 +105,15 @@ ALERTS: tuple[Alert, ...] = (
           "Posts are unconfirmed and wait for a person",
           "{{ $value }} publish(es) in the last hour ended unconfirmed: the platform may or may not have the post. "
           "Someone must check the platform before anyone publishes again.", "publishing", for_="0m"),
+    # #216: the gauge is read from the database (recovering_since), so the age survives restarts and replicas. A post
+    # stays 'recovering' only while the platform refuses the lookup that would say whether its interrupted send arrived.
+    Alert("InkcastPostRecoveringTooLong", "max(inkcast_posts_recovering_oldest_age_seconds) > 3600", "warning",
+          "A post has been recovering for more than an hour",
+          "The oldest post whose send was interrupted has been 'recovering' for {{ $value | humanizeDuration }}: every 10 "
+          "minutes Inkcast asks the platform whether it arrived, and the platform keeps refusing (rate-limited, unreachable, "
+          "or a broken listing endpoint), so it is neither sent nor shown to a person. After INKCAST_PUBLISH_RECOVERY_MAX_HOURS "
+          "(24 by default) it is marked unconfirmed; a person can cancel it before then. The publish.recovery.deferred log "
+          "lines name the post and the platform's reason.", "scheduler-worker", for_="0m"),
     Alert("InkcastPublishFailureRateHigh",
           'sum by (platform) (rate(inkcast_publish_total{status=~"failed|update_failed"}[30m]))'
           ' / clamp_min(sum by (platform) (rate(inkcast_publish_total[30m])), 1e-9) > 0.2'

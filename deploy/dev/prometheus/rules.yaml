@@ -61,6 +61,21 @@ groups:
       description: '{{ $value }} publish(es) in the last hour ended unconfirmed: the platform may or may not have the post.
         Someone must check the platform before anyone publishes again.'
       runbook_url: https://github.com/inkcasthq/inkcast/blob/main/docs/runbooks/alerts.md#inkcastunconfirmedpublishes
+  - alert: InkcastPostRecoveringTooLong
+    expr: max(inkcast_posts_recovering_oldest_age_seconds) > 3600
+    for: 0m
+    labels:
+      severity: warning
+      team: inkcast
+      service: scheduler-worker
+    annotations:
+      summary: A post has been recovering for more than an hour
+      description: 'The oldest post whose send was interrupted has been ''recovering'' for {{ $value | humanizeDuration }}:
+        every 10 minutes Inkcast asks the platform whether it arrived, and the platform keeps refusing (rate-limited, unreachable,
+        or a broken listing endpoint), so it is neither sent nor shown to a person. After INKCAST_PUBLISH_RECOVERY_MAX_HOURS
+        (24 by default) it is marked unconfirmed; a person can cancel it before then. The publish.recovery.deferred log lines
+        name the post and the platform''s reason.'
+      runbook_url: https://github.com/inkcasthq/inkcast/blob/main/docs/runbooks/alerts.md#inkcastpostrecoveringtoolong
   - alert: InkcastPublishFailureRateHigh
     expr: sum by (platform) (rate(inkcast_publish_total{status=~"failed|update_failed"}[30m])) / clamp_min(sum by (platform)
       (rate(inkcast_publish_total[30m])), 1e-9) > 0.2 and sum by (platform) (increase(inkcast_publish_total[30m])) >= 5
