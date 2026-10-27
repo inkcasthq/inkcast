@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>tokensave dashboard: Sources</title>
+<style>
+body{margin:0;background:#F6F7F9}
+a{color:#1D4ED8}a:hover{color:#1E3A8A}
+</style>
+</head>
+<body>
+<div style="font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #1A1D21; background: #F6F7F9; min-height: 100%">
+  <header style="background: #FFFFFF; border-bottom: 1px solid #E3E5E8">
+    <div style="max-width: 1440px; margin: 0 auto; padding: 16px 32px 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 14px">
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">
+        <div style="width: 32px; height: 32px; border-radius: 8px; background: #1D4ED8; display: flex; align-items: center; justify-content: center">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"></path></svg>
+        </div>
+        <div style="display: flex; flex-direction: column">
+          <span style="font-size: 18px; font-weight: 600">tokensave</span>
+          <span style="font-size: 12px; color: #555E6B">Dashboard · 127.0.0.1:7311</span>
+        </div>
+        <span style="font-size: 12px; font-weight: 500; color: #8A4B00; background: #FFF4E5; border: 1px solid #F5C98B; border-radius: 999px; padding: 3px 10px">Sample data · layout mockup</span>
+      </div>
+      <nav aria-label="Dashboard sections" style="display: flex; flex-wrap: wrap; gap: 4px">
+        <a href="overview.html" style="font-size: 14px; color: #555E6B; text-decoration: none; padding: 10px 14px; border-bottom: 2px solid transparent">Overview</a>
+        <a href="agents.html" style="font-size: 14px; color: #555E6B; text-decoration: none; padding: 10px 14px; border-bottom: 2px solid transparent">Agents</a>
+        <a href="models-and-effort.html" style="font-size: 14px; color: #555E6B; text-decoration: none; padding: 10px 14px; border-bottom: 2px solid transparent">Models and effort</a>
+        <a href="repos.html" style="font-size: 14px; color: #555E6B; text-decoration: none; padding: 10px 14px; border-bottom: 2px solid transparent">Repos</a>
+        <a href="savings.html" style="font-size: 14px; color: #555E6B; text-decoration: none; padding: 10px 14px; border-bottom: 2px solid transparent">Savings</a>
+        <a href="sources.html" aria-current="page" style="font-size: 14px; font-weight: 600; color: #1A1D21; text-decoration: none; padding: 10px 14px; border-bottom: 2px solid #1D4ED8">Sources</a>
+      </nav>
+    </div>
+  </header>
+
+  <main style="max-width: 1440px; margin: 0 auto; padding: 24px 32px 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 20px">
+    <div style="display: flex; flex-direction: column; gap: 4px">
+      <h2 style="margin: 0; font-size: 18px; font-weight: 600">Agent tools found on this machine</h2>
+      <span style="font-size: 13px; color: #555E6B">Found by their local session data, read-only. A format tokensave doesn't recognise is reported here, never guessed.</span>
+    </div>
+    <section aria-label="Sources" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px">
+      
+        <div style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px">
+            <span style="font-size: 16px; font-weight: 600">Claude Code</span>
+            <span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #E7F6EC; color: #14532D">verified</span>
+          </div>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #555E6B">~/.claude/projects/</span>
+          <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; font-size: 13px">
+            <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12px; color: #555E6B">Turns</span><span style="font-family: 'IBM Plex Mono', monospace">18,402</span></div>
+            <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12px; color: #555E6B">Last parsed</span><span style="font-family: 'IBM Plex Mono', monospace">2 min ago</span></div>
+          </div>
+          <span style="font-size: 12px; color: #555E6B">Model, requested model, effort, thinking, subagent roles.</span>
+        </div>
+      
+        <div style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px">
+            <span style="font-size: 16px; font-weight: 600">Codex CLI</span>
+            <span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #E7F6EC; color: #14532D">verified</span>
+          </div>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #555E6B">~/.codex/sessions/</span>
+          <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; font-size: 13px">
+            <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12px; color: #555E6B">Turns</span><span style="font-family: 'IBM Plex Mono', monospace">2,961</span></div>
+            <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12px; color: #555E6B">Last parsed</span><span style="font-family: 'IBM Plex Mono', monospace">2 min ago</span></div>
+          </div>
+          <span style="font-size: 12px; color: #555E6B">Model and effort from turn context; tokens from token_count events.</span>
+        </div>
+      
+        <div style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px">
+            <span style="font-size: 16px; font-weight: 600">Cursor</span>
+            <span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #FDEFE3; color: #7C2D12">partial</span>
+          </div>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #555E6B">~/Library/Application Support/Cursor/User/</span>
+          <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; font-size: 13px">
+            <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12px; color: #555E6B">Turns</span><span style="font-family: 'IBM Plex Mono', monospace">640</span></div>
+            <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12px; color: #555E6B">Last parsed</span><span style="font-family: 'IBM Plex Mono', monospace">2 min ago</span></div>
+          </div>
+          <span style="font-size: 12px; color: #555E6B">Experimental: only token counts Cursor records; no cache or thinking split.</span>
+        </div>
+      
+        <div style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px">
+            <span style="font-size: 16px; font-weight: 600">Pi</span>
+            <span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #EEF0F3; color: #3D4450">not found</span>
+          </div>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #555E6B">~/.pi/agent/sessions/</span>
+          <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; font-size: 13px">
+            <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12px; color: #555E6B">Turns</span><span style="font-family: 'IBM Plex Mono', monospace">—</span></div>
+            <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12px; color: #555E6B">Last parsed</span><span style="font-family: 'IBM Plex Mono', monospace">—</span></div>
+          </div>
+          <span style="font-size: 12px; color: #555E6B">Read by tokensave already; nothing on this machine.</span>
+        </div>
+      
+        <div style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px">
+            <span style="font-size: 16px; font-weight: 600">Factory Droid</span>
+            <span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #EEF0F3; color: #3D4450">not found</span>
+          </div>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #555E6B">(as tokensave reads it)</span>
+          <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; font-size: 13px">
+            <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12px; color: #555E6B">Turns</span><span style="font-family: 'IBM Plex Mono', monospace">—</span></div>
+            <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12px; color: #555E6B">Last parsed</span><span style="font-family: 'IBM Plex Mono', monospace">—</span></div>
+          </div>
+          <span style="font-size: 12px; color: #555E6B">Read by tokensave already; nothing on this machine.</span>
+        </div>
+      
+    </section>
+    <section aria-label="Commands" style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 20px; display: flex; flex-direction: column; gap: 8px">
+      <span style="font-size: 13px; color: #555E6B">The same list in the terminal, and how to switch a source off:</span>
+      <code style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; background: #F6F7F9; border: 1px solid #E3E5E8; border-radius: 6px; padding: 10px 12px">tokensave sources</code>
+      <code style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; background: #F6F7F9; border: 1px solid #E3E5E8; border-radius: 6px; padding: 10px 12px">~/.tokensave/dashboard.toml  →  [sources] cursor = false</code>
+    </section>
+  </main>
+</div>
+</body>
+</html>
