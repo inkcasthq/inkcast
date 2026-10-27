@@ -1,0 +1,190 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
+# Copyright 2026 ScalarOps Technologies LLC
+"""Adversarial review of PR #221 (issue #216): a 'recovering' post can be cancelled, raises an alert after an hour,
+and is capped, so it is never sent late without a person deciding.
+
+Each ``Finding`` test failed on the PR's head before the fix committed with it; the ``Held`` tests pin what the fix
+must keep. Concurrency is driven by hooks inside the platform's calls, never by sleeps."""
+
+import asyncio
+import logging
+import tempfile
+import time
+import unittest
+
+import httpx2
+
+from inkcast.libs.contracts.models import SyncFile, SyncRequest
+from inkcast.libs.db import Store
+from inkcast.libs.pipeline import STUCK_AFTER, Publisher
+from inkcast.libs.platforms import Account, Platform, PlatformError, Prepared, PublishResult
+from inkcast.services.publishing.sync import GitSync
+
+DAY = 86400
+
+
+class Hooked(Platform):
+    """A platform that can be checked (``find``). ``delivered`` is what reached it. ``refuse``: every lookup fails for a
+    reason that will pass (a 429), so recovery defers. ``during_publish`` (an async hook) runs inside the next publish
+    call, while the request is out at the platform; it unsets itself, and an exception it raises is the platform's
+    answer (nothing was delivered then)."""
+
+    id, name, default_api_url, credential_fields = "hooked", "Hooked", "https://hooked.invalid", []
+    capabilities = frozenset({"find"})
+
+    def __init__(self):
+        super().__init__(httpx2.AsyncClient())
+        self.delivered: list[str] = []
+        self.lookups = 0
+        self.refuse = True
+        self.during_publish = None
+
+    async def verify(self, creds):
+        return Account(id="1", name="hooked")
+
+    def prepare(self, fields, body):
+        return Prepared(platform=self.id, title=fields["title"], payload={"body": body}, preview={})
+
+    async def publish(self, creds, account, prepared, destination):
+        if self.during_publish:
+            hook, self.during_publish = self.during_publish, None
+            await hook(prepared)
+        self.delivered.append(prepared.title)
+        return PublishResult(url=f"https://hooked/{len(self.delivered)}", remote_id=str(len(self.delivered)),
+                             status="published")
+
+    async def find_existing(self, creds, account, prepared):
+        self.lookups += 1
+        if self.refuse:
+            raise PlatformError("Hooked rate limit hit; try again in 15 minutes.", retryable=True, retry_after=900)
+        if prepared.title in self.delivered:
+            return PublishResult(url="https://hooked/found", remote_id="found", status="published")
+        return None
+
+
+class Harness(unittest.TestCase):
+    """One database file, opened by the scheduler replica under test (``publisher``) and, where a test needs them, by
+    other processes on their own connections (another replica, the API)."""
+
+    def setUp(self):
+        self.path = tempfile.mkdtemp() + "/inkcast.db"
+        self.store = self.open()
+        self.user = self.store.upsert_user("local:on-call", "on-call", None, None)["id"]
+        self.platform = Hooked()
+        self.store.save_credentials(self.user, self.platform.id, {"k": "v"}, {"id": "1", "name": "hooked"})
+        self.publisher = self.replica()
+        quiet = logging.getLogger("inkcast.libs.pipeline")
+        level, quiet.level = quiet.level, logging.CRITICAL   # recovery's warnings are expected; keep the run readable
+        self.addCleanup(setattr, quiet, "level", level)
+
+    def open(self) -> Store:
+        store = Store(self.path, "k" * 40)
+        self.addCleanup(store.close)
+        return store
+
+    def replica(self) -> Publisher:
+        """Another process on the same database, with its own connection."""
+        return Publisher(self.open(), {self.platform.id: self.platform})
+
+    def post(self, status: str, title: str = "t", run_at: float | None = None) -> str:
+        prepared = self.platform.prepare({"title": title}, "Body.")
+        return self.store.create_post(group_id="g", user_id=self.user, platform=self.platform.id, title=title,
+                                      status=status, run_at=time.time() - 1 if run_at is None else run_at,
+                                      payload=prepared.to_dict())
+
+    def tick(self, later: float = 0.0, publisher: Publisher | None = None):
+        return asyncio.run((publisher or self.publisher).run_due(now=time.time() + later))
+
+    def status(self, post_id: str) -> str:
+        return self.store.get_post(post_id)["status"]
+
+
+# ---- 1. a cancel of a 'recovering' post is overwritten by the original send's late answer ---------------------------
+
+
+class FindingTheSendersLateAnswerOverwritesTheCancel(Harness):
+    """#216 makes 'recovering' cancellable, and makes recovery's writes yield to the cancel (``only_if``). But a post
+    is 'recovering' because another replica's stuck pass took it while its send looked dead: the send may still be
+    out (a reply trickled in under the per-read timeout, a paused process, a write held up behind the database), and
+    ``renew_claim`` exists because a batch can be overtaken. Before #216 nothing could cancel a post in that state;
+    now the person can, and the sender's answer, written unconditionally, lands on top of the cancel: a retryable
+    failure puts the cancelled post back in the queue and the next tick sends it; a definite or uncertain failure
+    turns it 'failed' or 'unconfirmed', which Git sync then creates again."""
+
+    def cancelled_while_sending(self, answer: PlatformError | None) -> str:
+        post_id = self.post("scheduled")
+        other, api = self.replica(), self.replica()
+        seen = []
+
+        async def overtaken(prepared):
+            # Worker A's request is out. Worker B's stuck pass takes the post over (its lookup is refused, so it stays
+            # 'recovering'), and the person cancels it through the API. (Asserting in here would be swallowed: the
+            # pipeline reads any exception from the plug-in as a crash.)
+            await other.run_due(now=time.time() + STUCK_AFTER + 1)
+            seen.append(self.status(post_id))
+            seen.append(api.cancel(self.user, post_id))
+            if answer is not None:
+                raise answer
+
+        self.platform.during_publish = overtaken
+        self.tick()                                                           # worker A's tick: its send, then its answer
+        self.assertEqual(seen, ["recovering", "t"])
+        return post_id
+
+    def test_a_retryable_failure_does_not_put_the_cancelled_post_back_in_the_queue(self):
+        post_id = self.cancelled_while_sending(PlatformError("Hooked is unreachable.", retryable=True))
+        self.assertEqual(self.status(post_id), "cancelled")
+        self.tick(later=DAY)                                                  # long after any retry delay
+        self.assertEqual((self.status(post_id), self.platform.delivered), ("cancelled", []), "sent after the cancel")
+
+    def test_a_failure_or_an_uncertain_answer_does_not_overwrite_the_cancel(self):
+        for answer in (PlatformError("Hooked refused the post (400)."),
+                       PlatformError("Hooked timed out after the request was sent.", uncertain=True)):
+            with self.subTest(answer=str(answer)):
+                post_id = self.cancelled_while_sending(answer)
+                self.assertEqual(self.status(post_id), "cancelled")
+
+    def test_a_git_synced_post_cancelled_while_its_send_was_out_stays_cancelled_at_the_next_sync(self):
+        """The sync is the sender here (a "now" post, from the API process), and it records the send's answer in its
+        ledger: 'failed' there, the next push creates the cancelled post again and sends it."""
+        git = GitSync(self.store, {self.platform.id: self.platform}, self.publisher)
+        markdown = "---\ntitle: Hello\nplatforms: [hooked]\n---\n\nBody.\n"
+        req = SyncRequest(source="github.com/acme/blog", files=[SyncFile(path="posts/p.md", markdown=markdown)])
+        other, api = self.replica(), self.replica()
+        seen = []
+
+        async def overtaken(prepared):
+            # Asserting in here would be swallowed: the pipeline reads any exception from the plug-in as a crash.
+            (post_id,) = [r["id"] for r in self.store._all("SELECT id FROM posts")]
+            await other.run_due(now=time.time() + STUCK_AFTER + 1)
+            seen.append(self.status(post_id))
+            seen.append(api.cancel(self.user, post_id))
+            raise PlatformError("Hooked refused the post (400).")
+
+        self.platform.during_publish = overtaken
+        asyncio.run(git.sync(self.user, req))
+        self.assertEqual(seen, ["recovering", "Hello"])
+        (again,) = asyncio.run(git.sync(self.user, req)).results            # the next push, the file unchanged
+        self.assertEqual((again.action, again.status, self.platform.delivered), ("unchanged", "cancelled", []),
+                         "the next sync sent the cancelled post")
+
+
+class HeldTheSendersSuccessIsStillRecorded(Harness):
+    def test_a_post_the_send_delivered_after_the_cancel_is_recorded_published(self):
+        """The truth beats the cancel: the post is out, and the person needs its URL to remove it."""
+        post_id = self.post("scheduled")
+        other, api = self.replica(), self.replica()
+
+        async def overtaken(prepared):
+            await other.run_due(now=time.time() + STUCK_AFTER + 1)
+            api.cancel(self.user, post_id)
+
+        self.platform.during_publish = overtaken
+        self.tick()
+        post = self.store.get_post(post_id)
+        self.assertEqual((post["status"], post["result_url"], self.platform.delivered),
+                         ("published", "https://hooked/1", ["t"]))
+
+
+if __name__ == "__main__":
+    unittest.main()

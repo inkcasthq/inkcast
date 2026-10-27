@@ -172,34 +172,37 @@ class Publisher:
             result = await platform.publish(creds, account, prepared, destination)
         except PlatformError as exc:
             self._observe("inkcast_publish_duration_seconds", time.perf_counter() - started, platform=platform.id)
+            # A send can outlast STUCK_AFTER: another worker then takes the post over as 'recovering', and a person may
+            # cancel it (#216). A failure written afterwards must not undo that decision: the cancel stays, and the
+            # caller is told what the post is now (``_as_now``), so Git sync's ledger doesn't create it again.
             if exc.uncertain:
                 # Never retried, under any policy: the post may already be out, and a retry could post it twice.
-                self.store.update_post(post_id, status="unconfirmed", error=str(exc),
-                                       events=self._event("post.unconfirmed", post_id, user_id, platform.id))
+                written = self.store.update_post(post_id, status="unconfirmed", error=str(exc), unless="cancelled",
+                                                 events=self._event("post.unconfirmed", post_id, user_id, platform.id))
                 self._count(platform.id, "unconfirmed")
                 log.warning("Post %s on %s is unconfirmed: %s", post_id, platform.id, exc,
                             extra={"event": "publish.unconfirmed", "post_id": post_id, "platform": platform.id})
-                return Outcome(platform.id, "unconfirmed", post_id=post_id, message=str(exc))
+                return self._as_now(written, Outcome(platform.id, "unconfirmed", post_id=post_id, message=str(exc)))
             if retry and exc.retryable and attempts < self.retry.max_attempts:
                 # A 429's Retry-After, within the policy. getattr: a plug-in's subclass that skips the base constructor
                 # (written before the field existed) has none, and must not crash the tick (#174).
                 delay = self.retry.delay_after(attempts, asked=getattr(exc, "retry_after", None))
                 # attempts: the sends so far. The scheduler's claim counted its own; a "now" post's first send is
                 # counted here, so the policy's budget holds and Git sync sees a post the scheduler has tried.
-                self.store.update_post(post_id, status="scheduled", run_at=time.time() + delay, attempts=attempts,
-                                       error=f"retrying: {exc}",
-                                       events=self._event("post.scheduled", post_id, user_id, platform.id, retry=attempts))
+                written = self.store.update_post(
+                    post_id, status="scheduled", run_at=time.time() + delay, attempts=attempts, error=f"retrying: {exc}",
+                    unless="cancelled", events=self._event("post.scheduled", post_id, user_id, platform.id, retry=attempts))
                 self._count(platform.id, "retry")
-                return Outcome(platform.id, "scheduled", post_id=post_id, message=f"Will retry: {exc}")
+                return self._as_now(written, Outcome(platform.id, "scheduled", post_id=post_id, message=f"Will retry: {exc}"))
             message = str(exc)
             if retry and exc.retryable and self._asked_beyond_cap(getattr(exc, "retry_after", None)):
                 # The retries ran out at the policy's cap while the platform kept asking for longer (#188).
                 message += (f" {platform.name} asked for a longer wait than INKCAST_PUBLISH_RETRY_DELAYS allows (at most "
                             f"{max(self.retry.delays)} s), which caps every wait.")
-            self.store.update_post(post_id, status="failed", error=message,
-                                   events=self._event("post.failed", post_id, user_id, platform.id, reason="platform"))
+            written = self.store.update_post(post_id, status="failed", error=message, unless="cancelled",
+                                             events=self._event("post.failed", post_id, user_id, platform.id, reason="platform"))
             self._count(platform.id, "failed")
-            return Outcome(platform.id, "failed", post_id=post_id, message=message)
+            return self._as_now(written, Outcome(platform.id, "failed", post_id=post_id, message=message))
         except Exception as exc:  # a plug-in bug must not kill the scheduler
             log.exception("Platform %s crashed publishing %s", platform.id, post_id)
             return self._crashed(post_id, user_id, platform, exc)
@@ -218,12 +221,22 @@ class Publisher:
     def _crashed(self, post_id: str, user_id: str, platform: Platform, exc: BaseException) -> Outcome:
         """A plug-in bug while sending. It may have crashed after the platform accepted the post (reading the reply),
         so it is ambiguous like any uncertain failure: unconfirmed, never 'failed', which Git sync would create again."""
-        self.store.update_post(post_id, status="unconfirmed", error=f"internal error: {exc}",
-                               events=self._event("post.unconfirmed", post_id, user_id, platform.id))
+        written = self.store.update_post(post_id, status="unconfirmed", error=f"internal error: {exc}", unless="cancelled",
+                                         events=self._event("post.unconfirmed", post_id, user_id, platform.id))
         self._count(platform.id, "unconfirmed")
-        return Outcome(platform.id, "unconfirmed", post_id=post_id, message=(
+        return self._as_now(written, Outcome(platform.id, "unconfirmed", post_id=post_id, message=(
             f"Internal error in the {platform.name} plug-in; the post may or may not have been published. "
-            f"Check {platform.name} before trying again."))
+            f"Check {platform.name} before trying again.")))
+
+    def _as_now(self, written: bool, outcome: Outcome) -> Outcome:
+        """A send's answer, as recorded; or, when it was not written because the post moved on while the send was out
+        (a person cancelled it: #216), what the post is now, so a caller that records the outcome (Git sync's ledger)
+        does not act on an answer the post no longer has. A post that no longer exists keeps the send's answer."""
+        post = None if written else self.store.get_post(outcome.post_id)
+        if post is None:
+            return outcome
+        return Outcome(outcome.platform, post["status"], post_id=post["id"], url=post["result_url"],
+                       remote_id=post["remote_id"], message=post["error"])
 
     async def update(self, user_id: str, post_id: str | None, platform: Platform, prepared: Prepared,
                      remote_id: str) -> Outcome:
