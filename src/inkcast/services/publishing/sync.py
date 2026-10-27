@@ -112,8 +112,14 @@ class GitSync:
         post = self.store.get_post(entry["post_id"]) if entry and entry["post_id"] else None
         if post and entry["status"] in ("scheduled", "publishing", "recovering", "unconfirmed") \
                 and post["status"] != entry["status"]:
-            entry = self.store.put_entry(user_id, src, path, pid, status=post["status"], url=post["result_url"],
-                                         remote_id=post["remote_id"])
+            if not self.store.follow_post(user_id, src, path, pid, post["id"], status=post["status"],
+                                          url=post["result_url"], remote_id=post["remote_id"]):
+                # Re-pointed since this sync read it (a person's resend, in another process): never the old post's
+                # status on the new post's entry. The next sync follows the post it names now.
+                now = self.store.get_entry(user_id, src, path, pid) or entry
+                return SyncResult(**base, action="skipped", status=now["status"], post_id=now["post_id"], message=(
+                    "This file's post changed during this sync (a person resent it); run the sync again."))
+            entry = self.store.get_entry(user_id, src, path, pid) or entry
 
         if entry and entry["status"] == "unconfirmed" and not req.dry_run:
             checked = await self.publisher.confirm(user_id, platform, prepared)
