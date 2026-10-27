@@ -30,14 +30,11 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import logging
 import sqlite3
 import time
 from typing import Any, Mapping
 
 from .database import Database
-
-log = logging.getLogger(__name__)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS user_erasures (
@@ -135,31 +132,15 @@ class ErasureRepo(Database):
         any a process from before it wrote during a rolling update. ``ERASURE_HASH_BATCH`` rows at a time, each batch
         its own transaction, so a million rows take bounded memory and a start cut short leaves the rest to the next
         one; the rows are taken as the index lists them (an order would sort every row left, in every batch). Run at
-        every open (``Store``); once filled it costs one indexed read and no lock. How many were filled.
-
-        The one-off cost after the upgrade is logged as it goes (issue #177): a line per batch with the rows filled so
-        far, of the rows that had no hash when this process started (another process filling them at the same time
-        takes some), and one when nothing is left; a start cut short shows where it got to, and the next shows the
-        rest. Nothing is logged when there is nothing to fill."""
-        filled = batches = 0
-        left = None
+        every open (``Store``); once filled it costs one indexed read and no lock. How many were filled."""
+        filled = 0
         while self._one("SELECT 1 FROM users WHERE erasure_hash IS NULL LIMIT 1") is not None:
-            if left is None:
-                left = int(self._one("SELECT COUNT(*) AS n FROM users WHERE erasure_hash IS NULL")["n"])
             with self._tx() as c:
                 ids = [r["id"] for r in c.execute("SELECT id FROM users WHERE erasure_hash IS NULL LIMIT ?",
                                                   (self.ERASURE_HASH_BATCH,))]
                 c.executemany("UPDATE users SET erasure_hash = ? WHERE id = ?",
                               [(user_hash(self._erasure_salt, user_id), user_id) for user_id in ids])
-            if not ids:
-                continue                    # the other processes filled what this one saw: no batch, and none left
             filled += len(ids)
-            batches += 1
-            log.info("Filled the erasure hash of %d of the %d users who had none, in %d batch(es)", filled, left, batches,
-                     extra={"event": "identity.erasure_hash.backfill", "rows": filled, "of": left, "batches": batches})
-        if left is not None:
-            log.info("Every user has an erasure hash: filled %d in %d batch(es) at this start", filled, batches,
-                     extra={"event": "identity.erasure_hash.backfilled", "rows": filled, "batches": batches})
         return filled
 
     def reapply_erasures(self) -> dict[str, dict[str, int]]:

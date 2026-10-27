@@ -170,31 +170,6 @@ ALERTS: tuple[Alert, ...] = (
           "timeout), so they are neither cut off nor erased while everyone else is. The identity.sync.person.failed "
           "log lines name the Inkcast user id, the read, the HTTP status (0 for no answer) and the error's name. If "
           "InkcastIdentitySyncFailing fires too, follow it first.", "identity", for_="1h"),
-    # #180: a pass that ends early on its budget of three reads with no answer is a success for what it did, so
-    # InkcastIdentitySyncFailing never sees a partial outage (one user-storage provider down while the rest answer):
-    # every reconcile ends on the budget, and this counts them. The same 30-minute window as the person alert: the
-    # reconcile interval is bounded under it (KEYCLOAK_RECONCILE_CEILING), so every window has a reconcile.
-    Alert("InkcastIdentitySyncReconcileEndingEarly",
-          'sum(increase(inkcast_identity_sync_ended_early_total{stage="reconcile"}[30m])) > 0',
-          "warning", "The Keycloak user sync's reconciles keep ending on their timeout budget",
-          "For an hour, every 30 minutes has had a Keycloak user sync reconcile end early, its budget of three reads about "
-          "people with no answer used: at least three people hang at every reconcile (a user-storage provider down for "
-          "its people while the rest answer, or that many LDAP referrals to unreachable servers). Everyone else is read "
-          "first, so they are still cut off on time, but nobody who hangs is, and more than three take turns. The "
-          "identity.sync.person.failed lines name them; identity.sync.pass.ended says which stage ended. If "
-          "InkcastIdentitySyncStale fires too, people who would answer are being left unread.", "identity", for_="1h"),
-    # #180: the age is read from the database (the time of the last reconcile that tried everyone not known to hang),
-    # so a pass that never finishes, a crash loop, or reconciles that keep leaving people untried all show as age.
-    # The interval gauge is the setting, so the threshold follows INKCAST_KEYCLOAK_RECONCILE_INTERVAL.
-    Alert("InkcastIdentitySyncStale",
-          'max(inkcast_identity_sync_reconcile_age_seconds) > 3 * max(inkcast_identity_sync_reconcile_interval_seconds)',
-          "warning", "The Keycloak user sync has not reconciled everyone for three reconcile intervals",
-          "No full reconcile of the Keycloak user sync for {{ $value | humanizeDuration }}, more than three times "
-          "INKCAST_KEYCLOAK_RECONCILE_INTERVAL: a pass that never finishes (every read slow, none timing out), a crash loop, "
-          "or reconciles that keep ending on their timeout budget with people untried (reads that time out at random: each "
-          "reconcile finds three new people who hang and never reaches the rest). People disabled or deleted in Keycloak "
-          "with no admin event keep their Inkcast tokens meanwhile. If InkcastIdentitySyncFailing fires too, follow it "
-          "first.", "identity", for_="5m"),
     # #105: the gauge is read from the database (1 while a pass is pending), so it needs no hold and survives restarts.
     Alert("InkcastIdentitySyncBreakerOpen", "max(inkcast_identity_sync_breaker_open) > 0", "critical",
           "The Keycloak user sync holds a mass deletion or disabling for an operator",

@@ -97,7 +97,7 @@ class TheCarryAtScale(unittest.TestCase):
             conn.set_progress_handler(lambda: count.__setitem__(0, count[0] + 1), 1000)
             return conn
         with mock.patch("sqlite3.connect", counting):
-            self.assertEqual(_carry_erasures(current, incoming), (0, 0), "nothing new to carry: no record, no alias")
+            self.assertEqual(_carry_erasures(current, incoming), 0, "nothing new to carry")
         return count[0]
 
     def test_doubling_the_erasure_records_does_not_quadruple_the_carry(self):

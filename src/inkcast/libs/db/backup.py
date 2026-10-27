@@ -12,9 +12,8 @@
   and never deletes the current database: it is moved aside as ``<db>.before-restore-<time>`` with its WAL files.
   The ``user_erasures`` audit rows of the database being replaced are carried into the restored copy (issue #94): a
   backup taken before a person's erasure holds their rows and not the record of it, and that record is what lets
-  the server erase them again when it next opens the store (``Store.reapply_erasures``). So are their
-  ``user_erasure_aliases`` (issue #113), and the log line counts both. Erasures that only the replaced database knew
-  of, when that database is lost too, are the one case this cannot cover; the runbook says so.
+  the server erase them again when it next opens the store (``Store.reapply_erasures``). Erasures that only the
+  replaced database knew of, when that database is lost too, are the one case this cannot cover; the runbook says so.
 
 A backup is as sensitive as the database: platform credentials inside are encrypted with INKCAST_SECRET_KEY (keep
 the key, or the backup can't be used, and never store the two together), and tokens are stored only as hashes.
@@ -174,14 +173,13 @@ def _heartbeat_age(database: pathlib.Path, now: float) -> float | None:
     return None if not row or row[0] is None else now - float(row[0])
 
 
-def _carry_erasures(current: pathlib.Path, incoming: pathlib.Path) -> tuple[int, int]:
+def _carry_erasures(current: pathlib.Path, incoming: pathlib.Path) -> int:
     """Copy the ``user_erasures`` rows of the database being replaced, and their ``user_erasure_aliases``, into the
-    restored copy, skipping any it already has; how many records and how many aliases were carried (the restore logs
-    both: a backup that holds every record can still lack an alias, #183). Zeros when there is no current database or
-    it predates the table. A current database that can't be read refuses the restore (the heartbeat read above has
-    already needed it), before anything is swapped."""
+    restored copy, skipping any it already has; how many records were carried. Zero when there is no current database or it predates the table. A current database
+    that can't be read refuses the restore (the heartbeat read above has already needed it), before anything is
+    swapped."""
     if not current.exists():
-        return 0, 0
+        return 0
     source = sqlite3.connect(current, timeout=10)
     try:
         try:
@@ -189,12 +187,12 @@ def _carry_erasures(current: pathlib.Path, incoming: pathlib.Path) -> tuple[int,
             aliases = _erasure_aliases(source)          # the other hash an erasure is known by (issue #113)
         except sqlite3.DatabaseError as exc:
             if "no such table" in str(exc):
-                return 0, 0
+                return 0
             raise BackupError(f"Couldn't read the current database's erasure records: {exc}") from exc
     finally:
         source.close()
     if not rows:
-        return 0, 0
+        return 0
     target = sqlite3.connect(incoming)
     try:
         target.executescript(ERASURE_SCHEMA)                # a backup from before the table existed gets it
@@ -206,10 +204,9 @@ def _carry_erasures(current: pathlib.Path, incoming: pathlib.Path) -> tuple[int,
                 new.append((h, t, c))
         target.executemany("INSERT INTO user_erasures VALUES (?, ?, ?)", new)
         known = set(_erasure_aliases(target))
-        new_aliases = [a for a in dict.fromkeys(aliases) if a not in known]
-        target.executemany("INSERT INTO user_erasure_aliases VALUES (?, ?)", new_aliases)
+        target.executemany("INSERT INTO user_erasure_aliases VALUES (?, ?)", [a for a in dict.fromkeys(aliases) if a not in known])
         target.commit()
-        return len(new), len(new_aliases)
+        return len(new)
     finally:
         target.close()
 
@@ -249,14 +246,13 @@ def restore_backup(path: pathlib.Path, database: pathlib.Path, *, force: bool = 
         incoming.unlink(missing_ok=True)
         raise BackupError("The restored copy doesn't match the backup; the current database was not touched.")
     try:
-        carried, aliases = _carry_erasures(database, incoming)     # after the copy is checked, before it is swapped in
+        carried = _carry_erasures(database, incoming)       # after the copy is checked, before it is swapped in
     except BaseException:
         incoming.unlink(missing_ok=True)
         raise
-    if carried or aliases:
-        log.info("Carried %d erasure record(s) and %d alias(es) from the current database into the restored copy: the "
-                 "server erases those people again when it starts", carried, aliases,
-                 extra={"event": "restore.erasures.carried", "rows": carried, "aliases": aliases})
+    if carried:
+        log.info("Carried %d erasure record(s) from the current database into the restored copy: the server erases "
+                 "those people again when it starts", carried, extra={"event": "restore.erasures.carried", "rows": carried})
     aside = None
     if database.exists():
         stamp = datetime.fromtimestamp(now, timezone.utc).strftime("%Y%m%dT%H%M%SZ")

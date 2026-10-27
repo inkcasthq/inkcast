@@ -17,7 +17,6 @@ import asyncio
 import json
 import logging
 import math
-import sqlite3
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -110,11 +109,8 @@ class Publisher:
                 if prepared.destination:
                     await platform.resolve_destination(creds, Account.from_dict(account), prepared.destination)
             except PlatformError as exc:
-                # A lookup that will pass (a 429) is no typo: when asked to retry, the send resolves it again, and
-                # its retryable failure goes to the scheduler under the policy and the Retry-After (#188).
-                if not (retry and getattr(exc, "retryable", False)):
-                    outcomes.append(Outcome(platform.id, "failed", message=str(exc)))
-                    continue
+                outcomes.append(Outcome(platform.id, "failed", message=str(exc)))
+                continue
 
             run_at = story.publish_at.timestamp() if story.publish_at else time.time()
             post_id = self.store.create_post(
@@ -142,22 +138,6 @@ class Publisher:
             return Outcome(platform.id, "failed", post_id=post_id, message=f"{platform.name} was disconnected.")
         creds, account_data = connected
         account = Account.from_dict(account_data)
-        try:
-            return await self._deliver(post_id, user_id, platform, prepared, attempts, creds, account, scheduled, lag, retry)
-        except sqlite3.Error:
-            raise  # the store, not the plug-in: it says nothing about the send, so the tick stops and recovery asks
-        except Exception as exc:
-            # An error the pipeline itself could not handle (a PlatformError subclass missing a flag it reads, an
-            # error whose text can't be rendered): one plug-in's odd exception must not leave the rest of the batch
-            # claimed until recovery (#174). This post is as ambiguous as a crash inside the plug-in.
-            log.exception("Platform %s raised an error the pipeline could not handle for %s", platform.id, post_id)
-            return self._crashed(post_id, user_id, platform, exc)
-
-    async def _deliver(self, post_id: str, user_id: str, platform: Platform, prepared: Prepared, attempts: int,
-                       creds: dict[str, str], account: Account, scheduled: bool, lag: float | None,
-                       retry: bool) -> Outcome:
-        """The send itself, from the plug-in's call to the recorded answer. Only this is guarded (``_send``): reading
-        the credentials before it says nothing about the send, and failing there must not mark the post unconfirmed."""
         started = time.perf_counter()
         try:
             destination = (
@@ -175,9 +155,7 @@ class Publisher:
                             extra={"event": "publish.unconfirmed", "post_id": post_id, "platform": platform.id})
                 return Outcome(platform.id, "unconfirmed", post_id=post_id, message=str(exc))
             if retry and exc.retryable and attempts < self.retry.max_attempts:
-                # A 429's Retry-After, within the policy. getattr: a plug-in's subclass that skips the base constructor
-                # (written before the field existed) has none, and must not crash the tick (#174).
-                delay = self.retry.delay_after(attempts, asked=getattr(exc, "retry_after", None))
+                delay = self.retry.delay_after(attempts, asked=exc.retry_after)  # a 429's Retry-After, within the policy
                 # attempts: the sends so far. The scheduler's claim counted its own; a "now" post's first send is
                 # counted here, so the policy's budget holds and Git sync sees a post the scheduler has tried.
                 self.store.update_post(post_id, status="scheduled", run_at=time.time() + delay, attempts=attempts,
@@ -189,14 +167,21 @@ class Publisher:
             if retry and exc.retryable and self._asked_beyond_cap(getattr(exc, "retry_after", None)):
                 # The retries ran out at the policy's cap while the platform kept asking for longer (#188).
                 message += (f" {platform.name} asked for a longer wait than INKCAST_PUBLISH_RETRY_DELAYS allows (at most "
-                            f"{max(self.retry.delays)} s), which caps every wait.")
+                            f"{max(self.retry.delays)} s), so the {attempts} sends were spaced at that cap.")
             self.store.update_post(post_id, status="failed", error=message,
                                    events=self._event("post.failed", post_id, user_id, platform.id, reason="platform"))
             self._count(platform.id, "failed")
             return Outcome(platform.id, "failed", post_id=post_id, message=message)
         except Exception as exc:  # a plug-in bug must not kill the scheduler
+            # It may have crashed after the platform accepted the post (reading the reply), so it is ambiguous like
+            # any uncertain failure: unconfirmed, never 'failed', which Git sync would create again.
             log.exception("Platform %s crashed publishing %s", platform.id, post_id)
-            return self._crashed(post_id, user_id, platform, exc)
+            self.store.update_post(post_id, status="unconfirmed", error=f"internal error: {exc}",
+                                   events=self._event("post.unconfirmed", post_id, user_id, platform.id))
+            self._count(platform.id, "unconfirmed")
+            return Outcome(platform.id, "unconfirmed", post_id=post_id, message=(
+                f"Internal error in the {platform.name} plug-in; the post may or may not have been published. "
+                f"Check {platform.name} before trying again."))
 
         self._observe("inkcast_publish_duration_seconds", time.perf_counter() - started, platform=platform.id)
         status = result.status if result.status in ("draft", "unlisted") else "published"
@@ -208,16 +193,6 @@ class Publisher:
         self._count(platform.id, status)
         return Outcome(platform.id, status, post_id=post_id, url=result.url, notes=result.notes, prepared=prepared,
                        remote_id=result.remote_id)
-
-    def _crashed(self, post_id: str, user_id: str, platform: Platform, exc: BaseException) -> Outcome:
-        """A plug-in bug while sending. It may have crashed after the platform accepted the post (reading the reply),
-        so it is ambiguous like any uncertain failure: unconfirmed, never 'failed', which Git sync would create again."""
-        self.store.update_post(post_id, status="unconfirmed", error=f"internal error: {exc}",
-                               events=self._event("post.unconfirmed", post_id, user_id, platform.id))
-        self._count(platform.id, "unconfirmed")
-        return Outcome(platform.id, "unconfirmed", post_id=post_id, message=(
-            f"Internal error in the {platform.name} plug-in; the post may or may not have been published. "
-            f"Check {platform.name} before trying again."))
 
     async def update(self, user_id: str, post_id: str | None, platform: Platform, prepared: Prepared,
                      remote_id: str) -> Outcome:
@@ -289,11 +264,9 @@ class Publisher:
         def recovered(status: str) -> list[DomainEvent]:
             return self._event("post.recovered", post_id, row["user_id"], platform.id, status=status)
 
-        # Each answer is written only while the post is still 'recovering': another worker may have taken it over
-        # (a pass longer than STUCK_AFTER), re-queued it and sent it while this lookup was out.
         if found is not None and found.status == "unavailable":
             message = f"Could not check {platform.name} yet ({found.message}); it will be checked again."
-            self.store.update_post(post_id, status="recovering", error=message, only_if="recovering")
+            self.store.update_post(post_id, status="recovering", error=message)
             log.warning("Post %s on %s was interrupted mid-send and %s could not be asked yet; checking again later",
                         post_id, platform.id, platform.id,
                         extra={"event": "publish.recovery.deferred", "post_id": post_id, "platform": platform.id})
@@ -301,17 +274,15 @@ class Publisher:
         if found is None:
             message = (f"Inkcast restarted while this post was being sent to {platform.name}, which can't be checked "
                        f"automatically. Check {platform.name} before publishing it again.")
-            self.store.update_post(post_id, status="unconfirmed", error=message, events=recovered("unconfirmed"),
-                                   only_if="recovering")
+            self.store.update_post(post_id, status="unconfirmed", error=message, events=recovered("unconfirmed"))
             outcome = Outcome(platform.id, "unconfirmed", post_id=post_id, message=message)
         elif found.status == "missing":
             self.store.update_post(post_id, status="scheduled", run_at=time.time(), events=recovered("scheduled"),
-                                   error=f"Interrupted before {platform.name} received it; sending again.",
-                                   only_if="recovering")
+                                   error=f"Interrupted before {platform.name} received it; sending again.")
             outcome = Outcome(platform.id, "scheduled", post_id=post_id, message="Interrupted; sending again.")
         else:
             self.store.update_post(post_id, status=found.status, result_url=found.url, remote_id=found.remote_id, error=None,
-                                   events=recovered(found.status), only_if="recovering")
+                                   events=recovered(found.status))
             outcome = Outcome(platform.id, found.status, post_id=post_id, url=found.url, remote_id=found.remote_id)
         self._count(platform.id, "recovered")
         log.warning("Post %s on %s was interrupted mid-send; now %s", post_id, platform.id, outcome.status,

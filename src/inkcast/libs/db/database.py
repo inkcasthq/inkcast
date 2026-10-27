@@ -30,25 +30,12 @@ class Database:
         self._lock = threading.RLock()
         self._conn.execute("PRAGMA busy_timeout = 30000")
         self._conn.executescript("PRAGMA journal_mode = WAL;\n" + "\n".join(self.SCHEMAS))
-        # Several processes open the same file at once (split mode's pods on a new image), and each would add the
-        # column it found missing: the second ALTER TABLE fails with "duplicate column name" (issue #176). So the
-        # columns are added under the write lock, after reading the tables again there, where the process that comes
-        # second finds nothing left to add. A database with every column costs the reads and takes no lock.
-        if self._missing_columns():
-            with self._tx() as c:
-                for table, column, declaration in self._missing_columns():
-                    c.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
-        for statement in self.INDEXES:
-            self._conn.execute(statement)
-
-    def _missing_columns(self) -> list[tuple[str, str, str]]:
-        """The entries of ``COLUMNS`` the database doesn't have, as it stands when this reads it."""
-        missing = []
         for table, column, declaration in self.COLUMNS:
             have = {r["name"] for r in self._conn.execute(f"PRAGMA table_info({table})")}
             if column not in have:
-                missing.append((table, column, declaration))
-        return missing
+                self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
+        for statement in self.INDEXES:
+            self._conn.execute(statement)
 
     @contextmanager
     def _tx(self) -> Iterator[sqlite3.Connection]:

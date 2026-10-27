@@ -199,37 +199,6 @@ groups:
         user id, the read, the HTTP status (0 for no answer) and the error''s name. If InkcastIdentitySyncFailing fires too,
         follow it first.'
       runbook_url: https://github.com/inkcasthq/inkcast/blob/main/docs/runbooks/alerts.md#inkcastidentitysyncpersonfailing
-  - alert: InkcastIdentitySyncReconcileEndingEarly
-    expr: sum(increase(inkcast_identity_sync_ended_early_total{stage="reconcile"}[30m])) > 0
-    for: 1h
-    labels:
-      severity: warning
-      team: inkcast
-      service: identity
-    annotations:
-      summary: The Keycloak user sync's reconciles keep ending on their timeout budget
-      description: 'For an hour, every 30 minutes has had a Keycloak user sync reconcile end early, its budget of three reads
-        about people with no answer used: at least three people hang at every reconcile (a user-storage provider down for
-        its people while the rest answer, or that many LDAP referrals to unreachable servers). Everyone else is read first,
-        so they are still cut off on time, but nobody who hangs is, and more than three take turns. The identity.sync.person.failed
-        lines name them; identity.sync.pass.ended says which stage ended. If InkcastIdentitySyncStale fires too, people who
-        would answer are being left unread.'
-      runbook_url: https://github.com/inkcasthq/inkcast/blob/main/docs/runbooks/alerts.md#inkcastidentitysyncreconcileendingearly
-  - alert: InkcastIdentitySyncStale
-    expr: max(inkcast_identity_sync_reconcile_age_seconds) > 3 * max(inkcast_identity_sync_reconcile_interval_seconds)
-    for: 5m
-    labels:
-      severity: warning
-      team: inkcast
-      service: identity
-    annotations:
-      summary: The Keycloak user sync has not reconciled everyone for three reconcile intervals
-      description: 'No full reconcile of the Keycloak user sync for {{ $value | humanizeDuration }}, more than three times
-        INKCAST_KEYCLOAK_RECONCILE_INTERVAL: a pass that never finishes (every read slow, none timing out), a crash loop,
-        or reconciles that keep ending on their timeout budget with people untried (reads that time out at random: each reconcile
-        finds three new people who hang and never reaches the rest). People disabled or deleted in Keycloak with no admin
-        event keep their Inkcast tokens meanwhile. If InkcastIdentitySyncFailing fires too, follow it first.'
-      runbook_url: https://github.com/inkcasthq/inkcast/blob/main/docs/runbooks/alerts.md#inkcastidentitysyncstale
   - alert: InkcastIdentitySyncBreakerOpen
     expr: max(inkcast_identity_sync_breaker_open) > 0
     for: 0m

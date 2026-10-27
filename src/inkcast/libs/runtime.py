@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import httpx2
@@ -20,7 +19,6 @@ from .authz import PolicyEngine, build_engine
 from .cache import CacheBackend, build_cache
 from .config import Config
 from .db import Store
-from .db.identity import SYNC_RECONCILED
 from .http.ratelimit import RateLimiter
 from .observability import LAG_BUCKETS, Metrics
 from .pipeline import Publisher
@@ -49,8 +47,7 @@ class Context:
         return "SchedulerWorker" in self.services
 
 
-def build_metrics(store: Store | None, registry: dict[str, Platform], config: Config,
-                  clock: Callable[[], float] = time.time) -> Metrics:
+def build_metrics(store: Store | None, registry: dict[str, Platform], config: Config) -> Metrics:
     m = Metrics()
     m.gauge("inkcast_build_info", "Inkcast version and installed platform plug-ins.",
             lambda: {(("platforms", ",".join(registry)), ("version", __version__)): 1})
@@ -67,9 +64,6 @@ def build_metrics(store: Store | None, registry: dict[str, Platform], config: Co
     m.counter("inkcast_identity_sync_total", "Keycloak user sync passes, by result (ok, error).")
     m.counter("inkcast_identity_sync_errors_total", "Keycloak user sync failures the pass went on past, by stage (person: "
               "Keycloak answered an error about one person, who is read again at the next pass or reconcile).")
-    m.counter("inkcast_identity_sync_ended_early_total", "Keycloak user sync passes that ended early, a success for what they "
-              "did, because their budget of reads about people with no answer was used, by the stage they ended in "
-              "(events, admin-events, reconcile).")
     m.counter("inkcast_identity_users_disabled_total", "People disabled in Inkcast because Keycloak disabled or deleted them, by reason.")
     m.counter("inkcast_identity_users_deleted_total", "People erased from Inkcast once their account was gone, by how Inkcast learnt of it (return, event, reconcile).")
     m.counter("inkcast_cache_requests_total", "Cache reads by backend and result (hit or miss): the hit ratio.")
@@ -96,16 +90,6 @@ def build_metrics(store: Store | None, registry: dict[str, Platform], config: Co
     m.gauge("inkcast_identity_sync_breaker_open", "1 while the Keycloak user sync holds a pass that found too many people "
             "gone or disabled at once, for an operator to confirm or dismiss (inkcast identity); 0 otherwise.",
             lambda: {(): 1 if config.keycloak_breaker and store.pending_breaker_trip() else 0})   # off holds nobody
-    # Also from the database (#180): the time the sync last reconciled everyone it could, written by whichever process
-    # runs it, so the age is the realm's, survives a restart or a crash loop, and before the first is counted from
-    # this process's start. No series where the sync is off, so the alert on it cannot fire there.
-    started, synced = clock(), bool(config.keycloak_sync_client_id)
-    m.gauge("inkcast_identity_sync_reconcile_age_seconds", "Seconds since the Keycloak user sync last reconciled everyone "
-            "it could (every person not known to hang was read); since the process started until it first has. "
-            "InkcastIdentitySyncStale fires past three reconcile intervals.",
-            lambda: {(): max(0.0, clock() - float(store.get_sync_state(SYNC_RECONCILED) or started))} if synced else {})
-    m.gauge("inkcast_identity_sync_reconcile_interval_seconds", "INKCAST_KEYCLOAK_RECONCILE_INTERVAL as configured, for the "
-            "alert on the reconcile age.", lambda: {(): float(config.keycloak_reconcile_seconds)} if synced else {})
     return m
 
 
