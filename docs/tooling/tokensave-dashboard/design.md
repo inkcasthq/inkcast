@@ -1,6 +1,6 @@
 # tokensave fork: workspaces, agent and model discovery, and a local token dashboard
 
-*Design for issue #227. Developer tooling, not part of Inkcast itself: it is built in the owner's fork of tokensave, and records how we measure the tokens our AI agents spend building Inkcast and every other repo.*
+*Design for issue #227. Developer tooling, not part of Inkcast itself: it is built in the owner's fork of tokensave, and records how we measure the tokens our AI agents spend building Inkcast and every other repo. Mockups follow the [mockup standard](../mockup-standard.md) ([ADR-0016](../../adr/0016-mockup-standard-and-frontend-targets.md)).*
 
 Developer tooling for building Inkcast (and every other repo) with AI coding agents. It's built in the owner's fork of [tokensave](https://github.com/aovestdipaperino/tokensave) (MIT), as new `tokensave` commands. The design lets them be proposed upstream later.
 
@@ -177,6 +177,29 @@ Local only (`127.0.0.1`), one page with tabs, dark by default with light and aut
 6. **Sources**
    - each agent tool: found or not, path, last parsed, turns, format status (verified, partial, or unknown).
 
+## Frontend
+
+**Preact + TypeScript** (owner's choice, 2026-10-26). It has the same code style as Inkcast's React web app (ADR-0004) at about 4 KB, so the section components and the `mockup-to-page` mapping are shared.
+
+- **Code:** components are function components using `preact/hooks`, with JSX through `jsxImportSource: "preact"`. There is one component per `build-mockup` section type (`kpi-tiles`, `time-series`, `bar-list`, `row-list`, `heat-grid`, `card-grid`, `callout`, `segmented`, `app-header`). Types are shared with the API layer.
+- **Build:** Vite with `@preact/preset-vite` writes static files (one JS bundle, `tokens.css`, `index.html`). The Rust binary embeds them at compile time and serves them itself, so there's no CDN and it works offline. Node is needed only to build: people who install tokensave never need it.
+- **State:** the date range and filters live in the URL (`URLSearchParams` + `history.replaceState`); the theme lives in browser storage, wrapped in try/catch.
+- **Data:** one typed `fetch` module per endpoint from the mockup's dataset contracts.
+- **Tests:**
+  - Vitest with `@testing-library/preact` for components;
+  - contract tests for the endpoints;
+  - Playwright for the screen-size, theme and screenshot checks, compared against the mockup.
+
+## Date range
+
+Every tab follows one date range, set in the header.
+
+- **Presets:** 7, 30, 45, 60 and 90 days, always ending today. **30 days is the default** (`default_range = "30d"` in `dashboard.toml`, or `--range`).
+- **Custom:** a From and To date picker. To can't be after today, From can't be after To, and the span is limited to the data tokensave holds. The picker follows the theme.
+- **What follows the range:** the totals, the daily chart (one bar per day, with the axis dates following the range) and every list on every tab. The header always says the range in words, e.g. "Sep 27 – Oct 26, 2026 · 30 days".
+- **Shareable:** the range lives in the page's address (`?range=45d` or `?from=2026-10-01&to=2026-10-26`), so a link or a refresh keeps it.
+- **On a phone:** the presets stay visible as a row that scrolls sideways, and the chart scrolls inside its card for longer ranges.
+
 ## Theme and colours
 
 **Three modes: Dark, Light and Auto. Dark is the default** (owner's choice, 2026-10-26).
@@ -206,6 +229,28 @@ Local only (`127.0.0.1`), one page with tabs, dark by default with light and aut
 | `stop` fg/bg | `#7F1D1D` / `#FDECEC` | `#FCA5A5` / `#3A1717` | stopped |
 | heat scale | `#E8EEFC` → `#1E3A8A` | `#1B2A4A` → `#93C5FD` | the model × effort grid; text flips to stay ≥ 4.5:1 |
 
+**More colours: a category set.**
+The text, icon and surface colours above stay as they are. On top of them, eight category colours mark *which* thing a row, bar or icon belongs to, in the style of Cargo's small coloured marks. They're used for bars, dots, icon tiles and legend swatches, never for body text.
+
+| Token | Light | Dark | Default meaning |
+|---|---|---|---|
+| `cat-emerald` | `#059669` | `#10D49A` | builder role |
+| `cat-sky` | `#0284C7` | `#38BDF8` | Codex |
+| `cat-amber` | `#A16207` | `#E2A717` | Explore role, Pi |
+| `cat-violet` | `#6D5DF0` | `#A5ADF8` | reviewer role, Cursor |
+| `cat-coral` | `#C2410C` | `#F08A6C` | Claude Code |
+| `cat-pink` | `#DB2777` | `#F472B6` | Factory Droid |
+| `cat-teal` | `#0F766E` | `#2DD4BF` | other roles |
+| `cat-slate` | `#475569` | `#94A3B8` | main session, "other" |
+
+**Rules:**
+- **Contrast:** every category colour is at least 3:1 on `surface` in both themes (measured 3.8–7.6 light, 6.5–9.3 dark).
+- **Icon tiles:** a tile is the category colour at 12% (light) or 16% (dark) over `surface`, with the icon in the full colour. That's at least 3.25:1 light and 5.1:1 dark.
+- **Fixed assignments:** agent tools and roles keep their colour on every tab. Models take the set in order of spend. Past eight items, the rest fold into `cat-slate` "other".
+- **Never colour alone:** a colour never stands without its label, and legends name every colour.
+- **Configurable:** `[colors]` in `dashboard.toml` can reassign a meaning to another category, but can't add a colour that hasn't passed the contrast test.
+- **Eyebrow labels** (small, upper-case and letter-spaced above a section, e.g. "BY AGENT TOOL") use `accent`.
+
 **Accessibility rules:**
 - Spent and saved are blue and amber: they differ in lightness as well as hue, so they still read for colour-blind viewers.
 - State is never shown by colour alone. Every badge carries its word.
@@ -214,6 +259,33 @@ Local only (`127.0.0.1`), one page with tabs, dark by default with light and aut
 
 **Print and screenshots** always use the light theme.
 
+## Fits every screen
+
+The dashboard resizes itself to the device. Nothing is pinched or zoomed, and the page never scrolls sideways.
+
+| Width | Layout |
+|---|---|
+| Phone (< 640 px) | One column. The header keeps the logo and the theme switch; filters fold into a "Filters" sheet. Tabs become a sticky row that scrolls sideways. Tiles go two per row. Tables become stacked cards, one card per row, with the key figure on top. |
+| Tablet (640–1024 px) | Two columns of panels; tables stay tables and scroll inside their own box. |
+| Desktop (1024–1440 px) | The full layout. |
+| Wide (> 1440 px) | Content stays at 1440 px and centred. |
+
+**Charts:**
+- The daily chart keeps its full width.
+- On a phone it defaults to 7 days, and 30 days scrolls inside the chart.
+- The model × effort grid keeps its first column fixed while the effort columns scroll.
+
+**Type and touch:**
+- Headings and numbers scale with the screen (`clamp()`), and body text never drops below 14 px.
+- Touch targets are at least 44 px.
+- Phone notches and rounded corners are respected (safe areas).
+
+**Behaviour:**
+- Rotating the device, or resizing the window, reflows the page live.
+- Reduced-motion settings turn off chart animations.
+
+**Checked in CI:** Playwright opens every tab at 390, 768, 1024 and 1440 px and checks that the page width equals the screen width, with no sideways scroll. Light and dark screenshots are kept as artifacts.
+
 ## Stories, in order
 
 1. **S1, data:**
@@ -221,7 +293,7 @@ Local only (`127.0.0.1`), one page with tabs, dark by default with light and aut
    - add a migration for `turns` and a new `agent_runs` table from the `.meta.json` files;
    - write tests against fixture logs.
 2. **S2, workspace:** `.tokensave-workspace.toml`; discovery from a repo; `workspace init/scan/init-all/sync-all`; `init --workspace`.
-3. **S3, dashboard server:**
+3. **S3, dashboard server and page (Preact + TypeScript, built by Vite, embedded in the binary):**
    - `dashboard enable/start/stop/status/open`;
    - one port per machine and a refusal when it's busy;
    - read-only queries on `global.db`;
@@ -238,6 +310,8 @@ Local only (`127.0.0.1`), one page with tabs, dark by default with light and aut
 - **Repo listing:** `workspace scan` lists every child repo with its status. `init-all --dry-run` shows what would be indexed.
 - **Second workspace:** enabling the dashboard from a second workspace adds it to the running dashboard instead of starting another one.
 - **Dashboard:** the six tabs above, filters, and numbers that match the database. Tests seed a fixture database and check each figure.
+- **Date range:** the presets 7, 30 (default), 45, 60 and 90 days and a custom From/To range, kept in the address; every figure and list follows it.
+- **Fits every screen:** every tab passes the no-sideways-scroll check at 390, 768, 1024 and 1440 px; on a phone, tables are cards and filters a sheet.
 - **Theme:** Dark is the default; Auto follows the OS and switches live; the switch is remembered per browser; `theme` and `accent` in `dashboard.toml` are validated; every token pair passes the contrast test in both themes.
 - **Sources:** the Sources tab lists each tool found, and an unknown format shows as such, never guessed.
 - **Privacy:** nothing leaves the machine, the dashboard binds to `127.0.0.1`, and prompt or file content is never stored or shown. tokensave's upload counter is off by default in the fork, or one command turns it off (`tokensave disable-upload-counter`).
@@ -245,24 +319,29 @@ Local only (`127.0.0.1`), one page with tabs, dark by default with light and aut
 
 ## Mockups
 
-Light theme, sample data. Each page is a self-contained HTML file next to its screenshot, and the tabs link to each other. The dark theme's colours are on the theme tokens page; an editable design canvas with a dark Overview is linked from issue #227.
+The mockup is one app (target `preact-ts`): every tab shares the theme, the date range and the filters. Dark is the product's default; the screenshots here are light, per the repo's rule for screenshots. The theme tokens page shows both themes' colours. Sample data, generic names.
 
-| Page | Screenshot |
+| Tab | Screenshot |
 |---|---|
-| [Overview](mockups/overview.html) | <img src="mockups/overview.png" alt="Overview: totals, spent against saved per day, by agent tool and by model, costliest runs" width="720"> |
-| [Agents](mockups/agents.html) | <img src="mockups/agents.png" alt="Agents: sessions with their subagents nested, cost by role" width="720"> |
-| [Models and effort](mockups/models-and-effort.html) | <img src="mockups/models-and-effort.png" alt="Models and effort: a model by effort cost grid, thinking share, fallbacks" width="720"> |
-| [Repos](mockups/repos.html) | <img src="mockups/repos.png" alt="Repos: the workspace, repos with status, spent and saved, and the command to index the rest" width="720"> |
+| [Overview](mockups/overview.html) | <img src="mockups/overview.png" alt="Overview: totals, spent against saved per day for the chosen range, by agent tool and by model, costliest runs" width="720"> |
+| [Agents](mockups/agents.html) | <img src="mockups/agents.png" alt="Agents: sessions with their subagents, role, tool, model and effort, cost by role" width="720"> |
+| [Models and effort](mockups/models.html) | <img src="mockups/models.png" alt="Models and effort: a model by effort cost grid, thinking share, fallbacks" width="720"> |
+| [Repos](mockups/repos.html) | <img src="mockups/repos.png" alt="Repos: the workspace, each repo's status, spent and saved, and the command to index the rest" width="720"> |
 | [Savings](mockups/savings.html) | <img src="mockups/savings.png" alt="Savings: saved by tokensave tool, missed savings by kind" width="720"> |
 | [Sources](mockups/sources.html) | <img src="mockups/sources.png" alt="Sources: each agent tool found, its path and format status" width="720"> |
 | [Theme tokens](mockups/theme-tokens.html) | <img src="mockups/theme-tokens.png" alt="Theme tokens: every colour in light and dark with its contrast ratio" width="720"> |
 | Overview on a phone | <img src="mockups/overview-mobile.png" alt="The Overview at phone width" width="240"> |
 
+**Source.** `mockups/source/` holds the design-canvas files: `Main.dc.html` is the app, and the `Tab*`, `Tablet` and `Phone` files open it on one tab or at one width. Regenerate the pages and check every variant with:
+
+```
+scripts/mockups/check.py docs/tooling/tokensave-dashboard/mockups/source/Main.dc.html --out /tmp/mockup-check --export docs/tooling/tokensave-dashboard/mockups
+```
+
 ## Notes
 
 - Built on the Mac: this cloud workspace can't build Rust (crates.io isn't reachable).
-- Sample repo names in the mockups are placeholders.
-- The mockup HTML was made from the design canvas; the screenshots are Chromium at 1440 px (390 px for the phone).
+- The editable design canvas is linked from issue #227 (private to the owner).
 
 ---
 <!-- inkcast-nav -->
