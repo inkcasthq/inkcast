@@ -411,8 +411,12 @@ class Publisher:
         if not row or row["user_id"] != user_id:
             raise PlatformError(f"No post {post_id!r}.")
         # One conditional update, so a scheduler claim can't land between a status check and the write.
+        name = getattr(self.platforms.get(row["platform"]), "name", row["platform"])
+        note = (f"Cancelled while Inkcast was still asking {name} whether an interrupted send arrived: it may already "
+                f"be on {name}. Check {name}, and remove it there if it is.")
         if not self.store.cancel_if_pending(
-                post_id, user_id, events=self._event("post.cancelled", post_id, user_id, row["platform"])):
+                post_id, user_id, events=self._event("post.cancelled", post_id, user_id, row["platform"]),
+                recovering_note=note):
             status = (self.store.get_post(post_id) or row)["status"]
             raise PlatformError(
                 f"Post {post_id} is {status}; only scheduled or recovering posts can be cancelled. Published stories "

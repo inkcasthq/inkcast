@@ -76,7 +76,8 @@ class PostsRepo(Database):
                 insert_events(c, events)
         return changed
 
-    def cancel_if_pending(self, post_id: str, user_id: str, events: Iterable[DomainEvent] | None = None) -> bool:
+    def cancel_if_pending(self, post_id: str, user_id: str, events: Iterable[DomainEvent] | None = None,
+                          recovering_note: str | None = None) -> bool:
         """Move one of the user's posts from 'scheduled' or 'recovering' to 'cancelled' in a single conditional
         statement. A 'recovering' post (its send was interrupted, and the platform has not said whether it arrived)
         is the person's to cancel too (#216): recovery writes its answer only while the post is still 'recovering'
@@ -85,12 +86,14 @@ class PostsRepo(Database):
         False when the post is neither any more: the scheduler claimed it a moment ago, it was already cancelled, or
         recovery resolved it. Checking the status and then updating it separately would let a claim slip in between,
         and the post would go out after the cancel reported success. ``events`` are written only when the cancel
-        happened, in the same transaction (the outbox)."""
+        happened, in the same transaction (the outbox). ``recovering_note`` replaces a 'recovering' post's error (what
+        recovery said it would do next), in the same statement."""
         with self._tx() as c:
             changed = c.execute(
-                "UPDATE posts SET status = 'cancelled', updated_at = ? WHERE id = ? AND user_id = ?"
-                " AND status IN ('scheduled', 'recovering')",
-                (time.time(), post_id, user_id),
+                "UPDATE posts SET status = 'cancelled', updated_at = ?,"
+                " error = CASE WHEN status = 'recovering' THEN COALESCE(?, error) ELSE error END"
+                " WHERE id = ? AND user_id = ? AND status IN ('scheduled', 'recovering')",
+                (time.time(), recovering_note, post_id, user_id),
             ).rowcount == 1
             if changed:
                 insert_events(c, events)

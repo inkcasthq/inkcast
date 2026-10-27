@@ -297,5 +297,38 @@ class HeldAFreshInterruptionIsStillRecovered(Harness):
         self.assertEqual((self.status(post_id), self.platform.delivered), ("published", ["t"]))
 
 
+# ---- 3. after cancelling a 'recovering' post, Inkcast still says it will check it, and not that it may be out ------
+
+
+class FindingACancelledRecoveringPostStillSaysItWillBeChecked(Harness):
+    """The person cancels a 'recovering' post: its send was interrupted and the platform never said whether it
+    arrived, so it may already be out (the runbook: "if it did arrive, it stays on the platform"). The reply the REST
+    route returns, and the listing (REST and ``inkcast_posts``), show the post 'cancelled' with the error recovery
+    left: "...; it will be checked again." Nothing checks it again, and nothing says it may be on the platform, which
+    is the one thing the person must do something about."""
+
+    def test_the_cancelled_post_says_it_may_be_on_the_platform_and_not_that_it_will_be_checked(self):
+        from inkcast.services.publishing.usecases import InkcastService
+        post_id = self.post("publishing")
+        self.store._exec("UPDATE posts SET updated_at = updated_at - ? WHERE id = ?", STUCK_AFTER + 1, post_id)
+        self.tick()                                                           # the lookup is refused: 'recovering'
+        self.assertIn("it will be checked again", self.store.get_post(post_id)["error"])
+        service = InkcastService(self.store, {self.platform.id: self.platform}, self.publisher, "https://inkcast.example.com")
+        info = service.cancel(self.user, post_id)                             # the REST reply (and MCP's use case)
+        (listed,) = [p for p in service.list_posts(self.user) if p.id == post_id]
+        for shown in (info, listed):
+            self.assertEqual(shown.status, "cancelled")
+            self.assertNotIn("checked again", shown.error or "", "nothing checks a cancelled post")
+            self.assertIn("may already be on Hooked", shown.error or "", "the person is not told to check Hooked")
+
+
+class HeldACancelledScheduledPostKeepsItsError(Harness):
+    def test_a_cancelled_scheduled_post_keeps_what_it_said(self):
+        post_id = self.post("scheduled", run_at=time.time() + DAY)
+        self.store._exec("UPDATE posts SET error = 'retrying: Hooked is unreachable.' WHERE id = ?", post_id)
+        self.publisher.cancel(self.user, post_id)
+        self.assertEqual(self.store.get_post(post_id)["error"], "retrying: Hooked is unreachable.")
+
+
 if __name__ == "__main__":
     unittest.main()
