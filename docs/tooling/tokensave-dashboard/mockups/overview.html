@@ -6,14 +6,13 @@
 <title>tokensave dashboard</title>
 <style>
 body{margin:0}
-a{color:#93C5FD}a:hover{color:#BFDBFE}
 .ts-filterbtn{display:none}
 @media (max-width:640px){.ts-filters{display:none!important}.ts-filterbtn{display:flex!important}}
 </style>
 </head>
 <body>
 <div style="font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #1A1D21; background: #F6F7F9; min-height: 100vh; width: 100%">
-  <header style="background: #FFFFFF; border-bottom: 1px solid #E3E5E8">
+  <header data-component="app-header" data-dataset="status" style="background: #FFFFFF; border-bottom: 1px solid #E3E5E8">
     <div style="max-width: 1440px; margin: 0 auto; padding: 14px 24px 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px">
       <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; justify-content: space-between">
         <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">
@@ -30,7 +29,7 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
           <label style="font-size: 12px; color: #555E6B; display: flex; align-items: center; gap: 6px">Workspace
             <select style="font: inherit; font-size: 13px; color: #1A1D21; padding: 6px 8px; border: 1px solid #CDD1D6; border-radius: 6px; background: #F6F7F9; min-height: 36px"><option>~/gitRepos</option><option>All workspaces</option></select>
           </label>
-          <div role="group" aria-label="Theme" style="display: flex; border: 1px solid #CDD1D6; border-radius: 8px; overflow: hidden">
+          <div data-component="segmented" data-dataset="themes" role="group" aria-label="Theme" style="display: flex; border: 1px solid #CDD1D6; border-radius: 8px; overflow: hidden">
             
               <button aria-pressed="false" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; background: transparent; color: #1A1D21; min-height: 36px; cursor: pointer">Dark</button>
             
@@ -55,7 +54,7 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
       </div>
       <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
         <span style="font-size: 12px; color: #555E6B">Date range</span>
-        <div role="group" aria-label="Date range" style="display: flex; border: 1px solid #CDD1D6; border-radius: 8px; overflow-x: auto; max-width: 100%">
+        <div role="group" aria-label="Date range" data-component="segmented" data-dataset="ranges" style="display: flex; border: 1px solid #CDD1D6; border-radius: 8px; overflow-x: auto; max-width: 100%">
           
             <button aria-pressed="false" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; border-left: 0; background: transparent; color: #1A1D21; min-height: 36px; white-space: nowrap; cursor: pointer">7 days</button>
           
@@ -94,7 +93,7 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
   <main style="max-width: 1440px; margin: 0 auto; padding: 20px 24px 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px">
 
     
-      <section aria-label="Totals" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px">
+      <section aria-label="Totals" data-component="kpi-tiles" data-dataset="summary" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px">
         
           <div style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; min-width: 0">
             <span style="font-size: 13px; color: #555E6B">Tokens spent</span>
@@ -127,7 +126,7 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
           </div>
         
       </section>
-      <section aria-label="Spent against saved" style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px">
+      <section aria-label="Spent against saved" data-component="time-series" data-dataset="days" style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px">
         <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px">
           <div style="display: flex; flex-direction: column; gap: 4px">
             <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #1D4ED8">Spend and savings</span>
@@ -299,7 +298,7 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
       </section>
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px">
         
-          <section style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0">
+          <section data-component="bar-list" data-dataset="mix" style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0">
             <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #1D4ED8">Who did the work</span>
             <h2 style="margin: 0; font-size: 16px; font-weight: 600">By agent tool</h2>
             
@@ -314,14 +313,14 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
               </div>
             
               <div style="display: flex; flex-direction: column; gap: 4px">
-                <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 13px"><span style="display: flex; align-items: center; gap: 8px; font-family: inherit"><span style="width: 10px; height: 10px; border-radius: 50%; background: #6D5DF0; flex: none"></span>Cursor (partial)</span><span style="font-family: 'IBM Plex Mono', monospace; color: #555E6B; white-space: nowrap">1.5M · 3%</span></div>
+                <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 13px"><span style="display: flex; align-items: center; gap: 8px; font-family: inherit"><span style="width: 10px; height: 10px; border-radius: 50%; background: #6D5DF0; flex: none"></span>Cursor</span><span style="font-family: 'IBM Plex Mono', monospace; color: #555E6B; white-space: nowrap">1.5M · 3%</span></div>
                 <div style="height: 8px; background: #EEF0F3; border-radius: 4px"><div style="height: 8px; border-radius: 4px; background: #6D5DF0; width: 3%"></div></div>
               </div>
             
-            <span style="font-size: 12px; color: #555E6B">Cursor's figures are partial: it records only some token counts.</span>
+            <span style="font-size: 12px; color: #555E6B">Cursor's figures come from your Cursor account, when its sync is on.</span>
           </section>
         
-          <section style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0">
+          <section data-component="bar-list" data-dataset="mix" style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0">
             <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #1D4ED8">On which model</span>
             <h2 style="margin: 0; font-size: 16px; font-weight: 600">By model</h2>
             
@@ -341,7 +340,7 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
               </div>
             
               <div style="display: flex; flex-direction: column; gap: 4px">
-                <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 13px"><span style="display: flex; align-items: center; gap: 8px; font-family: 'IBM Plex Mono', monospace"><span style="width: 10px; height: 10px; border-radius: 50%; background: #6D5DF0; flex: none"></span>[Codex model]</span><span style="font-family: 'IBM Plex Mono', monospace; color: #555E6B; white-space: nowrap">1.5M · 3%</span></div>
+                <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 13px"><span style="display: flex; align-items: center; gap: 8px; font-family: 'IBM Plex Mono', monospace"><span style="width: 10px; height: 10px; border-radius: 50%; background: #6D5DF0; flex: none"></span>gpt-6.1-sol</span><span style="font-family: 'IBM Plex Mono', monospace; color: #555E6B; white-space: nowrap">1.5M · 3%</span></div>
                 <div style="height: 8px; background: #EEF0F3; border-radius: 4px"><div style="height: 8px; border-radius: 4px; background: #6D5DF0; width: 3%"></div></div>
               </div>
             
@@ -349,7 +348,7 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
           </section>
         
       </div>
-      <section aria-label="Costliest runs" style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+      <section aria-label="Costliest runs" data-component="row-list" data-dataset="topRuns" style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
         <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #1D4ED8">Where it went</span>
         <h2 style="margin: 0; font-size: 16px; font-weight: 600">Costliest agent runs</h2>
         <div style="display: flex; flex-direction: column">

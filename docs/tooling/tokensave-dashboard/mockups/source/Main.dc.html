@@ -12,30 +12,29 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
 <style>
 body{margin:0}
-a{color:#93C5FD}a:hover{color:#BFDBFE}
 .ts-filterbtn{display:none}
 @media (max-width:640px){.ts-filters{display:none!important}.ts-filterbtn{display:flex!important}}
 </style>
 </helmet>
 <div style="font-family: 'IBM Plex Sans', system-ui, sans-serif; color: {{c.text}}; background: {{c.bg}}; min-height: 100vh; width: 100%">
-  <header style="background: {{c.surface}}; border-bottom: 1px solid {{c.border}}">
+  <header data-component="app-header" data-dataset="status" style="background: {{c.surface}}; border-bottom: 1px solid {{c.border}}">
     <div style="max-width: 1440px; margin: 0 auto; padding: 14px 24px 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px">
       <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; justify-content: space-between">
         <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">
           <div style="width: 32px; height: 32px; border-radius: 8px; background: {{c.logoBg}}; display: flex; align-items: center; justify-content: center">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"></path></svg>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{{c.logoFg}}" stroke-width="2" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"></path></svg>
           </div>
           <div style="display: flex; flex-direction: column">
             <span style="font-size: 18px; font-weight: 600">tokensave</span>
-            <span style="font-size: 12px; color: {{c.muted}}">Dashboard · 127.0.0.1:7311</span>
+            <span style="font-size: 12px; color: {{c.muted}}">{{serverText}}</span>
           </div>
           <span style="font-size: 12px; font-weight: 500; color: {{c.sampleFg}}; background: {{c.sampleBg}}; border: 1px solid {{c.sampleBorder}}; border-radius: 999px; padding: 3px 10px">Sample data · mockup</span>
         </div>
         <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
           <label style="font-size: 12px; color: {{c.muted}}; display: flex; align-items: center; gap: 6px">Workspace
-            <select style="font: inherit; font-size: 13px; color: {{c.text}}; padding: 6px 8px; border: 1px solid {{c.control}}; border-radius: 6px; background: {{c.bg}}; min-height: 36px"><option>~/gitRepos</option><option>All workspaces</option></select>
+            <select style="font: inherit; font-size: 13px; color: {{c.text}}; padding: 6px 8px; border: 1px solid {{c.control}}; border-radius: 6px; background: {{c.bg}}; min-height: 36px"><sc-for list="{{workspaceOptions}}" as="w" hint-placeholder-count="2"><option>{{w}}</option></sc-for></select>
           </label>
-          <div role="group" aria-label="Theme" style="display: flex; border: 1px solid {{c.control}}; border-radius: 8px; overflow: hidden">
+          <div data-component="segmented" data-dataset="themes" role="group" aria-label="Theme" style="display: flex; border: 1px solid {{c.control}}; border-radius: 8px; overflow: hidden">
             <sc-for list="{{themes}}" as="t" hint-placeholder-count="3">
               <button aria-pressed="{{t.pressed}}" onClick="{{t.pick}}" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; background: {{t.bg}}; color: {{t.fg}}; min-height: 36px; cursor: pointer">{{t.label}}</button>
             </sc-for>
@@ -50,7 +49,7 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
       </div>
       <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
         <span style="font-size: 12px; color: {{c.muted}}">Date range</span>
-        <div role="group" aria-label="Date range" style="display: flex; border: 1px solid {{c.control}}; border-radius: 8px; overflow-x: auto; max-width: 100%">
+        <div role="group" aria-label="Date range" data-component="segmented" data-dataset="ranges" style="display: flex; border: 1px solid {{c.control}}; border-radius: 8px; overflow-x: auto; max-width: 100%">
           <sc-for list="{{ranges}}" as="r" hint-placeholder-count="6">
             <button aria-pressed="{{r.pressed}}" onClick="{{r.pick}}" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; border-left: {{r.sep}}; background: {{r.bg}}; color: {{r.fg}}; min-height: 36px; white-space: nowrap; cursor: pointer">{{r.label}}</button>
           </sc-for>
@@ -74,7 +73,7 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
   <main style="max-width: 1440px; margin: 0 auto; padding: 20px 24px 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px">
 
     <sc-if value="{{is.overview}}" hint-placeholder-val="{{true}}">
-      <section aria-label="Totals" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px">
+      <section aria-label="Totals" data-component="kpi-tiles" data-dataset="summary" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px">
         <sc-for list="{{tiles}}" as="t" hint-placeholder-count="5">
           <div style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; min-width: 0">
             <span style="font-size: 13px; color: {{c.muted}}">{{t.label}}</span>
@@ -83,7 +82,7 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
           </div>
         </sc-for>
       </section>
-      <section aria-label="Spent against saved" style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px">
+      <section aria-label="Spent against saved" data-component="time-series" data-dataset="days" style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px">
         <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px">
           <div style="display: flex; flex-direction: column; gap: 4px">
             <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">Spend and savings</span>
@@ -110,7 +109,7 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
       </section>
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px">
         <sc-for list="{{mixes}}" as="mx" hint-placeholder-count="2">
-          <section style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0">
+          <section data-component="bar-list" data-dataset="mix" style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0">
             <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">{{mx.eyebrow}}</span>
             <h2 style="margin: 0; font-size: 16px; font-weight: 600">{{mx.title}}</h2>
             <sc-for list="{{mx.rows}}" as="m" hint-placeholder-count="4">
@@ -123,7 +122,7 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
           </section>
         </sc-for>
       </div>
-      <section aria-label="Costliest runs" style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+      <section aria-label="Costliest runs" data-component="row-list" data-dataset="topRuns" style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
         <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">Where it went</span>
         <h2 style="margin: 0; font-size: 16px; font-weight: 600">Costliest agent runs</h2>
         <div style="display: flex; flex-direction: column">
@@ -139,7 +138,7 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
 
     <sc-if value="{{is.agents}}" hint-placeholder-val="{{false}}">
       <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start">
-        <section aria-label="Sessions and subagents" style="flex: 999 1 560px; min-width: 0; background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+        <section aria-label="Sessions and subagents" data-component="row-list" data-dataset="runs" style="flex: 999 1 560px; min-width: 0; background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
           <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">Agent runs</span>
           <h2 style="margin: 0; font-size: 16px; font-weight: 600">Sessions and the agents they started</h2>
           <span style="font-size: 12px; color: {{c.muted}}">Roles come from each subagent's own record (type and description); nothing is read from prompts.</span>
@@ -152,7 +151,7 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
             </sc-for>
           </div>
         </section>
-        <aside aria-label="Cost by role" style="flex: 1 1 280px; min-width: 0; background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+        <aside aria-label="Cost by role" data-component="bar-list" data-dataset="roles" style="flex: 1 1 280px; min-width: 0; background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
           <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">By role</span>
           <h2 style="margin: 0; font-size: 16px; font-weight: 600">Cost by role</h2>
           <sc-for list="{{roles}}" as="m" hint-placeholder-count="5">
@@ -162,15 +161,15 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
             </div>
           </sc-for>
           <div style="border-top: 1px solid {{c.border}}; padding-top: 10px; display: flex; flex-direction: column; gap: 6px; font-size: 13px">
-            <div style="display: flex; justify-content: space-between"><span style="color: {{c.muted}}">Subagent share of spend</span><span style="font-family: 'IBM Plex Mono', monospace">78%</span></div>
-            <div style="display: flex; justify-content: space-between"><span style="color: {{c.muted}}">Runs that didn't finish</span><span style="font-family: 'IBM Plex Mono', monospace">4</span></div>
+            <div style="display: flex; justify-content: space-between"><span style="color: {{c.muted}}">Subagent share of spend</span><span style="font-family: 'IBM Plex Mono', monospace">{{subagentShare}}</span></div>
+            <div style="display: flex; justify-content: space-between"><span style="color: {{c.muted}}">Runs that didn't finish</span><span style="font-family: 'IBM Plex Mono', monospace">{{unfinishedRuns}}</span></div>
           </div>
         </aside>
       </div>
     </sc-if>
 
     <sc-if value="{{is.models}}" hint-placeholder-val="{{false}}">
-      <section aria-label="Model by effort" style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px">
+      <section aria-label="Model by effort" data-component="heat-grid" data-dataset="models" style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px">
         <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">Models and effort</span>
         <h2 style="margin: 0; font-size: 16px; font-weight: 600">Cost by model and effort</h2>
         <div style="overflow-x: auto">
@@ -185,10 +184,10 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
             </sc-for>
           </div>
         </div>
-        <span style="font-size: 12px; color: {{c.muted}}">Effort is read per turn from Claude Code and Codex. Cursor doesn't record it.</span>
+        <span style="font-size: 12px; color: {{c.muted}}">Effort is read per turn from Claude Code and Codex. Cursor reports none of its own.</span>
       </section>
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px">
-        <section style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+        <section data-component="bar-list" data-dataset="thinking" style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
           <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">Thinking</span>
           <h2 style="margin: 0; font-size: 16px; font-weight: 600">Thinking share of output</h2>
           <sc-for list="{{thinking}}" as="m" hint-placeholder-count="4">
@@ -198,7 +197,7 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
             </div>
           </sc-for>
         </section>
-        <section style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+        <section data-component="row-list" data-dataset="fallbacks" style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
           <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">Fallbacks</span>
           <h2 style="margin: 0; font-size: 16px; font-weight: 600">Served by a different model than requested</h2>
           <sc-for list="{{fallbacks}}" as="f" hint-placeholder-count="2">
@@ -206,25 +205,25 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
               <span style="font-family: 'IBM Plex Mono', monospace">{{f.pair}}</span><span style="color: {{c.muted}}">{{f.count}}</span>
             </div>
           </sc-for>
-          <div style="display: flex; justify-content: space-between; font-size: 13px; border-top: 1px solid {{c.border}}; padding-top: 10px"><span style="color: {{c.muted}}">Fallback rate</span><span style="font-family: 'IBM Plex Mono', monospace">0.4%</span></div>
+          <div style="display: flex; justify-content: space-between; font-size: 13px; border-top: 1px solid {{c.border}}; padding-top: 10px"><span style="color: {{c.muted}}">Fallback rate</span><span style="font-family: 'IBM Plex Mono', monospace">{{fallbackRate}}</span></div>
         </section>
       </div>
     </sc-if>
 
     <sc-if value="{{is.repos}}" hint-placeholder-val="{{false}}">
-      <section style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-wrap: wrap; gap: 20px; align-items: center; justify-content: space-between">
+      <section data-component="stat-strip" data-dataset="repos" style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-wrap: wrap; gap: 20px; align-items: center; justify-content: space-between">
         <div style="display: flex; flex-direction: column; gap: 4px; min-width: 0">
           <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">Workspace</span>
-          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 18px">~/gitRepos</span>
-          <span style="font-size: 12px; color: {{c.muted}}">marked by .tokensave-workspace.toml · scan depth 1</span>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 18px">{{workspace.path}}</span>
+          <span style="font-size: 12px; color: {{c.muted}}">{{workspace.note}}</span>
         </div>
         <div style="display: flex; flex-wrap: wrap; gap: 24px">
-          <div style="display: flex; flex-direction: column"><span style="font-size: 12px; color: {{c.muted}}">Repos</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 22px">6</span></div>
-          <div style="display: flex; flex-direction: column"><span style="font-size: 12px; color: {{c.muted}}">Indexed</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 22px">4</span></div>
-          <div style="display: flex; flex-direction: column"><span style="font-size: 12px; color: {{c.muted}}">Not indexed</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 22px; color: {{c.warnFg}}">2</span></div>
+          <sc-for list="{{workspace.stats}}" as="w" hint-placeholder-count="3">
+            <div style="display: flex; flex-direction: column"><span style="font-size: 12px; color: {{c.muted}}">{{w.label}}</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 22px; color: {{w.color}}">{{w.value}}</span></div>
+          </sc-for>
         </div>
       </section>
-      <section style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column">
+      <section data-component="row-list" data-dataset="repos" style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column">
         <h2 style="margin: 0 0 6px; font-size: 16px; font-weight: 600">Repos</h2>
         <sc-for list="{{repos}}" as="r" hint-placeholder-count="6">
           <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 10px 0; border-top: 1px solid {{c.border}}; font-size: 13px">
@@ -236,14 +235,14 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
           </div>
         </sc-for>
       </section>
-      <section style="background: {{c.warnBg}}; border: 1px solid {{c.warnBorder}}; border-radius: 10px; padding: 14px 18px; display: flex; flex-direction: column; gap: 8px">
-        <h2 style="margin: 0; font-size: 15px; font-weight: 600; color: {{c.warnFg}}">2 repos aren't indexed, so tokensave saves nothing there</h2>
-        <code style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; background: {{c.bg}}; border: 1px solid {{c.border}}; border-radius: 6px; padding: 10px 12px; color: {{c.text}}; overflow-x: auto">tokensave workspace init-all --dry-run</code>
+      <section data-component="callout" data-dataset="repos" style="background: {{c.warnBg}}; border: 1px solid {{c.warnBorder}}; border-radius: 10px; padding: 14px 18px; display: flex; flex-direction: column; gap: 8px">
+        <h2 style="margin: 0; font-size: 15px; font-weight: 600; color: {{c.warnFg}}">{{reposCallout.title}}</h2>
+        <code style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; background: {{c.bg}}; border: 1px solid {{c.border}}; border-radius: 6px; padding: 10px 12px; color: {{c.text}}; overflow-x: auto">{{reposCallout.command}}</code>
       </section>
     </sc-if>
 
     <sc-if value="{{is.savings}}" hint-placeholder-val="{{false}}">
-      <section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px">
+      <section data-component="kpi-tiles" data-dataset="savings" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px">
         <sc-for list="{{savingTiles}}" as="t" hint-placeholder-count="3">
           <div style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px">
             <span style="font-size: 13px; color: {{c.muted}}">{{t.label}}</span>
@@ -253,7 +252,7 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
         </sc-for>
       </section>
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px">
-        <section style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+        <section data-component="bar-list" data-dataset="savings" style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
           <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">Savings</span>
           <h2 style="margin: 0; font-size: 16px; font-weight: 600">Saved, by tokensave tool</h2>
           <sc-for list="{{saveTools}}" as="m" hint-placeholder-count="6">
@@ -263,7 +262,7 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
             </div>
           </sc-for>
         </section>
-        <section style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+        <section data-component="row-list" data-dataset="savings" style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
           <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">Missed savings</span>
           <h2 style="margin: 0; font-size: 16px; font-weight: 600">Where a graph call would have fitted</h2>
           <sc-for list="{{missed}}" as="x" hint-placeholder-count="3">
@@ -282,7 +281,7 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
         <h2 style="margin: 0; font-size: 18px; font-weight: 600">Agent tools found on this machine</h2>
         <span style="font-size: 13px; color: {{c.muted}}">Found by their local session data, read-only. A format tokensave doesn't recognise is reported here, never guessed.</span>
       </div>
-      <section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px">
+      <section data-component="card-grid" data-dataset="sources" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px">
         <sc-for list="{{sources}}" as="s" hint-placeholder-count="5">
           <div style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0">
             <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px">
@@ -303,6 +302,12 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
 </div>
 </x-dc>
 <script type="text/x-dc" data-dc-script data-props='{"$target":{"editor":null,"default":{"framework":"preact-ts","styling":"tokens.css (CSS variables)","state":"URL params; theme in storage","data":"REST under /api"}},"theme":{"editor":"enum","options":["dark","light","auto"],"default":"dark"},"tab":{"editor":"enum","options":["overview","agents","models","repos","savings","sources"],"default":"overview"},"range":{"editor":"enum","options":["7","30","45","60","90","custom"],"default":"30"},"$preview":{"width":1440,"height":1240}}'>
+// state theme: owner=App type='dark'|'light'|'auto' default='dark' storage=theme (config: dashboard.toml theme)
+// state tab: owner=App type='overview'|'agents'|'models'|'repos'|'savings'|'sources' default='overview' url=?tab=
+// state range: owner=App type='7'|'30'|'45'|'60'|'90'|'custom' default='30' url=?range= (config: dashboard.toml default_range)
+// state from: owner=App type=string (YYYY-MM-DD) default=today-29 url=?from= (only when range=custom)
+// state to: owner=App type=string (YYYY-MM-DD) default=today url=?to= (only when range=custom)
+// state filters: owner=App type={ workspace, repo, tool, model, effort } default=all url=?workspace=&repo=&tool=&model=&effort=
 class Component extends DCLogic {
   constructor(props) {
     super(props);
@@ -325,7 +330,7 @@ class Component extends DCLogic {
     const startD = new Date(end.getTime() - (n - 1) * DAY);
     const T = dark ? {
       bg: '#0F1216', surface: '#171B21', raised: '#1D2229', border: '#2A3038', track: '#232831', control: '#3A414B',
-      text: '#E6E8EB', muted: '#A1A9B4', accent: '#93C5FD', accentFg: '#0F1216', logoBg: '#2563EB',
+      text: '#E6E8EB', muted: '#A1A9B4', accent: '#93C5FD', accentFg: '#0F1216', logoBg: '#2563EB', logoFg: '#FFFFFF',
       spent: '#60A5FA', saved: '#FBBF24',
       okFg: '#86EFAC', okBg: '#12321F', warnFg: '#FDBA74', warnBg: '#3A2414', warnBorder: '#6B3F1D',
       infoFg: '#BFDBFE', infoBg: '#1B2A4A', stopFg: '#FCA5A5', stopBg: '#3A1717',
@@ -334,7 +339,7 @@ class Component extends DCLogic {
       cat: { emerald: '#10D49A', sky: '#38BDF8', amber: '#E2A717', violet: '#A5ADF8', coral: '#F08A6C', pink: '#F472B6', teal: '#2DD4BF', slate: '#94A3B8' }
     } : {
       bg: '#F6F7F9', surface: '#FFFFFF', raised: '#FAFBFC', border: '#E3E5E8', track: '#EEF0F3', control: '#CDD1D6',
-      text: '#1A1D21', muted: '#555E6B', accent: '#1D4ED8', accentFg: '#FFFFFF', logoBg: '#1D4ED8',
+      text: '#1A1D21', muted: '#555E6B', accent: '#1D4ED8', accentFg: '#FFFFFF', logoBg: '#1D4ED8', logoFg: '#FFFFFF',
       spent: '#1D4ED8', saved: '#D97706',
       okFg: '#14532D', okBg: '#E7F6EC', warnFg: '#7C2D12', warnBg: '#FDEFE3', warnBorder: '#F5C98B',
       infoFg: '#1E3A8A', infoBg: '#EEF2FF', stopFg: '#7F1D1D', stopBg: '#FDECEC',
@@ -342,14 +347,13 @@ class Component extends DCLogic {
       heat: [['#E8EEFC', '#1A1D21'], ['#BFD0F5', '#1A1D21'], ['#3B66D6', '#FFFFFF'], ['#1E3A8A', '#FFFFFF']], none: ['#F6F7F9', '#555E6B'],
       cat: { emerald: '#059669', sky: '#0284C7', amber: '#A16207', violet: '#6D5DF0', coral: '#C2410C', pink: '#DB2777', teal: '#0F766E', slate: '#475569' }
     };
-    const mix = (fg, a) => {
+    const tileOf = (fg, a) => {
       const p = (h, i) => parseInt(h.slice(i, i + 2), 16);
       return '#' + [1, 3, 5].map((i) => Math.round(a * p(fg, i) + (1 - a) * p(T.surface, i)).toString(16).padStart(2, '0')).join('');
     };
     const C = T.cat;
     const TOOL = { 'Claude Code': C.coral, 'Codex': C.sky, 'Cursor': C.violet, 'Pi': C.amber, 'Factory Droid': C.pink };
     const ROLE = { builder: C.emerald, reviewer: C.violet, main: C.slate, Explore: C.amber, other: C.teal };
-    const MODEL = { 'claude-opus-5-5': C.emerald, 'claude-fable-5-1': C.sky, 'claude-sonnet-5-5': C.amber, '[Codex model]': C.violet };
     const st = { none: { stBg: T.raised, stFg: T.muted }, ok: { stBg: T.okBg, stFg: T.okFg }, warn: { stBg: T.warnBg, stFg: T.warnFg }, info: { stBg: T.infoBg, stFg: T.infoFg }, stop: { stBg: T.stopBg, stFg: T.stopFg } };
 
     const pick = (m) => () => this.setState({ theme: m });
@@ -369,124 +373,204 @@ class Component extends DCLogic {
       const v = 60 + 30 * Math.sin(t / 5) + 15 * Math.sin(t * 1.7) - (dow === 0 || dow === 6 ? 32 : 0);
       spentD.push(Math.max(12, v)); savedD.push(Math.max(2, v * (0.11 + 0.03 * Math.sin(t / 3))));
     }
-    const peak = Math.max(...spentD);
-    const days = spentD.map((s, i) => ({ spentH: Math.round(s / peak * 184) + 'px', savedH: Math.round(savedD[i] / peak * 184) + 'px' }));
     const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => fmt(new Date(startD.getTime() + Math.round(f * (n - 1)) * DAY)));
-    const scale = n / 30, M = (v) => (v * scale).toFixed(1) + 'M';
+    const scale = n / 30;
     const ranges = [['7', '7 days'], ['30', '30 days'], ['45', '45 days'], ['60', '60 days'], ['90', '90 days'], ['custom', 'Custom']].map(([id, label], i) => ({
       label, pick: () => this.setState({ range: id }), pressed: String(range === id), sep: i ? '1px solid ' + T.control : '0',
       bg: range === id ? T.accent : 'transparent', fg: range === id ? T.accentFg : T.text
     }));
     const mono = "'IBM Plex Mono', monospace", sans = 'inherit';
-    const run = (name, role, tool, model, io, cost, state, top) => ({
-      name, role, tool, model, io, cost, state, ...st[{ finished: 'ok', running: 'info', stopped: 'stop', partial: 'warn' }[state]],
-      color: top ? TOOL[tool] : ROLE[role], tile: mix(top ? TOOL[tool] : ROLE[role], T.tint), indent: top ? '0px' : '24px', weight: top ? '600' : '400'
-    });
-    const repo = (name, path, status, spent, saved, tools, last) => ({
-      name, path, status, spent, saved, last, ...(status === 'indexed' ? st.ok : st.warn),
-      tools: tools.map((t) => ({ name: t, color: TOOL[t] }))
-    });
+    // Formatting: the API returns raw numbers and ISO times; these turn them into the text the page shows.
+    const M1 = (t) => (t / 1e6).toFixed(1) + 'M';
+    const M2 = (t) => (t / 1e6).toFixed(2) + 'M';
+    const K = (t) => (t === null ? '—' : t < 1e6 ? Math.round(t / 1e3) + 'k' : M2(t));
+    const usd = (c) => (c === null ? '—' : '$' + c.toFixed(2));
+    const pct = (s) => Math.round(s * 100) + '%';
+    const int = (v) => (v === null ? '—' : v.toLocaleString('en-US'));
+    const short = (model) => model.replace(/^claude-/, '');
+    const label = (model, effort) => (effort ? short(model) + ' · ' + effort : short(model));
+    const now = Date.parse(today + 'T12:00:00Z');
+    const at = (minutesAgo) => new Date(now - minutesAgo * 60000).toISOString();
+    const ago = (iso) => {
+      if (iso === null) return 'never';
+      const m = Math.round((now - Date.parse(iso)) / 60000), d = Math.floor(m / 1440);
+      return m < 60 ? m + ' min ago' : m < 1440 ? Math.floor(m / 60) + ' h ago' : d === 1 ? 'yesterday' : d < 7 ? d + ' days ago' : d < 14 ? '1 week ago' : Math.floor(d / 7) + ' weeks ago';
+    };
+
+    // dataset status: GET /api/status → Status
+    // type Status = { bind: string; port: number; workspaces: string[] }
+    const status = { bind: '127.0.0.1', port: 7311, workspaces: ['~/gitRepos'] };
+
+    // dataset summary: GET /api/summary?range&from&to&repo&tool&model&effort → Summary
+    // type Summary = { spentTokens: number; costUsd: number; unpricedTurns: number; savedTokens: number; savingRate: number; cacheHitRate: number }
+    const summary = { spentTokens: 48.2e6 * scale, costUsd: 312.4 * scale, unpricedTurns: 0, savedTokens: 6.9e6 * scale, savingRate: 0.125, cacheHitRate: 0.71 };
+
+    // dataset days: GET /api/daily?range&from&to&repo&tool&model&effort → Day[]
+    // type Day = { date: string; spentTokens: number; savedTokens: number }   (date: YYYY-MM-DD, one per day of the range)
+    const daily = spentD.map((s, i) => ({ date: new Date(startD.getTime() + i * DAY).toISOString().slice(0, 10), spentTokens: s * 1e5, savedTokens: savedD[i] * 1e5 }));
+
+    // dataset mix: GET /api/mix?range&from&to&repo&tool&model&effort → Mix
+    // type Mix = { byTool: { tool: Tool; tokens: number; share: number }[]; byModel: { model: string; tokens: number; share: number }[] }
+    // type Tool = 'Claude Code'|'Codex'|'Cursor'|'Pi'|'Factory Droid'
+    const mix = {
+      byTool: [{ tool: 'Claude Code', tokens: 39.5e6, share: 0.82 }, { tool: 'Codex', tokens: 7.2e6, share: 0.15 }, { tool: 'Cursor', tokens: 1.5e6, share: 0.03 }],
+      byModel: [{ model: 'claude-opus-5-5', tokens: 29.4e6, share: 0.61 }, { model: 'claude-fable-5-1', tokens: 13.0e6, share: 0.27 }, { model: 'claude-sonnet-5-5', tokens: 4.3e6, share: 0.09 }, { model: 'gpt-6.1-sol', tokens: 1.5e6, share: 0.03 }]
+    };
+
+    // dataset topRuns: GET /api/runs/top?limit=5&range&from&to&repo&tool&model&effort → TopRun[]
+    // type TopRun = { id: string; name: string; role: Role; repo: string; model: string; effort: Effort | null; tokens: number; costUsd: number | null }
+    // type Role = 'main'|'builder'|'reviewer'|'Explore'|'other'
+    // type Effort = 'low'|'medium'|'high'|'xhigh'|'max'
+    const top = [
+      { id: 'r1', name: 'Review PR #178', role: 'reviewer', repo: 'inkcast', model: 'claude-opus-5-5', effort: 'xhigh', tokens: 2.31e6, costUsd: 18.7 },
+      { id: 'r2', name: 'Build #226', role: 'builder', repo: 'inkcast', model: 'claude-fable-5-1', effort: 'xhigh', tokens: 2.04e6, costUsd: 16.1 },
+      { id: 'r3', name: 'Review PR #217', role: 'reviewer', repo: 'inkcast', model: 'claude-opus-5-5', effort: 'xhigh', tokens: 1.88e6, costUsd: 15.2 },
+      { id: 'r4', name: 'Build #213', role: 'builder', repo: 'inkcast', model: 'claude-fable-5-1', effort: 'xhigh', tokens: 1.21e6, costUsd: 9.6 },
+      { id: 'r5', name: 'Main session', role: 'main', repo: 'inkcast', model: 'claude-opus-5-5', effort: 'high', tokens: 0.97e6, costUsd: 7.9 }
+    ];
+
+    // dataset runs: GET /api/runs?range&from&to&repo&tool&model&effort → Run[]
+    // type Run = { id: string; parentId: string | null; name: string; role: Role; tool: Tool; model: string; effort: Effort | null; inputTokens: number; outputTokens: number | null; costUsd: number | null; state: 'finished'|'running'|'stopped'|'partial' }
+    const runList = [
+      { id: 's1', parentId: null, name: 'inkcast · main session', role: 'main', tool: 'Claude Code', model: 'claude-opus-5-5', effort: 'high', inputTokens: 412e3, outputTokens: 38e3, costUsd: 7.9, state: 'running' },
+      { id: 'a1', parentId: 's1', name: 'Build #226', role: 'builder', tool: 'Claude Code', model: 'claude-fable-5-1', effort: 'xhigh', inputTokens: 1.81e6, outputTokens: 230e3, costUsd: 16.1, state: 'finished' },
+      { id: 'a2', parentId: 's1', name: 'Review PR #178', role: 'reviewer', tool: 'Claude Code', model: 'claude-opus-5-5', effort: 'xhigh', inputTokens: 2.02e6, outputTokens: 290e3, costUsd: 18.7, state: 'finished' },
+      { id: 'a3', parentId: 's1', name: 'Review PR #221 (first try)', role: 'reviewer', tool: 'Claude Code', model: 'claude-opus-5-5', effort: 'xhigh', inputTokens: 640e3, outputTokens: 80e3, costUsd: 5.3, state: 'stopped' },
+      { id: 'a4', parentId: 's1', name: 'Find sync callers', role: 'Explore', tool: 'Claude Code', model: 'claude-sonnet-5-5', effort: 'medium', inputTokens: 96e3, outputTokens: 4e3, costUsd: 0.4, state: 'finished' },
+      { id: 's2', parentId: null, name: 'service-a · session', role: 'main', tool: 'Codex', model: 'gpt-6.1-sol', effort: 'high', inputTokens: 380e3, outputTokens: 22e3, costUsd: 2.1, state: 'finished' },
+      { id: 's3', parentId: null, name: 'infra-lab · session', role: 'main', tool: 'Cursor', model: 'grok-4.7-high', effort: null, inputTokens: 120e3, outputTokens: 9e3, costUsd: 0.8, state: 'finished' }
+    ];
+
+    // dataset roles: GET /api/roles?range&from&to&repo&tool&model&effort → RoleCost
+    // type RoleCost = { roles: { role: Role; costUsd: number; share: number }[]; subagentShare: number; unfinishedRuns: number }
+    const roleCost = {
+      roles: [{ role: 'reviewer', costUsd: 128.4, share: 0.41 }, { role: 'builder', costUsd: 109.6, share: 0.35 }, { role: 'main', costUsd: 62.5, share: 0.2 }, { role: 'Explore', costUsd: 9.3, share: 0.03 }, { role: 'other', costUsd: 2.6, share: 0.01 }],
+      subagentShare: 0.78, unfinishedRuns: 4
+    };
+
+    // dataset models: GET /api/models?range&from&to&repo&tool → ModelEffort
+    // type ModelEffort = { efforts: Effort[]; rows: { model: string; costUsd: (number | null)[] }[] }   (one cost per effort, null when no turns)
+    const models = {
+      efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      rows: [
+        { model: 'claude-opus-5-5', costUsd: [null, 2, 54, 128, null] }, { model: 'claude-fable-5-1', costUsd: [null, null, 18, 92, null] },
+        { model: 'claude-sonnet-5-5', costUsd: [1, 9, 4, null, null] }, { model: 'gpt-6.1-sol', costUsd: [null, 3, 6, null, null] }
+      ]
+    };
+
+    // dataset thinking: GET /api/thinking?range&from&to&repo&tool → Thinking[]
+    // type Thinking = { model: string; effort: Effort | null; share: number }   (thinking tokens ÷ output tokens)
+    const thinkingRows = [
+      { model: 'claude-opus-5-5', effort: 'xhigh', share: 0.64 }, { model: 'claude-fable-5-1', effort: 'xhigh', share: 0.58 },
+      { model: 'claude-opus-5-5', effort: 'high', share: 0.39 }, { model: 'claude-sonnet-5-5', effort: 'medium', share: 0.12 }
+    ];
+
+    // dataset fallbacks: GET /api/fallbacks?range&from&to&repo&tool → Fallbacks
+    // type Fallbacks = { pairs: { requested: string; served: string; turns: number; sessions: number }[]; rate: number }
+    const fallbackData = { pairs: [{ requested: 'claude-fable-5-1', served: 'claude-opus-5-5', turns: 31, sessions: 2 }, { requested: 'claude-opus-5-5', served: 'claude-sonnet-5-5', turns: 4, sessions: 1 }], rate: 0.004 };
+
+    // dataset repos: GET /api/repos?workspace&range&from&to&tool → Repos
+    // type Repos = { workspace: { path: string; marker: string; scanDepth: number }; repos: Repo[] }
+    // type Repo = { name: string; path: string; indexed: boolean; spentTokens: number | null; savedTokens: number | null; tools: Tool[]; lastActivity: string | null }   (lastActivity: ISO time)
+    const repoData = {
+      workspace: { path: '~/gitRepos', marker: '.tokensave-workspace.toml', scanDepth: 1 },
+      repos: [
+        { name: 'inkcast', path: '~/gitRepos/inkcast', indexed: true, spentTokens: 41.3e6, savedTokens: 6.2e6, tools: ['Claude Code'], lastActivity: at(2) },
+        { name: 'service-a', path: '~/gitRepos/service-a', indexed: true, spentTokens: 3.1e6, savedTokens: 0.4e6, tools: ['Claude Code', 'Codex'], lastActivity: at(1440) },
+        { name: 'secrets-demo', path: '~/gitRepos/secrets-demo', indexed: true, spentTokens: 1.9e6, savedTokens: 0.2e6, tools: ['Codex'], lastActivity: at(4 * 1440) },
+        { name: 'docs-site', path: '~/gitRepos/docs-site', indexed: true, spentTokens: 0.8e6, savedTokens: 0.1e6, tools: ['Claude Code'], lastActivity: at(7 * 1440) },
+        { name: 'infra-lab', path: '~/gitRepos/infra-lab', indexed: false, spentTokens: 1.5e6, savedTokens: null, tools: ['Cursor'], lastActivity: at(3 * 1440) },
+        { name: 'data-lab', path: '~/gitRepos/data-lab', indexed: false, spentTokens: null, savedTokens: null, tools: [], lastActivity: null }
+      ]
+    };
+    const unindexed = repoData.repos.filter((r) => !r.indexed).length;
+
+    // dataset savings: GET /api/savings?range&from&to&repo → Savings
+    // type Savings = { savedTokens: number; beforeTokens: number; afterTokens: number; graphCalls: number; missedTokens: number; byTool: { tool: string; savedTokens: number; share: number }[]; missed: { kind: string; tokens: number; turns: number; instead: string }[] }
+    const savings = {
+      savedTokens: 6.9e6, beforeTokens: 7.8e6, afterTokens: 0.9e6, graphCalls: 2418, missedTokens: 3.4e6,
+      byTool: [
+        { tool: 'tokensave_context', savedTokens: 2.9e6, share: 0.42 }, { tool: 'tokensave_search', savedTokens: 1.6e6, share: 0.23 },
+        { tool: 'tokensave_impact', savedTokens: 0.9e6, share: 0.13 }, { tool: 'tokensave_files', savedTokens: 0.7e6, share: 0.1 },
+        { tool: 'tokensave_diff', savedTokens: 0.5e6, share: 0.07 }, { tool: 'other', savedTokens: 0.3e6, share: 0.05 }
+      ],
+      missed: [
+        { kind: 'Whole-file reads', tokens: 2.1e6, turns: 1204, instead: 'outline / read / node' },
+        { kind: 'Symbol searches with grep', tokens: 0.9e6, turns: 611, instead: 'search / callers / impact' },
+        { kind: 'File discovery with glob', tokens: 0.4e6, turns: 188, instead: 'files / search' }
+      ]
+    };
+
+    // dataset sources: GET /api/sources → Source[]
+    // type Source = { tool: Tool; path: string; turns: number | null; lastParsed: string | null; status: 'verified'|'partial'|'not found'|'unknown'; note: string }
+    const sourceList = [
+      { tool: 'Claude Code', path: '~/.claude/projects/', turns: 18402, lastParsed: at(2), status: 'verified', note: 'Model, requested model, effort, thinking, subagent roles.' },
+      { tool: 'Codex', path: '~/.codex/sessions/', turns: 2961, lastParsed: at(2), status: 'verified', note: 'One turn per response: model and effort from turn context, tokens from its usage record.' },
+      { tool: 'Cursor', path: 'Cursor account (tokensave cursor sync)', turns: 640, lastParsed: at(2), status: 'verified', note: "Usage per request from your Cursor account; off until you switch it on." },
+      { tool: 'Pi', path: '~/.pi/agent/sessions/', turns: null, lastParsed: null, status: 'not found', note: 'Read by tokensave already; nothing on this machine.' },
+      { tool: 'Factory Droid', path: '(as tokensave reads it)', turns: null, lastParsed: null, status: 'not found', note: 'Read by tokensave already; nothing on this machine.' }
+    ];
+
+    const MODEL = {};
+    mix.byModel.forEach((m, i) => { MODEL[m.model] = [C.emerald, C.sky, C.amber, C.violet, C.coral, C.pink, C.teal][i] || C.slate; });
+    const peak = Math.max(...daily.map((d) => d.spentTokens));
     const heat = (v) => {
       if (v === null) return { v: '—', bg: T.none[0], fg: T.none[1] };
       const k = v >= 100 ? 3 : v >= 40 ? 2 : v >= 10 ? 1 : 0;
       return { v: '$' + v, bg: T.heat[k][0], fg: T.heat[k][1] };
     };
-    const src = (name, path, turns, last, state, note) => ({ name, path, turns, last, state, note, color: TOOL[name], tile: mix(TOOL[name], T.tint), ...st[{ verified: 'ok', partial: 'warn', 'not found': 'none' }[state]] });
+    const runState = { finished: 'ok', running: 'info', stopped: 'stop', partial: 'warn' };
+    const srcState = { verified: 'ok', partial: 'warn', 'not found': 'none', unknown: 'warn' };
 
     return {
-      c: T, themes, tabs, is, days, ticks, ranges, isCustom: range === 'custom', from, to, today, minDate,
+      c: T, themes, tabs, is, ticks, ranges, isCustom: range === 'custom', from, to, today, minDate,
       scheme: dark ? 'dark' : 'light', rangeText: fmt(startD) + ' – ' + fmt(end) + ', 2026 · ' + n + ' days',
       setFrom: (e) => this.setState({ from: e.target.value }), setTo: (e) => this.setState({ to: e.target.value }),
       chartMin: Math.max(640, n * 14) + 'px',
+      serverText: 'Dashboard · ' + status.bind + ':' + status.port,
+      workspaceOptions: status.workspaces.concat(['All workspaces']),
       filters: [{ label: 'Repo', value: 'All repos' }, { label: 'Agent tool', value: 'All' }, { label: 'Model', value: 'All' }, { label: 'Effort', value: 'All' }],
       tiles: [
-        { label: 'Tokens spent', value: M(48.2), note: 'input, output, cache, thinking', color: T.text },
-        { label: 'Cost', value: '$' + (312.4 * scale).toFixed(2), note: 'from the embedded price table', color: T.text },
-        { label: 'Tokens saved', value: M(6.9), note: 'by tokensave graph calls', color: T.saved },
-        { label: 'Saving rate', value: '12.5%', note: 'saved ÷ (spent + saved)', color: T.text },
-        { label: 'Cache hit rate', value: '71%', note: 'cache reads ÷ input', color: T.text }
+        { label: 'Tokens spent', value: M1(summary.spentTokens), note: 'input, output, cache, thinking', color: T.text },
+        { label: 'Cost', value: usd(summary.costUsd), note: 'from the embedded price table', color: T.text },
+        { label: 'Tokens saved', value: M1(summary.savedTokens), note: 'by tokensave graph calls', color: T.saved },
+        { label: 'Saving rate', value: (summary.savingRate * 100).toFixed(1) + '%', note: 'saved ÷ (spent + saved)', color: T.text },
+        { label: 'Cache hit rate', value: pct(summary.cacheHitRate), note: 'cache reads ÷ input', color: T.text }
       ],
+      days: daily.map((d) => ({ spentH: Math.round(d.spentTokens / peak * 184) + 'px', savedH: Math.round(d.savedTokens / peak * 184) + 'px' })),
       mixes: [
-        { eyebrow: 'Who did the work', title: 'By agent tool', note: "Cursor's figures are partial: it records only some token counts.", rows: [
-          { name: 'Claude Code', value: '39.5M · 82%', pct: '82%', color: TOOL['Claude Code'], font: sans },
-          { name: 'Codex', value: '7.2M · 15%', pct: '15%', color: TOOL['Codex'], font: sans },
-          { name: 'Cursor (partial)', value: '1.5M · 3%', pct: '3%', color: TOOL['Cursor'], font: sans }] },
-        { eyebrow: 'On which model', title: 'By model', note: 'Models take the category colours in order of spend.', rows: [
-          { name: 'claude-opus-5-5', value: '29.4M · 61%', pct: '61%', color: MODEL['claude-opus-5-5'], font: mono },
-          { name: 'claude-fable-5-1', value: '13.0M · 27%', pct: '27%', color: MODEL['claude-fable-5-1'], font: mono },
-          { name: 'claude-sonnet-5-5', value: '4.3M · 9%', pct: '9%', color: MODEL['claude-sonnet-5-5'], font: mono },
-          { name: '[Codex model]', value: '1.5M · 3%', pct: '3%', color: MODEL['[Codex model]'], font: mono }] }
+        { eyebrow: 'Who did the work', title: 'By agent tool', note: "Cursor's figures come from your Cursor account, when its sync is on.",
+          rows: mix.byTool.map((r) => ({ name: r.tool, value: M1(r.tokens) + ' · ' + pct(r.share), pct: pct(r.share), color: TOOL[r.tool], font: sans })) },
+        { eyebrow: 'On which model', title: 'By model', note: 'Models take the category colours in order of spend.',
+          rows: mix.byModel.map((r) => ({ name: r.model, value: M1(r.tokens) + ' · ' + pct(r.share), pct: pct(r.share), color: MODEL[r.model], font: mono })) }
       ],
-      topRuns: [
-        { name: 'Review PR #178', role: 'reviewer', repo: 'inkcast', model: 'opus-5-5 · xhigh', tokens: '2.31M', cost: '$18.70' },
-        { name: 'Build #226', role: 'builder', repo: 'inkcast', model: 'fable-5-1 · xhigh', tokens: '2.04M', cost: '$16.10' },
-        { name: 'Review PR #217', role: 'reviewer', repo: 'inkcast', model: 'opus-5-5 · xhigh', tokens: '1.88M', cost: '$15.20' },
-        { name: 'Build #213', role: 'builder', repo: 'inkcast', model: 'fable-5-1 · xhigh', tokens: '1.21M', cost: '$9.60' },
-        { name: 'Main session', role: 'main', repo: 'inkcast', model: 'opus-5-5 · high', tokens: '0.97M', cost: '$7.90' }
-      ].map((r) => ({ ...r, color: ROLE[r.role], tile: mix(ROLE[r.role], T.tint) })),
-      runs: [
-        run('inkcast · main session', 'main', 'Claude Code', 'opus-5-5 · high', '412k / 38k', '$7.90', 'running', true),
-        run('Build #226', 'builder', 'Claude Code', 'fable-5-1 · xhigh', '1.81M / 230k', '$16.10', 'finished', false),
-        run('Review PR #178', 'reviewer', 'Claude Code', 'opus-5-5 · xhigh', '2.02M / 290k', '$18.70', 'finished', false),
-        run('Review PR #221 (first try)', 'reviewer', 'Claude Code', 'opus-5-5 · xhigh', '640k / 80k', '$5.30', 'stopped', false),
-        run('Find sync callers', 'Explore', 'Claude Code', 'sonnet-5-5 · medium', '96k / 4k', '$0.40', 'finished', false),
-        run('service-a · session', 'main', 'Codex', '[Codex model] · high', '380k / 22k', '$2.10', 'finished', true),
-        run('infra-lab · session', 'main', 'Cursor', '[Cursor model]', '120k / —', '—', 'partial', true)
-      ],
-      roles: [
-        { name: 'reviewer', value: '$128.40 · 41%', pct: '41%', color: ROLE.reviewer },
-        { name: 'builder', value: '$109.60 · 35%', pct: '35%', color: ROLE.builder },
-        { name: 'main', value: '$62.50 · 20%', pct: '20%', color: ROLE.main },
-        { name: 'Explore', value: '$9.30 · 3%', pct: '3%', color: ROLE.Explore },
-        { name: 'other', value: '$2.60 · 1%', pct: '1%', color: ROLE.other }
-      ],
-      efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
-      grid: [
-        { model: 'claude-opus-5-5', color: MODEL['claude-opus-5-5'], cells: [null, 2, 54, 128, null].map(heat) },
-        { model: 'claude-fable-5-1', color: MODEL['claude-fable-5-1'], cells: [null, null, 18, 92, null].map(heat) },
-        { model: 'claude-sonnet-5-5', color: MODEL['claude-sonnet-5-5'], cells: [1, 9, 4, null, null].map(heat) },
-        { model: '[Codex model]', color: MODEL['[Codex model]'], cells: [null, 3, 6, null, null].map(heat) }
-      ],
-      thinking: [
-        { name: 'opus-5-5 · xhigh', value: '64%', pct: '64%', color: MODEL['claude-opus-5-5'] },
-        { name: 'fable-5-1 · xhigh', value: '58%', pct: '58%', color: MODEL['claude-fable-5-1'] },
-        { name: 'opus-5-5 · high', value: '39%', pct: '39%', color: MODEL['claude-opus-5-5'] },
-        { name: 'sonnet-5-5 · medium', value: '12%', pct: '12%', color: MODEL['claude-sonnet-5-5'] }
-      ],
-      fallbacks: [{ pair: 'fable-5-1 → opus-5-5', count: '31 turns · 2 sessions' }, { pair: 'opus-5-5 → sonnet-5-5', count: '4 turns · 1 session' }],
-      repos: [
-        repo('inkcast', '~/gitRepos/inkcast', 'indexed', '41.3M', '6.2M', ['Claude Code'], '2 min ago'),
-        repo('service-a', '~/gitRepos/service-a', 'indexed', '3.1M', '0.4M', ['Claude Code', 'Codex'], 'yesterday'),
-        repo('secrets-demo', '~/gitRepos/secrets-demo', 'indexed', '1.9M', '0.2M', ['Codex'], '4 days ago'),
-        repo('docs-site', '~/gitRepos/docs-site', 'indexed', '0.8M', '0.1M', ['Claude Code'], '1 week ago'),
-        repo('infra-lab', '~/gitRepos/infra-lab', 'not indexed', '1.5M', '—', ['Cursor'], '3 days ago'),
-        repo('data-lab', '~/gitRepos/data-lab', 'not indexed', '—', '—', [], 'never')
-      ],
+      topRuns: top.map((r) => ({ name: r.name, role: r.role, repo: r.repo, model: label(r.model, r.effort), tokens: M2(r.tokens), cost: usd(r.costUsd), color: ROLE[r.role], tile: tileOf(ROLE[r.role], T.tint) })),
+      runs: runList.map((r) => {
+        const isTop = r.parentId === null, color = isTop ? TOOL[r.tool] : ROLE[r.role];
+        return { name: r.name, role: r.role, tool: r.tool, model: label(r.model, r.effort), io: K(r.inputTokens) + ' / ' + K(r.outputTokens), cost: usd(r.costUsd), state: r.state,
+          ...st[runState[r.state]], color, tile: tileOf(color, T.tint), indent: isTop ? '0px' : '24px', weight: isTop ? '600' : '400' };
+      }),
+      roles: roleCost.roles.map((r) => ({ name: r.role, value: usd(r.costUsd) + ' · ' + pct(r.share), pct: pct(r.share), color: ROLE[r.role] })),
+      subagentShare: pct(roleCost.subagentShare), unfinishedRuns: String(roleCost.unfinishedRuns),
+      efforts: models.efforts,
+      grid: models.rows.map((r) => ({ model: r.model, color: MODEL[r.model], cells: r.costUsd.map(heat) })),
+      thinking: thinkingRows.map((r) => ({ name: label(r.model, r.effort), value: pct(r.share), pct: pct(r.share), color: MODEL[r.model] })),
+      fallbacks: fallbackData.pairs.map((f) => ({ pair: short(f.requested) + ' → ' + short(f.served), count: f.turns + ' turns · ' + f.sessions + (f.sessions === 1 ? ' session' : ' sessions') })),
+      fallbackRate: (fallbackData.rate * 100).toFixed(1) + '%',
+      workspace: { path: repoData.workspace.path, note: 'marked by ' + repoData.workspace.marker + ' · scan depth ' + repoData.workspace.scanDepth,
+        stats: [{ label: 'Repos', value: String(repoData.repos.length), color: T.text }, { label: 'Indexed', value: String(repoData.repos.length - unindexed), color: T.text }, { label: 'Not indexed', value: String(unindexed), color: T.warnFg }] },
+      repos: repoData.repos.map((r) => ({ name: r.name, path: r.path, status: r.indexed ? 'indexed' : 'not indexed', spent: r.spentTokens === null ? '—' : M1(r.spentTokens),
+        saved: r.savedTokens === null ? '—' : M1(r.savedTokens), last: ago(r.lastActivity), ...(r.indexed ? st.ok : st.warn), tools: r.tools.map((t) => ({ name: t, color: TOOL[t] })) })),
+      reposCallout: { title: unindexed + (unindexed === 1 ? " repo isn't" : " repos aren't") + ' indexed, so tokensave saves nothing there', command: 'tokensave workspace init-all --dry-run' },
       savingTiles: [
-        { label: 'Tokens saved', value: '6.9M', note: 'before 7.8M → after 0.9M', color: T.saved },
-        { label: 'Graph calls', value: '2,418', note: 'from the savings ledger', color: T.text },
-        { label: 'Missed savings', value: '3.4M', note: 'turns a graph call could have replaced', color: T.warnFg }
+        { label: 'Tokens saved', value: M1(savings.savedTokens), note: 'before ' + M1(savings.beforeTokens) + ' → after ' + M1(savings.afterTokens), color: T.saved },
+        { label: 'Graph calls', value: int(savings.graphCalls), note: 'from the savings ledger', color: T.text },
+        { label: 'Missed savings', value: M1(savings.missedTokens), note: 'turns a graph call could have replaced', color: T.warnFg }
       ],
-      saveTools: [
-        { name: 'tokensave_context', value: '2.9M · 42%', pct: '42%' },
-        { name: 'tokensave_search', value: '1.6M · 23%', pct: '23%' },
-        { name: 'tokensave_impact', value: '0.9M · 13%', pct: '13%' },
-        { name: 'tokensave_files', value: '0.7M · 10%', pct: '10%' },
-        { name: 'tokensave_diff', value: '0.5M · 7%', pct: '7%' },
-        { name: 'other', value: '0.3M · 5%', pct: '5%' }
-      ],
-      missed: [
-        { kind: 'Whole-file reads', value: '2.1M · 1,204 turns', instead: 'outline / read / node' },
-        { kind: 'Symbol searches with grep', value: '0.9M · 611 turns', instead: 'search / callers / impact' },
-        { kind: 'File discovery with glob', value: '0.4M · 188 turns', instead: 'files / search' }
-      ],
-      sources: [
-        src('Claude Code', '~/.claude/projects/', '18,402', '2 min ago', 'verified', 'Model, requested model, effort, thinking, subagent roles.'),
-        src('Codex', '~/.codex/sessions/', '2,961', '2 min ago', 'verified', 'Model and effort from turn context; tokens from token_count events.'),
-        src('Cursor', '~/Library/Application Support/Cursor/User/', '640', '2 min ago', 'partial', 'Experimental: only token counts Cursor records.'),
-        src('Pi', '~/.pi/agent/sessions/', '—', '—', 'not found', 'Read by tokensave already; nothing on this machine.'),
-        src('Factory Droid', '(as tokensave reads it)', '—', '—', 'not found', 'Read by tokensave already; nothing on this machine.')
-      ]
+      saveTools: savings.byTool.map((r) => ({ name: r.tool, value: M1(r.savedTokens) + ' · ' + pct(r.share), pct: pct(r.share) })),
+      missed: savings.missed.map((x) => ({ kind: x.kind, value: M1(x.tokens) + ' · ' + int(x.turns) + ' turns', instead: x.instead })),
+      sources: sourceList.map((s) => ({ name: s.tool, path: s.path, turns: int(s.turns), last: s.lastParsed === null ? '—' : ago(s.lastParsed), state: s.status, note: s.note,
+        color: TOOL[s.tool], tile: tileOf(TOOL[s.tool], T.tint), ...st[srcState[s.status]] }))
     };
   }
 }
