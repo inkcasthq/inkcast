@@ -29,7 +29,14 @@ scripts/file-issues.sh inkcasthq/inkcast          # files the roadmap issues in 
 
 ## 3. Repository settings
 
-- **Actions → General → Workflow permissions:** "Read repository contents". Each job asks for the extra permissions it needs.
+- **Actions → General → Workflow permissions:** "Read repository contents", and Actions may create pull requests (`promote.yml` opens one per image). Each job asks for the extra permissions it needs. `settings.py apply` sets both, but in an organisation the organisation's policy comes first: until an org admin allows Actions to create pull requests, the repository setting is refused with HTTP 409 and `promote.yml` fails. Once, with the owner's `gh` login, before the first `apply`:
+  ```bash
+  gh auth refresh -h github.com -s admin:org     # reading or changing organisation policy needs this scope
+  gh api -X PUT orgs/inkcasthq/actions/permissions/workflow \
+    -f default_workflow_permissions=read -F can_approve_pull_request_reviews=true
+  scripts/repo/settings.py apply
+  ```
+  `check` names the organisation policy when it's the cause. It reports the policy as `NOT VERIFIED` when the token can't read it (as with `GITHUB_TOKEN` in the daily workflow).
 - **Protect `main` and the security settings, as code:** `scripts/repo/settings.py apply` (admin) sets the ruleset in `.github/rulesets/main.json` and the settings in `.github/repo-settings.json`; the `repo-settings` workflow checks them daily and fails on drift. What they hold:
   - a pull request for every change, squash merge only, linear history, no force pushes or deletion, and no bypass (the owner included);
   - required checks: `lint`, `locks`, `test (3.12)`, `test (3.13)`, `test (3.14)`, `test (3.15)`, `authz`, `manifests`, `image`, `kind`, `dashboards`, `analyze` (CodeQL) and `CodeQL` (its results: a new high alert fails it). A test keeps this list, the ruleset and the jobs in step;
