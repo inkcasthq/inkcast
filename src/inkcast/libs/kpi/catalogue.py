@@ -150,7 +150,8 @@ CATALOGUE: tuple[Kpi, ...] = (
     Kpi("posts_recovered", _CUS, "posts", "sum", "events", "can_view_usage", "InsightsService",
         "Posts resolved after an interrupted send.", producer="post.recovered", dims=("platform", "status")),
     Kpi("posts_cancelled", _CUS, "posts", "sum", "events", "can_view_usage", "InsightsService",
-        "Scheduled posts cancelled before they went out.", producer="post.cancelled", dims=("platform",)),
+        "Posts a person cancelled: scheduled ones before they went out, and recovering or unconfirmed ones whose send "
+        "the platform never confirmed.", producer="post.cancelled", dims=("platform",)),
     Kpi("publish_success_rate", _CUS, "ratio", "ratio", "events", "can_view_usage", "InsightsService",
         "Published over published + failed + unconfirmed, per platform.", producer="aggregate",
         numerator="posts_published", denominator=("posts_published", "posts_failed", "posts_unconfirmed"),

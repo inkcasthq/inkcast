@@ -163,18 +163,31 @@ class GitPublishing(Harness):
         self.assertEqual(first.json()["results"][0]["action"], "create")
         self.assertEqual(len(self.fakes.devto_articles), before + 1)
 
-    def test_unconfirmed_publish_is_checked_before_anything_is_retried(self):
+    def test_unconfirmed_publish_is_checked_and_then_a_person_decides(self):
         before = len(self.fakes.devto_articles)
         self.fakes.devto_fail_next = 502                               # DEV fails after the request was sent
         r = self.sync({"posts/u.md": story("Uncertain", platforms="[devto]")})[("posts/u.md", "devto")]
         self.assertEqual(r["status"], "unconfirmed")
         self.assertEqual(len(self.fakes.devto_articles), before)
-        # Next sync asks DEV first; the article isn't there, so it is created exactly once.
-        r = self.sync({"posts/u.md": story("Uncertain", platforms="[devto]")})[("posts/u.md", "devto")]
-        self.assertEqual(r["action"], "create")
+        # The next sync asks DEV first; the article isn't there, but the sync never creates it again (#226): the
+        # person decides, and the result names the post and both calls.
+        again = self.sync({"posts/u.md": story("Uncertain", platforms="[devto]")})[("posts/u.md", "devto")]
+        self.assertEqual((again["action"], again["status"], again["post_id"]), ("skipped", "unconfirmed", r["post_id"]))
+        self.assertIn(f"/api/v1/posts/{r['post_id']}/resend", again["message"])
+        self.assertEqual(len(self.fakes.devto_articles), before)
+        # A CI token can't decide (posts:write); the person's token can: one new post, and the file follows it.
+        self.assertEqual(self.call("POST", f"/api/v1/posts/{r['post_id']}/resend").status_code, 403)
+        resent = self.call("POST", f"/api/v1/posts/{r['post_id']}/resend", token=self.oauth)
+        self.assertEqual(resent.status_code, 200, resent.text)
+        self.assertEqual((resent.json()["status"], resent.json()["title"]), ("published", "Uncertain"))
+        self.assertNotEqual(resent.json()["id"], r["post_id"])
         self.assertEqual(len(self.fakes.devto_articles), before + 1)
-        self.assertEqual(self.sync({"posts/u.md": story("Uncertain", platforms="[devto]")})
-                         [("posts/u.md", "devto")]["action"], "unchanged")
+        self.assertEqual(self.call("POST", f"/api/v1/posts/{r['post_id']}/resend", token=self.oauth).status_code, 409)
+        self.assertEqual(self.call("POST", "/api/v1/posts/pst_nope/resend", token=self.oauth).status_code, 404)
+        settled = self.sync({"posts/u.md": story("Uncertain", platforms="[devto]")})[("posts/u.md", "devto")]
+        self.assertEqual((settled["action"], settled["status"], settled["post_id"]),
+                         ("unchanged", "published", resent.json()["id"]))
+        self.assertEqual(len(self.fakes.devto_articles), before + 1)
 
     def test_scheduled_files_are_rescheduled_when_they_change(self):
         when = (datetime.now(timezone.utc) + timedelta(days=2)).replace(microsecond=0).isoformat()

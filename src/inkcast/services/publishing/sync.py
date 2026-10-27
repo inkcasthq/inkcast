@@ -110,24 +110,50 @@ class GitSync:
         if entry and entry["status"] == "syncing" and entry["post_id"] and time.time() - entry["synced_at"] >= CLAIM_TTL:
             entry = self.store.put_entry(user_id, src, path, pid, status="publishing")
 
-        # A scheduled post may have gone out (or failed) since the last sync: take its current state.
+        # A scheduled post may have gone out (or failed) since the last sync, and a person may have cancelled or resent
+        # an unconfirmed one (#226): take its current state.
         post = self.store.get_post(entry["post_id"]) if entry and entry["post_id"] else None
-        if post and entry["status"] in ("scheduled", "publishing", "recovering") and post["status"] != entry["status"]:
-            entry = self.store.put_entry(user_id, src, path, pid, status=post["status"], url=post["result_url"],
-                                         remote_id=post["remote_id"])
+        if post and entry["status"] in ("scheduled", "publishing", "recovering", "unconfirmed") \
+                and post["status"] != entry["status"]:
+            if not self.store.follow_post(user_id, src, path, pid, post["id"], status=post["status"],
+                                          url=post["result_url"], remote_id=post["remote_id"]):
+                # Re-pointed since this sync read it (a person's resend, in another process): never the old post's
+                # status on the new post's entry. The next sync follows the post it names now.
+                now = self.store.get_entry(user_id, src, path, pid) or entry
+                return SyncResult(**base, action="skipped", status=now["status"], post_id=now["post_id"], message=(
+                    "This file's post changed during this sync (a person resent it); run the sync again."))
+            entry = self.store.get_entry(user_id, src, path, pid) or entry
 
+        if entry and entry["status"] == "unconfirmed" and req.dry_run and post is not None:
+            # A dry run asks the platform nothing, but says what the real run does: the person decides (#226).
+            return SyncResult(**base, action="skipped", status="unconfirmed", post_id=post["id"],
+                              message=self._decision(platform, post["id"], None, dry_run=True))
         if entry and entry["status"] == "unconfirmed" and not req.dry_run:
             checked = await self.publisher.confirm(user_id, platform, prepared)
             if checked is not None and checked.status == "unavailable":  # rate-limited, unreachable: ask again next time
-                return SyncResult(**base, action="skipped", status="unconfirmed", message=(
+                if post is not None:  # the person's to decide meanwhile, like any unconfirmed post (#226)
+                    return SyncResult(**base, action="skipped", status="unconfirmed", post_id=post["id"],
+                                      message=self._decision(platform, post["id"], checked))
+                return SyncResult(**base, action="skipped", status="unconfirmed", post_id=entry["post_id"], message=(
                     f"The last publish to {platform.name} may or may not have gone through, and {platform.name} couldn't "
                     f"be asked just now ({checked.message}). The next sync will ask again."))
-            entry = self._resolve(user_id, src, path, platform, entry, checked)
+            if post is not None and (checked is None or checked.status == "missing"):
+                # The entry points at an unconfirmed post (an uncertain answer to its send, or recovery capped at
+                # INKCAST_PUBLISH_RECOVERY_MAX_HOURS): a person decides, by resending or cancelling it. The sync never
+                # creates it again, whatever the platform says (#226): "missing" could be a lookup that lags the post,
+                # and a post is never sent late without a person deciding. A post the platform does have is recorded.
+                return SyncResult(**base, action="skipped", status="unconfirmed", post_id=post["id"],
+                                  message=self._decision(platform, post["id"], checked))
+            entry, unresolved = self._resolve(user_id, src, path, platform, entry, checked), entry
             if entry is None:
+                # No post to decide on (an entry from before posts were recorded): an edited file is a new post, as
+                # after a cancel (``claim_new`` takes such an entry over); an unchanged one waits for that edit (#226).
+                if unresolved["content_hash"] != digest:
+                    return await self._create(user_id, req, path, story, platform, prepared, digest, unresolved)
                 return SyncResult(**base, action="skipped", status="unconfirmed", message=(
                     f"The last publish to {platform.name} may or may not have gone through, and {platform.name} can't "
-                    f"be checked automatically. Check {platform.name}; then remove this file's ledger entry or edit "
-                    "the file to try again."))
+                    f"be checked automatically. Check {platform.name}; an edit of this file is published as a new post, so "
+                    f"remove the first copy on {platform.name} if it did arrive."))
 
         changed = entry is not None and entry["content_hash"] != digest
         if entry is None or entry["status"] in ("failed", "syncing", "missing") or \
@@ -187,8 +213,10 @@ class GitSync:
             # sync creates the new version as it does for any cancelled post.
             return SyncResult(**base, action="skipped", status="recovering", post_id=post["id"], message=(
                 f"The last publish to {platform.name} was interrupted, and {platform.name} hasn't said yet whether the post "
-                f"arrived; Inkcast keeps asking. Check {platform.name}, then cancel post {post['id']} (inkcast_cancel, or "
-                f"POST /api/v1/posts/{post['id']}/cancel) if you don't want it: the next sync then publishes this version."))
+                f"arrived; Inkcast asks again every few minutes, for up to INKCAST_PUBLISH_RECOVERY_MAX_HOURS, then leaves "
+                f"it to you as unconfirmed. Check {platform.name}, then cancel post {post['id']} (inkcast_cancel, or "
+                f"POST /api/v1/posts/{post['id']}/cancel) if you don't want it: the next sync then publishes this version "
+                f"as a new post, so remove the first copy on {platform.name} if it did arrive."))
 
         if "update" not in platform.capabilities or not entry["remote_id"]:
             message = (f"Changed since it was published, but {platform.name} doesn't let Inkcast edit posts. "
@@ -253,6 +281,19 @@ class GitSync:
         return SyncResult(**base, action=action, status=o.status, post_id=o.post_id, url=o.url,
                           message=o.message or ("; ".join(o.notes) or None))
 
+    @staticmethod
+    def _decision(platform: Platform, post_id: str, checked: Outcome | None, dry_run: bool = False) -> str:
+        """What the sync says of a file whose post is unconfirmed: the person decides (#226)."""
+        said = (f"this dry run didn't ask {platform.name}" if dry_run
+                else f"{platform.name} can't be checked automatically" if checked is None
+                else f"{platform.name} couldn't be asked just now ({checked.message}); the next sync asks again"
+                if checked.status == "unavailable" else f"{platform.name} says it isn't there")
+        return (f"The last publish to {platform.name} may or may not have gone through, and {said}. Inkcast never publishes "
+                f"it again on its own: check {platform.name}, then resend post {post_id} (inkcast_resend, or POST "
+                f"/api/v1/posts/{post_id}/resend) to send it as it was, or cancel it (inkcast_cancel, or POST "
+                f"/api/v1/posts/{post_id}/cancel) if you don't want it. After a cancel, an edited file is published as a "
+                f"new post, so remove the first copy on {platform.name} if it did arrive.")
+
     def _after_error(self, user_id: str, src: str, path: str, pid: str, digest: str, post_id: str | None) -> None:
         """The publish, or the ledger write of its outcome, raised (a locked database, say). Once the post row exists
         the entry points at it, with the post's own status, so the next sync follows the post and never creates it
@@ -269,17 +310,25 @@ class GitSync:
 
     def _resolve(self, user_id: str, src: str, path: str, platform: Platform, entry: dict, o: Outcome | None) -> dict | None:
         """Resolve an unconfirmed entry from what the platform said (``Publisher.confirm``): published → record it;
-        missing → allow a fresh create; None → can't tell."""
+        missing → allow a fresh create (an entry with no post; one with a post is the person's, ``_one``); None →
+        can't tell. The post is written only while it is still 'unconfirmed': a person may have cancelled or resent it
+        while the lookup was out, and then the entry follows what they decided (#226)."""
         if o is None:
             return None
         if o.status == "missing":
             if entry["post_id"]:
-                self.store.update_post(entry["post_id"], status="failed",
+                self.store.update_post(entry["post_id"], status="failed", only_if="unconfirmed",
                                        error=f"Not found on {platform.name}; it was never published.")
             return self.store.put_entry(user_id, src, path, platform.id, status="missing", message=None)
-        if entry["post_id"]:
-            self.store.update_post(entry["post_id"], status=o.status, result_url=o.url, remote_id=o.remote_id,
-                                   error=None)
+        if entry["post_id"] and not self.store.update_post(entry["post_id"], status=o.status, result_url=o.url,
+                                                           remote_id=o.remote_id, error=None, only_if="unconfirmed"):
+            # Decided meanwhile: a resend re-pointed the entry at its new post; a cancel left it on this one.
+            current = self.store.get_entry(user_id, src, path, platform.id) or entry
+            post = self.store.get_post(current["post_id"]) if current["post_id"] else None
+            if post is not None and post["status"] != current["status"]:
+                return self.store.put_entry(user_id, src, path, platform.id, status=post["status"], url=post["result_url"],
+                                            remote_id=post["remote_id"], message=None)
+            return current
         return self.store.put_entry(user_id, src, path, platform.id, status=o.status, url=o.url, remote_id=o.remote_id,
                                     message=None)
 

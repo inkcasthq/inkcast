@@ -606,7 +606,7 @@ class PipelineRecoveryTests(unittest.TestCase):
         self.assertEqual(self.store.get_post(missing)["status"], "published")  # missing → re-queued → sent once now
         self.assertEqual(self.fake.sent, ["Interrupted"])
         self.assertEqual(self.store.get_post(unknown)["status"], "unconfirmed")
-        self.assertIn("Check Fake before publishing it again", self.store.get_post(unknown)["error"])
+        self.assertIn("Check Fake, then resend it", self.store.get_post(unknown)["error"])   # a person decides (#226)
         self.assertEqual(self.store.get_post(errored)["status"], "unconfirmed")
         self.assertEqual(self.store.post_counts().get("recovering"), None)
         self.assertEqual(self.store.claim_stuck(time.time()), [])              # a fresh 'publishing' row is left alone

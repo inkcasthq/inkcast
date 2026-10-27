@@ -33,8 +33,10 @@ EVENT_TYPES: dict[str, str] = {
     "post.failed": "A post failed for good (attrs.reason) and waits for a person.",
     "post.unconfirmed": "A platform may or may not have published a post; a person must check.",
     "post.recovered": "A post interrupted mid-send was resolved after a restart (attrs.status).",
-    "post.cancelled": "A scheduled post was cancelled before it was sent, or a recovering one by the person (its send was "
-                      "interrupted; the platform had not said whether it arrived).",
+    "post.cancelled": "A scheduled post was cancelled before it was sent, or a recovering or unconfirmed one by the person "
+                      "(its send was interrupted, or the platform had not said whether it arrived).",
+    "post.resent": "A person resent an unconfirmed post as a new one (attrs.new_post_id); the old one is cancelled. "
+                   "user_id is who decided.",
     "sync.result": "One (file, platform) outcome of a Git publishing sync (attrs.action).",
 }
 

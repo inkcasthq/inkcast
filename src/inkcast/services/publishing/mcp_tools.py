@@ -26,7 +26,7 @@ from ...libs.account import deletion_link
 from ...libs.auth import SCOPE, SCOPES, Principal
 from ...libs.config import PAT_DAYS_CEILING
 from ...libs.content.story import SCHEDULE_HORIZON_DAYS
-from ...libs.contracts.models import PublishRequest, PublishResponse, SyncFile, SyncRequest, SyncResponse
+from ...libs.contracts.models import PostInfo, PublishRequest, PublishResponse, SyncFile, SyncRequest, SyncResponse
 from ...libs.runtime import Context
 from .sync import GitSync
 from .usecases import InkcastService, ServiceError
@@ -80,6 +80,28 @@ def render_publish(resp: PublishResponse, registry: dict) -> str:
         block += [f"  warning: {w}" for w in r.warnings]
         lines.append("\n".join(block))
     return "\n".join(lines)
+
+
+def render_cancel(post: PostInfo, was: str) -> str:
+    """The cancel's reply. A post cancelled while 'recovering' or 'unconfirmed' may already be on the platform: its
+    error says so (the same note the listing shows), and the reply repeats it, since the person has to act on it."""
+    line = f"Cancelled “{post.title}” (post `{post.id}`)."
+    if was in ("recovering", "unconfirmed") and post.error:
+        line += f"\n  {post.error}"
+    return line
+
+
+def render_resend(post: PostInfo, old_id: str, registry: dict) -> str:
+    """The resend's reply: the new post, as a publish reply would show it, and the one thing left to the person."""
+    name = registry[post.platform].name if post.platform in registry else post.platform
+    if post.status in ("published", "draft", "unlisted"):
+        what = post.status + (f" → {post.url}" if post.url else "")
+    elif post.status == "unconfirmed":
+        what = f"UNCONFIRMED — {post.error}"
+    else:
+        what = f"FAILED — {post.error}"
+    return (f"Resent “{post.title}” (post `{old_id}`) as post `{post.id}`: {what}\n"
+            f"  The first post is cancelled; it may already be on {name}: check {name}, and remove the extra copy if it is.")
 
 
 def render_sync(resp: SyncResponse) -> str:
@@ -215,7 +237,7 @@ def build_mcp(ctx: Context, service: InkcastService, sync: GitSync) -> MCPServer
         days_back: Annotated[int, Field(ge=0, le=366, description="Include posts from this many days ago.")] = 7,
         days_ahead: Annotated[int, Field(ge=0, le=SCHEDULE_HORIZON_DAYS, description="Include posts scheduled up to this many days ahead (the maximum covers every schedule).")] = 90,
     ) -> str:
-        """List your scheduled, published, draft, failed and cancelled posts."""
+        """List your scheduled, published, draft, failed, unconfirmed and cancelled posts."""
         posts = await call("posts:read", service.list_posts, days_back, days_ahead)
         if not posts:
             return "No posts in that window."
@@ -229,12 +251,21 @@ def build_mcp(ctx: Context, service: InkcastService, sync: GitSync) -> MCPServer
             lines.append(line)
         return "Posts:\n" + "\n".join(lines)
 
-    @mcp.tool(title="Cancel a scheduled post", annotations=ToolAnnotations(destructive_hint=True, idempotent_hint=True))
+    @mcp.tool(title="Cancel a pending post", annotations=ToolAnnotations(destructive_hint=True, idempotent_hint=True))
     async def inkcast_cancel(post_id: Annotated[str, Field(description="Post id from inkcast_posts or inkcast_publish.")]) -> str:
-        """Cancel a scheduled post before it goes out, or a recovering one (its send was interrupted and the platform
-        hasn't said whether it arrived: the person decides; check the platform first)."""
-        post = await call("posts:write", service.cancel, post_id)
-        return f"Cancelled “{post.title}” (post `{post.id}`)."
+        """Cancel a scheduled post before it goes out; or a recovering one (its send was interrupted and the platform
+        hasn't said whether it arrived) or an unconfirmed one (the platform may or may not have it): there the person
+        decides, so check the platform first, and the reply says the post may already be on it."""
+        post, was = await call("posts:write", service.cancel_from, post_id)
+        return render_cancel(post, was)
+
+    @mcp.tool(title="Resend an unconfirmed post",
+              annotations=ToolAnnotations(destructive_hint=False, idempotent_hint=False, open_world_hint=True))
+    async def inkcast_resend(post_id: Annotated[str, Field(description="Post id of an unconfirmed post, from inkcast_posts.")]) -> str:
+        """Send an unconfirmed post (the platform may or may not have it) again, now, as one new post, on the person's
+        decision: check the platform first, because the first send may have arrived. The old post is cancelled and the
+        reply is the new post: published, failed, or unconfirmed in its turn. Refused for any other status."""
+        return render_resend(await call("posts:write", service.resend, post_id), post_id, registry)
 
     # This server's policy for personal access tokens (F1.10.S2, issue #90): the tool states it (its description and
     # the parameter's default; the annotations themselves must be module-level names, the SDK evaluates them without

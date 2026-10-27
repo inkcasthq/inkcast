@@ -116,12 +116,36 @@ class InkcastService:
         return [self._post(r) for r in rows]
 
     def cancel(self, user_id: str, post_id: str) -> PostInfo:
+        """The cancelled post (the REST reply): its ``error`` says it may already be on the platform when it does."""
+        return self.cancel_from(user_id, post_id)[0]
+
+    def cancel_from(self, user_id: str, post_id: str) -> tuple[PostInfo, str]:
+        """The cancelled post and the status it was cancelled from: 'recovering' or 'unconfirmed' means the post may
+        already be on the platform, which the MCP tool's reply must say (#226)."""
         try:
-            self.publisher.cancel(user_id, post_id)
+            _, was = self.publisher.cancel_pending(user_id, post_id)
         except PlatformError as exc:
             status = 404 if str(exc).startswith("No post") else 409
             raise ServiceError(status, "not_found" if status == 404 else "not_cancellable", str(exc)) from exc
-        return self._post(self.store.get_post(post_id))
+        return self._post(self.store.get_post(post_id)), was
+
+    async def resend(self, user_id: str, post_id: str) -> PostInfo:
+        """A person's decision on an unconfirmed post (#226): it is sent again as one new post, the old one is cancelled
+        (its error says it may already be on the platform), and the new post is the reply: published, failed or
+        unconfirmed in its turn. A file that became the old post (Git sync's ledger) now has the new one, before anything
+        is sent, so a sync meanwhile follows it; the send's outcome is recorded on it after."""
+        def follow(_pid: str, new_id: str) -> None:
+            self.store.repoint_entries(post_id, post_id=new_id, status="publishing", url=None, remote_id=None,
+                                       message="Resent by the person; the sync follows the new post.")
+
+        try:
+            o = await self.publisher.resend(user_id, post_id, on_created=follow)
+        except PlatformError as exc:
+            status = 404 if str(exc).startswith("No post") else 409
+            raise ServiceError(status, "not_found" if status == 404 else "not_resendable", str(exc)) from exc
+        self.store.repoint_entries(o.post_id, status=o.status, url=o.url, remote_id=o.remote_id,
+                                   message=o.message if o.status in ("unconfirmed", "failed") else None)
+        return self._post(self.store.get_post(o.post_id))
 
     @staticmethod
     def _post(r: dict) -> PostInfo:
