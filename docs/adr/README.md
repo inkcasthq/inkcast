@@ -19,6 +19,7 @@ Each ADR records one significant decision: the context, the options considered, 
 | [0013](0013-billing-webhooks-and-events.md) | Hosted checkout, signed webhooks, inbox/outbox, provider API as truth | Accepted |
 | [0014](0014-postgresql-on-cloudnativepg.md) | PostgreSQL on CloudNativePG: replicas, WAL archiving and point-in-time recovery, PgBouncer; SQLite backups as the stopgap | Accepted |
 | [0015](0015-publish-at-is-always-scheduled.md) | A Git file's `publish_at` is always a scheduled post at the time as written; nothing is sent before it; only a file with no `publish_at` is a "now" post | Accepted |
+| [0016](0016-mockup-standard-and-frontend-targets.md) | One mockup standard (tokens, state, typed data, section types, checks); React + TypeScript for Inkcast, Preact + TypeScript for embedded pages | Accepted |
 
 ---
 <!-- inkcast-nav -->
