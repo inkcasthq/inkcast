@@ -16,9 +16,7 @@ what makes that possible: a backup taken before the erasure holds the rows and n
 is stored with their row (``users.erasure_hash``, indexed; libs/db/identity.py), so finding them costs the records,
 not a hash of every user in every process (issue #113); ``backfill_erasure_hashes`` fills it once for rows from before
 it. The record of an erasure carries the hash stored with the person's row, so the two match whatever key was current
-when each was written: a rotation of INKCAST_SECRET_KEY doesn't stop a restored row from being re-erased (#112). A row
-restored from before the column is filled under the key of the restore instead, so when the two differ the hash under
-the key current at the erasure is kept beside the record (``user_erasure_aliases``, carried by a restore too).
+when each was written: a rotation of INKCAST_SECRET_KEY doesn't stop a restored row from being re-erased (#112).
 
 Whoever erases decided on a reading of the person (a 404 from Keycloak, a grace period over) that another replica
 may have overtaken by the time the transaction starts, so ``erase_user`` takes the row as the caller read it and
@@ -40,13 +38,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS user_erasures (
   user_hash TEXT NOT NULL, erased_at REAL NOT NULL, counts TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS user_erasure_aliases (
-  user_hash TEXT NOT NULL, alias TEXT NOT NULL
-);
 """
-# user_erasure_aliases: the other hash an erasure is known by, beside its one audit row (user_hash): the person's id
-# under the key current at the erasure, when the hash stored with their row was written under an earlier key. A backup
-# from before users.erasure_hash is filled under the key of the restore, which that alias matches (issue #113).
 
 # (table, the condition that picks the person's rows). Deleted together in one transaction under the write lock
 # a scheduler claim (``claim_due_posts``) also takes, so a claim runs either before every row or after none is left.
@@ -114,17 +106,15 @@ class ErasureRepo(Database):
             if as_read is not None and not self._as_read(c, user_id, as_read):
                 return {table: 0 for table, _ in USER_TABLES}
             # The record carries the hash stored with the person (users.erasure_hash), so a restored row matches it
-            # whatever key was current when each was written (issue #113); today's for a row from before the column.
-            # When a rotation made the two differ, the hash under today's key goes beside it as an alias, not a second
-            # audit row: a backup from before the column is filled under the key current at the restore.
+            # whatever key was current when each was written (issue #113), and the hash under the key of the day when
+            # they differ: a backup from before the column is filled under the key current at the restore.
             row = c.execute("SELECT erasure_hash FROM users WHERE id = ?", (user_id,)).fetchone()
-            today = user_hash(self._erasure_salt, user_id)
-            hashed = (row["erasure_hash"] if row is not None else None) or today
+            hashes = dict.fromkeys(h for h in (row["erasure_hash"] if row is not None else None,
+                                               user_hash(self._erasure_salt, user_id)) if h)
             counts = self._delete_person(c, user_id)
             if any(counts.values()):
-                c.execute("INSERT INTO user_erasures VALUES (?, ?, ?)", (hashed, now, json.dumps(counts, sort_keys=True)))
-                if today != hashed:
-                    c.execute("INSERT INTO user_erasure_aliases VALUES (?, ?)", (hashed, today))
+                c.executemany("INSERT INTO user_erasures VALUES (?, ?, ?)",
+                              [(hashed, now, json.dumps(counts, sort_keys=True)) for hashed in hashes])
         return counts
 
     def backfill_erasure_hashes(self) -> int:
@@ -150,8 +140,8 @@ class ErasureRepo(Database):
         logs it and counts nothing as a new deletion. Nothing is hashed: ``users`` is joined against the records on
         the hash stored with each row, through its index, so the cost is the records and the matches, not the users
         (issue #113); with no record, one read and no write."""
-        ids = [r["id"] for r in self._all("SELECT id FROM users WHERE erasure_hash IN (SELECT user_hash FROM user_erasures"
-                                          " UNION SELECT alias FROM user_erasure_aliases) ORDER BY id")]
+        ids = [r["id"] for r in self._all("SELECT id FROM users WHERE erasure_hash IN (SELECT user_hash FROM user_erasures)"
+                                          " ORDER BY id")]
         erased: dict[str, dict[str, int]] = {}
         for user_id in ids:
             with self._tx() as c:

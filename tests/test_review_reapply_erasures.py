@@ -6,8 +6,7 @@ A key rotation after the upgrade: a person from before the column has their hash
 at the first open (``backfill_erasure_hashes``), the key is rotated, then they are erased. The record carries the
 stored hash, under the old key. A backup from before the upgrade has no column: restored, its rows are filled under
 the key current then, the new one, and the stored hash in the record matches nothing. Before #167 the record was
-the hash under the key current at erasure, and the re-erasure hashed every row under the current key: they matched.
-Still one audit row per erasure: the hash under today's key is kept beside it, and carried by a restore."""
+the hash under the key current at erasure, and the re-erasure hashed every row under the current key: they matched."""
 
 import pathlib
 import shutil
@@ -45,21 +44,18 @@ class AKeyRotationAfterTheUpgrade(unittest.TestCase):
         self.backups = self.dir / "backups"
 
     def test_a_person_restored_from_a_backup_before_the_column_is_re_erased(self):
-        database_from_before_the_column(self.db, ("leaver", "stayer"))
+        database_from_before_the_column(self.db, ("ada", "bob"))
         take_backup(self.db, self.backups, version="test")            # before the upgrade: no column
         Store(str(self.db), OLD_KEY).close()                           # the upgrade: rows filled under the old key
-        store = Store(str(self.db), NEW_KEY)                           # INKCAST_SECRET_KEY rotated, then they left
-        self.assertGreater(sum(store.erase_user("usr_leaver").values()), 0)
-        audit = store.user_erasures()
-        self.assertEqual(len(audit), 1, "one audit row per erasure, rotation or not")
+        store = Store(str(self.db), NEW_KEY)                           # INKCAST_SECRET_KEY rotated, then she left
+        self.assertGreater(sum(store.erase_user("usr_ada").values()), 0)
         store.close()
         restore_backup(sorted(self.backups.glob("*.db"))[-1], self.db, now=time.time() + 3600)
         store = Store(str(self.db), NEW_KEY)
         self.addCleanup(store.close)
-        self.assertEqual(list(store.reapply_erasures()), ["usr_leaver"], "restored under the key they were erased under")
-        self.assertIsNone(store.get_user("usr_leaver"))
-        self.assertIsNotNone(store.get_user("usr_stayer"), "everyone else is kept")
-        self.assertEqual(store.user_erasures(), audit, "the carried record, and no second audit row")
+        self.assertEqual(list(store.reapply_erasures()), ["usr_ada"], "restored under the key she was erased under")
+        self.assertIsNone(store.get_user("usr_ada"))
+        self.assertIsNotNone(store.get_user("usr_bob"), "everyone else is kept")
 
 
 if __name__ == "__main__":
