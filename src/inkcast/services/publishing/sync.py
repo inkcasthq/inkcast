@@ -216,7 +216,9 @@ class GitSync:
 
         made: dict[str, str] = {}  # the post row this sync made, known before the write that names it (below)
 
-        def on_record(_pid: str, post_id: str) -> None:  # before the send, so a crash mid-send can't orphan the post
+        # Before the send, so a crash mid-send can't orphan the post; in the row's own transaction, so a failed write
+        # leaves no row that nothing names, for recovery to send while the next sync makes another.
+        def on_record(_pid: str, post_id: str) -> None:
             made["post_id"] = post_id
             self.store.put_entry(user_id, src, path, pid, post_id=post_id)
 
