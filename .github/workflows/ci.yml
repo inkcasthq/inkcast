@@ -38,7 +38,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: "0.11.32"
           enable-cache: false
@@ -48,7 +48,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with: {python-version: "3.14"}
       - run: pip install 'ruff==0.12.0'
       - run: scripts/ci-run.sh ruff ruff check src tests scripts
@@ -63,7 +63,7 @@ jobs:
         python: ["3.12", "3.13", "3.14", "3.15"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with: {python-version: "${{ matrix.python }}"}
       - run: scripts/ci-run.sh "pip install" pip install -e .
       # Pinning playwright pins the Chromium build it installs.
@@ -145,7 +145,7 @@ jobs:
           fail-build: true
           severity-cutoff: high
           only-fixed: true
-      - uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+      - uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         if: always() && steps.scan.outputs.sarif != '' && (vars.CODE_SECURITY == 'true' || github.event.repository.visibility == 'public')
         with:
           sarif_file: ${{ steps.scan.outputs.sarif }}
@@ -238,7 +238,7 @@ jobs:
     needs: [manifests]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with: {python-version: "3.14"}
       - run: |
           pip install -e . 'playwright==1.56.0'
