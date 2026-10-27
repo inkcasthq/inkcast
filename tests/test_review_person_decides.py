@@ -9,13 +9,14 @@ there, so its event loop is its own)."""
 
 import asyncio
 import threading
+import time
 import unittest
 
-from inkcast.libs.pipeline import Publisher
+from inkcast.libs.pipeline import STUCK_AFTER, Publisher
 from inkcast.libs.platforms import PlatformError
-from inkcast.services.publishing.usecases import InkcastService
+from inkcast.services.publishing.usecases import InkcastService, ServiceError
 
-from test_person_decides import SyncHarness
+from test_person_decides import Harness, SyncHarness
 
 
 def in_another_process(work):
@@ -61,6 +62,45 @@ class FindingASyncThatReadTheEntryBeforeAResendDoesNotUndoIt(SyncHarness):
         self.assertEqual((entry["post_id"], entry["status"], entry["url"]), (info.id, "published", info.url))
         again = self.sync("Better body.")                                    # the next push: the new post, not a third
         self.assertEqual((again.action, again.post_id, self.platform.sent), ("stale", info.id, ["Hello"]))
+
+
+class FindingTheSendersLateUncertainAnswerDoesNotUndoAConfirmedPost(Harness):
+    def test_a_post_recovery_found_on_the_platform_stays_published(self):
+        """Worker A's request reached the platform and its answer is slow; worker B's stuck pass takes the post over and
+        Findable says it has it: 'published'. A's answer then lands, a timeout after the request was sent (uncertain),
+        and was written over the platform's own confirmation (``unless="cancelled"`` only): the post read
+        'unconfirmed', with the alert and the "check, then resend it" note, and the resend this PR adds then sent it a
+        second time. A plug-in crash reading the reply is the same uncertain answer."""
+        answers = {"uncertain": PlatformError("Findable timed out after the request was sent.", uncertain=True),
+                   "crash": RuntimeError("the plug-in fell over reading the reply")}
+        for how, answer in answers.items():
+            with self.subTest(how=how):
+                post_id = self.post("scheduled", how)
+                b = self.replica()
+                seen = []
+
+                async def while_a_waits(prepared, post_id=post_id, b=b, seen=seen, answer=answer):
+                    self.platform.sent.append(prepared.title)                 # A's request reached Findable
+                    await b.run_due(now=time.time() + STUCK_AFTER + 1)        # B: stuck → recovering → found → published
+                    seen.append(self.status(post_id))
+                    raise answer
+
+                self.platform.during_publish = while_a_waits
+                self.tick()
+                self.assertEqual(seen, ["published"])
+                post = self.store.get_post(post_id)
+                self.assertEqual((post["status"], post["result_url"]), ("published", "https://findable/found"),
+                                 "A's uncertain answer was written over the platform's confirmation")
+                with self.assertRaises(ServiceError) as caught:              # nothing for the person to decide
+                    asyncio.run(self.service.resend(self.user, post_id))
+                self.assertEqual(caught.exception.code, "not_resendable")
+                self.assertEqual(self.platform.sent.count(how), 1, "sent twice")
+
+    def test_an_uncertain_answer_with_nobody_else_holding_the_post_is_still_written(self):
+        post_id = self.post("scheduled")
+        self.platform.answer = PlatformError("Findable timed out after the request was sent.", uncertain=True)
+        self.tick()
+        self.assertEqual(self.status(post_id), "unconfirmed")
 
 
 if __name__ == "__main__":

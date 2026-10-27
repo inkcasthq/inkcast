@@ -164,7 +164,7 @@ class Publisher:
             # error whose text can't be rendered): one plug-in's odd exception must not leave the rest of the batch
             # claimed until recovery (#174). This post is as ambiguous as a crash inside the plug-in.
             log.exception("Platform %s raised an error the pipeline could not handle for %s", platform.id, post_id)
-            return self._crashed(post_id, user_id, platform, exc)
+            return self._crashed(post_id, user_id, platform, exc, held)
 
     async def _deliver(self, post_id: str, user_id: str, platform: Platform, prepared: Prepared, attempts: int,
                        creds: dict[str, str], account: Account, scheduled: bool, lag: float | None,
@@ -184,7 +184,12 @@ class Publisher:
             # caller is told what the post is now (``_as_now``), so Git sync's ledger doesn't create it again.
             if exc.uncertain:
                 # Never retried, under any policy: the post may already be out, and a retry could post it twice.
+                # Not over a cancel (#216), nor over the platform's own word that this very send arrived (another
+                # worker's lookup found it, no send since): a post the platform has would read 'unconfirmed' and the
+                # person be asked to resend it, a second copy (#226). Over a re-send (a later attempt) it is written:
+                # this request may have arrived too, and a person checks for a second copy.
                 written = self.store.update_post(post_id, status="unconfirmed", error=str(exc), unless="cancelled",
+                                                 unless_found_at=held,
                                                  events=self._event("post.unconfirmed", post_id, user_id, platform.id))
                 self._count(platform.id, "unconfirmed")
                 log.warning("Post %s on %s is unconfirmed: %s", post_id, platform.id, exc,
@@ -218,7 +223,7 @@ class Publisher:
             return self._as_now(written, Outcome(platform.id, "failed", post_id=post_id, message=message))
         except Exception as exc:  # a plug-in bug must not kill the scheduler
             log.exception("Platform %s crashed publishing %s", platform.id, post_id)
-            return self._crashed(post_id, user_id, platform, exc)
+            return self._crashed(post_id, user_id, platform, exc, held)
 
         self._observe("inkcast_publish_duration_seconds", time.perf_counter() - started, platform=platform.id)
         status = result.status if result.status in ("draft", "unlisted") else "published"
@@ -231,10 +236,11 @@ class Publisher:
         return Outcome(platform.id, status, post_id=post_id, url=result.url, notes=result.notes, prepared=prepared,
                        remote_id=result.remote_id)
 
-    def _crashed(self, post_id: str, user_id: str, platform: Platform, exc: BaseException) -> Outcome:
+    def _crashed(self, post_id: str, user_id: str, platform: Platform, exc: BaseException, held: int = 0) -> Outcome:
         """A plug-in bug while sending. It may have crashed after the platform accepted the post (reading the reply),
         so it is ambiguous like any uncertain failure: unconfirmed, never 'failed', which Git sync would create again."""
         written = self.store.update_post(post_id, status="unconfirmed", error=f"internal error: {exc}", unless="cancelled",
+                                         unless_found_at=held,  # as an uncertain answer (_deliver)
                                          events=self._event("post.unconfirmed", post_id, user_id, platform.id))
         self._count(platform.id, "unconfirmed")
         return self._as_now(written, Outcome(platform.id, "unconfirmed", post_id=post_id, message=(
