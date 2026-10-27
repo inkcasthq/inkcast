@@ -60,6 +60,18 @@ class LedgerRepo(Database):
         cols = ", ".join(f"{k} = ?" for k in fields)
         return self._exec(f"UPDATE ledger SET {cols}, synced_at = ? WHERE post_id = ?", *fields.values(), time.time(), from_post)
 
+    def follow_post(self, user_id: str, source: str, path: str, platform: str, post_id: str, **fields: Any) -> bool:
+        """The entry takes ``fields`` only while it still names ``post_id``, in one statement: another process may have
+        re-pointed it since the caller read it (a person's resend, #226), and the new post's entry must not take the
+        old one's status. True when it was written."""
+        unknown = set(fields) - set(FIELDS)
+        if unknown:
+            raise ValueError(f"unknown ledger fields: {sorted(unknown)}")
+        cols = ", ".join(f"{k} = ?" for k in fields)
+        return self._exec(f"UPDATE ledger SET {cols}, synced_at = ? WHERE user_id = ? AND source = ? AND path = ? AND"
+                          " platform = ? AND post_id = ?", *fields.values(), time.time(), user_id, source, path, platform,
+                          post_id) == 1
+
     def claim_new(self, user_id: str, source: str, path: str, platform: str, content_hash: str) -> bool:
         """Reserve a brand-new entry before creating a remote post, so two concurrent syncs of the same
         file can't both create one. True if this caller now owns it."""

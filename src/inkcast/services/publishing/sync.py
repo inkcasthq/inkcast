@@ -112,12 +112,25 @@ class GitSync:
         post = self.store.get_post(entry["post_id"]) if entry and entry["post_id"] else None
         if post and entry["status"] in ("scheduled", "publishing", "recovering", "unconfirmed") \
                 and post["status"] != entry["status"]:
-            entry = self.store.put_entry(user_id, src, path, pid, status=post["status"], url=post["result_url"],
-                                         remote_id=post["remote_id"])
+            if not self.store.follow_post(user_id, src, path, pid, post["id"], status=post["status"],
+                                          url=post["result_url"], remote_id=post["remote_id"]):
+                # Re-pointed since this sync read it (a person's resend, in another process): never the old post's
+                # status on the new post's entry. The next sync follows the post it names now.
+                now = self.store.get_entry(user_id, src, path, pid) or entry
+                return SyncResult(**base, action="skipped", status=now["status"], post_id=now["post_id"], message=(
+                    "This file's post changed during this sync (a person resent it); run the sync again."))
+            entry = self.store.get_entry(user_id, src, path, pid) or entry
 
+        if entry and entry["status"] == "unconfirmed" and req.dry_run and post is not None:
+            # A dry run asks the platform nothing, but says what the real run does: the person decides (#226).
+            return SyncResult(**base, action="skipped", status="unconfirmed", post_id=post["id"],
+                              message=self._decision(platform, post["id"], None, dry_run=True))
         if entry and entry["status"] == "unconfirmed" and not req.dry_run:
             checked = await self.publisher.confirm(user_id, platform, prepared)
             if checked is not None and checked.status == "unavailable":  # rate-limited, unreachable: ask again next time
+                if post is not None:  # the person's to decide meanwhile, like any unconfirmed post (#226)
+                    return SyncResult(**base, action="skipped", status="unconfirmed", post_id=post["id"],
+                                      message=self._decision(platform, post["id"], checked))
                 return SyncResult(**base, action="skipped", status="unconfirmed", post_id=entry["post_id"], message=(
                     f"The last publish to {platform.name} may or may not have gone through, and {platform.name} couldn't "
                     f"be asked just now ({checked.message}). The next sync will ask again."))
@@ -260,10 +273,12 @@ class GitSync:
                           message=o.message or ("; ".join(o.notes) or None))
 
     @staticmethod
-    def _decision(platform: Platform, post_id: str, checked: Outcome | None) -> str:
+    def _decision(platform: Platform, post_id: str, checked: Outcome | None, dry_run: bool = False) -> str:
         """What the sync says of a file whose post is unconfirmed: the person decides (#226)."""
-        said = (f"{platform.name} says it isn't there" if checked is not None
-                else f"{platform.name} can't be checked automatically")
+        said = (f"this dry run didn't ask {platform.name}" if dry_run
+                else f"{platform.name} can't be checked automatically" if checked is None
+                else f"{platform.name} couldn't be asked just now ({checked.message}); the next sync asks again"
+                if checked.status == "unavailable" else f"{platform.name} says it isn't there")
         return (f"The last publish to {platform.name} may or may not have gone through, and {said}. Inkcast never publishes "
                 f"it again on its own: check {platform.name}, then resend post {post_id} (inkcast_resend, or POST "
                 f"/api/v1/posts/{post_id}/resend) to send it as it was, or cancel it (inkcast_cancel, or POST "
