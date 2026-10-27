@@ -148,10 +148,24 @@ def openapi_document(public_url: str) -> dict[str, Any]:
                                               "Include posts up to this many days ahead; the maximum is the "
                                               "scheduling horizon, so it covers every scheduled post.")])},
             "/api/v1/posts/{post_id}/cancel": {"post": _op(
-                "cancelPost", "Cancel a scheduled or recovering post", "Posts", _resp("PostInfo", "The cancelled post"),
+                "cancelPost", "Cancel a scheduled, recovering or unconfirmed post", "Posts",
+                _resp("PostInfo", "The cancelled post; its `error` says when it may already be on the platform"),
                 scope="posts:write", service=pub, params=[_path_param("post_id", "Post id.")], errors=(404, 409),
                 description="A `recovering` post (its send was interrupted; the platform has not said whether it arrived) "
-                            "is the person's to cancel: check the platform first. A cancel wins over a later answer.")},
+                            "or an `unconfirmed` one (the platform may or may not have it) is the person's to cancel: "
+                            "check the platform first, because the post may already be on it, and the reply's `error` "
+                            "says so. A cancel wins over a later answer. 409 for any other status.")},
+            "/api/v1/posts/{post_id}/resend": {"post": _op(
+                "resendPost", "Resend an unconfirmed post as a new one", "Posts",
+                _resp("PostInfo", "The new post: published, failed, or unconfirmed in its turn"),
+                scope="posts:write", service=pub, params=[_path_param("post_id", "Post id of an `unconfirmed` post.")],
+                errors=(404, 409),
+                description="A person's decision on an `unconfirmed` post (the platform may or may not have it): check "
+                            "the platform first. The post is sent again, now, as exactly one new post, and the old one "
+                            "is cancelled with an `error` saying it may already be on the platform. Inkcast never sends "
+                            "an unconfirmed post again on its own, and Git sync never creates one again: a file whose "
+                            "post is unconfirmed is reported as needing this decision. 409 when the post is not "
+                            "`unconfirmed` (cancelled, or resent already).")},
             "/api/v1/preview": {"post": _op(
                 "preview", "Preview exactly what each platform would receive", "Posts",
                 _resp("PublishResponse", "Per-platform previews"), scope="posts:read", service=pub,

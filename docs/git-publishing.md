@@ -81,7 +81,7 @@ Publishing by hand (`inkcast_publish`, `POST /api/v1/posts`) is different: there
 | `update` | Changed: edited in place (DEV), or re-scheduled if it hadn't gone out yet |
 | `unchanged` | Same content as last time: nothing sent |
 | `stale` | Changed, but the platform can't edit posts (Medium). Edit it by hand at the URL shown; Inkcast won't post it again |
-| `skipped` | The platform isn't connected, another sync of the file is running, or a previous result is still unconfirmed |
+| `skipped` | The platform isn't connected, another sync of the file is running, or the file's post needs your decision: its last publish is `unconfirmed` (resend or cancel it, below), or its send was interrupted and Inkcast is still asking the platform whether it arrived (`recovering`; cancel it if you don't want it) |
 | `failed` | Invalid file or platform error; the next sync tries again |
 
 Files are matched to earlier posts by repository, path and platform. If you rename a file, it counts as a new story; to keep it linked, keep the path.
@@ -98,6 +98,16 @@ inkcast sync 'posts/**/*.md'
 ```
 
 The token is read only from the environment, never from an argument. Exit code `1` means something failed; `2` means a usage or permission problem.
+
+## When Inkcast isn't sure a post went out
+
+A publish can end `unconfirmed`: the platform's answer was lost after the request was sent, or the process was interrupted mid-send and the platform could not be asked whether the post arrived for `INKCAST_PUBLISH_RECOVERY_MAX_HOURS`. Inkcast never sends such a post again on its own, and a sync never creates it again: every push reports the file as `skipped` until you decide. The sync still asks the platform, and records the post if the platform has it.
+
+- Check the platform first: the first send may have arrived.
+- **Resend it** (`inkcast_resend`, or `POST /api/v1/posts/{id}/resend` with a `posts:write` token): one new post goes out now, the old one is cancelled, and the file follows the new post.
+- **Cancel it** (`inkcast_cancel`, or `POST /api/v1/posts/{id}/cancel`): nothing is sent; an edit of the file is then published as a new post, so remove the first copy on the platform if it did arrive.
+
+The sync result names the post id and both calls.
 
 ---
 <!-- inkcast-nav -->

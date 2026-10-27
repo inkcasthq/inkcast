@@ -233,7 +233,7 @@ _ROUTE_TEMPLATES: tuple[tuple[re.Pattern[str], str], ...] = tuple(
         "/api/v1/tokens", "/api/v1/tokens/{token_id}", "/api/v1/account/deletion-link",
         "/api/v1/platforms", "/api/v1/platforms/{platform_id}/connect-link",
         "/api/v1/platforms/{platform_id}/connection", "/api/v1/platforms/{platform_id}/destinations",
-        "/api/v1/posts", "/api/v1/posts/{post_id}/cancel", "/api/v1/preview",
+        "/api/v1/posts", "/api/v1/posts/{post_id}/cancel", "/api/v1/posts/{post_id}/resend", "/api/v1/preview",
         "/api/v1/stories:sync", "/api/v1/ledger",
         "/api/v1/insights/summary", "/api/v1/insights/kpis",
         "/livez", "/readyz", "/healthz", "/metrics",

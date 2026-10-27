@@ -24,7 +24,8 @@ from inkcast.libs.contracts.models import SyncFile, SyncRequest
 from inkcast.libs.db import Store
 from inkcast.libs.pipeline import STUCK_AFTER, Publisher
 from inkcast.libs.platforms.devto import DevtoPlatform
-from inkcast.services.publishing.sync import GitSync
+from inkcast.libs.content.story import parse_story
+from inkcast.services.publishing.sync import GitSync, payload_hash
 
 SOURCE = "github.com/acme/blog"
 
@@ -180,12 +181,17 @@ class FindingGitSyncSaysThePlatformCouldNotBeAskedJustNow(SyncCheck):
 class HeldGitSyncStillAsksAPersonWhenThePlatformCannotTell(SyncCheck):
     def test_a_definite_lookup_failure_still_asks_a_person(self):
         markdown = "---\ntitle: Uncertain\nplatforms: [devto]\n---\n\nBody.\n"
-        self.store.claim_new(self.user, SOURCE, "posts/u.md", "devto", "h")
-        self.store.put_entry(self.user, SOURCE, "posts/u.md", "devto", status="unconfirmed", content_hash="h")
+        # The entry names no post and holds the hash of this very file: an unchanged file waits for the person (#226:
+        # an edited one is published as a new post, since there is no post to decide on).
+        story = parse_story(markdown, known_platforms=["devto"], schedule_as_written=True)
+        digest = payload_hash(self.dev.platform.prepare(story.for_platform("devto"), story.body))
+        self.store.claim_new(self.user, SOURCE, "posts/u.md", "devto", digest)
+        self.store.put_entry(self.user, SOURCE, "posts/u.md", "devto", status="unconfirmed", content_hash=digest)
         self.dev.lookup = 401
         result = self.sync(markdown)
-        self.assertEqual((result.action, result.status), ("skipped", "unconfirmed"))
-        self.assertIn("remove this file's ledger entry", result.message)
+        self.assertEqual((result.action, result.status, len(self.dev.articles)), ("skipped", "unconfirmed", 0))
+        self.assertIn("can't be checked automatically", result.message)
+        self.assertIn("published as a new post", result.message)
 
 
 if __name__ == "__main__":

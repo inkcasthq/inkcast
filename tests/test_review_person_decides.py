@@ -1,0 +1,199 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
+# Copyright 2026 ScalarOps Technologies LLC
+"""Adversarial review of #231 (issue #226): a person decides on an 'unconfirmed' post.
+
+Each ``Finding`` class's first test failed on the PR's head and passes with the fix committed with it; the tests after
+it pin what still holds, on both. Concurrency is driven by hooks inside the platform's calls and the store's reads,
+never by sleeps; a second process is a second ``Store`` on the same file, run to its end at the hook (a thread joined
+there, so its event loop is its own)."""
+
+import asyncio
+import logging
+import threading
+import time
+import unittest
+
+from inkcast.libs.contracts.models import SyncFile, SyncRequest
+from inkcast.libs.observability import Metrics
+from inkcast.libs.pipeline import STUCK_AFTER, Publisher
+from inkcast.libs.platforms import PlatformError
+from inkcast.services.publishing.usecases import InkcastService, ServiceError
+
+from test_person_decides import PATH, SOURCE, Harness, SyncHarness
+
+
+def in_another_process(work):
+    """Run ``work`` (a coroutine function) to its end on its own event loop, as another process would, and return its
+    result: the caller's loop is blocked in a synchronous hook meanwhile, holding no transaction."""
+    out: list = []
+    thread = threading.Thread(target=lambda: out.append(asyncio.run(work())))
+    thread.start()
+    thread.join()
+    return out[0] if out else None
+
+
+class FindingASyncThatReadTheEntryBeforeAResendDoesNotUndoIt(SyncHarness):
+    def test_the_entry_keeps_the_new_post_and_an_edit_is_not_a_second_copy(self):
+        """A push (the API, one process) reads the file's entry, still on the unconfirmed post; the person's resend (the
+        API, another process) then runs: the old post is cancelled, the entry is re-pointed at the new post, which is
+        published. The push then reads the old post, 'cancelled', and "follows" it, with ``put_entry``: that keeps the
+        entry's current post (the new one) but writes the old one's status, so the entry reads 'cancelled'. The edited
+        file in the push is then a brand-new post, sent: a second copy nobody decided on (and a later edit of an
+        unchanged file would be one too, instead of an update or a stale note)."""
+        self.platform.answer = PlatformError("Findable timed out after the request was sent.", uncertain=True)
+        first = self.sync()
+        old_id = first.post_id
+        self.assertEqual((first.action, first.status, self.entry()["status"]), ("create", "unconfirmed", "unconfirmed"))
+        api_store = self.open()
+        api_publisher = Publisher(api_store, self.platforms)
+        api = InkcastService(api_store, self.platforms, api_publisher, "https://inkcast.example.com")
+        real_get_entry = self.store.get_entry
+        resent = []
+
+        def get_entry(*args):
+            entry = real_get_entry(*args)
+            if not resent:
+                resent.append(in_another_process(lambda: api.resend(self.user, old_id)))
+            return entry
+
+        self.store.get_entry = get_entry
+        self.sync("Better body.")
+        (info,) = resent
+        self.assertEqual(info.status, "published")
+        self.assertEqual(self.platform.sent, ["Hello"], "the edit was sent as a second copy")
+        entry = self.entry()
+        self.assertEqual((entry["post_id"], entry["status"], entry["url"]), (info.id, "published", info.url))
+        again = self.sync("Better body.")                                    # the next push: the new post, not a third
+        self.assertEqual((again.action, again.post_id, self.platform.sent), ("stale", info.id, ["Hello"]))
+
+
+class FindingTheSendersLateUncertainAnswerDoesNotUndoAConfirmedPost(Harness):
+    def test_a_post_recovery_found_on_the_platform_stays_published(self):
+        """Worker A's request reached the platform and its answer is slow; worker B's stuck pass takes the post over and
+        Findable says it has it: 'published'. A's answer then lands, a timeout after the request was sent (uncertain),
+        and was written over the platform's own confirmation (``unless="cancelled"`` only): the post read
+        'unconfirmed', with the alert and the "check, then resend it" note, and the resend this PR adds then sent it a
+        second time. A plug-in crash reading the reply is the same uncertain answer."""
+        answers = {"uncertain": PlatformError("Findable timed out after the request was sent.", uncertain=True),
+                   "crash": RuntimeError("the plug-in fell over reading the reply")}
+        for how, answer in answers.items():
+            with self.subTest(how=how):
+                post_id = self.post("scheduled", how)
+                b = self.replica()
+                seen = []
+
+                async def while_a_waits(prepared, post_id=post_id, b=b, seen=seen, answer=answer):
+                    self.platform.sent.append(prepared.title)                 # A's request reached Findable
+                    await b.run_due(now=time.time() + STUCK_AFTER + 1)        # B: stuck → recovering → found → published
+                    seen.append(self.status(post_id))
+                    raise answer
+
+                self.platform.during_publish = while_a_waits
+                self.tick()
+                self.assertEqual(seen, ["published"])
+                post = self.store.get_post(post_id)
+                self.assertEqual((post["status"], post["result_url"]), ("published", "https://findable/found"),
+                                 "A's uncertain answer was written over the platform's confirmation")
+                with self.assertRaises(ServiceError) as caught:              # nothing for the person to decide
+                    asyncio.run(self.service.resend(self.user, post_id))
+                self.assertEqual(caught.exception.code, "not_resendable")
+                self.assertEqual(self.platform.sent.count(how), 1, "sent twice")
+
+    def test_an_uncertain_answer_with_nobody_else_holding_the_post_is_still_written(self):
+        post_id = self.post("scheduled")
+        self.platform.answer = PlatformError("Findable timed out after the request was sent.", uncertain=True)
+        self.tick()
+        self.assertEqual(self.status(post_id), "unconfirmed")
+
+
+class FindingTheSendersLateAnswerNeitherCountsNorLogsACancelledPost(Harness):
+    def test_the_alert_does_not_fire_for_a_post_the_person_cancelled_while_the_send_was_out(self):
+        """Item 6's flaw on the sender's side: worker A's send is out; worker B's stuck pass takes the post over (the
+        platform refuses the lookup: 'recovering'); the person cancels it. A's answer then lands, uncertain (or a
+        plug-in crash): not written, the cancel holds, but it was still counted and logged as 'unconfirmed', so
+        InkcastUnconfirmedPublishes fired for a cancelled post. A late 400 or 429, not written either, was counted
+        'failed' or 'retry' likewise: the failure-rate alert and the publish SLO burn for a post that never failed."""
+        answers = {"uncertain": PlatformError("Findable timed out after the request was sent.", uncertain=True),
+                   "crash": RuntimeError("the plug-in fell over reading the reply"),
+                   "refused": PlatformError("Findable refused the post (400)."),
+                   "retryable": PlatformError("Findable rate limit hit.", retryable=True, retry_after=60)}
+        for how, answer in answers.items():
+            with self.subTest(how=how):
+                post_id = self.post("scheduled", how)
+                b, api = self.replica(), self.replica()
+                self.publisher.metrics = Metrics()
+                self.publisher.metrics.counter("inkcast_publish_total", "")
+
+                async def while_a_waits(prepared, post_id=post_id, b=b, api=api, answer=answer):
+                    self.platform.refuse = True
+                    await b.run_due(now=time.time() + STUCK_AFTER + 1)        # B: recovering, the lookup refused
+                    self.platform.refuse = False
+                    api.cancel(self.user, post_id)                            # the person decides
+                    raise answer
+
+                self.platform.during_publish = while_a_waits
+                logging.getLogger("inkcast.libs.pipeline").level = logging.NOTSET
+                with self.assertLogs("inkcast.libs.pipeline", "WARNING") as logs:
+                    (outcome,) = asyncio.run(self.publisher.run_due(now=time.time()))
+                logging.getLogger("inkcast.libs.pipeline").level = logging.CRITICAL
+                self.assertEqual((outcome.status, self.status(post_id)), ("cancelled", "cancelled"))
+                self.assertEqual(self.publisher.metrics.snapshot().get("inkcast_publish_total", {}), {},
+                                 "counted for a cancelled post")
+                unconfirmed = [r for r in logs.records if getattr(r, "event", "") == "publish.unconfirmed"]
+                self.assertEqual(unconfirmed, [], "logged as unconfirmed")
+
+    def test_an_uncertain_answer_written_is_still_counted(self):
+        self.post("scheduled")
+        self.publisher.metrics = Metrics()
+        self.publisher.metrics.counter("inkcast_publish_total", "")
+        self.platform.answer = PlatformError("Findable timed out after the request was sent.", uncertain=True)
+        self.tick()
+        self.assertEqual(self.publisher.metrics.snapshot()["inkcast_publish_total"][
+            (("platform", "findable"), ("status", "unconfirmed"))], 1)
+
+
+class FindingARefusedLookupStillNamesTheDecision(SyncHarness):
+    def test_a_capped_post_whose_platform_still_refuses_is_reported_as_the_persons_decision(self):
+        """The cap ends a post 'unconfirmed' because the platform refused the lookup for a day; at the next push it
+        typically still does. The sync then said only "couldn't be asked just now ... The next sync will ask again", on
+        every push, and never that the person has to resend or cancel it: the decision the issue requires it to
+        report."""
+        post_id = self.synced_then_capped()
+        self.platform.refuse = True
+        result = self.sync()
+        self.assertEqual((result.action, result.status, result.post_id), ("skipped", "unconfirmed", post_id))
+        self.assertIn("couldn't be asked just now", result.message)
+        self.assertIn(f"resend post {post_id} (inkcast_resend, or POST /api/v1/posts/{post_id}/resend)", result.message)
+        self.assertIn(f"cancel it (inkcast_cancel, or POST /api/v1/posts/{post_id}/cancel)", result.message)
+        self.assertEqual((self.platform.sent, self.status(post_id)), ([], "unconfirmed"))
+
+    def test_an_entry_naming_no_post_keeps_its_message(self):
+        self.store.put_entry(self.user, SOURCE, PATH, self.platform.id, status="unconfirmed", content_hash="h")
+        self.platform.refuse = True
+        result = self.sync()
+        self.assertEqual((result.action, result.status), ("skipped", "unconfirmed"))
+        self.assertIn("The next sync will ask again", result.message)
+
+
+class FindingADryRunSaysWhatTheRealRunDoes(SyncHarness):
+    def test_a_dry_run_of_a_file_whose_post_is_unconfirmed_names_the_decision(self):
+        """``dry_run``: "Report what would happen; change nothing." For a file whose post is unconfirmed the real run
+        is 'skipped', the person's decision; the dry run skipped the unconfirmed block and said 'unchanged', or for an
+        edit 'stale' ("Changed since it was published ... Inkcast won't post it again"): a post that may never have
+        gone out, reported as published, in the preview a person (or their agent) reads before deciding."""
+        self.platform.answer = PlatformError("Findable timed out after the request was sent.", uncertain=True)
+        post_id = self.sync().post_id
+        for body in ("Body.", "Better body."):
+            with self.subTest(body=body):
+                req = SyncRequest(source=SOURCE, files=[SyncFile(path=PATH, markdown=self.markdown(body))], dry_run=True)
+                (dry,) = asyncio.run(self.git.sync(self.user, req)).results
+                real = self.sync(body)
+                self.assertEqual((dry.action, dry.status, dry.post_id), (real.action, real.status, real.post_id))
+                self.assertEqual(dry.action, "skipped")
+                self.assertIn(f"resend post {post_id}", dry.message)
+                self.assertNotIn("since it was published", dry.message)
+        self.assertEqual((self.platform.sent, self.platform.lookups), ([], 2), "the dry runs asked the platform")
+
+
+if __name__ == "__main__":
+    unittest.main()
