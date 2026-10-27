@@ -186,5 +186,61 @@ class HeldTheSendersSuccessIsStillRecorded(Harness):
                          ("published", "https://hooked/1", ["t"]))
 
 
+# ---- 1b. the same late answer, written over a post another worker has already re-sent ----------------------------
+
+
+class FindingTheSendersLateFailureReSendsAPostAnotherWorkerSent(Harness):
+    """The other half of the takeover that recovery's ``only_if`` (#211) guards: worker B takes the post over while A's
+    request is out, the platform says it is missing (A's request never arrived), and B's pass re-queues and sends it:
+    'published'. A's answer then lands, unconditionally: a retryable failure puts the published post back in the
+    queue, and the next tick posts it a second time; a definite one marks it 'failed', which Git sync creates again.
+    A retryable or definite failure says the request never took effect, so it is written only while the post is
+    still A's ('publishing'). Not new in #221, but the PR's invariant ("never sent twice") rests on it."""
+
+    def re_sent_while_sending(self, answer: PlatformError) -> str:
+        post_id = self.post("scheduled")
+        other = self.replica()
+        seen = []
+
+        async def overtaken(prepared):
+            self.platform.refuse = False                                      # B asks: not there
+            await other.run_due(now=time.time() + STUCK_AFTER + 1)            # B: re-queued, then sent by the same pass
+            seen.append((self.status(post_id), list(self.platform.delivered)))
+            raise answer
+
+        self.platform.during_publish = overtaken
+        self.tick()                                                           # worker A's tick: its send, then its answer
+        self.assertEqual(seen, [("published", ["t"])])
+        return post_id
+
+    def test_a_retryable_failure_does_not_send_the_post_again(self):
+        post_id = self.re_sent_while_sending(PlatformError("Hooked is unreachable.", retryable=True))
+        self.tick(later=DAY)                                                  # long after any retry delay
+        self.assertEqual((self.status(post_id), self.platform.delivered), ("published", ["t"]), "posted twice")
+
+    def test_a_definite_failure_does_not_mark_the_published_post_failed(self):
+        post_id = self.re_sent_while_sending(PlatformError("Hooked refused the post (400)."))
+        post = self.store.get_post(post_id)
+        self.assertEqual((post["status"], post["result_url"]), ("published", "https://hooked/1"))
+
+
+class HeldAnUncertainLateAnswerStillGoesToAPerson(Harness):
+    def test_a_re_sent_post_whose_first_request_may_have_arrived_is_unconfirmed_with_its_url(self):
+        """A's request may have reached the platform after B's lookup: the post may be there twice. A person checks;
+        B's URL stays on the row."""
+        post_id = self.post("scheduled")
+        other = self.replica()
+
+        async def overtaken(prepared):
+            self.platform.refuse = False
+            await other.run_due(now=time.time() + STUCK_AFTER + 1)
+            raise PlatformError("Hooked timed out after the request was sent.", uncertain=True)
+
+        self.platform.during_publish = overtaken
+        self.tick()
+        post = self.store.get_post(post_id)
+        self.assertEqual((post["status"], post["result_url"]), ("unconfirmed", "https://hooked/1"))
+
+
 if __name__ == "__main__":
     unittest.main()

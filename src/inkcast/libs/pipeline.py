@@ -189,9 +189,11 @@ class Publisher:
                 delay = self.retry.delay_after(attempts, asked=getattr(exc, "retry_after", None))
                 # attempts: the sends so far. The scheduler's claim counted its own; a "now" post's first send is
                 # counted here, so the policy's budget holds and Git sync sees a post the scheduler has tried.
+                # Only while the post is still this send's: the request certainly never took effect, so if another
+                # worker took the post over meanwhile, its recovery decides (and may have sent it already).
                 written = self.store.update_post(
                     post_id, status="scheduled", run_at=time.time() + delay, attempts=attempts, error=f"retrying: {exc}",
-                    unless="cancelled", events=self._event("post.scheduled", post_id, user_id, platform.id, retry=attempts))
+                    only_if="publishing", events=self._event("post.scheduled", post_id, user_id, platform.id, retry=attempts))
                 self._count(platform.id, "retry")
                 return self._as_now(written, Outcome(platform.id, "scheduled", post_id=post_id, message=f"Will retry: {exc}"))
             message = str(exc)
@@ -199,7 +201,7 @@ class Publisher:
                 # The retries ran out at the policy's cap while the platform kept asking for longer (#188).
                 message += (f" {platform.name} asked for a longer wait than INKCAST_PUBLISH_RETRY_DELAYS allows (at most "
                             f"{max(self.retry.delays)} s), which caps every wait.")
-            written = self.store.update_post(post_id, status="failed", error=message, unless="cancelled",
+            written = self.store.update_post(post_id, status="failed", error=message, only_if="publishing",  # likewise
                                              events=self._event("post.failed", post_id, user_id, platform.id, reason="platform"))
             self._count(platform.id, "failed")
             return self._as_now(written, Outcome(platform.id, "failed", post_id=post_id, message=message))
@@ -230,8 +232,9 @@ class Publisher:
 
     def _as_now(self, written: bool, outcome: Outcome) -> Outcome:
         """A send's answer, as recorded; or, when it was not written because the post moved on while the send was out
-        (a person cancelled it: #216), what the post is now, so a caller that records the outcome (Git sync's ledger)
-        does not act on an answer the post no longer has. A post that no longer exists keeps the send's answer."""
+        (taken over as stuck and re-sent by another worker, or cancelled: #216), what the post is now, so a caller that
+        records the outcome (Git sync's ledger) does not act on an answer the post no longer has. A post that no longer
+        exists keeps the send's answer."""
         post = None if written else self.store.get_post(outcome.post_id)
         if post is None:
             return outcome
