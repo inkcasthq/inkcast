@@ -13,6 +13,7 @@ import threading
 import time
 import unittest
 
+from inkcast.libs.contracts.models import SyncFile, SyncRequest
 from inkcast.libs.observability import Metrics
 from inkcast.libs.pipeline import STUCK_AFTER, Publisher
 from inkcast.libs.platforms import PlatformError
@@ -172,6 +173,26 @@ class FindingARefusedLookupStillNamesTheDecision(SyncHarness):
         result = self.sync()
         self.assertEqual((result.action, result.status), ("skipped", "unconfirmed"))
         self.assertIn("The next sync will ask again", result.message)
+
+
+class FindingADryRunSaysWhatTheRealRunDoes(SyncHarness):
+    def test_a_dry_run_of_a_file_whose_post_is_unconfirmed_names_the_decision(self):
+        """``dry_run``: "Report what would happen; change nothing." For a file whose post is unconfirmed the real run
+        is 'skipped', the person's decision; the dry run skipped the unconfirmed block and said 'unchanged', or for an
+        edit 'stale' ("Changed since it was published ... Inkcast won't post it again"): a post that may never have
+        gone out, reported as published, in the preview a person (or their agent) reads before deciding."""
+        self.platform.answer = PlatformError("Findable timed out after the request was sent.", uncertain=True)
+        post_id = self.sync().post_id
+        for body in ("Body.", "Better body."):
+            with self.subTest(body=body):
+                req = SyncRequest(source=SOURCE, files=[SyncFile(path=PATH, markdown=self.markdown(body))], dry_run=True)
+                (dry,) = asyncio.run(self.git.sync(self.user, req)).results
+                real = self.sync(body)
+                self.assertEqual((dry.action, dry.status, dry.post_id), (real.action, real.status, real.post_id))
+                self.assertEqual(dry.action, "skipped")
+                self.assertIn(f"resend post {post_id}", dry.message)
+                self.assertNotIn("since it was published", dry.message)
+        self.assertEqual((self.platform.sent, self.platform.lookups), ([], 2), "the dry runs asked the platform")
 
 
 if __name__ == "__main__":

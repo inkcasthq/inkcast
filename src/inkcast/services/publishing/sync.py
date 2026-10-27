@@ -121,6 +121,10 @@ class GitSync:
                     "This file's post changed during this sync (a person resent it); run the sync again."))
             entry = self.store.get_entry(user_id, src, path, pid) or entry
 
+        if entry and entry["status"] == "unconfirmed" and req.dry_run and post is not None:
+            # A dry run asks the platform nothing, but says what the real run does: the person decides (#226).
+            return SyncResult(**base, action="skipped", status="unconfirmed", post_id=post["id"],
+                              message=self._decision(platform, post["id"], None, dry_run=True))
         if entry and entry["status"] == "unconfirmed" and not req.dry_run:
             checked = await self.publisher.confirm(user_id, platform, prepared)
             if checked is not None and checked.status == "unavailable":  # rate-limited, unreachable: ask again next time
@@ -269,9 +273,10 @@ class GitSync:
                           message=o.message or ("; ".join(o.notes) or None))
 
     @staticmethod
-    def _decision(platform: Platform, post_id: str, checked: Outcome | None) -> str:
+    def _decision(platform: Platform, post_id: str, checked: Outcome | None, dry_run: bool = False) -> str:
         """What the sync says of a file whose post is unconfirmed: the person decides (#226)."""
-        said = (f"{platform.name} can't be checked automatically" if checked is None
+        said = (f"this dry run didn't ask {platform.name}" if dry_run
+                else f"{platform.name} can't be checked automatically" if checked is None
                 else f"{platform.name} couldn't be asked just now ({checked.message}); the next sync asks again"
                 if checked.status == "unavailable" else f"{platform.name} says it isn't there")
         return (f"The last publish to {platform.name} may or may not have gone through, and {said}. Inkcast never publishes "
