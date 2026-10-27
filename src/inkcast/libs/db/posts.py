@@ -31,11 +31,12 @@ CREATE TABLE IF NOT EXISTS heartbeats (name TEXT PRIMARY KEY, at REAL NOT NULL);
 -- v0.2: "unknown" was renamed "unconfirmed" (the platform may or may not have published).
 UPDATE posts SET status = 'unconfirmed' WHERE status = 'unknown';
 """
-# recovering_since: when the post entered 'recovering' from 'publishing' (``claim_stuck``), kept while it stays there
-# and set afresh by a later interruption; meaningful only while the status is 'recovering'. The age of the oldest
-# such post is the inkcast_posts_recovering_oldest_age_seconds gauge (the InkcastPostRecoveringTooLong alert), and
+# recovering_since: when the post became stuck in 'publishing' (STUCK_AFTER after its send began; ``claim_stuck``
+# records it, however late its pass comes), kept while it stays 'recovering' and set afresh by a later interruption;
+# meaningful only while the status is 'recovering'. The age of the oldest such post is the
+# inkcast_posts_recovering_oldest_age_seconds gauge (the InkcastPostRecoveringTooLong alert), and
 # INKCAST_PUBLISH_RECOVERY_MAX_HOURS is measured from it (#216). NULL on a row from before the column: counted from its
-# last change until the next stuck pass sets it.
+# last change until the next stuck pass sets it, from the row's run_at (the earliest its send can have begun).
 COLUMNS = (("posts", "recovering_since", "REAL"),)
 
 
@@ -130,15 +131,23 @@ class PostsRepo(Database):
         each. The caller decides what they become: a send may or may not have reached the platform, so they
         are never simply put back in the queue (that is how schedulers post twice). A post left 'recovering' (that
         worker stopped too, or the platform refused its lookup) is taken again: recovering only asks the platform,
-        it never sends. Each row comes back with its ``recovering_since``: ``now`` for a post taken from
-        'publishing', kept for one taken again (#216)."""
+        it never sends. Each row comes back with its ``recovering_since``: when a post taken from 'publishing'
+        became stuck (at most ``now``), kept for one taken again (#216), from its run_at for one from before the column."""
         now = now or time.time()
         out = []
         with self._tx() as c:
             rows = c.execute("SELECT * FROM posts WHERE status IN ('publishing', 'recovering') AND updated_at < ?"
                              + self._OWNED, (older_than,)).fetchall()
             for r in rows:
-                since = r["recovering_since"] if r["status"] == "recovering" and r["recovering_since"] is not None else now
+                # Since it became stuck (its send began ``now - older_than`` before that), not since this pass. A pass
+                # that comes late (no scheduler ran: an outage, a crash loop) must not restart the cap's clock, or the
+                # post goes out that much later on its own (#216). A post 'recovering' from before the column has no
+                # clock: its send began no earlier than its run_at.
+                if r["status"] == "recovering" and r["recovering_since"] is not None:
+                    since = r["recovering_since"]
+                else:
+                    began = r["run_at"] if r["status"] == "recovering" else r["updated_at"]
+                    since = min(now, began + (now - older_than))
                 c.execute("UPDATE posts SET status = 'recovering', updated_at = ?, recovering_since = ? WHERE id = ?",
                           (now, since, r["id"]))
                 out.append({**dict(r), "recovering_since": since})

@@ -242,5 +242,60 @@ class HeldAnUncertainLateAnswerStillGoesToAPerson(Harness):
         self.assertEqual((post["status"], post["result_url"]), ("unconfirmed", "https://hooked/1"))
 
 
+# ---- 2. the cap's clock starts at the stuck pass, not at the interruption ---------------------------------------
+
+
+class FindingTheCapStartsAtTheStuckPassNotTheInterruption(Harness):
+    """``claim_stuck`` sets ``recovering_since`` to the pass's own clock for a post it takes from 'publishing'. A post
+    interrupted mid-send while no scheduler ran for a while (an outage, a crash loop, the worker scaled down) starts
+    its 24 hours only when a scheduler comes back: the platform's first answer, "missing", re-queues it and it goes
+    out days after its send was interrupted, with nobody deciding. The cap is meant to bound exactly that ("the
+    ceiling bounds how late a post the platform finally reports missing may go out on its own"). The gauge, read
+    from the same column, says the post has been recovering for 0 s. A post already 'recovering' when the column was
+    added (since #199, the posts #216 is about) has no ``recovering_since`` either, and gets the same fresh 24 hours
+    from the first pass after the upgrade."""
+
+    def interrupted(self, ago: float) -> str:
+        """A post the process was sending ``ago`` seconds ago when it stopped; no stuck pass has run since."""
+        post_id = self.post("publishing")
+        self.store._exec("UPDATE posts SET updated_at = ? WHERE id = ?", time.time() - ago, post_id)
+        return post_id
+
+    def test_a_post_interrupted_two_days_before_the_scheduler_came_back_is_never_sent_on_its_own(self):
+        self.platform.refuse = False                                          # the platform answers: not there
+        post_id = self.interrupted(2 * DAY)
+        self.tick()                                                           # the scheduler is back: its stuck pass
+        self.tick(later=1)                                                    # and its next tick
+        self.assertEqual((self.status(post_id), self.platform.delivered), ("unconfirmed", []),
+                         "sent two days after its send was interrupted")
+
+    def test_the_gauge_counts_from_when_the_post_was_stuck(self):
+        post_id = self.interrupted(3 * 3600)                                  # three hours before the stuck pass
+        self.tick()                                                           # the lookup is refused: 'recovering'
+        self.assertEqual(self.status(post_id), "recovering")
+        self.assertGreater(self.store.oldest_recovering_age(time.time()), 3600, "InkcastPostRecoveringTooLong stays quiet")
+
+    def test_a_post_recovering_since_before_the_upgrade_does_not_start_its_hours_afresh(self):
+        self.platform.refuse = False                                          # the platform answers at last: not there
+        post_id = self.post("recovering", run_at=time.time() - 2 * DAY)       # due, sent and interrupted two days ago
+        self.store._exec("UPDATE posts SET updated_at = ?, recovering_since = NULL WHERE id = ?",
+                         time.time() - STUCK_AFTER - 1, post_id)              # its last pass, before the column existed
+        self.tick()                                                           # the first stuck pass after the upgrade
+        self.tick(later=1)
+        self.assertEqual((self.status(post_id), self.platform.delivered), ("unconfirmed", []),
+                         "sent two days after its send was interrupted")
+
+
+class HeldAFreshInterruptionIsStillRecovered(Harness):
+    def test_a_post_interrupted_minutes_ago_that_the_platform_lacks_is_sent_again(self):
+        self.platform.refuse = False
+        post_id = self.post("publishing")
+        self.store._exec("UPDATE posts SET updated_at = updated_at - ? WHERE id = ?", STUCK_AFTER + 1, post_id)
+        self.tick()
+        self.assertEqual(self.status(post_id), "scheduled")
+        self.tick(later=1)
+        self.assertEqual((self.status(post_id), self.platform.delivered), ("published", ["t"]))
+
+
 if __name__ == "__main__":
     unittest.main()
