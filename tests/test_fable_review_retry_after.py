@@ -2,7 +2,7 @@
 # Copyright 2026 ScalarOps Technologies LLC
 """Deferred review of #168 (issue #126): a 429's ``Retry-After`` sets the retry delay, capped by the policy.
 
-Each test in a ``Finding`` class failed on main at 57f83d1 (#168 and its adversarial review merged) before the fix
+Each test in a ``Finding`` class failed on main at 54698f1 (#168 and its adversarial review merged) before the fix
 committed with it. The ``Held`` classes pin behaviour that was checked by hand and found right, so it stays right."""
 
 import asyncio

@@ -2,7 +2,7 @@
 
 A few pictures of Inkcast in use, in the order a person meets them. They come from the [end-to-end walkthrough](walkthrough.md), which drives the whole journey for real (an MCP client, a browser, the REST API) and checks every step; the panels are labelled MCP tool calls, not any client's interface.
 
-From the run at commit `e7580fa73c1e` on 2026-10-22. The full walkthrough, every step pictured, is on the [`ci-captures`](https://github.com/inkcasthq/inkcast/tree/ci-captures/walkthrough/latest) branch, rebuilt by CI on every merge. Refresh this page with `python3 scripts/docs/showcase.py --from <walk output>`.
+From the run at commit `863a44b56986` on 2026-10-22. The full walkthrough, every step pictured, is on the [`ci-captures`](https://github.com/inkcasthq/inkcast/tree/ci-captures/walkthrough/latest) branch, rebuilt by CI on every merge. Refresh this page with `python3 scripts/docs/showcase.py --from <walk output>`.
 
 ## 1. Add Inkcast to your AI assistant
 
