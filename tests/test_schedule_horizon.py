@@ -70,9 +70,9 @@ class Parser(unittest.TestCase):
         with self.assertRaises(content.StoryError) as caught:
             content.parse_story("# Far ahead\n\nBody.\n", known_platforms=KNOWN, publish_at=BEYOND.isoformat(), now=NOW)
         assert_names_the_limit(self, str(caught.exception))
-        # Git sync's leniency (a past date means "now") is for the past only.
+        # Git sync keeps a past date as written (ADR-0015); its leniency is for the past only.
         with self.assertRaises(content.StoryError) as caught:
-            content.parse_story(story_md(BEYOND), known_platforms=KNOWN, now=NOW, past_schedule_is_now=True)
+            content.parse_story(story_md(BEYOND), known_platforms=KNOWN, now=NOW, schedule_as_written=True)
         assert_names_the_limit(self, str(caught.exception))
 
 

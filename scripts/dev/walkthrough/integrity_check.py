@@ -45,7 +45,7 @@ from inkcast.services.publishing.sync import payload_hash  # noqa: E402
 
 def rendered_for_dev(markdown: str, *, draft: bool = False, for_sync: bool = False):
     """The DEV payload the server builds for this markdown, with no I/O (``prepare`` is pure)."""
-    story = parse_story(markdown, known_platforms=["devto", "medium"], draft=draft, past_schedule_is_now=for_sync)
+    story = parse_story(markdown, known_platforms=["devto", "medium"], draft=draft, schedule_as_written=for_sync)
     return DevtoPlatform(http=None).prepare(story.for_platform("devto"), story.body)
 
 
