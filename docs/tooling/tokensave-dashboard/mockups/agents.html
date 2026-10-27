@@ -6,14 +6,13 @@
 <title>tokensave dashboard</title>
 <style>
 body{margin:0}
-a{color:#93C5FD}a:hover{color:#BFDBFE}
 .ts-filterbtn{display:none}
 @media (max-width:640px){.ts-filters{display:none!important}.ts-filterbtn{display:flex!important}}
 </style>
 </head>
 <body>
 <div style="font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #1A1D21; background: #F6F7F9; min-height: 100vh; width: 100%">
-  <header style="background: #FFFFFF; border-bottom: 1px solid #E3E5E8">
+  <header data-component="app-header" data-dataset="status" style="background: #FFFFFF; border-bottom: 1px solid #E3E5E8">
     <div style="max-width: 1440px; margin: 0 auto; padding: 14px 24px 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px">
       <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; justify-content: space-between">
         <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">
@@ -30,7 +29,7 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
           <label style="font-size: 12px; color: #555E6B; display: flex; align-items: center; gap: 6px">Workspace
             <select style="font: inherit; font-size: 13px; color: #1A1D21; padding: 6px 8px; border: 1px solid #CDD1D6; border-radius: 6px; background: #F6F7F9; min-height: 36px"><option>~/gitRepos</option><option>All workspaces</option></select>
           </label>
-          <div role="group" aria-label="Theme" style="display: flex; border: 1px solid #CDD1D6; border-radius: 8px; overflow: hidden">
+          <div data-component="segmented" data-dataset="themes" role="group" aria-label="Theme" style="display: flex; border: 1px solid #CDD1D6; border-radius: 8px; overflow: hidden">
             
               <button aria-pressed="false" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; background: transparent; color: #1A1D21; min-height: 36px; cursor: pointer">Dark</button>
             
@@ -55,7 +54,7 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
       </div>
       <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
         <span style="font-size: 12px; color: #555E6B">Date range</span>
-        <div role="group" aria-label="Date range" style="display: flex; border: 1px solid #CDD1D6; border-radius: 8px; overflow-x: auto; max-width: 100%">
+        <div role="group" aria-label="Date range" data-component="segmented" data-dataset="ranges" style="display: flex; border: 1px solid #CDD1D6; border-radius: 8px; overflow-x: auto; max-width: 100%">
           
             <button aria-pressed="false" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; border-left: 0; background: transparent; color: #1A1D21; min-height: 36px; white-space: nowrap; cursor: pointer">7 days</button>
           
@@ -97,7 +96,7 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
 
     
       <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start">
-        <section aria-label="Sessions and subagents" style="flex: 999 1 560px; min-width: 0; background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+        <section aria-label="Sessions and subagents" data-component="row-list" data-dataset="runs" style="flex: 999 1 560px; min-width: 0; background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
           <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #1D4ED8">Agent runs</span>
           <h2 style="margin: 0; font-size: 16px; font-weight: 600">Sessions and the agents they started</h2>
           <span style="font-size: 12px; color: #555E6B">Roles come from each subagent's own record (type and description); nothing is read from prompts.</span>
@@ -130,17 +129,17 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
             
               <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 0 10px 0px; border-top: 1px solid #E3E5E8; font-size: 13px">
                 <span style="flex: 2 1 220px; min-width: 0; display: flex; align-items: center; gap: 10px"><span style="width: 28px; height: 28px; border-radius: 7px; background: #e1f0f8; display: flex; align-items: center; justify-content: center; flex: none"><span style="width: 10px; height: 10px; border-radius: 50%; background: #0284C7"></span></span><span style="display: flex; flex-direction: column"><span style="font-weight: 600">service-a · session</span><span style="font-size: 12px; color: #555E6B">main · Codex</span></span></span>
-                <span style="flex: 1 1 380px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px 12px; font-family: 'IBM Plex Mono', monospace"><span style="color: #555E6B">[Codex model] · high</span><span style="color: #555E6B">380k / 22k</span><span style="display: flex; align-items: center; gap: 10px"><span style="font-weight: 500; min-width: 56px; text-align: right">$2.10</span><span style="font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #E7F6EC; color: #14532D">finished</span></span></span>
+                <span style="flex: 1 1 380px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px 12px; font-family: 'IBM Plex Mono', monospace"><span style="color: #555E6B">gpt-6.1-sol · high</span><span style="color: #555E6B">380k / 22k</span><span style="display: flex; align-items: center; gap: 10px"><span style="font-weight: 500; min-width: 56px; text-align: right">$2.10</span><span style="font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #E7F6EC; color: #14532D">finished</span></span></span>
               </div>
             
               <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 0 10px 0px; border-top: 1px solid #E3E5E8; font-size: 13px">
                 <span style="flex: 2 1 220px; min-width: 0; display: flex; align-items: center; gap: 10px"><span style="width: 28px; height: 28px; border-radius: 7px; background: #edecfd; display: flex; align-items: center; justify-content: center; flex: none"><span style="width: 10px; height: 10px; border-radius: 50%; background: #6D5DF0"></span></span><span style="display: flex; flex-direction: column"><span style="font-weight: 600">infra-lab · session</span><span style="font-size: 12px; color: #555E6B">main · Cursor</span></span></span>
-                <span style="flex: 1 1 380px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px 12px; font-family: 'IBM Plex Mono', monospace"><span style="color: #555E6B">[Cursor model]</span><span style="color: #555E6B">120k / —</span><span style="display: flex; align-items: center; gap: 10px"><span style="font-weight: 500; min-width: 56px; text-align: right">—</span><span style="font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #FDEFE3; color: #7C2D12">partial</span></span></span>
+                <span style="flex: 1 1 380px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px 12px; font-family: 'IBM Plex Mono', monospace"><span style="color: #555E6B">grok-4.7-high</span><span style="color: #555E6B">120k / 9k</span><span style="display: flex; align-items: center; gap: 10px"><span style="font-weight: 500; min-width: 56px; text-align: right">$0.80</span><span style="font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #E7F6EC; color: #14532D">finished</span></span></span>
               </div>
             
           </div>
         </section>
-        <aside aria-label="Cost by role" style="flex: 1 1 280px; min-width: 0; background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+        <aside aria-label="Cost by role" data-component="bar-list" data-dataset="roles" style="flex: 1 1 280px; min-width: 0; background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
           <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #1D4ED8">By role</span>
           <h2 style="margin: 0; font-size: 16px; font-weight: 600">Cost by role</h2>
           

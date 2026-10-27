@@ -6,14 +6,13 @@
 <title>tokensave dashboard</title>
 <style>
 body{margin:0}
-a{color:#93C5FD}a:hover{color:#BFDBFE}
 .ts-filterbtn{display:none}
 @media (max-width:640px){.ts-filters{display:none!important}.ts-filterbtn{display:flex!important}}
 </style>
 </head>
 <body>
 <div style="font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #1A1D21; background: #F6F7F9; min-height: 100vh; width: 100%">
-  <header style="background: #FFFFFF; border-bottom: 1px solid #E3E5E8">
+  <header data-component="app-header" data-dataset="status" style="background: #FFFFFF; border-bottom: 1px solid #E3E5E8">
     <div style="max-width: 1440px; margin: 0 auto; padding: 14px 24px 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px">
       <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; justify-content: space-between">
         <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">
@@ -30,7 +29,7 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
           <label style="font-size: 12px; color: #555E6B; display: flex; align-items: center; gap: 6px">Workspace
             <select style="font: inherit; font-size: 13px; color: #1A1D21; padding: 6px 8px; border: 1px solid #CDD1D6; border-radius: 6px; background: #F6F7F9; min-height: 36px"><option>~/gitRepos</option><option>All workspaces</option></select>
           </label>
-          <div role="group" aria-label="Theme" style="display: flex; border: 1px solid #CDD1D6; border-radius: 8px; overflow: hidden">
+          <div data-component="segmented" data-dataset="themes" role="group" aria-label="Theme" style="display: flex; border: 1px solid #CDD1D6; border-radius: 8px; overflow: hidden">
             
               <button aria-pressed="false" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; background: transparent; color: #1A1D21; min-height: 36px; cursor: pointer">Dark</button>
             
@@ -55,7 +54,7 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
       </div>
       <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
         <span style="font-size: 12px; color: #555E6B">Date range</span>
-        <div role="group" aria-label="Date range" style="display: flex; border: 1px solid #CDD1D6; border-radius: 8px; overflow-x: auto; max-width: 100%">
+        <div role="group" aria-label="Date range" data-component="segmented" data-dataset="ranges" style="display: flex; border: 1px solid #CDD1D6; border-radius: 8px; overflow-x: auto; max-width: 100%">
           
             <button aria-pressed="false" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; border-left: 0; background: transparent; color: #1A1D21; min-height: 36px; white-space: nowrap; cursor: pointer">7 days</button>
           
@@ -109,7 +108,7 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
         <h2 style="margin: 0; font-size: 18px; font-weight: 600">Agent tools found on this machine</h2>
         <span style="font-size: 13px; color: #555E6B">Found by their local session data, read-only. A format tokensave doesn't recognise is reported here, never guessed.</span>
       </div>
-      <section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px">
+      <section data-component="card-grid" data-dataset="sources" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px">
         
           <div style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0">
             <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px">
@@ -134,20 +133,20 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
               <div style="display: flex; flex-direction: column"><span style="font-size: 12px; color: #555E6B">Turns</span><span style="font-family: 'IBM Plex Mono', monospace">2,961</span></div>
               <div style="display: flex; flex-direction: column"><span style="font-size: 12px; color: #555E6B">Last parsed</span><span style="font-family: 'IBM Plex Mono', monospace">2 min ago</span></div>
             </div>
-            <span style="font-size: 12px; color: #555E6B">Model and effort from turn context; tokens from token_count events.</span>
+            <span style="font-size: 12px; color: #555E6B">One turn per response: model and effort from turn context, tokens from its usage record.</span>
           </div>
         
           <div style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0">
             <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px">
               <span style="display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 600"><span style="width: 32px; height: 32px; border-radius: 8px; background: #edecfd; display: flex; align-items: center; justify-content: center; flex: none"><span style="width: 12px; height: 12px; border-radius: 50%; background: #6D5DF0"></span></span>Cursor</span>
-              <span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #FDEFE3; color: #7C2D12">partial</span>
+              <span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #E7F6EC; color: #14532D">verified</span>
             </div>
-            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #555E6B; overflow-wrap: anywhere">~/Library/Application Support/Cursor/User/</span>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #555E6B; overflow-wrap: anywhere">Cursor account (tokensave cursor sync)</span>
             <div style="display: flex; gap: 24px; font-size: 13px">
               <div style="display: flex; flex-direction: column"><span style="font-size: 12px; color: #555E6B">Turns</span><span style="font-family: 'IBM Plex Mono', monospace">640</span></div>
               <div style="display: flex; flex-direction: column"><span style="font-size: 12px; color: #555E6B">Last parsed</span><span style="font-family: 'IBM Plex Mono', monospace">2 min ago</span></div>
             </div>
-            <span style="font-size: 12px; color: #555E6B">Experimental: only token counts Cursor records.</span>
+            <span style="font-size: 12px; color: #555E6B">Usage per request from your Cursor account; off until you switch it on.</span>
           </div>
         
           <div style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0">

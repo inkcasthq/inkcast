@@ -64,8 +64,8 @@ tokensave keeps one machine-wide database, `~/.tokensave/global.db`:
 | Tool | Local data | What it gives | Status |
 |---|---|---|---|
 | Claude Code | `~/.claude/projects/<slug>/*.jsonl`, `subagents/*.jsonl` and `*.meta.json` | everything above, incl. effort, requested vs served model, thinking tokens, subagent role | parsed today; extend for the new fields |
-| Codex CLI | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` (newer builds `.jsonl.zst`), index `~/.codex/state_5.sqlite` | `session_meta` (cwd, model), `turn_context` (model, effort), `token_count` events (cumulative `input_tokens`, `cached_input_tokens`, `output_tokens`, reasoning tokens; per turn is the difference) | **new adapter**; field names verified against real files when built |
-| Cursor | `state.vscdb` (SQLite) under the Cursor user folder; `globalStorage` and `workspaceStorage` | only explicit token counts where Cursor records them; no cache or reasoning split | **experimental**: not a public format, shown as partial |
+| Codex CLI | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` | `session_meta` (cwd, git branch, subagent parent), `turn_context` (model, effort), one `token_usage_record` per response (input including cached, cached, output including reasoning) | built: #260 |
+| Cursor | none locally: its local files hold no token counts (measured in #261); usage comes from the owner's Cursor account by `tokensave cursor sync` (Admin API with a Team key, else the Cursor login when switched on) | per request: model, input, output, cache read and write tokens, cost | #261 |
 | Pi, Factory Droid | as tokensave parses them today | tokensave's current fields | parsed today |
 
 - A source's version or format is checked when it's read. An unknown shape is reported on the Sources page, never guessed.
@@ -300,8 +300,8 @@ The dashboard resizes itself to the device. Nothing is pinched or zoomed, and th
    - the embedded page with the six tabs;
    - the theme tokens with Light / Dark / Auto and the contrast test;
    - `--at-login` via launchd.
-4. **S4, Codex adapter:** sessions → turns with model, effort, tokens per turn (cumulative differences), cwd → repo; `.jsonl` and `.jsonl.zst`; fixtures.
-5. **S5, Cursor adapter (experimental):** explicit token counts only, marked partial; format check; can be switched off.
+4. **S4, Codex adapter (#260):** one turn per `token_usage_record`, model and effort from the `turn_context` before it, cwd → repo; fixtures.
+5. **S5, Cursor usage (#261):** `tokensave cursor sync`, from the Admin API or the owner's Cursor login; never in the hooks.
 6. **S6, upstream:** propose S1–S3 to tokensave as a PR, with the adapters following.
 
 ## Acceptance
@@ -331,6 +331,8 @@ The mockup is one app (target `preact-ts`): every tab shares the theme, the date
 | [Sources](mockups/sources.html) | <img src="mockups/sources.png" alt="Sources: each agent tool found, its path and format status" width="720"> |
 | [Theme tokens](mockups/theme-tokens.html) | <img src="mockups/theme-tokens.png" alt="Theme tokens: every colour in light and dark with its contrast ratio" width="720"> |
 | Overview on a phone | <img src="mockups/overview-mobile.png" alt="The Overview at phone width" width="240"> |
+
+**Contract.** Every dataset in `Main.dc.html` carries its `GET /api/...` source and TypeScript type, and every section its `data-component` and `data-dataset` (mockup standard §4–§5, #262); `mockup-to-page` translates them into the page's `types.ts`, API and components.
 
 **Source.** `mockups/source/` holds the design-canvas files: `Main.dc.html` is the app, and the `Tab*`, `Tablet` and `Phone` files open it on one tab or at one width. Regenerate the pages and check every variant with:
 

@@ -6,14 +6,13 @@
 <title>tokensave dashboard</title>
 <style>
 body{margin:0}
-a{color:#93C5FD}a:hover{color:#BFDBFE}
 .ts-filterbtn{display:none}
 @media (max-width:640px){.ts-filters{display:none!important}.ts-filterbtn{display:flex!important}}
 </style>
 </head>
 <body>
 <div style="font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #1A1D21; background: #F6F7F9; min-height: 100vh; width: 100%">
-  <header style="background: #FFFFFF; border-bottom: 1px solid #E3E5E8">
+  <header data-component="app-header" data-dataset="status" style="background: #FFFFFF; border-bottom: 1px solid #E3E5E8">
     <div style="max-width: 1440px; margin: 0 auto; padding: 14px 24px 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px">
       <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; justify-content: space-between">
         <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">
@@ -30,7 +29,7 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
           <label style="font-size: 12px; color: #555E6B; display: flex; align-items: center; gap: 6px">Workspace
             <select style="font: inherit; font-size: 13px; color: #1A1D21; padding: 6px 8px; border: 1px solid #CDD1D6; border-radius: 6px; background: #F6F7F9; min-height: 36px"><option>~/gitRepos</option><option>All workspaces</option></select>
           </label>
-          <div role="group" aria-label="Theme" style="display: flex; border: 1px solid #CDD1D6; border-radius: 8px; overflow: hidden">
+          <div data-component="segmented" data-dataset="themes" role="group" aria-label="Theme" style="display: flex; border: 1px solid #CDD1D6; border-radius: 8px; overflow: hidden">
             
               <button aria-pressed="false" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; background: transparent; color: #1A1D21; min-height: 36px; cursor: pointer">Dark</button>
             
@@ -55,7 +54,7 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
       </div>
       <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
         <span style="font-size: 12px; color: #555E6B">Date range</span>
-        <div role="group" aria-label="Date range" style="display: flex; border: 1px solid #CDD1D6; border-radius: 8px; overflow-x: auto; max-width: 100%">
+        <div role="group" aria-label="Date range" data-component="segmented" data-dataset="ranges" style="display: flex; border: 1px solid #CDD1D6; border-radius: 8px; overflow-x: auto; max-width: 100%">
           
             <button aria-pressed="false" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; border-left: 0; background: transparent; color: #1A1D21; min-height: 36px; white-space: nowrap; cursor: pointer">7 days</button>
           
@@ -100,19 +99,23 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
     
 
     
-      <section style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-wrap: wrap; gap: 20px; align-items: center; justify-content: space-between">
+      <section data-component="stat-strip" data-dataset="repos" style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-wrap: wrap; gap: 20px; align-items: center; justify-content: space-between">
         <div style="display: flex; flex-direction: column; gap: 4px; min-width: 0">
           <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #1D4ED8">Workspace</span>
           <span style="font-family: 'IBM Plex Mono', monospace; font-size: 18px">~/gitRepos</span>
           <span style="font-size: 12px; color: #555E6B">marked by .tokensave-workspace.toml · scan depth 1</span>
         </div>
         <div style="display: flex; flex-wrap: wrap; gap: 24px">
-          <div style="display: flex; flex-direction: column"><span style="font-size: 12px; color: #555E6B">Repos</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 22px">6</span></div>
-          <div style="display: flex; flex-direction: column"><span style="font-size: 12px; color: #555E6B">Indexed</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 22px">4</span></div>
-          <div style="display: flex; flex-direction: column"><span style="font-size: 12px; color: #555E6B">Not indexed</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 22px; color: #7C2D12">2</span></div>
+          
+            <div style="display: flex; flex-direction: column"><span style="font-size: 12px; color: #555E6B">Repos</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 22px; color: #1A1D21">6</span></div>
+          
+            <div style="display: flex; flex-direction: column"><span style="font-size: 12px; color: #555E6B">Indexed</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 22px; color: #1A1D21">4</span></div>
+          
+            <div style="display: flex; flex-direction: column"><span style="font-size: 12px; color: #555E6B">Not indexed</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 22px; color: #7C2D12">2</span></div>
+          
         </div>
       </section>
-      <section style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column">
+      <section data-component="row-list" data-dataset="repos" style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column">
         <h2 style="margin: 0 0 6px; font-size: 16px; font-weight: 600">Repos</h2>
         
           <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 10px 0; border-top: 1px solid #E3E5E8; font-size: 13px">
@@ -164,7 +167,7 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
           </div>
         
       </section>
-      <section style="background: #FDEFE3; border: 1px solid #F5C98B; border-radius: 10px; padding: 14px 18px; display: flex; flex-direction: column; gap: 8px">
+      <section data-component="callout" data-dataset="repos" style="background: #FDEFE3; border: 1px solid #F5C98B; border-radius: 10px; padding: 14px 18px; display: flex; flex-direction: column; gap: 8px">
         <h2 style="margin: 0; font-size: 15px; font-weight: 600; color: #7C2D12">2 repos aren't indexed, so tokensave saves nothing there</h2>
         <code style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; background: #F6F7F9; border: 1px solid #E3E5E8; border-radius: 6px; padding: 10px 12px; color: #1A1D21; overflow-x: auto">tokensave workspace init-all --dry-run</code>
       </section>

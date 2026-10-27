@@ -6,14 +6,13 @@
 <title>tokensave dashboard</title>
 <style>
 body{margin:0}
-a{color:#93C5FD}a:hover{color:#BFDBFE}
 .ts-filterbtn{display:none}
 @media (max-width:640px){.ts-filters{display:none!important}.ts-filterbtn{display:flex!important}}
 </style>
 </head>
 <body>
 <div style="font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #1A1D21; background: #F6F7F9; min-height: 100vh; width: 100%">
-  <header style="background: #FFFFFF; border-bottom: 1px solid #E3E5E8">
+  <header data-component="app-header" data-dataset="status" style="background: #FFFFFF; border-bottom: 1px solid #E3E5E8">
     <div style="max-width: 1440px; margin: 0 auto; padding: 14px 24px 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px">
       <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; justify-content: space-between">
         <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">
@@ -30,7 +29,7 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
           <label style="font-size: 12px; color: #555E6B; display: flex; align-items: center; gap: 6px">Workspace
             <select style="font: inherit; font-size: 13px; color: #1A1D21; padding: 6px 8px; border: 1px solid #CDD1D6; border-radius: 6px; background: #F6F7F9; min-height: 36px"><option>~/gitRepos</option><option>All workspaces</option></select>
           </label>
-          <div role="group" aria-label="Theme" style="display: flex; border: 1px solid #CDD1D6; border-radius: 8px; overflow: hidden">
+          <div data-component="segmented" data-dataset="themes" role="group" aria-label="Theme" style="display: flex; border: 1px solid #CDD1D6; border-radius: 8px; overflow: hidden">
             
               <button aria-pressed="false" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; background: transparent; color: #1A1D21; min-height: 36px; cursor: pointer">Dark</button>
             
@@ -55,7 +54,7 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
       </div>
       <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
         <span style="font-size: 12px; color: #555E6B">Date range</span>
-        <div role="group" aria-label="Date range" style="display: flex; border: 1px solid #CDD1D6; border-radius: 8px; overflow-x: auto; max-width: 100%">
+        <div role="group" aria-label="Date range" data-component="segmented" data-dataset="ranges" style="display: flex; border: 1px solid #CDD1D6; border-radius: 8px; overflow-x: auto; max-width: 100%">
           
             <button aria-pressed="false" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; border-left: 0; background: transparent; color: #1A1D21; min-height: 36px; white-space: nowrap; cursor: pointer">7 days</button>
           
@@ -98,7 +97,7 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
     
 
     
-      <section aria-label="Model by effort" style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px">
+      <section aria-label="Model by effort" data-component="heat-grid" data-dataset="models" style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px">
         <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #1D4ED8">Models and effort</span>
         <h2 style="margin: 0; font-size: 16px; font-weight: 600">Cost by model and effort</h2>
         <div style="overflow-x: auto">
@@ -145,7 +144,7 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
                 <span style="font-family: 'IBM Plex Mono', monospace; text-align: center; padding: 12px 4px; border-radius: 6px; background: #F6F7F9; color: #555E6B">—</span>
               
             
-              <span style="font-family: 'IBM Plex Mono', monospace; padding: 12px 4px; display: flex; align-items: center; gap: 8px; position: sticky; left: 0; background: #FFFFFF"><span style="width: 10px; height: 10px; border-radius: 50%; background: #6D5DF0; flex: none"></span>[Codex model]</span>
+              <span style="font-family: 'IBM Plex Mono', monospace; padding: 12px 4px; display: flex; align-items: center; gap: 8px; position: sticky; left: 0; background: #FFFFFF"><span style="width: 10px; height: 10px; border-radius: 50%; background: #6D5DF0; flex: none"></span>gpt-6.1-sol</span>
               
                 <span style="font-family: 'IBM Plex Mono', monospace; text-align: center; padding: 12px 4px; border-radius: 6px; background: #F6F7F9; color: #555E6B">—</span>
               
@@ -160,10 +159,10 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
             
           </div>
         </div>
-        <span style="font-size: 12px; color: #555E6B">Effort is read per turn from Claude Code and Codex. Cursor doesn't record it.</span>
+        <span style="font-size: 12px; color: #555E6B">Effort is read per turn from Claude Code and Codex. Cursor reports none of its own.</span>
       </section>
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px">
-        <section style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+        <section data-component="bar-list" data-dataset="thinking" style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
           <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #1D4ED8">Thinking</span>
           <h2 style="margin: 0; font-size: 16px; font-weight: 600">Thinking share of output</h2>
           
@@ -188,7 +187,7 @@ a{color:#93C5FD}a:hover{color:#BFDBFE}
             </div>
           
         </section>
-        <section style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+        <section data-component="row-list" data-dataset="fallbacks" style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
           <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #1D4ED8">Fallbacks</span>
           <h2 style="margin: 0; font-size: 16px; font-weight: 600">Served by a different model than requested</h2>
           
