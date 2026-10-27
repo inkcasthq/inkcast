@@ -45,11 +45,20 @@ SLO burn-rate alerts carry `slo`, `burn_rate`, `long_window` and `short_window` 
 
 ## InkcastUnconfirmedPublishes
 
-**Meaning:** a publish ended `unconfirmed`: the request was sent and the platform's answer was lost (timeout or 5xx after the send), or the platform plug-in crashed mid-send (`internal error` in the post's `error`: a plug-in bug, roll back the image). Inkcast never retries these blindly.
+**Meaning:** a publish ended `unconfirmed`: the request was sent and the platform's answer was lost (timeout or 5xx after the send), or the platform plug-in crashed mid-send (`internal error` in the post's `error`: a plug-in bug, roll back the image), or a post interrupted mid-send stayed `recovering` for `INKCAST_PUBLISH_RECOVERY_MAX_HOURS` with the platform never saying whether it arrived (`publish.recovery.capped` in the log; see `InkcastPostRecoveringTooLong`). Inkcast never retries these blindly.
 
 1. Find them: the admin portal (E6) or `SELECT id, user_id, platform, title FROM posts WHERE status='unconfirmed'`.
 2. Check the platform for the post. If it exists, record it (`result_url`, `remote_id`, status `published`); if not, set `scheduled` with `run_at=now`. Git-published posts resolve themselves on the next sync (`find_existing`).
 3. A burst of unconfirmed posts on one platform means that platform is timing out: see `InkcastPublishFailureRateHigh`.
+
+## InkcastPostRecoveringTooLong
+
+**Meaning:** a post whose send was interrupted (the process stopped mid-send: a deploy, an OOM kill, a node drain) has been `recovering` for over an hour. Every stuck pass (10 minutes) the scheduler asks the platform whether the post arrived (`find_existing`), and the platform keeps refusing the lookup for a reason that should pass: rate-limited (a 429), unreachable, or a 5xx. Recovery only asks, it never sends; so the post is neither out nor shown to anyone as unconfirmed. The age is `inkcast_posts_recovering_oldest_age_seconds`, read from the database (`posts.recovering_since`), so it survives restarts.
+
+1. Find them: `SELECT id, user_id, platform, title, error, recovering_since FROM posts WHERE status='recovering'`. The `error` column holds the platform's last refusal; the `publish.recovery.deferred` log lines have the same, one per pass.
+2. A whole platform refusing (every recovering post on it, or `InkcastPublishFailureRateHigh` too): the platform is rate-limiting or down; nothing to do but wait, or check its status page. One account only: its credentials may have been revoked in a way the plug-in reads as transient; have the person reconnect (`inkcast_connect`).
+3. The person can decide now rather than wait: `inkcast_cancel` (or `POST /api/v1/posts/{id}/cancel`) cancels a `recovering` post, and a cancel wins over an answer the platform gives afterwards. A cancelled post is never sent; if it did arrive, it stays on the platform.
+4. Left alone, recovery ends after `INKCAST_PUBLISH_RECOVERY_MAX_HOURS` (24 by default, 1 to 168): the post is marked `unconfirmed` without another lookup (`publish.recovery.capped`), `InkcastUnconfirmedPublishes` fires, and that runbook applies. A post is never sent late without a person deciding. Lower the setting on a platform whose lookups stay blocked for days; it is a policy value, stated in the staging and production overlays.
 
 ## InkcastPublishFailureRateHigh
 

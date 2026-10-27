@@ -176,6 +176,15 @@ class GitSync:
                 story = replace(story, publish_at=story.publish_at_written)
             return await self._create(user_id, req, path, story, platform, prepared, digest, entry, replace=True)
 
+        if post and post["status"] == "recovering":
+            # Its send was interrupted and the platform has not said whether it arrived, so it is neither replaced
+            # (that could post it twice) nor "stale": a person decides, by cancelling it (#216), after which the next
+            # sync creates the new version as it does for any cancelled post.
+            return SyncResult(**base, action="skipped", status="recovering", post_id=post["id"], message=(
+                f"The last publish to {platform.name} was interrupted, and {platform.name} hasn't said yet whether the post "
+                f"arrived; Inkcast keeps asking. Check {platform.name}, then cancel post {post['id']} (inkcast_cancel, or "
+                f"POST /api/v1/posts/{post['id']}/cancel) if you don't want it: the next sync then publishes this version."))
+
         if "update" not in platform.capabilities or not entry["remote_id"]:
             message = (f"Changed since it was published, but {platform.name} doesn't let Inkcast edit posts. "
                        f"Update it by hand" + (f": {entry['url']}" if entry["url"] else ".") +

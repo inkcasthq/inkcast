@@ -62,6 +62,8 @@ EVENTS: dict[str, tuple[str, str]] = {
     "publish.recovered": ("warning", "A post left 'publishing' by a restart was resolved: confirmed, rescheduled or unconfirmed."),
     "publish.recovery.deferred": ("warning", "A post left 'publishing' by a restart could not be checked yet (the platform "
                                              "rate-limited or unreachable); it stays 'recovering' and is checked again."),
+    "publish.recovery.capped": ("warning", "A post 'recovering' for INKCAST_PUBLISH_RECOVERY_MAX_HOURS, the platform never "
+                                           "saying whether it arrived, is unconfirmed for a person: never sent late on its own."),
     "auth.login.refused": ("warning", "A sign-in was refused by the allow-list, role or password check."),
     "cache.backend.unavailable": ("warning", "Redis/Valkey did not answer; rate limits are per replica until it is back."),
     "outbox.consumer.failed": ("warning", "An event sink failed on a batch; the cursor stayed and the batch is retried."),

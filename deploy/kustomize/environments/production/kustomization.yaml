@@ -35,6 +35,9 @@ configMapGenerator:
       # indefinitely.
       - INKCAST_OUTBOX_RETENTION_DAYS=7
       - INKCAST_KPI_HOURLY_RETENTION_DAYS=90
+      # The recovery cap (#216): hours a post whose send was interrupted is checked with the platform before it is
+      # unconfirmed for a person (1-168), never sent late on its own. The default, stated so it is a choice.
+      - INKCAST_PUBLISH_RECOVERY_MAX_HOURS=24
       # The intervals, the overdue grace, the rate limit and the backup copies (F1.10.S5, #157): seconds between reads
       # of Keycloak's events (1-840; 60 or more is a posture warning) and between full re-reads of every Keycloak person
       # (from the sync interval to 1680 less it: the InkcastIdentitySyncPersonFailing alert's window); seconds between

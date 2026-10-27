@@ -148,8 +148,10 @@ def openapi_document(public_url: str) -> dict[str, Any]:
                                               "Include posts up to this many days ahead; the maximum is the "
                                               "scheduling horizon, so it covers every scheduled post.")])},
             "/api/v1/posts/{post_id}/cancel": {"post": _op(
-                "cancelPost", "Cancel a scheduled post", "Posts", _resp("PostInfo", "The cancelled post"),
-                scope="posts:write", service=pub, params=[_path_param("post_id", "Post id.")], errors=(404, 409))},
+                "cancelPost", "Cancel a scheduled or recovering post", "Posts", _resp("PostInfo", "The cancelled post"),
+                scope="posts:write", service=pub, params=[_path_param("post_id", "Post id.")], errors=(404, 409),
+                description="A `recovering` post (its send was interrupted; the platform has not said whether it arrived) "
+                            "is the person's to cancel: check the platform first. A cancel wins over a later answer.")},
             "/api/v1/preview": {"post": _op(
                 "preview", "Preview exactly what each platform would receive", "Posts",
                 _resp("PublishResponse", "Per-platform previews"), scope="posts:read", service=pub,

@@ -231,7 +231,8 @@ def build_mcp(ctx: Context, service: InkcastService, sync: GitSync) -> MCPServer
 
     @mcp.tool(title="Cancel a scheduled post", annotations=ToolAnnotations(destructive_hint=True, idempotent_hint=True))
     async def inkcast_cancel(post_id: Annotated[str, Field(description="Post id from inkcast_posts or inkcast_publish.")]) -> str:
-        """Cancel a scheduled post before it goes out."""
+        """Cancel a scheduled post before it goes out, or a recovering one (its send was interrupted and the platform
+        hasn't said whether it arrived: the person decides; check the platform first)."""
         post = await call("posts:write", service.cancel, post_id)
         return f"Cancelled “{post.title}” (post `{post.id}`)."
 
