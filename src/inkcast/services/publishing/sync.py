@@ -229,7 +229,9 @@ class GitSync:
         # leaves no row that nothing names, for recovery to send while the next sync makes another.
         def on_record(_pid: str, post_id: str) -> None:
             made["post_id"] = post_id
-            self.store.put_entry(user_id, src, path, pid, post_id=post_id)
+            # Through the publisher's store: the write runs inside create_post's transaction, on that connection
+            # (a second connection would wait on the lock the first holds). In production the two are one store.
+            self.publisher.store.put_entry(user_id, src, path, pid, post_id=post_id)
 
         try:
             # retry: a "now" post the platform rate-limits waits for the scheduler's retry (and the 429's
