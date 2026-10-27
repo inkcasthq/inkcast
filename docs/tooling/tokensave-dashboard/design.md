@@ -154,7 +154,7 @@ Environment variables override both files, and nothing breaks if neither file ex
 
 ## Dashboard layout
 
-Local only (`127.0.0.1`), one page with tabs, in a light, dark or auto theme (see Theme and colours). Global filters: workspace, repo, agent tool, model, effort, date range.
+Local only (`127.0.0.1`), one page with tabs, dark by default with light and auto (see Theme and colours). Global filters: workspace, repo, agent tool, model, effort, date range.
 
 1. **Overview**
    - tiles: tokens spent, cost, tokens saved, saving rate, cache hit rate;
@@ -179,10 +179,10 @@ Local only (`127.0.0.1`), one page with tabs, in a light, dark or auto theme (se
 
 ## Theme and colours
 
-**Three modes: Light, Dark and Auto.**
-- Auto, the default, follows the operating system (`prefers-color-scheme`) and switches live when the Mac changes appearance.
+**Three modes: Dark, Light and Auto. Dark is the default** (owner's choice, 2026-10-26).
+- Auto follows the operating system (`prefers-color-scheme`) and switches live when the Mac changes appearance.
 - The header has a Light / Dark / Auto switch. The choice is remembered per browser, and if the browser can't store it the page falls back to the configured default.
-- The configured default is `theme = "auto"` in `~/.tokensave/dashboard.toml`, or `--theme` on `dashboard start`.
+- The configured default is `theme = "dark"` in `~/.tokensave/dashboard.toml`, or `--theme` on `dashboard start`.
 
 **Colours are tokens.**
 - Every colour is a named CSS variable, defined once for light and once for dark. No colour is written into a component.
@@ -238,7 +238,7 @@ Local only (`127.0.0.1`), one page with tabs, in a light, dark or auto theme (se
 - **Repo listing:** `workspace scan` lists every child repo with its status. `init-all --dry-run` shows what would be indexed.
 - **Second workspace:** enabling the dashboard from a second workspace adds it to the running dashboard instead of starting another one.
 - **Dashboard:** the six tabs above, filters, and numbers that match the database. Tests seed a fixture database and check each figure.
-- **Theme:** Auto follows the OS and switches live; the switch is remembered per browser; `theme` and `accent` in `dashboard.toml` are validated; every token pair passes the contrast test in both themes.
+- **Theme:** Dark is the default; Auto follows the OS and switches live; the switch is remembered per browser; `theme` and `accent` in `dashboard.toml` are validated; every token pair passes the contrast test in both themes.
 - **Sources:** the Sources tab lists each tool found, and an unknown format shows as such, never guessed.
 - **Privacy:** nothing leaves the machine, the dashboard binds to `127.0.0.1`, and prompt or file content is never stored or shown. tokensave's upload counter is off by default in the fork, or one command turns it off (`tokensave disable-upload-counter`).
 - **Missing data:** works with any source missing, and says which.
