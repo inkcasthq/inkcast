@@ -133,8 +133,10 @@ class GitSync:
                 # A post the scheduler has tried waits for its retry (INKCAST_PUBLISH_RETRY_DELAYS): its run_at is the
                 # retry's, so only a new time still ahead in the file is a change. A time that has passed, or is under
                 # SCHEDULE_LEAD away, has not changed: it is the file's own, which the scheduler passed when it tried
-                # the post (the lead is the tolerance between its clock and this one).
-                ahead = wanted is not None and wanted >= time.time() + SCHEDULE_LEAD.total_seconds()
+                # the post (the lead is the tolerance between its clock and this one). A time later than the retry is
+                # a change however near: the retry would send the post before it (ADR-0015).
+                ahead = wanted is not None and (wanted >= time.time() + SCHEDULE_LEAD.total_seconds() or
+                                                wanted > post["run_at"])
                 schedule_changed = ahead and abs(post["run_at"] - wanted) >= 1
             else:
                 # Not tried yet: its run_at is the time the file asked for. Compare with that, whatever the clock: in
@@ -162,8 +164,14 @@ class GitSync:
             # The replacement is scheduled at the time the file asks for, as written: passed or under SCHEDULE_LEAD
             # away, it is due at once, as a scheduled post the scheduler retries under its policy, never a "now" post
             # sent early and never retried (#187, ADR-0015). Only a file whose publish_at was removed sends now.
-            self.store.put_entry(user_id, src, path, pid, status="syncing")
-            return await self._create(user_id, req, path, story, platform, prepared, digest, entry, replace=True)
+            # The claim names no post until its own exists (on_record): stopped before that, it is taken over, never
+            # followed to the cancelled one.
+            self.store.put_entry(user_id, src, path, pid, status="syncing", post_id=None)
+            # Only the content changed, and the scheduler hasn't tried the post: the replacement keeps its schedule, so
+            # it keeps its creation too, and a post the scheduler is behind on stays as late as it is (ADR-0015).
+            kept = post["created_at"] if not schedule_changed and not post["attempts"] else None
+            return await self._create(user_id, req, path, story, platform, prepared, digest, entry, replace=True,
+                                      created_at=kept)
 
         if "update" not in platform.capabilities or not entry["remote_id"]:
             message = (f"Changed since it was published, but {platform.name} doesn't let Inkcast edit posts. "
@@ -187,7 +195,8 @@ class GitSync:
                           message="; ".join(o.notes) or None)
 
     async def _create(self, user_id: str, req: SyncRequest, path: str, story, platform: Platform, prepared: Prepared,
-                      digest: str, entry: dict | None, replace: bool = False) -> SyncResult:
+                      digest: str, entry: dict | None, replace: bool = False,
+                      created_at: float | None = None) -> SyncResult:
         src, pid = req.source, platform.id
         base = {"path": path, "platform": pid}
         action = "update" if replace else "create"
@@ -201,7 +210,7 @@ class GitSync:
             self.store.put_entry(user_id, src, path, pid, post_id=post_id)
 
         try:
-            [o] = await self.publisher.publish(user_id, story, [pid], on_created=on_record)
+            [o] = await self.publisher.publish(user_id, story, [pid], on_created=on_record, created_at=created_at)
         except Exception:
             if not replace:
                 self.store.put_entry(user_id, src, path, pid, status="failed", message="internal error")

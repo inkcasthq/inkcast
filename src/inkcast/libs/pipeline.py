@@ -78,8 +78,9 @@ class Publisher:
         return ready, problems
 
     async def publish(self, user_id: str, story: Story, platform_ids: list[str],
-                      on_created: Any = None) -> list[Outcome]:
-        """``on_created(platform_id, post_id)`` runs once each post row exists and before anything is sent."""
+                      on_created: Any = None, created_at: float | None = None) -> list[Outcome]:
+        """``on_created(platform_id, post_id)`` runs once each post row exists and before anything is sent.
+        ``created_at``: for a replacement that keeps the schedule of the post it replaces (``PostsRepo.create_post``)."""
         ready, outcomes = self.prepare(story, platform_ids)
         group = "grp_" + uuid.uuid4().hex[:10]
         for prepared in ready:
@@ -105,6 +106,7 @@ class Publisher:
             post_id = self.store.create_post(
                 group_id=group, user_id=user_id, platform=platform.id, title=prepared.title,
                 status="scheduled" if story.publish_at else "publishing", run_at=run_at, payload=prepared.to_dict(),
+                created_at=created_at,
             )
             if on_created:
                 on_created(platform.id, post_id)

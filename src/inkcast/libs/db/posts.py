@@ -35,7 +35,9 @@ UPDATE posts SET status = 'unconfirmed' WHERE status = 'unknown';
 
 class PostsRepo(Database):
     def create_post(self, *, group_id: str, user_id: str, platform: str, title: str, status: str,
-                    run_at: float, payload: dict[str, Any]) -> str:
+                    run_at: float, payload: dict[str, Any], created_at: float | None = None) -> str:
+        """``created_at`` is now unless the post replaces one whose schedule it keeps (Git sync): then that one's, so
+        how late it is counts from when its time was first asked for (``overdue_count``, the lag; ADR-0015)."""
         post_id = "pst_" + uuid.uuid4().hex[:12]
         now = time.time()
         # A scheduled post is a fact worth an event the moment it exists; a "publishing" one gets its event
@@ -46,7 +48,8 @@ class PostsRepo(Database):
             c.execute(
                 "INSERT INTO posts (id, group_id, user_id, platform, title, status, run_at, payload, created_at, updated_at)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (post_id, group_id, user_id, platform, title, status, run_at, json.dumps(payload), now, now),
+                (post_id, group_id, user_id, platform, title, status, run_at, json.dumps(payload),
+                 now if created_at is None else created_at, now),
             )
             insert_events(c, events)
         return post_id
@@ -81,10 +84,13 @@ class PostsRepo(Database):
         return dict(row) if row else None
 
     def claim_due_posts(self, now: float, limit: int = 20) -> list[dict[str, Any]]:
-        """Atomically move due scheduled posts to 'publishing' and return them."""
+        """Atomically move due scheduled posts to 'publishing' and return them, the one that has waited longest first:
+        from its time, or its creation when that came later (``oldest_due_age``), so a Git file dated last year
+        doesn't jump ahead of a post that was due before it was synced (ADR-0015)."""
         with self._tx() as c:
             rows = c.execute(
-                "SELECT * FROM posts WHERE status = 'scheduled' AND run_at <= ? ORDER BY run_at LIMIT ?", (now, limit)
+                "SELECT * FROM posts WHERE status = 'scheduled' AND run_at <= ? ORDER BY MAX(run_at, created_at), run_at"
+                " LIMIT ?", (now, limit)
             ).fetchall()
             for r in rows:
                 c.execute(
@@ -147,8 +153,11 @@ class PostsRepo(Database):
         return out
 
     def list_posts(self, user_id: str, start: float, end: float) -> list[dict[str, Any]]:
+        """Posts whose time is up to ``end`` and that could be sent from ``start`` on: a post made after its time (a Git
+        file dated last year, ADR-0015) is listed from its creation, so it can be found while it waits and once sent."""
         rows = self._all(
-            "SELECT * FROM posts WHERE user_id = ? AND run_at BETWEEN ? AND ? ORDER BY run_at", user_id, start, end
+            "SELECT * FROM posts WHERE user_id = ? AND run_at <= ? AND MAX(run_at, created_at) >= ? ORDER BY run_at",
+            user_id, end, start,
         )
         return [dict(r) for r in rows]
 
