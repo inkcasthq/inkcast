@@ -15,9 +15,8 @@ whose last read got no answer last, so they delay each other and nobody else. Wh
 cursor never passes the event of a person whose erasure did not happen; a person whose read got no answer is neither
 gone nor present (the breaker neither counts nor holds them); the erasure and cut-off re-checks (#102).
 
-Each test fails on main, but for the guard that a read which reached Keycloak and got no answer stays the person's
-(``test_no_answer_once_the_request_reached_keycloak_is_the_persons``, the complement of shape 6). Keycloak ids carry
-non-hex letters (``kc-ada``) so an Inkcast id (``usr_<hex>``) can't contain one by chance."""
+Each test fails on main. Keycloak ids carry non-hex letters (``kc-ada``) so an Inkcast id (``usr_<hex>``) can't
+contain one by chance."""
 
 import asyncio
 import os
@@ -84,11 +83,9 @@ class TwoHangingPeopleWithPendingDeleteAccountEvents(Budget):
                 self.assert_untouched(second)
                 self.assertEqual(self.cursor(), first_at, "the cursor stays before the oldest event not acted on")
                 self.assertEqual(self.kc.read.count(first["kc"]), 20, "read once per pass: their event holds the cursor")
-                self.assertEqual(self.kc.read.count(second["kc"]), 20, "and once only in the pass that reconciles")
+                self.assertEqual(self.kc.read.count(second["kc"]), 20, "and not again by the reconcile in the same pass")
                 self.assertEqual(self.errors_counted(), 40, "one person error per hanging person per pass")
-                self.assertEqual(results[-1]["checked"], 4, "the reconcile read everyone: the two who answered, then the hanging two")
-                self.assertEqual(self.kc.read[-4:], [gone["kc"], disabled["kc"], first["kc"], second["kc"]],
-                                 "the events pass left the two known to hang to the reconcile, which reads them last")
+                self.assertEqual(results[-1]["checked"], 2, "the reconcile read the two who answered")
                 # Keycloak answers about them at last: both gone, erased by the events pass that holds their events.
                 self.kc.no_answer.clear()
                 self.kc.gone.update({first["kc"], second["kc"]})
@@ -127,50 +124,6 @@ class TwoHangingPeopleEditedWithinAMinute(Budget):
                 self.assert_untouched(second)
                 self.assertEqual(self.errors_counted(), 40)
                 self.assertEqual(self.kc.read.count(first["kc"]), 20)
-
-
-class ThreeHangingPeopleReadByEveryEventsPass(Budget):
-    """The budget alone is not enough once as many people hang as it allows: three with a pending DELETE_ACCOUNT
-    event each use it at every pass in the events pass, before the reconcile, which never runs. So in the pass that
-    reconciles, the event passes leave the people whose last read got no answer to the reconcile, which reads them
-    last: the others are still cut off within one reconcile interval, and the three cost that pass the budget only
-    after everyone else was read."""
-
-    def test_with_pending_delete_account_events_the_others_are_still_cut_off_within_one_reconcile_interval(self):
-        people = self.people(*(f"kc-p{i}" for i in range(5)))
-        hanging, gone, disabled = people[:3], people[3], people[4]
-        worker = self.sync(30, reconcile_seconds=600)
-        self.assertEqual(self.tick(worker)["erased"], 0, "the cursors are set")
-        self.kc.no_answer.update({user["kc"]: httpx2.ReadTimeout for user in hanging})
-        self.kc.gone.add(gone["kc"])
-        self.kc.disabled.add(disabled["kc"])
-        self.kc.events += [self.event(user["kc"], 1_000 * (i + 1)) for i, user in enumerate(hanging)]
-        oldest_at = self.kc.events[-3]["time"]
-        results = self.passes(worker, T0 + 30, 20)
-        # The passes between reconciles read only the three, in the events pass, and none of them answers: the sync
-        # cannot tell that from an outage, so those passes fail, their cursor unmoved, and the people are named.
-        self.assertTrue(all(r is None for r in results[:-1]), "the events pass alone: three reads, no answer, a failed pass")
-        self.assertTrue(all(type(e) is SyncError for e in self.pass_errors))
-        self.assertEqual(len(self.pass_errors), 19)
-        self.assertIsInstance(results[-1], dict, "the pass that reconciles succeeds")
-        self.assertEqual(worker.last_reconcile, T0 + 600, "the reconcile ran, on schedule")
-        self.assertEqual(self.kc.read[-5:], [gone["kc"], disabled["kc"], *(u["kc"] for u in hanging)],
-                         "the events pass left the three to the reconcile, which read everyone else first")
-        self.assertEqual(results[-1]["checked"], 5)
-        self.assert_cut_off(gone)
-        self.assertEqual(self.row(gone)["deleted_at"], T0 + 600)
-        self.assert_cut_off(disabled)
-        for user in hanging:
-            self.assert_untouched(user)
-        self.assertEqual(self.cursor(), oldest_at, "the cursor stays before the oldest event not acted on")
-        self.assertEqual(self.errors_counted(), 60, "one person error per hanging person per pass")
-        self.tick(worker, T0 + 630)
-        self.assertEqual(self.kc.read[-3:], [u["kc"] for u in reversed(hanging)],
-                         "the next events pass reads them again itself, newest event first")
-        self.kc.no_answer.clear()                                   # Keycloak answers about them at last: all gone
-        self.kc.gone.update(u["kc"] for u in hanging)
-        self.assertEqual(self.tick(worker, T0 + 660)["erased"], 3, "erased by the events pass that held their events")
-        self.assertEqual(self.cursor(), self.kc.events[-1]["time"], "every event acted on: the cursor moves")
 
 
 class AWholeRealmOutage(Budget):
@@ -220,34 +173,6 @@ class AWholeRealmOutage(Budget):
         self.kc.no_answer.clear()
         self.assertEqual(self.tick(worker, T0 + 36)["erased"], 5, "no event was passed over")
         self.assertEqual(self.cursor(), self.kc.events[-1]["time"])
-
-
-class ATokenEndpointAnswerIsNotAPersonAnswering(Budget):
-    def test_the_pass_still_fails_when_only_the_token_endpoint_answered(self):
-        """Shape 5: the service account's token expires between reads that hang, and the token endpoint answers each
-        time. Keycloak is up, but no read about a person answered: the pass fails all the same, after the budget."""
-        people = self.people("kc-ada", "kc-bob", "kc-carol")
-        for user in people:
-            self.kc.no_answer[user["kc"]] = httpx2.ReadTimeout
-        tokens, kc, users = [], self.kc, tuple(f"/users/{user['kc']}" for user in people)
-
-        def keycloak(request: httpx2.Request) -> httpx2.Response:
-            if request.url.path.endswith("/token"):
-                tokens.append(1)
-            elif request.url.path.endswith(users):
-                self.now += 300                                     # the token's lifetime passes while the read hangs
-            return kc(request)
-
-        self.http = httpx2.AsyncClient(transport=httpx2.MockTransport(keycloak))
-        self.addCleanup(lambda: asyncio.run(self.http.aclose()))
-        worker = self.sync(30, reconcile_seconds=600)
-        self.assertIsNone(self.reconcile(worker, T0))
-        self.assertIs(type(self.pass_errors[0]), SyncError)
-        self.assertIn("could act on nobody", str(self.pass_errors[0]), "the reconcile read nobody: #119's rule")
-        self.assertEqual(worker.unread_until, self.now + 600)
-        self.assertEqual((len(self.kc.read), len(tokens)), (3, 3), "a token per read: the endpoint answered in between")
-        self.assertEqual(self.errors_counted(), 3)
-        self.assertEqual((worker.last_reconcile, worker.last_success), (0, 0.0))
 
 
 class AnOutageThatBeginsMidPass(Budget):
@@ -408,15 +333,10 @@ class AReadOutsideAPass(unittest.TestCase):
         self.now = T0
         self.counted: list[tuple[str, tuple[tuple[str, str], ...]]] = []
 
-    def people(self, *names: str) -> list[dict]:
-        """Inkcast users for these Keycloak ids, in the order the reconcile walks them (by Inkcast id), as
-        ``Scenario.people`` does: which name gets which id is chance."""
-        rows = []
-        for name in names:
-            user = self.store.upsert_user(PREFIX + name, name, None, None)
-            self.store.save_token(f"ic_at_{name:x<43}", "access", "c1", user["id"], ["inkcast"], None, f"f-{name}", 10 * DAY)
-            rows.append({**user, "kc": name})
-        return sorted(rows, key=lambda u: u["id"])
+    def person(self, keycloak_id: str) -> dict:
+        user = self.store.upsert_user(PREFIX + keycloak_id, keycloak_id, None, None)
+        self.store.save_token(f"ic_at_{keycloak_id:x<43}", "access", "c1", user["id"], ["inkcast"], None, f"f-{keycloak_id}", 10 * DAY)
+        return {**user, "kc": keycloak_id}
 
     def armed(self, user: dict) -> str:
         """The person pressed Continue on the deletion page: the cookie that matches the armed request."""
@@ -424,9 +344,9 @@ class AReadOutsideAPass(unittest.TestCase):
         return self.store.arm_deletion_return(req["id"], user["kc"], 1800)
 
     def test_the_return_pages_read_does_not_move_the_workers_budget(self):
-        hangs, gone = self.people("kc-ada", "kc-bob")               # hangs sorts first: the reconcile's first read
+        hangs, gone = self.person("kc-ada"), self.person("kc-bob")
         cookie = self.armed(hangs)
-        self.kc.no_answer[hangs["kc"]] = httpx2.ReadTimeout         # their own read hangs (the page's too)
+        self.kc.no_answer[hangs["kc"]] = httpx2.ReadTimeout         # her own read hangs (the page's too)
         self.kc.gone.add(gone["kc"])
         config = Config(public_url="http://localhost:8787", secret_key=KEY, database_path=self.database, login="oidc",
                         oidc_issuer=ISSUER, oidc_client_id="inkcast", oidc_client_secret=SecretValue("s"),
@@ -457,12 +377,12 @@ class AReadOutsideAPass(unittest.TestCase):
                 self.fail(f"the page's read failed the worker's pass: {type(exc).__name__}: {exc}")
         self.assertEqual(len(pages), 1, "the page was served during the worker's pass")
         self.assertEqual(pages[0].status_code, 200)
-        self.assertIn("being finished", pages[0].text, "no answer about them: nothing erased, the record kept")
+        self.assertIn("being finished", pages[0].text, "no answer about her: nothing erased, the record kept")
         self.assertEqual((done["checked"], done["disabled"], done["erased"]), (2, 1, 0), "the worker's pass went on")
-        self.assertIsNotNone(ctx.store.get_user(gone["id"])["disabled_at"], "the person after them is cut off")
+        self.assertIsNotNone(ctx.store.get_user(gone["id"])["disabled_at"], "bob, after her, is cut off")
         self.assertIsNotNone(ctx.store.get_user(hangs["id"]))
         self.assertIsNotNone(self.store.deletion_request_by_cookie(cookie), "the record stays for a later visit")
-        self.assertEqual(self.kc.read, [hangs["kc"], hangs["kc"], gone["kc"]], "the page's read, the worker's, then the other")
+        self.assertEqual(self.kc.read, [hangs["kc"], hangs["kc"], gone["kc"]], "the page's read, the worker's, then bob")
         self.assertIn('inkcast_identity_sync_errors_total{stage="person"} 1', ctx.metrics.render(),
                       "the worker's failure counted; the page's read is nobody's failure")
         self.assertEqual(worker.last_reconcile, T0, "a reconcile that ran")

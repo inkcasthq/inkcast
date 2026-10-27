@@ -30,16 +30,6 @@ configMapGenerator:
       # Retention (F1.10.S3): production's values, so staging rehearses the same replay window and hourly history.
       - INKCAST_OUTBOX_RETENTION_DAYS=7
       - INKCAST_KPI_HOURLY_RETENTION_DAYS=90
-      # The intervals, the overdue grace, the rate limit and the backup copies (F1.10.S5, #157): production's values,
-      # so staging rehearses the same timing and posture. Each is bounded at start-up (README, Configuration).
-      - INKCAST_KEYCLOAK_SYNC_INTERVAL=30
-      - INKCAST_KEYCLOAK_RECONCILE_INTERVAL=600
-      - INKCAST_SCHEDULER_INTERVAL=20
-      - INKCAST_OVERDUE_GRACE=600
-      - INKCAST_INSIGHTS_INTERVAL=10
-      - INKCAST_SHUTDOWN_GRACE=25
-      - INKCAST_RATE_LIMIT_PER_MINUTE=60
-      - INKCAST_BACKUP_KEEP=14           # the backup CronJob's value (components/backup): change both together
 images:
   - name: ghcr.io/inkcasthq/inkcast
     digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
