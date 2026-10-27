@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>tokensave dashboard: theme tokens</title>
+<style>
+body{margin:0}
+a{color:#1D4ED8}a:hover{color:#1E3A8A}
+</style>
+</head>
+<body>
+<div style="width: 1440px; height: 1100px; box-sizing: border-box; padding: 48px 56px; background: #FFFFFF; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #1A1D21; display: flex; flex-direction: column; gap: 24px">
+  <div style="display: flex; flex-direction: column; gap: 6px">
+    <h1 style="margin: 0; font-size: 32px; font-weight: 600">Theme tokens</h1>
+    <span style="font-size: 15px; color: #555E6B">Every colour is a named token, defined once per theme. Contrast is measured against the theme's surface.</span>
+  </div>
+  <div style="display: grid; grid-template-columns: 200px minmax(0, 1fr) minmax(0, 1fr) 300px; gap: 0; border: 1px solid #E3E5E8; border-radius: 10px; overflow: hidden; font-size: 14px">
+    <span style="padding: 12px 16px; background: #F6F7F9; color: #555E6B; font-weight: 500">Token</span>
+    <span style="padding: 12px 16px; background: #F6F7F9; color: #555E6B; font-weight: 500">Light</span>
+    <span style="padding: 12px 16px; background: #F6F7F9; color: #555E6B; font-weight: 500">Dark</span>
+    <span style="padding: 12px 16px; background: #F6F7F9; color: #555E6B; font-weight: 500">Used for</span>
+    
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; font-size: 13px; display: flex; align-items: center">bg</span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; display: flex; align-items: center; gap: 10px">
+        <span style="width: 56px; height: 28px; border-radius: 6px; border: 1px solid #CDD1D6; background: #F6F7F9; color: transparent; font-size: 12px; display: flex; align-items: center; justify-content: center"></span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">#F6F7F9</span>
+        <span style="font-size: 12px; color: #555E6B"></span>
+      </span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; display: flex; align-items: center; gap: 10px">
+        <span style="width: 56px; height: 28px; border-radius: 6px; border: 1px solid #3A414B; background: #0F1216; color: transparent; font-size: 12px; display: flex; align-items: center; justify-content: center"></span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">#0F1216</span>
+        <span style="font-size: 12px; color: #555E6B"></span>
+      </span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; color: #555E6B; display: flex; align-items: center">page background</span>
+    
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; font-size: 13px; display: flex; align-items: center">surface</span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; display: flex; align-items: center; gap: 10px">
+        <span style="width: 56px; height: 28px; border-radius: 6px; border: 1px solid #CDD1D6; background: #FFFFFF; color: transparent; font-size: 12px; display: flex; align-items: center; justify-content: center"></span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">#FFFFFF</span>
+        <span style="font-size: 12px; color: #555E6B"></span>
+      </span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; display: flex; align-items: center; gap: 10px">
+        <span style="width: 56px; height: 28px; border-radius: 6px; border: 1px solid #3A414B; background: #171B21; color: transparent; font-size: 12px; display: flex; align-items: center; justify-content: center"></span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">#171B21</span>
+        <span style="font-size: 12px; color: #555E6B"></span>
+      </span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; color: #555E6B; display: flex; align-items: center">cards, tables</span>
+    
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; font-size: 13px; display: flex; align-items: center">border</span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; display: flex; align-items: center; gap: 10px">
+        <span style="width: 56px; height: 28px; border-radius: 6px; border: 1px solid #CDD1D6; background: #E3E5E8; color: transparent; font-size: 12px; display: flex; align-items: center; justify-content: center"></span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">#E3E5E8</span>
+        <span style="font-size: 12px; color: #555E6B"></span>
+      </span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; display: flex; align-items: center; gap: 10px">
+        <span style="width: 56px; height: 28px; border-radius: 6px; border: 1px solid #3A414B; background: #2A3038; color: transparent; font-size: 12px; display: flex; align-items: center; justify-content: center"></span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">#2A3038</span>
+        <span style="font-size: 12px; color: #555E6B"></span>
+      </span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; color: #555E6B; display: flex; align-items: center">lines</span>
+    
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; font-size: 13px; display: flex; align-items: center">text</span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; display: flex; align-items: center; gap: 10px">
+        <span style="width: 56px; height: 28px; border-radius: 6px; border: 1px solid #CDD1D6; background: #FFFFFF; color: #1A1D21; font-size: 12px; display: flex; align-items: center; justify-content: center">Aa</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">#1A1D21</span>
+        <span style="font-size: 12px; color: #555E6B">16.9:1</span>
+      </span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; display: flex; align-items: center; gap: 10px">
+        <span style="width: 56px; height: 28px; border-radius: 6px; border: 1px solid #3A414B; background: #171B21; color: #E6E8EB; font-size: 12px; display: flex; align-items: center; justify-content: center">Aa</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">#E6E8EB</span>
+        <span style="font-size: 12px; color: #555E6B">14.1:1</span>
+      </span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; color: #555E6B; display: flex; align-items: center">body text</span>
+    
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; font-size: 13px; display: flex; align-items: center">muted</span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; display: flex; align-items: center; gap: 10px">
+        <span style="width: 56px; height: 28px; border-radius: 6px; border: 1px solid #CDD1D6; background: #FFFFFF; color: #555E6B; font-size: 12px; display: flex; align-items: center; justify-content: center">Aa</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">#555E6B</span>
+        <span style="font-size: 12px; color: #555E6B">6.6:1</span>
+      </span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; display: flex; align-items: center; gap: 10px">
+        <span style="width: 56px; height: 28px; border-radius: 6px; border: 1px solid #3A414B; background: #171B21; color: #A1A9B4; font-size: 12px; display: flex; align-items: center; justify-content: center">Aa</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">#A1A9B4</span>
+        <span style="font-size: 12px; color: #555E6B">7.3:1</span>
+      </span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; color: #555E6B; display: flex; align-items: center">labels</span>
+    
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; font-size: 13px; display: flex; align-items: center">accent</span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; display: flex; align-items: center; gap: 10px">
+        <span style="width: 56px; height: 28px; border-radius: 6px; border: 1px solid #CDD1D6; background: #FFFFFF; color: #1D4ED8; font-size: 12px; display: flex; align-items: center; justify-content: center">Aa</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">#1D4ED8</span>
+        <span style="font-size: 12px; color: #555E6B">6.7:1</span>
+      </span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; display: flex; align-items: center; gap: 10px">
+        <span style="width: 56px; height: 28px; border-radius: 6px; border: 1px solid #3A414B; background: #171B21; color: #93C5FD; font-size: 12px; display: flex; align-items: center; justify-content: center">Aa</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">#93C5FD</span>
+        <span style="font-size: 12px; color: #555E6B">9.6:1</span>
+      </span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; color: #555E6B; display: flex; align-items: center">links, active tab, selection</span>
+    
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; font-size: 13px; display: flex; align-items: center">series-spent</span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; display: flex; align-items: center; gap: 10px">
+        <span style="width: 56px; height: 28px; border-radius: 6px; border: 1px solid #CDD1D6; background: #1D4ED8; color: transparent; font-size: 12px; display: flex; align-items: center; justify-content: center"></span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">#1D4ED8</span>
+        <span style="font-size: 12px; color: #555E6B">6.7:1</span>
+      </span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; display: flex; align-items: center; gap: 10px">
+        <span style="width: 56px; height: 28px; border-radius: 6px; border: 1px solid #3A414B; background: #60A5FA; color: transparent; font-size: 12px; display: flex; align-items: center; justify-content: center"></span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">#60A5FA</span>
+        <span style="font-size: 12px; color: #555E6B">6.8:1</span>
+      </span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; color: #555E6B; display: flex; align-items: center">tokens spent</span>
+    
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; font-size: 13px; display: flex; align-items: center">series-saved</span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; display: flex; align-items: center; gap: 10px">
+        <span style="width: 56px; height: 28px; border-radius: 6px; border: 1px solid #CDD1D6; background: #D97706; color: transparent; font-size: 12px; display: flex; align-items: center; justify-content: center"></span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">#D97706</span>
+        <span style="font-size: 12px; color: #555E6B">3.2:1</span>
+      </span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; display: flex; align-items: center; gap: 10px">
+        <span style="width: 56px; height: 28px; border-radius: 6px; border: 1px solid #3A414B; background: #FBBF24; color: transparent; font-size: 12px; display: flex; align-items: center; justify-content: center"></span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">#FBBF24</span>
+        <span style="font-size: 12px; color: #555E6B">10.4:1</span>
+      </span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; color: #555E6B; display: flex; align-items: center">tokens saved</span>
+    
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; font-size: 13px; display: flex; align-items: center">series-neutral</span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; display: flex; align-items: center; gap: 10px">
+        <span style="width: 56px; height: 28px; border-radius: 6px; border: 1px solid #CDD1D6; background: #475569; color: transparent; font-size: 12px; display: flex; align-items: center; justify-content: center"></span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">#475569</span>
+        <span style="font-size: 12px; color: #555E6B"></span>
+      </span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; display: flex; align-items: center; gap: 10px">
+        <span style="width: 56px; height: 28px; border-radius: 6px; border: 1px solid #3A414B; background: #94A3B8; color: transparent; font-size: 12px; display: flex; align-items: center; justify-content: center"></span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">#94A3B8</span>
+        <span style="font-size: 12px; color: #555E6B"></span>
+      </span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; color: #555E6B; display: flex; align-items: center">single-series bars</span>
+    
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; font-size: 13px; display: flex; align-items: center">ok</span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; display: flex; align-items: center; gap: 10px">
+        <span style="width: 56px; height: 28px; border-radius: 6px; border: 1px solid #CDD1D6; background: #E7F6EC; color: #14532D; font-size: 12px; display: flex; align-items: center; justify-content: center">ok</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">#14532D</span>
+        <span style="font-size: 12px; color: #555E6B">8.2:1</span>
+      </span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; display: flex; align-items: center; gap: 10px">
+        <span style="width: 56px; height: 28px; border-radius: 6px; border: 1px solid #3A414B; background: #12321F; color: #86EFAC; font-size: 12px; display: flex; align-items: center; justify-content: center">ok</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">#86EFAC</span>
+        <span style="font-size: 12px; color: #555E6B">10.0:1</span>
+      </span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; color: #555E6B; display: flex; align-items: center">verified, finished, indexed</span>
+    
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; font-size: 13px; display: flex; align-items: center">warn</span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; display: flex; align-items: center; gap: 10px">
+        <span style="width: 56px; height: 28px; border-radius: 6px; border: 1px solid #CDD1D6; background: #FDEFE3; color: #7C2D12; font-size: 12px; display: flex; align-items: center; justify-content: center">warn</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">#7C2D12</span>
+        <span style="font-size: 12px; color: #555E6B">8.3:1</span>
+      </span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; display: flex; align-items: center; gap: 10px">
+        <span style="width: 56px; height: 28px; border-radius: 6px; border: 1px solid #3A414B; background: #3A2414; color: #FDBA74; font-size: 12px; display: flex; align-items: center; justify-content: center">warn</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">#FDBA74</span>
+        <span style="font-size: 12px; color: #555E6B">8.6:1</span>
+      </span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; color: #555E6B; display: flex; align-items: center">partial, not indexed, missed</span>
+    
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; font-size: 13px; display: flex; align-items: center">info</span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; display: flex; align-items: center; gap: 10px">
+        <span style="width: 56px; height: 28px; border-radius: 6px; border: 1px solid #CDD1D6; background: #EEF2FF; color: #1E3A8A; font-size: 12px; display: flex; align-items: center; justify-content: center">info</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">#1E3A8A</span>
+        <span style="font-size: 12px; color: #555E6B">9.3:1</span>
+      </span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; display: flex; align-items: center; gap: 10px">
+        <span style="width: 56px; height: 28px; border-radius: 6px; border: 1px solid #3A414B; background: #1B2A4A; color: #BFDBFE; font-size: 12px; display: flex; align-items: center; justify-content: center">info</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">#BFDBFE</span>
+        <span style="font-size: 12px; color: #555E6B">10.0:1</span>
+      </span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; color: #555E6B; display: flex; align-items: center">running, roles</span>
+    
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; font-size: 13px; display: flex; align-items: center">stop</span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; display: flex; align-items: center; gap: 10px">
+        <span style="width: 56px; height: 28px; border-radius: 6px; border: 1px solid #CDD1D6; background: #FDECEC; color: #7F1D1D; font-size: 12px; display: flex; align-items: center; justify-content: center">stop</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">#7F1D1D</span>
+        <span style="font-size: 12px; color: #555E6B">8.8:1</span>
+      </span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; display: flex; align-items: center; gap: 10px">
+        <span style="width: 56px; height: 28px; border-radius: 6px; border: 1px solid #3A414B; background: #3A1717; color: #FCA5A5; font-size: 12px; display: flex; align-items: center; justify-content: center">stop</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">#FCA5A5</span>
+        <span style="font-size: 12px; color: #555E6B">8.4:1</span>
+      </span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; color: #555E6B; display: flex; align-items: center">stopped</span>
+    
+  </div>
+  <div style="display: flex; gap: 32px; font-size: 13px; color: #555E6B">
+    <span>Spent (blue) and saved (amber) differ in lightness, not hue alone.</span>
+    <span>Print and screenshots always use the light theme.</span>
+    <span>An accent override that fails contrast is refused at start-up.</span>
+  </div>
+</div>
+</body>
+</html>
