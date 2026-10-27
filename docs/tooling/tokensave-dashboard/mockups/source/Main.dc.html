@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>tokensave dashboard</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#93C5FD}a:hover{color:#BFDBFE}
+.ts-filterbtn{display:none}
+@media (max-width:640px){.ts-filters{display:none!important}.ts-filterbtn{display:flex!important}}
+</style>
+</helmet>
+<div style="font-family: 'IBM Plex Sans', system-ui, sans-serif; color: {{c.text}}; background: {{c.bg}}; min-height: 100vh; width: 100%">
+  <header style="background: {{c.surface}}; border-bottom: 1px solid {{c.border}}">
+    <div style="max-width: 1440px; margin: 0 auto; padding: 14px 24px 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; justify-content: space-between">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">
+          <div style="width: 32px; height: 32px; border-radius: 8px; background: {{c.logoBg}}; display: flex; align-items: center; justify-content: center">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"></path></svg>
+          </div>
+          <div style="display: flex; flex-direction: column">
+            <span style="font-size: 18px; font-weight: 600">tokensave</span>
+            <span style="font-size: 12px; color: {{c.muted}}">Dashboard · 127.0.0.1:7311</span>
+          </div>
+          <span style="font-size: 12px; font-weight: 500; color: {{c.sampleFg}}; background: {{c.sampleBg}}; border: 1px solid {{c.sampleBorder}}; border-radius: 999px; padding: 3px 10px">Sample data · mockup</span>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+          <label style="font-size: 12px; color: {{c.muted}}; display: flex; align-items: center; gap: 6px">Workspace
+            <select style="font: inherit; font-size: 13px; color: {{c.text}}; padding: 6px 8px; border: 1px solid {{c.control}}; border-radius: 6px; background: {{c.bg}}; min-height: 36px"><option>~/gitRepos</option><option>All workspaces</option></select>
+          </label>
+          <div role="group" aria-label="Theme" style="display: flex; border: 1px solid {{c.control}}; border-radius: 8px; overflow: hidden">
+            <sc-for list="{{themes}}" as="t" hint-placeholder-count="3">
+              <button aria-pressed="{{t.pressed}}" onClick="{{t.pick}}" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; background: {{t.bg}}; color: {{t.fg}}; min-height: 36px; cursor: pointer">{{t.label}}</button>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+      <button class="ts-filterbtn" style="font: inherit; font-size: 13px; color: {{c.text}}; background: {{c.bg}}; border: 1px solid {{c.control}}; border-radius: 8px; padding: 8px 12px; min-height: 44px; align-items: center; gap: 8px; align-self: flex-start">Filters · all repos, all tools</button>
+      <div class="ts-filters" style="display: flex; flex-wrap: wrap; gap: 10px">
+        <sc-for list="{{filters}}" as="f" hint-placeholder-count="5">
+          <label style="font-size: 12px; color: {{c.muted}}; display: flex; align-items: center; gap: 6px">{{f.label}} <select style="font: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid {{c.control}}; border-radius: 6px; background: {{c.bg}}; color: {{c.text}}; min-height: 34px"><option>{{f.value}}</option></select></label>
+        </sc-for>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+        <span style="font-size: 12px; color: {{c.muted}}">Date range</span>
+        <div role="group" aria-label="Date range" style="display: flex; border: 1px solid {{c.control}}; border-radius: 8px; overflow-x: auto; max-width: 100%">
+          <sc-for list="{{ranges}}" as="r" hint-placeholder-count="6">
+            <button aria-pressed="{{r.pressed}}" onClick="{{r.pick}}" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; border-left: {{r.sep}}; background: {{r.bg}}; color: {{r.fg}}; min-height: 36px; white-space: nowrap; cursor: pointer">{{r.label}}</button>
+          </sc-for>
+        </div>
+        <sc-if value="{{isCustom}}" hint-placeholder-val="{{false}}">
+          <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px">
+            <label style="font-size: 12px; color: {{c.muted}}; display: flex; align-items: center; gap: 6px">From <input type="date" value="{{from}}" min="{{minDate}}" max="{{to}}" onChange="{{setFrom}}" style="font: inherit; font-size: 13px; color: {{c.text}}; background: {{c.bg}}; border: 1px solid {{c.control}}; border-radius: 6px; padding: 5px 8px; min-height: 36px; color-scheme: {{scheme}}"></label>
+            <label style="font-size: 12px; color: {{c.muted}}; display: flex; align-items: center; gap: 6px">To <input type="date" value="{{to}}" min="{{from}}" max="{{today}}" onChange="{{setTo}}" style="font: inherit; font-size: 13px; color: {{c.text}}; background: {{c.bg}}; border: 1px solid {{c.control}}; border-radius: 6px; padding: 5px 8px; min-height: 36px; color-scheme: {{scheme}}"></label>
+          </div>
+        </sc-if>
+        <span style="font-size: 12px; color: {{c.muted}}">{{rangeText}}</span>
+      </div>
+      <nav aria-label="Dashboard sections" style="display: flex; gap: 2px; overflow-x: auto">
+        <sc-for list="{{tabs}}" as="t" hint-placeholder-count="6">
+          <button aria-current="{{t.current}}" onClick="{{t.go}}" style="font: inherit; font-size: 14px; font-weight: {{t.weight}}; color: {{t.fg}}; background: transparent; border: 0; border-bottom: 2px solid {{t.line}}; padding: 10px 14px; white-space: nowrap; cursor: pointer; min-height: 44px">{{t.label}}</button>
+        </sc-for>
+      </nav>
+    </div>
+  </header>
+
+  <main style="max-width: 1440px; margin: 0 auto; padding: 20px 24px 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px">
+
+    <sc-if value="{{is.overview}}" hint-placeholder-val="{{true}}">
+      <section aria-label="Totals" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px">
+        <sc-for list="{{tiles}}" as="t" hint-placeholder-count="5">
+          <div style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; min-width: 0">
+            <span style="font-size: 13px; color: {{c.muted}}">{{t.label}}</span>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: clamp(22px, 2.4vw, 28px); font-weight: 500; color: {{t.color}}">{{t.value}}</span>
+            <span style="font-size: 12px; color: {{c.muted}}">{{t.note}}</span>
+          </div>
+        </sc-for>
+      </section>
+      <section aria-label="Spent against saved" style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px">
+        <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px">
+          <div style="display: flex; flex-direction: column; gap: 4px">
+            <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">Spend and savings</span>
+            <h2 style="margin: 0; font-size: 16px; font-weight: 600">Tokens spent and saved, per day</h2>
+          </div>
+          <div style="display: flex; gap: 16px; font-size: 13px; color: {{c.muted}}">
+            <span style="display: flex; align-items: center; gap: 6px"><span style="width: 12px; height: 12px; border-radius: 3px; background: {{c.spent}}"></span>Spent</span>
+            <span style="display: flex; align-items: center; gap: 6px"><span style="width: 12px; height: 12px; border-radius: 3px; background: {{c.saved}}"></span>Saved by tokensave</span>
+          </div>
+        </div>
+        <div style="overflow-x: auto">
+          <div style="display: flex; align-items: flex-end; gap: 3px; height: 200px; min-width: {{chartMin}}; border-bottom: 1px solid {{c.border}}; padding-top: 8px">
+            <sc-for list="{{days}}" as="d" hint-placeholder-count="30">
+              <div style="flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%">
+                <div style="flex: 1 1 0; background: {{c.spent}}; border-radius: 3px 3px 0 0; height: {{d.spentH}}"></div>
+                <div style="flex: 1 1 0; background: {{c.saved}}; border-radius: 3px 3px 0 0; height: {{d.savedH}}"></div>
+              </div>
+            </sc-for>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 12px; color: {{c.muted}}; padding-top: 6px; min-width: {{chartMin}}">
+            <sc-for list="{{ticks}}" as="t" hint-placeholder-count="5"><span>{{t}}</span></sc-for>
+          </div>
+        </div>
+      </section>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px">
+        <sc-for list="{{mixes}}" as="mx" hint-placeholder-count="2">
+          <section style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0">
+            <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">{{mx.eyebrow}}</span>
+            <h2 style="margin: 0; font-size: 16px; font-weight: 600">{{mx.title}}</h2>
+            <sc-for list="{{mx.rows}}" as="m" hint-placeholder-count="4">
+              <div style="display: flex; flex-direction: column; gap: 4px">
+                <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 13px"><span style="display: flex; align-items: center; gap: 8px; font-family: {{m.font}}"><span style="width: 10px; height: 10px; border-radius: 50%; background: {{m.color}}; flex: none"></span>{{m.name}}</span><span style="font-family: 'IBM Plex Mono', monospace; color: {{c.muted}}; white-space: nowrap">{{m.value}}</span></div>
+                <div style="height: 8px; background: {{c.track}}; border-radius: 4px"><div style="height: 8px; border-radius: 4px; background: {{m.color}}; width: {{m.pct}}"></div></div>
+              </div>
+            </sc-for>
+            <span style="font-size: 12px; color: {{c.muted}}">{{mx.note}}</span>
+          </section>
+        </sc-for>
+      </div>
+      <section aria-label="Costliest runs" style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+        <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">Where it went</span>
+        <h2 style="margin: 0; font-size: 16px; font-weight: 600">Costliest agent runs</h2>
+        <div style="display: flex; flex-direction: column">
+          <sc-for list="{{topRuns}}" as="r" hint-placeholder-count="5">
+            <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 10px 0; border-top: 1px solid {{c.border}}; font-size: 13px">
+              <span style="flex: 2 1 200px; min-width: 0; display: flex; align-items: center; gap: 10px"><span style="width: 28px; height: 28px; border-radius: 7px; background: {{r.tile}}; display: flex; align-items: center; justify-content: center; flex: none"><span style="width: 10px; height: 10px; border-radius: 50%; background: {{r.color}}"></span></span><span style="display: flex; flex-direction: column"><span style="font-weight: 500">{{r.name}}</span><span style="font-size: 12px; color: {{c.muted}}">{{r.role}} · {{r.repo}}</span></span></span>
+              <span style="flex: 1 1 320px; display: flex; justify-content: space-between; align-items: center; gap: 12px; font-family: 'IBM Plex Mono', monospace"><span style="color: {{c.muted}}">{{r.model}}</span><span style="display: flex; gap: 16px"><span>{{r.tokens}}</span><span style="font-weight: 500; min-width: 64px; text-align: right">{{r.cost}}</span></span></span>
+            </div>
+          </sc-for>
+        </div>
+      </section>
+    </sc-if>
+
+    <sc-if value="{{is.agents}}" hint-placeholder-val="{{false}}">
+      <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start">
+        <section aria-label="Sessions and subagents" style="flex: 999 1 560px; min-width: 0; background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+          <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">Agent runs</span>
+          <h2 style="margin: 0; font-size: 16px; font-weight: 600">Sessions and the agents they started</h2>
+          <span style="font-size: 12px; color: {{c.muted}}">Roles come from each subagent's own record (type and description); nothing is read from prompts.</span>
+          <div style="display: flex; flex-direction: column">
+            <sc-for list="{{runs}}" as="r" hint-placeholder-count="7">
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 0 10px {{r.indent}}; border-top: 1px solid {{c.border}}; font-size: 13px">
+                <span style="flex: 2 1 220px; min-width: 0; display: flex; align-items: center; gap: 10px"><span style="width: 28px; height: 28px; border-radius: 7px; background: {{r.tile}}; display: flex; align-items: center; justify-content: center; flex: none"><span style="width: 10px; height: 10px; border-radius: 50%; background: {{r.color}}"></span></span><span style="display: flex; flex-direction: column"><span style="font-weight: {{r.weight}}">{{r.name}}</span><span style="font-size: 12px; color: {{c.muted}}">{{r.role}} · {{r.tool}}</span></span></span>
+                <span style="flex: 1 1 380px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px 12px; font-family: 'IBM Plex Mono', monospace"><span style="color: {{c.muted}}">{{r.model}}</span><span style="color: {{c.muted}}">{{r.io}}</span><span style="display: flex; align-items: center; gap: 10px"><span style="font-weight: 500; min-width: 56px; text-align: right">{{r.cost}}</span><span style="font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 12px; border-radius: 4px; padding: 2px 8px; background: {{r.stBg}}; color: {{r.stFg}}">{{r.state}}</span></span></span>
+              </div>
+            </sc-for>
+          </div>
+        </section>
+        <aside aria-label="Cost by role" style="flex: 1 1 280px; min-width: 0; background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+          <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">By role</span>
+          <h2 style="margin: 0; font-size: 16px; font-weight: 600">Cost by role</h2>
+          <sc-for list="{{roles}}" as="m" hint-placeholder-count="5">
+            <div style="display: flex; flex-direction: column; gap: 4px">
+              <div style="display: flex; justify-content: space-between; font-size: 13px"><span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 50%; background: {{m.color}}"></span>{{m.name}}</span><span style="font-family: 'IBM Plex Mono', monospace; color: {{c.muted}}">{{m.value}}</span></div>
+              <div style="height: 8px; background: {{c.track}}; border-radius: 4px"><div style="height: 8px; border-radius: 4px; background: {{m.color}}; width: {{m.pct}}"></div></div>
+            </div>
+          </sc-for>
+          <div style="border-top: 1px solid {{c.border}}; padding-top: 10px; display: flex; flex-direction: column; gap: 6px; font-size: 13px">
+            <div style="display: flex; justify-content: space-between"><span style="color: {{c.muted}}">Subagent share of spend</span><span style="font-family: 'IBM Plex Mono', monospace">78%</span></div>
+            <div style="display: flex; justify-content: space-between"><span style="color: {{c.muted}}">Runs that didn't finish</span><span style="font-family: 'IBM Plex Mono', monospace">4</span></div>
+          </div>
+        </aside>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{is.models}}" hint-placeholder-val="{{false}}">
+      <section aria-label="Model by effort" style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px">
+        <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">Models and effort</span>
+        <h2 style="margin: 0; font-size: 16px; font-weight: 600">Cost by model and effort</h2>
+        <div style="overflow-x: auto">
+          <div style="display: grid; grid-template-columns: 190px repeat(5, minmax(90px, 1fr)); gap: 6px; min-width: 660px; font-size: 13px">
+            <span style="color: {{c.muted}}; padding: 8px 4px; position: sticky; left: 0; background: {{c.surface}}">Model</span>
+            <sc-for list="{{efforts}}" as="e" hint-placeholder-count="5"><span style="color: {{c.muted}}; padding: 8px 4px; text-align: center">{{e}}</span></sc-for>
+            <sc-for list="{{grid}}" as="row" hint-placeholder-count="4">
+              <span style="font-family: 'IBM Plex Mono', monospace; padding: 12px 4px; display: flex; align-items: center; gap: 8px; position: sticky; left: 0; background: {{c.surface}}"><span style="width: 10px; height: 10px; border-radius: 50%; background: {{row.color}}; flex: none"></span>{{row.model}}</span>
+              <sc-for list="{{row.cells}}" as="cell" hint-placeholder-count="5">
+                <span style="font-family: 'IBM Plex Mono', monospace; text-align: center; padding: 12px 4px; border-radius: 6px; background: {{cell.bg}}; color: {{cell.fg}}">{{cell.v}}</span>
+              </sc-for>
+            </sc-for>
+          </div>
+        </div>
+        <span style="font-size: 12px; color: {{c.muted}}">Effort is read per turn from Claude Code and Codex. Cursor doesn't record it.</span>
+      </section>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px">
+        <section style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+          <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">Thinking</span>
+          <h2 style="margin: 0; font-size: 16px; font-weight: 600">Thinking share of output</h2>
+          <sc-for list="{{thinking}}" as="m" hint-placeholder-count="4">
+            <div style="display: flex; flex-direction: column; gap: 4px">
+              <div style="display: flex; justify-content: space-between; font-size: 13px"><span style="display: flex; align-items: center; gap: 8px; font-family: 'IBM Plex Mono', monospace"><span style="width: 10px; height: 10px; border-radius: 50%; background: {{m.color}}"></span>{{m.name}}</span><span style="font-family: 'IBM Plex Mono', monospace; color: {{c.muted}}">{{m.value}}</span></div>
+              <div style="height: 8px; background: {{c.track}}; border-radius: 4px"><div style="height: 8px; border-radius: 4px; background: {{m.color}}; width: {{m.pct}}"></div></div>
+            </div>
+          </sc-for>
+        </section>
+        <section style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+          <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">Fallbacks</span>
+          <h2 style="margin: 0; font-size: 16px; font-weight: 600">Served by a different model than requested</h2>
+          <sc-for list="{{fallbacks}}" as="f" hint-placeholder-count="2">
+            <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 13px; padding: 10px 12px; background: {{c.raised}}; border: 1px solid {{c.border}}; border-radius: 8px">
+              <span style="font-family: 'IBM Plex Mono', monospace">{{f.pair}}</span><span style="color: {{c.muted}}">{{f.count}}</span>
+            </div>
+          </sc-for>
+          <div style="display: flex; justify-content: space-between; font-size: 13px; border-top: 1px solid {{c.border}}; padding-top: 10px"><span style="color: {{c.muted}}">Fallback rate</span><span style="font-family: 'IBM Plex Mono', monospace">0.4%</span></div>
+        </section>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{is.repos}}" hint-placeholder-val="{{false}}">
+      <section style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-wrap: wrap; gap: 20px; align-items: center; justify-content: space-between">
+        <div style="display: flex; flex-direction: column; gap: 4px; min-width: 0">
+          <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">Workspace</span>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 18px">~/gitRepos</span>
+          <span style="font-size: 12px; color: {{c.muted}}">marked by .tokensave-workspace.toml · scan depth 1</span>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 24px">
+          <div style="display: flex; flex-direction: column"><span style="font-size: 12px; color: {{c.muted}}">Repos</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 22px">6</span></div>
+          <div style="display: flex; flex-direction: column"><span style="font-size: 12px; color: {{c.muted}}">Indexed</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 22px">4</span></div>
+          <div style="display: flex; flex-direction: column"><span style="font-size: 12px; color: {{c.muted}}">Not indexed</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 22px; color: {{c.warnFg}}">2</span></div>
+        </div>
+      </section>
+      <section style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column">
+        <h2 style="margin: 0 0 6px; font-size: 16px; font-weight: 600">Repos</h2>
+        <sc-for list="{{repos}}" as="r" hint-placeholder-count="6">
+          <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 10px 0; border-top: 1px solid {{c.border}}; font-size: 13px">
+            <span style="flex: 2 1 220px; min-width: 0; display: flex; flex-direction: column"><span style="font-weight: 500">{{r.name}}</span><span style="font-size: 12px; color: {{c.muted}}; font-family: 'IBM Plex Mono', monospace">{{r.path}}</span></span>
+            <span style="flex: 0 0 auto; font-size: 12px; border-radius: 4px; padding: 2px 8px; background: {{r.stBg}}; color: {{r.stFg}}">{{r.status}}</span>
+            <span style="flex: 1 1 150px; display: flex; gap: 12px; font-family: 'IBM Plex Mono', monospace"><span style="display: flex; align-items: center; gap: 5px"><span style="width: 8px; height: 8px; border-radius: 2px; background: {{c.spent}}"></span>{{r.spent}}</span><span style="display: flex; align-items: center; gap: 5px"><span style="width: 8px; height: 8px; border-radius: 2px; background: {{c.saved}}"></span>{{r.saved}}</span></span>
+            <span style="flex: 1 1 150px; display: flex; flex-wrap: wrap; gap: 6px"><sc-for list="{{r.tools}}" as="t" hint-placeholder-count="1"><span style="display: flex; align-items: center; gap: 5px; font-size: 12px; color: {{c.muted}}"><span style="width: 8px; height: 8px; border-radius: 50%; background: {{t.color}}"></span>{{t.name}}</span></sc-for></span>
+            <span style="flex: 0 1 90px; color: {{c.muted}}; text-align: right">{{r.last}}</span>
+          </div>
+        </sc-for>
+      </section>
+      <section style="background: {{c.warnBg}}; border: 1px solid {{c.warnBorder}}; border-radius: 10px; padding: 14px 18px; display: flex; flex-direction: column; gap: 8px">
+        <h2 style="margin: 0; font-size: 15px; font-weight: 600; color: {{c.warnFg}}">2 repos aren't indexed, so tokensave saves nothing there</h2>
+        <code style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; background: {{c.bg}}; border: 1px solid {{c.border}}; border-radius: 6px; padding: 10px 12px; color: {{c.text}}; overflow-x: auto">tokensave workspace init-all --dry-run</code>
+      </section>
+    </sc-if>
+
+    <sc-if value="{{is.savings}}" hint-placeholder-val="{{false}}">
+      <section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px">
+        <sc-for list="{{savingTiles}}" as="t" hint-placeholder-count="3">
+          <div style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px">
+            <span style="font-size: 13px; color: {{c.muted}}">{{t.label}}</span>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: clamp(22px, 2.4vw, 28px); font-weight: 500; color: {{t.color}}">{{t.value}}</span>
+            <span style="font-size: 12px; color: {{c.muted}}">{{t.note}}</span>
+          </div>
+        </sc-for>
+      </section>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px">
+        <section style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+          <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">Savings</span>
+          <h2 style="margin: 0; font-size: 16px; font-weight: 600">Saved, by tokensave tool</h2>
+          <sc-for list="{{saveTools}}" as="m" hint-placeholder-count="6">
+            <div style="display: flex; flex-direction: column; gap: 4px">
+              <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 13px"><span style="font-family: 'IBM Plex Mono', monospace">{{m.name}}</span><span style="font-family: 'IBM Plex Mono', monospace; color: {{c.muted}}">{{m.value}}</span></div>
+              <div style="height: 8px; background: {{c.track}}; border-radius: 4px"><div style="height: 8px; border-radius: 4px; background: {{c.saved}}; width: {{m.pct}}"></div></div>
+            </div>
+          </sc-for>
+        </section>
+        <section style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+          <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">Missed savings</span>
+          <h2 style="margin: 0; font-size: 16px; font-weight: 600">Where a graph call would have fitted</h2>
+          <sc-for list="{{missed}}" as="x" hint-placeholder-count="3">
+            <div style="display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; background: {{c.raised}}; border: 1px solid {{c.border}}; border-radius: 8px">
+              <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 13px"><span style="font-weight: 500">{{x.kind}}</span><span style="font-family: 'IBM Plex Mono', monospace; color: {{c.warnFg}}">{{x.value}}</span></div>
+              <span style="font-size: 12px; color: {{c.muted}}">Use instead: <span style="font-family: 'IBM Plex Mono', monospace; color: {{c.text}}">{{x.instead}}</span></span>
+            </div>
+          </sc-for>
+        </section>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{is.sources}}" hint-placeholder-val="{{false}}">
+      <div style="display: flex; flex-direction: column; gap: 4px">
+        <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">Sources</span>
+        <h2 style="margin: 0; font-size: 18px; font-weight: 600">Agent tools found on this machine</h2>
+        <span style="font-size: 13px; color: {{c.muted}}">Found by their local session data, read-only. A format tokensave doesn't recognise is reported here, never guessed.</span>
+      </div>
+      <section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px">
+        <sc-for list="{{sources}}" as="s" hint-placeholder-count="5">
+          <div style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px">
+              <span style="display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 600"><span style="width: 32px; height: 32px; border-radius: 8px; background: {{s.tile}}; display: flex; align-items: center; justify-content: center; flex: none"><span style="width: 12px; height: 12px; border-radius: 50%; background: {{s.color}}"></span></span>{{s.name}}</span>
+              <span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: {{s.stBg}}; color: {{s.stFg}}">{{s.state}}</span>
+            </div>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: {{c.muted}}; overflow-wrap: anywhere">{{s.path}}</span>
+            <div style="display: flex; gap: 24px; font-size: 13px">
+              <div style="display: flex; flex-direction: column"><span style="font-size: 12px; color: {{c.muted}}">Turns</span><span style="font-family: 'IBM Plex Mono', monospace">{{s.turns}}</span></div>
+              <div style="display: flex; flex-direction: column"><span style="font-size: 12px; color: {{c.muted}}">Last parsed</span><span style="font-family: 'IBM Plex Mono', monospace">{{s.last}}</span></div>
+            </div>
+            <span style="font-size: 12px; color: {{c.muted}}">{{s.note}}</span>
+          </div>
+        </sc-for>
+      </section>
+    </sc-if>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$target":{"editor":null,"default":{"framework":"preact-ts","styling":"tokens.css (CSS variables)","state":"URL params; theme in storage","data":"REST under /api"}},"theme":{"editor":"enum","options":["dark","light","auto"],"default":"dark"},"tab":{"editor":"enum","options":["overview","agents","models","repos","savings","sources"],"default":"overview"},"range":{"editor":"enum","options":["7","30","45","60","90","custom"],"default":"30"},"$preview":{"width":1440,"height":1240}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { theme: null, tab: null, range: null, from: '2026-10-01', to: '2026-10-26' };
+  }
+  renderVals() {
+    const mode = this.state.theme || this.props.theme || 'dark';
+    let dark = mode === 'dark';
+    if (mode === 'auto') {
+      try { dark = window.matchMedia('(prefers-color-scheme: dark)').matches; } catch (e) { dark = true; }
+    }
+    const tab = this.state.tab || this.props.tab || 'overview';
+    const range = this.state.range || this.props.range || '30';
+    const today = '2026-10-26', minDate = '2026-01-01';
+    const DAY = 86400000, toDate = (iso) => new Date(iso + 'T00:00:00Z');
+    const from = this.state.from, to = this.state.to;
+    const n = range === 'custom' ? Math.max(1, Math.round((toDate(to) - toDate(from)) / DAY) + 1) : Number(range);
+    const end = range === 'custom' ? toDate(to) : toDate(today);
+    const fmt = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+    const startD = new Date(end.getTime() - (n - 1) * DAY);
+    const T = dark ? {
+      bg: '#0F1216', surface: '#171B21', raised: '#1D2229', border: '#2A3038', track: '#232831', control: '#3A414B',
+      text: '#E6E8EB', muted: '#A1A9B4', accent: '#93C5FD', accentFg: '#0F1216', logoBg: '#2563EB',
+      spent: '#60A5FA', saved: '#FBBF24',
+      okFg: '#86EFAC', okBg: '#12321F', warnFg: '#FDBA74', warnBg: '#3A2414', warnBorder: '#6B3F1D',
+      infoFg: '#BFDBFE', infoBg: '#1B2A4A', stopFg: '#FCA5A5', stopBg: '#3A1717',
+      sampleFg: '#FDBA74', sampleBg: '#3A2414', sampleBorder: '#6B3F1D', tint: 0.16,
+      heat: [['#1B2A4A', '#E6E8EB'], ['#24407A', '#E6E8EB'], ['#3B66D6', '#FFFFFF'], ['#93C5FD', '#0F1216']], none: ['#1D2229', '#A1A9B4'],
+      cat: { emerald: '#10D49A', sky: '#38BDF8', amber: '#E2A717', violet: '#A5ADF8', coral: '#F08A6C', pink: '#F472B6', teal: '#2DD4BF', slate: '#94A3B8' }
+    } : {
+      bg: '#F6F7F9', surface: '#FFFFFF', raised: '#FAFBFC', border: '#E3E5E8', track: '#EEF0F3', control: '#CDD1D6',
+      text: '#1A1D21', muted: '#555E6B', accent: '#1D4ED8', accentFg: '#FFFFFF', logoBg: '#1D4ED8',
+      spent: '#1D4ED8', saved: '#D97706',
+      okFg: '#14532D', okBg: '#E7F6EC', warnFg: '#7C2D12', warnBg: '#FDEFE3', warnBorder: '#F5C98B',
+      infoFg: '#1E3A8A', infoBg: '#EEF2FF', stopFg: '#7F1D1D', stopBg: '#FDECEC',
+      sampleFg: '#8A4B00', sampleBg: '#FFF4E5', sampleBorder: '#F5C98B', tint: 0.12,
+      heat: [['#E8EEFC', '#1A1D21'], ['#BFD0F5', '#1A1D21'], ['#3B66D6', '#FFFFFF'], ['#1E3A8A', '#FFFFFF']], none: ['#F6F7F9', '#555E6B'],
+      cat: { emerald: '#059669', sky: '#0284C7', amber: '#A16207', violet: '#6D5DF0', coral: '#C2410C', pink: '#DB2777', teal: '#0F766E', slate: '#475569' }
+    };
+    const mix = (fg, a) => {
+      const p = (h, i) => parseInt(h.slice(i, i + 2), 16);
+      return '#' + [1, 3, 5].map((i) => Math.round(a * p(fg, i) + (1 - a) * p(T.surface, i)).toString(16).padStart(2, '0')).join('');
+    };
+    const C = T.cat;
+    const TOOL = { 'Claude Code': C.coral, 'Codex': C.sky, 'Cursor': C.violet, 'Pi': C.amber, 'Factory Droid': C.pink };
+    const ROLE = { builder: C.emerald, reviewer: C.violet, main: C.slate, Explore: C.amber, other: C.teal };
+    const MODEL = { 'claude-opus-5-5': C.emerald, 'claude-fable-5-1': C.sky, 'claude-sonnet-5-5': C.amber, '[Codex model]': C.violet };
+    const st = { none: { stBg: T.raised, stFg: T.muted }, ok: { stBg: T.okBg, stFg: T.okFg }, warn: { stBg: T.warnBg, stFg: T.warnFg }, info: { stBg: T.infoBg, stFg: T.infoFg }, stop: { stBg: T.stopBg, stFg: T.stopFg } };
+
+    const pick = (m) => () => this.setState({ theme: m });
+    const themes = [['dark', 'Dark'], ['light', 'Light'], ['auto', 'Auto']].map(([m, label], i) => ({
+      label, pick: pick(m), pressed: String(mode === m),
+      bg: mode === m ? T.accent : 'transparent', fg: mode === m ? T.accentFg : T.text
+    }));
+    const tabs = [['overview', 'Overview'], ['agents', 'Agents'], ['models', 'Models and effort'], ['repos', 'Repos'], ['savings', 'Savings'], ['sources', 'Sources']].map(([id, label]) => ({
+      label, go: () => this.setState({ tab: id }), current: tab === id ? 'page' : 'false',
+      weight: tab === id ? '600' : '400', fg: tab === id ? T.text : T.muted, line: tab === id ? T.accent : 'transparent'
+    }));
+    const is = { overview: tab === 'overview', agents: tab === 'agents', models: tab === 'models', repos: tab === 'repos', savings: tab === 'savings', sources: tab === 'sources' };
+
+    const spentD = [], savedD = [];
+    for (let i = 0; i < n; i++) {
+      const t = end.getTime() / DAY - (n - 1 - i), dow = ((t % 7) + 7 + 4) % 7;
+      const v = 60 + 30 * Math.sin(t / 5) + 15 * Math.sin(t * 1.7) - (dow === 0 || dow === 6 ? 32 : 0);
+      spentD.push(Math.max(12, v)); savedD.push(Math.max(2, v * (0.11 + 0.03 * Math.sin(t / 3))));
+    }
+    const peak = Math.max(...spentD);
+    const days = spentD.map((s, i) => ({ spentH: Math.round(s / peak * 184) + 'px', savedH: Math.round(savedD[i] / peak * 184) + 'px' }));
+    const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => fmt(new Date(startD.getTime() + Math.round(f * (n - 1)) * DAY)));
+    const scale = n / 30, M = (v) => (v * scale).toFixed(1) + 'M';
+    const ranges = [['7', '7 days'], ['30', '30 days'], ['45', '45 days'], ['60', '60 days'], ['90', '90 days'], ['custom', 'Custom']].map(([id, label], i) => ({
+      label, pick: () => this.setState({ range: id }), pressed: String(range === id), sep: i ? '1px solid ' + T.control : '0',
+      bg: range === id ? T.accent : 'transparent', fg: range === id ? T.accentFg : T.text
+    }));
+    const mono = "'IBM Plex Mono', monospace", sans = 'inherit';
+    const run = (name, role, tool, model, io, cost, state, top) => ({
+      name, role, tool, model, io, cost, state, ...st[{ finished: 'ok', running: 'info', stopped: 'stop', partial: 'warn' }[state]],
+      color: top ? TOOL[tool] : ROLE[role], tile: mix(top ? TOOL[tool] : ROLE[role], T.tint), indent: top ? '0px' : '24px', weight: top ? '600' : '400'
+    });
+    const repo = (name, path, status, spent, saved, tools, last) => ({
+      name, path, status, spent, saved, last, ...(status === 'indexed' ? st.ok : st.warn),
+      tools: tools.map((t) => ({ name: t, color: TOOL[t] }))
+    });
+    const heat = (v) => {
+      if (v === null) return { v: '—', bg: T.none[0], fg: T.none[1] };
+      const k = v >= 100 ? 3 : v >= 40 ? 2 : v >= 10 ? 1 : 0;
+      return { v: '$' + v, bg: T.heat[k][0], fg: T.heat[k][1] };
+    };
+    const src = (name, path, turns, last, state, note) => ({ name, path, turns, last, state, note, color: TOOL[name], tile: mix(TOOL[name], T.tint), ...st[{ verified: 'ok', partial: 'warn', 'not found': 'none' }[state]] });
+
+    return {
+      c: T, themes, tabs, is, days, ticks, ranges, isCustom: range === 'custom', from, to, today, minDate,
+      scheme: dark ? 'dark' : 'light', rangeText: fmt(startD) + ' – ' + fmt(end) + ', 2026 · ' + n + ' days',
+      setFrom: (e) => this.setState({ from: e.target.value }), setTo: (e) => this.setState({ to: e.target.value }),
+      chartMin: Math.max(640, n * 14) + 'px',
+      filters: [{ label: 'Repo', value: 'All repos' }, { label: 'Agent tool', value: 'All' }, { label: 'Model', value: 'All' }, { label: 'Effort', value: 'All' }],
+      tiles: [
+        { label: 'Tokens spent', value: M(48.2), note: 'input, output, cache, thinking', color: T.text },
+        { label: 'Cost', value: '$' + (312.4 * scale).toFixed(2), note: 'from the embedded price table', color: T.text },
+        { label: 'Tokens saved', value: M(6.9), note: 'by tokensave graph calls', color: T.saved },
+        { label: 'Saving rate', value: '12.5%', note: 'saved ÷ (spent + saved)', color: T.text },
+        { label: 'Cache hit rate', value: '71%', note: 'cache reads ÷ input', color: T.text }
+      ],
+      mixes: [
+        { eyebrow: 'Who did the work', title: 'By agent tool', note: "Cursor's figures are partial: it records only some token counts.", rows: [
+          { name: 'Claude Code', value: '39.5M · 82%', pct: '82%', color: TOOL['Claude Code'], font: sans },
+          { name: 'Codex', value: '7.2M · 15%', pct: '15%', color: TOOL['Codex'], font: sans },
+          { name: 'Cursor (partial)', value: '1.5M · 3%', pct: '3%', color: TOOL['Cursor'], font: sans }] },
+        { eyebrow: 'On which model', title: 'By model', note: 'Models take the category colours in order of spend.', rows: [
+          { name: 'claude-opus-5-5', value: '29.4M · 61%', pct: '61%', color: MODEL['claude-opus-5-5'], font: mono },
+          { name: 'claude-fable-5-1', value: '13.0M · 27%', pct: '27%', color: MODEL['claude-fable-5-1'], font: mono },
+          { name: 'claude-sonnet-5-5', value: '4.3M · 9%', pct: '9%', color: MODEL['claude-sonnet-5-5'], font: mono },
+          { name: '[Codex model]', value: '1.5M · 3%', pct: '3%', color: MODEL['[Codex model]'], font: mono }] }
+      ],
+      topRuns: [
+        { name: 'Review PR #178', role: 'reviewer', repo: 'inkcast', model: 'opus-5-5 · xhigh', tokens: '2.31M', cost: '$18.70' },
+        { name: 'Build #226', role: 'builder', repo: 'inkcast', model: 'fable-5-1 · xhigh', tokens: '2.04M', cost: '$16.10' },
+        { name: 'Review PR #217', role: 'reviewer', repo: 'inkcast', model: 'opus-5-5 · xhigh', tokens: '1.88M', cost: '$15.20' },
+        { name: 'Build #213', role: 'builder', repo: 'inkcast', model: 'fable-5-1 · xhigh', tokens: '1.21M', cost: '$9.60' },
+        { name: 'Main session', role: 'main', repo: 'inkcast', model: 'opus-5-5 · high', tokens: '0.97M', cost: '$7.90' }
+      ].map((r) => ({ ...r, color: ROLE[r.role], tile: mix(ROLE[r.role], T.tint) })),
+      runs: [
+        run('inkcast · main session', 'main', 'Claude Code', 'opus-5-5 · high', '412k / 38k', '$7.90', 'running', true),
+        run('Build #226', 'builder', 'Claude Code', 'fable-5-1 · xhigh', '1.81M / 230k', '$16.10', 'finished', false),
+        run('Review PR #178', 'reviewer', 'Claude Code', 'opus-5-5 · xhigh', '2.02M / 290k', '$18.70', 'finished', false),
+        run('Review PR #221 (first try)', 'reviewer', 'Claude Code', 'opus-5-5 · xhigh', '640k / 80k', '$5.30', 'stopped', false),
+        run('Find sync callers', 'Explore', 'Claude Code', 'sonnet-5-5 · medium', '96k / 4k', '$0.40', 'finished', false),
+        run('service-a · session', 'main', 'Codex', '[Codex model] · high', '380k / 22k', '$2.10', 'finished', true),
+        run('infra-lab · session', 'main', 'Cursor', '[Cursor model]', '120k / —', '—', 'partial', true)
+      ],
+      roles: [
+        { name: 'reviewer', value: '$128.40 · 41%', pct: '41%', color: ROLE.reviewer },
+        { name: 'builder', value: '$109.60 · 35%', pct: '35%', color: ROLE.builder },
+        { name: 'main', value: '$62.50 · 20%', pct: '20%', color: ROLE.main },
+        { name: 'Explore', value: '$9.30 · 3%', pct: '3%', color: ROLE.Explore },
+        { name: 'other', value: '$2.60 · 1%', pct: '1%', color: ROLE.other }
+      ],
+      efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      grid: [
+        { model: 'claude-opus-5-5', color: MODEL['claude-opus-5-5'], cells: [null, 2, 54, 128, null].map(heat) },
+        { model: 'claude-fable-5-1', color: MODEL['claude-fable-5-1'], cells: [null, null, 18, 92, null].map(heat) },
+        { model: 'claude-sonnet-5-5', color: MODEL['claude-sonnet-5-5'], cells: [1, 9, 4, null, null].map(heat) },
+        { model: '[Codex model]', color: MODEL['[Codex model]'], cells: [null, 3, 6, null, null].map(heat) }
+      ],
+      thinking: [
+        { name: 'opus-5-5 · xhigh', value: '64%', pct: '64%', color: MODEL['claude-opus-5-5'] },
+        { name: 'fable-5-1 · xhigh', value: '58%', pct: '58%', color: MODEL['claude-fable-5-1'] },
+        { name: 'opus-5-5 · high', value: '39%', pct: '39%', color: MODEL['claude-opus-5-5'] },
+        { name: 'sonnet-5-5 · medium', value: '12%', pct: '12%', color: MODEL['claude-sonnet-5-5'] }
+      ],
+      fallbacks: [{ pair: 'fable-5-1 → opus-5-5', count: '31 turns · 2 sessions' }, { pair: 'opus-5-5 → sonnet-5-5', count: '4 turns · 1 session' }],
+      repos: [
+        repo('inkcast', '~/gitRepos/inkcast', 'indexed', '41.3M', '6.2M', ['Claude Code'], '2 min ago'),
+        repo('service-a', '~/gitRepos/service-a', 'indexed', '3.1M', '0.4M', ['Claude Code', 'Codex'], 'yesterday'),
+        repo('secrets-demo', '~/gitRepos/secrets-demo', 'indexed', '1.9M', '0.2M', ['Codex'], '4 days ago'),
+        repo('docs-site', '~/gitRepos/docs-site', 'indexed', '0.8M', '0.1M', ['Claude Code'], '1 week ago'),
+        repo('infra-lab', '~/gitRepos/infra-lab', 'not indexed', '1.5M', '—', ['Cursor'], '3 days ago'),
+        repo('data-lab', '~/gitRepos/data-lab', 'not indexed', '—', '—', [], 'never')
+      ],
+      savingTiles: [
+        { label: 'Tokens saved', value: '6.9M', note: 'before 7.8M → after 0.9M', color: T.saved },
+        { label: 'Graph calls', value: '2,418', note: 'from the savings ledger', color: T.text },
+        { label: 'Missed savings', value: '3.4M', note: 'turns a graph call could have replaced', color: T.warnFg }
+      ],
+      saveTools: [
+        { name: 'tokensave_context', value: '2.9M · 42%', pct: '42%' },
+        { name: 'tokensave_search', value: '1.6M · 23%', pct: '23%' },
+        { name: 'tokensave_impact', value: '0.9M · 13%', pct: '13%' },
+        { name: 'tokensave_files', value: '0.7M · 10%', pct: '10%' },
+        { name: 'tokensave_diff', value: '0.5M · 7%', pct: '7%' },
+        { name: 'other', value: '0.3M · 5%', pct: '5%' }
+      ],
+      missed: [
+        { kind: 'Whole-file reads', value: '2.1M · 1,204 turns', instead: 'outline / read / node' },
+        { kind: 'Symbol searches with grep', value: '0.9M · 611 turns', instead: 'search / callers / impact' },
+        { kind: 'File discovery with glob', value: '0.4M · 188 turns', instead: 'files / search' }
+      ],
+      sources: [
+        src('Claude Code', '~/.claude/projects/', '18,402', '2 min ago', 'verified', 'Model, requested model, effort, thinking, subagent roles.'),
+        src('Codex', '~/.codex/sessions/', '2,961', '2 min ago', 'verified', 'Model and effort from turn context; tokens from token_count events.'),
+        src('Cursor', '~/Library/Application Support/Cursor/User/', '640', '2 min ago', 'partial', 'Experimental: only token counts Cursor records.'),
+        src('Pi', '~/.pi/agent/sessions/', '—', '—', 'not found', 'Read by tokensave already; nothing on this machine.'),
+        src('Factory Droid', '(as tokensave reads it)', '—', '—', 'not found', 'Read by tokensave already; nothing on this machine.')
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>
