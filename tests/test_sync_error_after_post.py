@@ -169,18 +169,16 @@ class ANowPostAfterTheRowExists(SyncCase):
         self.assertEqual(self.entry()["remote_id"], "1")
         self.assertEqual((self.platform.sent, len(self.posts())), (["Body."], 1))
 
-    def test_a_locked_write_before_the_send_is_made_by_the_next_sync(self):
-        """The ledger write naming the post (before the send) was locked: the row exists, nothing was sent, and the
-        sync knows it. The post is failed and the entry follows it; the next sync makes the post, once, and recovery
-        never sends the first row."""
+    def test_a_locked_write_naming_the_post_leaves_no_row_and_the_next_sync_sends_it_once(self):
+        """The ledger write naming the post (before the send) was locked. It is made in the row's own transaction, so
+        there is no row: nothing was sent, the entry is 'failed', and the next sync sends the post, once."""
         self.sync_locked(Flaky(self.store.put_entry, the_post_pointer), "put_entry")
-        (post,) = self.posts()
-        self.assertEqual(self.platform.sent, [])
-        self.assert_points_at(post, "failed")
-        self.assertEqual(self.sync().action, "create")
+        self.assertEqual((self.posts(), self.platform.sent), ([], []))
+        self.assertEqual((self.entry()["status"], self.entry()["post_id"]), ("failed", None))
+        created = self.sync()
+        self.assertEqual((created.action, created.status, self.platform.sent), ("create", "published", ["Body."]))
         self.recover()
-        self.assertEqual((self.platform.sent, self.store.get_post(post["id"])["status"]), (["Body."], "failed"))
-        self.assertEqual((self.sync().status, self.entry()["url"]), ("published", "https://findable/1"))
+        self.assertEqual((self.platform.sent, len(self.posts())), (["Body."], 1))
 
     def test_a_locked_write_after_publish_returned_still_records_the_post(self):
         """``publish()`` returned 'published', and the ledger write of that outcome was locked. The entry still ends
@@ -218,16 +216,17 @@ class AnUncertainSendAfterTheRowExists(SyncCase):
 
 
 class AScheduledPostAfterTheRowExists(SyncCase):
-    def test_a_locked_write_leaves_the_entry_pointing_at_the_scheduled_post(self):
-        """A file dated two days ahead: the post row is made (scheduled) and the ledger write naming it was locked.
-        The entry follows it, the file reads as unchanged, and the scheduler sends it once, at its time."""
+    def test_a_locked_write_naming_the_scheduled_post_leaves_no_row_and_the_next_sync_schedules_it(self):
+        """A file dated two days ahead, and the ledger write naming its post was locked: no row (it is made in the
+        row's own transaction). The next sync schedules it, and the scheduler sends it once, at its time."""
         when = at(2 * 24 * 3600)
         self.sync_locked(Flaky(self.store.put_entry, the_post_pointer), "put_entry", when)
-        (post,) = self.posts()
-        self.assert_points_at(post, "scheduled")
-        self.assertAlmostEqual(post["run_at"], when.timestamp(), delta=1)
+        self.assertEqual(self.posts(), [])
         again = self.sync(when)
-        self.assertEqual((again.action, again.status, again.post_id), ("unchanged", "scheduled", post["id"]))
+        (post,) = self.posts()
+        self.assertEqual((again.action, again.status, again.post_id), ("create", "scheduled", post["id"]))
+        self.assertAlmostEqual(post["run_at"], when.timestamp(), delta=1)
+        self.assertEqual(self.sync(when).action, "unchanged")
         self.assertEqual(len(self.posts()), 1, "scheduled again: two posts at its time")
         asyncio.run(self.publisher.run_due(now=when.timestamp() - 1))
         self.assertEqual(self.platform.sent, [], "sent before its time")
@@ -240,16 +239,17 @@ class AReplacementAfterTheRowExists(SyncCase):
     """An edited scheduled post is cancelled and made again. The claim names no post until its own exists (#220), so
     an error once the replacement exists must point the entry at it: the cancelled post can't be followed."""
 
-    def test_a_locked_write_mid_replacement_points_the_entry_at_the_replacement(self):
+    def test_a_locked_write_naming_the_replacement_leaves_no_row_and_the_next_sync_makes_it(self):
         when = at(2 * 24 * 3600)
         first = self.sync(when)
         self.sync_locked(Flaky(self.store.put_entry, the_post_pointer), "put_entry", when, body="Better body.")
-        old, new = self.posts()
+        (old,) = self.posts()
         self.assertEqual((old["id"], old["status"]), (first.post_id, "cancelled"))
-        self.assert_points_at(new, "scheduled")
-        self.assertEqual(new["payload"].count("Better body."), 1)
+        self.assertEqual((self.entry()["status"], self.entry()["post_id"]), ("failed", None))
         again = self.sync(when, body="Better body.")
-        self.assertEqual((again.action, again.status, again.post_id), ("unchanged", "scheduled", new["id"]))
+        old, new = self.posts()
+        self.assertEqual((again.action, again.status, again.post_id), ("create", "scheduled", new["id"]))
+        self.assertEqual(new["payload"].count("Better body."), 1)
         self.assertEqual([p["status"] for p in self.posts()], ["cancelled", "scheduled"], "no twin")
         asyncio.run(self.publisher.run_due(now=when.timestamp() + 1))
         self.assertEqual(self.platform.sent, ["Better body."])

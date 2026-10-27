@@ -14,6 +14,7 @@ never happened is retried: an uncertain one is ``unconfirmed``, whatever the pol
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import logging
 import math
@@ -88,7 +89,8 @@ class Publisher:
 
     async def publish(self, user_id: str, story: Story, platform_ids: list[str],
                       on_created: Any = None, created_at: float | None = None, retry: bool = False) -> list[Outcome]:
-        """``on_created(platform_id, post_id)`` runs once each post row exists and before anything is sent.
+        """``on_created(platform_id, post_id)`` runs in the transaction that makes each post row, before anything is
+        sent: if it raises, the row is not made (``PostsRepo.create_post``).
         ``created_at``: for a replacement that keeps the schedule of the post it replaces (``PostsRepo.create_post``).
         ``retry``: a "now" post whose send certainly never happened (a 429, say) is handed to the scheduler, which
         retries it under the policy, instead of failing at once. Git sync asks for it (there is nobody reading the
@@ -121,10 +123,8 @@ class Publisher:
             post_id = self.store.create_post(
                 group_id=group, user_id=user_id, platform=platform.id, title=prepared.title,
                 status="scheduled" if story.publish_at else "publishing", run_at=run_at, payload=prepared.to_dict(),
-                created_at=created_at,
+                created_at=created_at, on_created=functools.partial(on_created, platform.id) if on_created else None,
             )
-            if on_created:
-                on_created(platform.id, post_id)
             if story.publish_at:
                 outcomes.append(Outcome(platform.id, "scheduled", post_id=post_id, prepared=prepared))
             else:

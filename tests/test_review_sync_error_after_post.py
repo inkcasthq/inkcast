@@ -8,7 +8,6 @@ every case is deterministic. The clock can't be moved, so the scheduler's recove
 (``run_due(now=...)``). Each ``Finding`` test failed on the PR head before the fix committed with it."""
 
 import asyncio
-import json
 import sqlite3
 import tempfile
 import time
@@ -20,6 +19,7 @@ import httpx2
 
 from inkcast.libs.contracts.models import SyncFile, SyncRequest, SyncResult
 from inkcast.libs.db import Store
+from inkcast.libs.db.ledger import CLAIM_TTL
 from inkcast.libs.pipeline import STUCK_AFTER, Publisher
 from inkcast.libs.platforms import Account, Platform, PlatformError, Prepared, PublishResult
 from inkcast.services.publishing.sync import GitSync
@@ -164,29 +164,34 @@ class KeptAPostNeverSentIsSentOnceWhereItCanBeAsked(FindingAPostNeverSentIsNotLe
     platform_class = Findable
 
 
-class KeptAPostTheSchedulerHasIsLeftToIt(Review):
+class FindingALockOutlastingTheRetryDoesNotSendTwice(Review):
+    """The PR's fallback when ``_after_error``'s own write is locked too: "the entry stays the claim naming the post,
+    which an expired claim already follows". Not when the first locked write was the one naming the post: the claim
+    names none, the row stays, and once the claim expires the next sync takes it over and makes a second post. One
+    writer holding the lock past two busy timeouts sends the file twice, the issue's own symptom."""
+
     platform_class = Findable
 
-    def test_a_post_due_at_once_claimed_while_its_pointer_write_waits_is_sent_once(self):
-        """What the fix keeps: a file dated in the past is a post due at once (ADR-0015). While the sync waits on the
-        locked write naming it, the scheduler claims the post ('publishing') and sends it: the sync didn't send it,
-        but it is no post never sent, and failing it would have the next sync make and send it again."""
-        when = at(-3600)
+    def locked_long(self, publish_at: datetime | None = None) -> None:
+        """Two writes in a row are locked: the one naming the post, and the next (whichever it is)."""
+        entries = Flaky(self.store.put_entry, lambda *a, **kw: True, times=2)
+        posts = Flaky(self.store.update_post, lambda *a, **kw: True)
+        with mock.patch.object(self.store, "update_post", posts):
+            self.sync_locked(entries, "put_entry", publish_at)
+        self.assertEqual(entries.raised + posts.raised, 2)
+        self.store._exec("UPDATE ledger SET synced_at = synced_at - ?", CLAIM_TTL)  # the claim expires
 
-        def claimed_meanwhile(*args, **kwargs) -> bool:
-            if not the_post_pointer(*args, **kwargs):
-                return False
-            self.assertEqual(len(self.store.claim_due_posts(time.time())), 1)  # the scheduler, in another process
-            return True
+    def test_a_now_post_is_sent_once(self):
+        self.locked_long()
+        self.settle()
+        self.assertEqual(self.platform.sent, ["Body."], "recovery sent the first row, the next sync made a second")
 
-        self.sync_locked(Flaky(self.store.put_entry, claimed_meanwhile), "put_entry", when)
-        (post,) = self.posts()
-        prepared = Prepared.from_dict(json.loads(post["payload"]))
-        asyncio.run(self.publisher._send(post["id"], self.user, self.platform, prepared, post["attempts"],
-                                         scheduled=True))                       # and its send completes
+    def test_a_scheduled_post_is_sent_once(self):
+        when = at(2 * 24 * 3600)
+        self.locked_long(when)
         self.settle(when)
-        self.assertEqual(self.platform.sent, ["Body."], "sent by the scheduler, and made and sent again by the sync")
-        self.assertEqual(self.sync(when).action, "unchanged")
+        asyncio.run(self.publisher.run_due(now=when.timestamp() + 1))
+        self.assertEqual(self.platform.sent, ["Body."], "two posts scheduled for the one file")
 
 
 if __name__ == "__main__":
