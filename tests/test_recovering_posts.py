@@ -290,9 +290,11 @@ class FindingRecoveryIsCapped(Harness):
             asyncio.run(self.publisher.run_due(now=time.time() + STUCK_AFTER + 1))   # missing → re-queued → sent → died
         self.platform.on_publish = None
         self.assertEqual((self.status(post_id), self.platform.sent), ("publishing", ["t"]))
-        self.store._exec("UPDATE posts SET updated_at = updated_at - ?", STUCK_AFTER + 1)
+        # The second send began 20 h on (review of #221: the cap counts from when the post became stuck, not from a
+        # late stuck pass).
+        self.store._exec("UPDATE posts SET updated_at = ?", time.time() + 20 * HOUR - STUCK_AFTER - 1)
         self.platform.refuse = True
-        self.tick(later=20 * HOUR)                                            # the stuck pass that takes it, 20 h on
+        self.tick(later=20 * HOUR)                                            # the stuck pass that takes it
         self.assertEqual(self.status(post_id), "recovering")
         self.assertAlmostEqual(self.store.get_post(post_id)["recovering_since"], time.time() + 20 * HOUR, delta=5)
         self.tick(later=DAY + 1)                                              # 4 hours into this recovery: not capped
