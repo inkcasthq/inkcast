@@ -23,7 +23,6 @@ import sys
 from . import __version__
 from .libs.config import ConfigError, backup_keep_from, backup_keep_problems
 from .libs.db.backup import BackupError, list_backups, restore_backup, take_backup, verify_backup
-from .libs.secrets.checks import backup_keep_warning
 from .libs.observability import setup_logging
 
 log = logging.getLogger("inkcast.backup")
@@ -57,19 +56,14 @@ def backup_main(argv: list[str]) -> int:
     parser.add_argument("--to", type=pathlib.Path, default=directory, help="directory for the backups")
     parser.add_argument("--keep", type=_keep, default=None, metavar="N",
                         help="how many backups to keep, 1 or more (oldest removed first, only after a good backup); "
-                             "INKCAST_BACKUP_KEEP, or 14, when not given; above 35 warns, as the server does")
+                             "INKCAST_BACKUP_KEEP, or 14, when not given")
     args = parser.parse_args(argv)
-    setting = "--keep" if args.keep is not None else "INKCAST_BACKUP_KEEP"
     if args.keep is None:
         try:
             args.keep = backup_keep_from(os.environ)       # the CronJob's value, under the server's rule (libs/config)
         except ConfigError as exc:
             parser.error(str(exc))                         # exit 2, bad usage: the variable named, no traceback
     _logging()
-    warning = backup_keep_warning(args.keep, setting)      # the server's posture check (backup-keep), for the CronJob too
-    if warning:
-        log.warning("Posture: Backups age out within weeks: %s", warning,
-                    extra={"event": "config.posture.warn", "check": "backup-keep"})
     try:
         b = take_backup(args.database, args.to, keep=args.keep, version=__version__)
     except (BackupError, OSError) as exc:

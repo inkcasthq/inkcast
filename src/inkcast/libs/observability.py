@@ -76,9 +76,6 @@ EVENTS: dict[str, tuple[str, str]] = {
     "identity.sync.person.failed": ("warning", "Keycloak answered an error about one person, or gave the read about them no "
                                                "answer (Inkcast user id, read, status and the error's name only); nothing "
                                                "was done for them, the pass went on, they are read again."),
-    "identity.sync.pass.ended": ("warning", "A sync pass ended early, a success for what it did: its budget of reads about "
-                                            "people with no answer was used (the stage and the count only); what it did "
-                                            "not reach waits for the next pass or reconcile."),
     "identity.sync.breaker.tripped": ("critical", "A reconcile found too many people gone from Keycloak or disabled in it at "
                                                   "once (pass id and counts); nobody is cut off or erased, the disabled "
                                                   "keep their PATs refused, until an operator confirms or dismisses the "

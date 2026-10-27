@@ -7,7 +7,6 @@
 ## Product
 - [Product spec](product-spec.md): vision, users, identity and accounts (Keycloak), phases.
 - [Social platforms epic](design/social-platforms-epic.md): X, Instagram, TikTok design and sequencing.
-- [Video platforms, batch review and the engagement inbox](design/video-platforms-and-review.md): YouTube and Facebook Pages plug-ins, the batch review queue, inbox constraints, and the current build order.
 - [Research: publishing to TikTok, X and Instagram](research/social-platforms-2026-10.md): official-docs findings, as of 2026-10-18.
 - [Research: OpenFGA behaviour for our model and engines](research/openfga-2026-10.md): self-referential usersets, the new check engine, limits; pinned v1.22.0, as of 2026-10-22.
 

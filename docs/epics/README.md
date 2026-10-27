@@ -20,7 +20,7 @@ The backlog behind these is code: `docs/backlog/*.yaml`, filed as GitHub issues 
 | [E5 Billing, entitlements and metering](E5-billing/design.md) | Delivers E10: `SubscriptionService`, catalogue as code, entitlements after OpenFGA (403 → 409 → 402), webhooks, offline licences, Agency add-on | Planned |
 | E6 Admin portal | Operator API and UI behind Keycloak `inkcast-admin`: users, queues, audit, overrides, owner KPIs (growth, revenue, platform health) | Planned |
 | E7 Reliability, observability and operations | Alerts and SLOs as code, dashboards, the four metric layers and KPIs ([design](../design/observability-and-kpis.md), PR #8), channel health, contract tests, notifications, traces, backups and DR, edge protection, cost | Foundations done (PR #8); the rest planned |
-| E8 Social platforms | Instagram, Facebook Pages, YouTube, TikTok, X; batch review ([design](../design/social-platforms-epic.md), [video and review](../design/video-platforms-and-review.md)) | Planned |
+| E8 Social platforms | X, TikTok, Instagram ([design](../design/social-platforms-epic.md)) | Planned |
 | [E9 Identity on Keycloak](E9-identity-keycloak/design.md) | SaaS realm as code, self sign-up, social login, MFA, enterprise SSO, user sync, real Keycloak in CI. Needed before E4 and E6 | Next |
 | [E10 Tiers and subscriptions (spike)](E10-tiers-and-billing/design.md) | Free, Personal, Team, Business, Enterprise per seat; Agency add-on; provider bake-off; pricing validation | Next |
 
