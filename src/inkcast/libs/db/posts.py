@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from ..events import DomainEvent
 from .database import Database
@@ -45,7 +45,7 @@ class PostsRepo(Database):
                     run_at: float, payload: dict[str, Any], created_at: float | None = None) -> str:
         """``created_at`` is now unless the post replaces one whose schedule it keeps (Git sync): then that one's, so
         how late it is counts from when its time was first asked for (``overdue_count``, the lag; ADR-0015)."""
-        post_id = "pst_" + uuid.uuid4().hex[:12]
+        post_id = self.new_post_id()
         now = time.time()
         # A scheduled post is a fact worth an event the moment it exists; a "publishing" one gets its event
         # from the send that follows.
@@ -62,45 +62,83 @@ class PostsRepo(Database):
         return post_id
 
     def update_post(self, post_id: str, events: Iterable[DomainEvent] | None = None, only_if: str | None = None,
-                    unless: str | None = None, **fields: Any) -> bool:
+                    unless: str | None = None, if_attempts: int | None = None, **fields: Any) -> bool:
         """Change fields; ``events`` are written in the same transaction (the outbox). A post that no longer exists
         (its owner was erased while the scheduler held it) is left alone, and its events are not written either.
         ``only_if``: change it only while it still has this status (another worker may have moved it on).
         ``unless``: change it only while it does not have this status (a person cancelled it meanwhile).
+        ``if_attempts``: change it only while its ``attempts`` is still this (the fence of a send or a recovery against
+        its own late answer: a re-send by another worker counts an attempt, #226).
         True when the post was changed."""
         fields["updated_at"] = time.time()
         cols = ", ".join(f"{k} = ?" for k in fields)
-        status = (" AND status = ?" if only_if else "") + (" AND status != ?" if unless else "")
+        status = ((" AND status = ?" if only_if else "") + (" AND status != ?" if unless else "")
+                  + (" AND attempts = ?" if if_attempts is not None else ""))
         with self._tx() as c:
             changed = c.execute(f"UPDATE posts SET {cols} WHERE id = ?{status}",
                                 (*fields.values(), post_id, *([only_if] if only_if else []),
-                                 *([unless] if unless else []))).rowcount == 1
+                                 *([unless] if unless else []),
+                                 *([if_attempts] if if_attempts is not None else []))).rowcount == 1
             if changed:
                 insert_events(c, events)
         return changed
+
+    PENDING = ("scheduled", "recovering", "unconfirmed")  # the statuses a person can cancel from (#216, #226)
 
     def cancel_if_pending(self, post_id: str, user_id: str, events: Iterable[DomainEvent] | None = None,
-                          recovering_note: str | None = None) -> bool:
-        """Move one of the user's posts from 'scheduled' or 'recovering' to 'cancelled' in a single conditional
-        statement. A 'recovering' post (its send was interrupted, and the platform has not said whether it arrived)
-        is the person's to cancel too (#216): recovery writes its answer only while the post is still 'recovering'
-        (``update_post(only_if=)``), so a cancel wins over an answer that lands after it.
+                          notes: dict[str, str] | None = None) -> str | None:
+        """Move one of the user's posts from 'scheduled', 'recovering' or 'unconfirmed' to 'cancelled', in one
+        transaction. A 'recovering' post (its send was interrupted, and the platform has not said whether it arrived)
+        is the person's to cancel too (#216), and so is an 'unconfirmed' one (#226): recovery writes its answer only
+        while the post is still 'recovering' (``update_post(only_if=)``), so a cancel wins over an answer that lands
+        after it, and the sender's late failure yields to a cancel (``unless=``).
 
-        False when the post is neither any more: the scheduler claimed it a moment ago, it was already cancelled, or
-        recovery resolved it. Checking the status and then updating it separately would let a claim slip in between,
-        and the post would go out after the cancel reported success. ``events`` are written only when the cancel
-        happened, in the same transaction (the outbox). ``recovering_note`` replaces a 'recovering' post's error (what
-        recovery said it would do next), in the same statement."""
+        The status the post was cancelled from, or None when it was none of those any more: the scheduler claimed it
+        a moment ago, it was already cancelled, or recovery resolved it. The read and the write share the transaction's
+        write lock, so a claim can't slip in between them and send the post after the cancel reported success.
+        ``events`` are written only when the cancel happened, in the same transaction (the outbox). ``notes`` maps a
+        status to the error that replaces the post's (what recovery said it would do next, why it was unconfirmed)
+        when cancelled from it: a post that may already be on the platform says so."""
         with self._tx() as c:
-            changed = c.execute(
-                "UPDATE posts SET status = 'cancelled', updated_at = ?,"
-                " error = CASE WHEN status = 'recovering' THEN COALESCE(?, error) ELSE error END"
-                " WHERE id = ? AND user_id = ? AND status IN ('scheduled', 'recovering')",
-                (time.time(), recovering_note, post_id, user_id),
-            ).rowcount == 1
-            if changed:
-                insert_events(c, events)
-        return changed
+            row = c.execute("SELECT status FROM posts WHERE id = ? AND user_id = ?", (post_id, user_id)).fetchone()
+            was = row["status"] if row is not None else None
+            if was not in self.PENDING:
+                return None
+            c.execute("UPDATE posts SET status = 'cancelled', updated_at = ?, error = COALESCE(?, error) WHERE id = ?",
+                      (time.time(), (notes or {}).get(was), post_id))
+            insert_events(c, events)
+        return was
+
+    @staticmethod
+    def new_post_id() -> str:
+        return "pst_" + uuid.uuid4().hex[:12]
+
+    def resend_post(self, post_id: str, user_id: str, *, new_id: str, note: str,
+                    events: Iterable[DomainEvent] | None = None, on_created: Callable[[str], None] | None = None) -> bool:
+        """A person's decision on one of their 'unconfirmed' posts (#226): a new post row ``new_id``, 'publishing' and
+        due now, with the old post's group, platform, title and payload; and the old post 'cancelled', with ``note``
+        as its error (it may be on the platform already). Both in one transaction, conditional on the old post still
+        being 'unconfirmed', so two resends at once make exactly one post and a cancel that came first holds.
+        ``events`` (the decision, with who made it) are written with them, and ``on_created(new_id)`` runs in the same
+        transaction (the ledger entries that named the old post now name the new one): if it raises, nothing is made.
+        False when nothing was made: the post is not the person's, or not 'unconfirmed' any more (cancelled, or
+        resent already)."""
+        now = time.time()
+        with self._tx() as c:
+            row = c.execute("SELECT * FROM posts WHERE id = ? AND user_id = ? AND status = 'unconfirmed'",
+                            (post_id, user_id)).fetchone()
+            if row is None:
+                return False
+            c.execute(
+                "INSERT INTO posts (id, group_id, user_id, platform, title, status, run_at, payload, created_at, updated_at)"
+                " VALUES (?, ?, ?, ?, ?, 'publishing', ?, ?, ?, ?)",
+                (new_id, row["group_id"], user_id, row["platform"], row["title"], now, row["payload"], now, now),
+            )
+            c.execute("UPDATE posts SET status = 'cancelled', error = ?, updated_at = ? WHERE id = ?", (note, now, post_id))
+            insert_events(c, events)
+            if on_created:
+                on_created(new_id)
+        return True
 
     def get_post(self, post_id: str) -> dict[str, Any] | None:
         row = self._one("SELECT * FROM posts WHERE id = ?", post_id)
@@ -140,7 +178,8 @@ class PostsRepo(Database):
         are never simply put back in the queue (that is how schedulers post twice). A post left 'recovering' (that
         worker stopped too, or the platform refused its lookup) is taken again: recovering only asks the platform,
         it never sends. Each row comes back with its ``recovering_since``: when a post taken from 'publishing'
-        became stuck (at most ``now``), kept for one taken again (#216), from its run_at for one from before the column."""
+        became stuck (at most ``now``), kept for one taken again (#216) and for one re-sent by recovery and
+        interrupted again (#226), from its run_at for one from before the column."""
         now = now or time.time()
         out = []
         with self._tx() as c:
@@ -149,9 +188,12 @@ class PostsRepo(Database):
             for r in rows:
                 # Since it became stuck (its send began ``now - older_than`` before that), not since this pass. A pass
                 # that comes late (no scheduler ran: an outage, a crash loop) must not restart the cap's clock, or the
-                # post goes out that much later on its own (#216). A post 'recovering' from before the column has no
-                # clock: its send began no earlier than its run_at.
-                if r["status"] == "recovering" and r["recovering_since"] is not None:
+                # post goes out that much later on its own (#216). Nor does a re-entry: a post recovery re-queued (the
+                # platform said it was missing) whose new send was interrupted too keeps the clock of its first
+                # interruption, so its lateness as a whole is what the cap bounds (#226); only a person's decision (a
+                # resend is a new post) starts afresh. A post 'recovering' from before the column has no clock: its
+                # send began no earlier than its run_at.
+                if r["recovering_since"] is not None:
                     since = r["recovering_since"]
                 else:
                     began = r["run_at"] if r["status"] == "recovering" else r["updated_at"]

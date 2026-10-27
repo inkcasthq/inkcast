@@ -55,6 +55,9 @@ def build_routes(service: InkcastService, sync: GitSync, authed: Authed, public_
     async def cancel(request: Request, who: Principal):
         return service.cancel(who.user_id, request.path_params["post_id"])
 
+    async def resend(request: Request, who: Principal):
+        return await service.resend(who.user_id, request.path_params["post_id"])
+
     async def preview(request: Request, who: Principal):
         req = PublishRequest.model_validate({**await json_body(request), "dry_run": True})
         return await service.publish(who.user_id, req)
@@ -97,6 +100,7 @@ def build_routes(service: InkcastService, sync: GitSync, authed: Authed, public_
         Route("/api/v1/posts", authed("posts:read", list_posts), methods=["GET"]),
         Route("/api/v1/posts", authed("posts:read", publish), methods=["POST"]),
         Route("/api/v1/posts/{post_id}/cancel", authed("posts:write", cancel), methods=["POST"]),
+        Route("/api/v1/posts/{post_id}/resend", authed("posts:write", resend), methods=["POST"]),
         Route("/api/v1/preview", authed("posts:read", preview), methods=["POST"]),
         Route("/api/v1/stories:sync", authed("stories:sync", stories_sync), methods=["POST"]),
         Route("/api/v1/ledger", authed("posts:read", ledger), methods=["GET"]),

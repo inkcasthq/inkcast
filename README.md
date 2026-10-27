@@ -52,8 +52,9 @@ More detail on the design is in [docs/architecture.md](docs/architecture.md).
 | `inkcast_disconnect` | Deletes your stored credentials for a platform. |
 | `inkcast_destinations` | Lists Medium publications, or finds DEV organizations. |
 | `inkcast_publish` | Publishes now, schedules, or creates drafts on one or more platforms. Supports `dry_run`. |
-| `inkcast_posts` | Lists your scheduled, published, draft, failed and cancelled posts. |
-| `inkcast_cancel` | Cancels a scheduled post, or a recovering one (its send was interrupted and the platform hasn't said whether it arrived). |
+| `inkcast_posts` | Lists your scheduled, published, draft, failed, unconfirmed and cancelled posts. |
+| `inkcast_cancel` | Cancels a scheduled, recovering or unconfirmed post. A recovering or unconfirmed one (the platform never said whether it arrived) may already be on the platform; the reply says so. |
+| `inkcast_resend` | Sends an unconfirmed post again, now, as one new post, on your decision; the old one is cancelled. Inkcast never sends an unconfirmed post again on its own. |
 | `inkcast_sync` | Syncs files from a repository: publishes new ones, updates changed ones in place, skips the rest. |
 | `inkcast_create_token` | Gives you a link to create a personal access token for CI. You see the token; the AI never does. |
 | `inkcast_delete_account` | Gives you a one-time link to delete your account. You sign in again, read what goes and what stays, and confirm at the sign-in provider (Keycloak); Inkcast then erases your data. The AI deletes nothing. |

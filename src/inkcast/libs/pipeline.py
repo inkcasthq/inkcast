@@ -10,12 +10,14 @@ INKCAST_PUBLISH_RETRY_DELAYS; libs/config). A 429's ``Retry-After`` lengthens
 the wait, up to the policy's largest delay. Only a failure whose send certainly
 never happened is retried: an uncertain one is ``unconfirmed``, whatever the policy.
 A send the process was interrupted in is ``recovering`` until the platform says whether
-it arrived, for at most INKCAST_PUBLISH_RECOVERY_MAX_HOURS; a person can cancel it meanwhile.
+it arrived, for at most INKCAST_PUBLISH_RECOVERY_MAX_HOURS; a person can cancel it meanwhile. An ``unconfirmed``
+post is a person's to cancel or resend (``resend``: one new post); it is never sent again on its own.
 """
 
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import logging
 import math
@@ -134,14 +136,16 @@ class Publisher:
             if story.publish_at:
                 outcomes.append(Outcome(platform.id, "scheduled", post_id=post_id, prepared=prepared))
             else:
-                outcomes.append(await self._send(post_id, user_id, platform, prepared, attempts=1, retry=retry))
+                outcomes.append(await self._send(post_id, user_id, platform, prepared, attempts=1, retry=retry, held=0))
         order = {pid: i for i, pid in enumerate(platform_ids)}
         return sorted(outcomes, key=lambda o: order.get(o.platform, 99))
 
     async def _send(self, post_id: str, user_id: str, platform: Platform, prepared: Prepared, attempts: int,
-                    scheduled: bool = False, lag: float | None = None, retry: bool = False) -> Outcome:
+                    scheduled: bool = False, lag: float | None = None, retry: bool = False, held: int = 0) -> Outcome:
         """``scheduled``: sent by the scheduler at its time (recorded on the event). ``retry``: a retryable failure
-        is put back in the queue under the policy; always for the scheduler, for a "now" post only when asked."""
+        is put back in the queue under the policy; always for the scheduler, for a "now" post only when asked.
+        ``held``: the row's ``attempts`` while this send holds the post (the scheduler's claim counted its own; a
+        "now" post's row still reads 0): the fence of the send's failure writes, like ``renew_claim``'s (#226)."""
         retry = retry or scheduled
         connected = self.store.get_credentials(user_id, platform.id)
         if not connected:
@@ -151,7 +155,8 @@ class Publisher:
         creds, account_data = connected
         account = Account.from_dict(account_data)
         try:
-            return await self._deliver(post_id, user_id, platform, prepared, attempts, creds, account, scheduled, lag, retry)
+            return await self._deliver(post_id, user_id, platform, prepared, attempts, creds, account, scheduled, lag, retry,
+                                       held)
         except sqlite3.Error:
             raise  # the store, not the plug-in: it says nothing about the send, so the tick stops and recovery asks
         except Exception as exc:
@@ -163,7 +168,7 @@ class Publisher:
 
     async def _deliver(self, post_id: str, user_id: str, platform: Platform, prepared: Prepared, attempts: int,
                        creds: dict[str, str], account: Account, scheduled: bool, lag: float | None,
-                       retry: bool) -> Outcome:
+                       retry: bool, held: int = 0) -> Outcome:
         """The send itself, from the plug-in's call to the recorded answer. Only this is guarded (``_send``): reading
         the credentials before it says nothing about the send, and failing there must not mark the post unconfirmed."""
         started = time.perf_counter()
@@ -192,10 +197,13 @@ class Publisher:
                 # attempts: the sends so far. The scheduler's claim counted its own; a "now" post's first send is
                 # counted here, so the policy's budget holds and Git sync sees a post the scheduler has tried.
                 # Only while the post is still this send's: the request certainly never took effect, so if another
-                # worker took the post over meanwhile, its recovery decides (and may have sent it already).
+                # worker took the post over meanwhile, its recovery decides (and may have sent it already). "Still
+                # this send's" is the status and the attempt count (``held``): that worker's re-send holds the post
+                # as 'publishing' too, one attempt on, and a late failure written over it would queue a third (#226).
                 written = self.store.update_post(
                     post_id, status="scheduled", run_at=time.time() + delay, attempts=attempts, error=f"retrying: {exc}",
-                    only_if="publishing", events=self._event("post.scheduled", post_id, user_id, platform.id, retry=attempts))
+                    only_if="publishing", if_attempts=held,
+                    events=self._event("post.scheduled", post_id, user_id, platform.id, retry=attempts))
                 self._count(platform.id, "retry")
                 return self._as_now(written, Outcome(platform.id, "scheduled", post_id=post_id, message=f"Will retry: {exc}"))
             message = str(exc)
@@ -204,6 +212,7 @@ class Publisher:
                 message += (f" {platform.name} asked for a longer wait than INKCAST_PUBLISH_RETRY_DELAYS allows (at most "
                             f"{max(self.retry.delays)} s), which caps every wait.")
             written = self.store.update_post(post_id, status="failed", error=message, only_if="publishing",  # likewise
+                                             if_attempts=held,
                                              events=self._event("post.failed", post_id, user_id, platform.id, reason="platform"))
             self._count(platform.id, "failed")
             return self._as_now(written, Outcome(platform.id, "failed", post_id=post_id, message=message))
@@ -303,14 +312,19 @@ class Publisher:
         now (rate-limited, unreachable) is asked again on the next stuck pass, STUCK_AFTER later: the post stays
         ``recovering``, which only ever asks, never sends (#188). That has an end: a post 'recovering' for
         ``recovery_max`` (INKCAST_PUBLISH_RECOVERY_MAX_HOURS, measured from ``row["recovering_since"]``) is
-        unconfirmed for a person without another lookup, so it is never sent late on its own (#216). A person can
-        cancel a 'recovering' post meanwhile; every write here is only while it is still 'recovering'."""
+        unconfirmed for a person without another lookup, so it is never sent late on its own (#216): the person
+        cancels it or resends it (``resend``), and Git sync never creates it again (#226). A person can cancel a
+        'recovering' post meanwhile; every write here is only while it is still 'recovering', with the attempt count
+        this pass claimed it at (``fence``): a lookup slow enough to outlast two stuck passes answers a post that may
+        have been re-sent and interrupted again since, and that answer is stale (#226)."""
         now = now or time.time()
         post_id, platform = row["id"], self.platforms.get(row["platform"])
+        fence = {"only_if": "recovering", "if_attempts": row["attempts"]}
         if platform is None:
-            self.store.update_post(post_id, status="failed", error=f"Platform plug-in {row['platform']!r} is not installed.",
-                                   events=self._event("post.failed", post_id, row["user_id"], row["platform"], reason="plugin"))
-            return Outcome(row["platform"], "failed", post_id=post_id)
+            written = self.store.update_post(
+                post_id, status="failed", error=f"Platform plug-in {row['platform']!r} is not installed.", **fence,
+                events=self._event("post.failed", post_id, row["user_id"], row["platform"], reason="plugin"))
+            return self._as_now(written, Outcome(row["platform"], "failed", post_id=post_id))
 
         def recovered(status: str) -> list[DomainEvent]:
             return self._event("post.recovered", post_id, row["user_id"], platform.id, status=status)
@@ -320,43 +334,49 @@ class Publisher:
             hours = format(self.recovery_max / 3600, "g")
             message = (f"Inkcast restarted while this post was being sent to {platform.name}, and {platform.name} could not "
                        f"be asked whether it arrived for {hours} hours (INKCAST_PUBLISH_RECOVERY_MAX_HOURS). It is not sent "
-                       f"again on its own: check {platform.name} before publishing it again.")
-            self.store.update_post(post_id, status="unconfirmed", error=message, events=recovered("unconfirmed"),
-                                   only_if="recovering")
-            self._count(platform.id, "unconfirmed")
-            log.warning("Post %s on %s was interrupted mid-send and %s could not be asked for %s hours; now unconfirmed",
-                        post_id, platform.id, platform.id, hours,
-                        extra={"event": "publish.recovery.capped", "post_id": post_id, "platform": platform.id})
-            return Outcome(platform.id, "unconfirmed", post_id=post_id, message=message)
+                       f"again on its own: check {platform.name}, then resend it (inkcast_resend, or POST /api/v1/posts/"
+                       f"{post_id}/resend) or cancel it (inkcast_cancel, or POST /api/v1/posts/{post_id}/cancel).")
+            written = self.store.update_post(post_id, status="unconfirmed", error=message, events=recovered("unconfirmed"),
+                                             **fence)
+            if written:  # not when a cancel came first: that post is the person's, not one for the alert (#226)
+                self._count(platform.id, "unconfirmed")
+                log.warning("Post %s on %s was interrupted mid-send and %s could not be asked for %s hours; now unconfirmed",
+                            post_id, platform.id, platform.id, hours,
+                            extra={"event": "publish.recovery.capped", "post_id": post_id, "platform": platform.id})
+            return self._as_now(written, Outcome(platform.id, "unconfirmed", post_id=post_id, message=message))
         prepared = Prepared.from_dict(json.loads(row["payload"]))
         found = await self.confirm(row["user_id"], platform, prepared)
 
-        # Each answer is written only while the post is still 'recovering': another worker may have taken it over
-        # (a pass longer than STUCK_AFTER), re-queued it and sent it while this lookup was out; or a person cancelled
-        # it, and a cancel wins over the answer (#216).
+        # Each answer is written only while the post is still 'recovering' at this pass's attempt count: another worker
+        # may have taken it over (a pass longer than STUCK_AFTER), re-queued it and sent it while this lookup was out;
+        # or a person cancelled it, and a cancel wins over the answer (#216).
         if found is not None and found.status == "unavailable":
             message = f"Could not check {platform.name} yet ({found.message}); it will be checked again."
-            self.store.update_post(post_id, status="recovering", error=message, only_if="recovering")
-            log.warning("Post %s on %s was interrupted mid-send and %s could not be asked yet; checking again later",
-                        post_id, platform.id, platform.id,
-                        extra={"event": "publish.recovery.deferred", "post_id": post_id, "platform": platform.id})
-            return Outcome(platform.id, "recovering", post_id=post_id, message=message)
+            written = self.store.update_post(post_id, status="recovering", error=message, **fence)
+            if written:
+                log.warning("Post %s on %s was interrupted mid-send and %s could not be asked yet; checking again later",
+                            post_id, platform.id, platform.id,
+                            extra={"event": "publish.recovery.deferred", "post_id": post_id, "platform": platform.id})
+            return self._as_now(written, Outcome(platform.id, "recovering", post_id=post_id, message=message))
         if found is None:
             message = (f"Inkcast restarted while this post was being sent to {platform.name}, which can't be checked "
-                       f"automatically. Check {platform.name} before publishing it again.")
-            self.store.update_post(post_id, status="unconfirmed", error=message, events=recovered("unconfirmed"),
-                                   only_if="recovering")
+                       f"automatically. Check {platform.name}, then resend it (inkcast_resend, or POST /api/v1/posts/"
+                       f"{post_id}/resend) or cancel it (inkcast_cancel, or POST /api/v1/posts/{post_id}/cancel).")
+            written = self.store.update_post(post_id, status="unconfirmed", error=message, events=recovered("unconfirmed"),
+                                             **fence)
             outcome = Outcome(platform.id, "unconfirmed", post_id=post_id, message=message)
         elif found.status == "missing":
-            self.store.update_post(post_id, status="scheduled", run_at=time.time(), events=recovered("scheduled"),
-                                   error=f"Interrupted before {platform.name} received it; sending again.",
-                                   only_if="recovering")
+            written = self.store.update_post(post_id, status="scheduled", run_at=time.time(), events=recovered("scheduled"),
+                                             error=f"Interrupted before {platform.name} received it; sending again.",
+                                             **fence)
             outcome = Outcome(platform.id, "scheduled", post_id=post_id, message="Interrupted; sending again.")
         else:
-            self.store.update_post(post_id, status=found.status, result_url=found.url, remote_id=found.remote_id, error=None,
-                                   events=recovered(found.status), only_if="recovering")
+            written = self.store.update_post(post_id, status=found.status, result_url=found.url, remote_id=found.remote_id,
+                                             error=None, events=recovered(found.status), **fence)
             outcome = Outcome(platform.id, found.status, post_id=post_id, url=found.url, remote_id=found.remote_id)
-        self._count(platform.id, "recovered")
+        outcome = self._as_now(written, outcome)  # the answer as written, or what the post is now (cancelled, re-sent)
+        if written:
+            self._count(platform.id, "recovered")
         log.warning("Post %s on %s was interrupted mid-send; now %s", post_id, platform.id, outcome.status,
                     extra={"event": "publish.recovered", "post_id": post_id, "platform": platform.id, "status": outcome.status})
         return outcome
@@ -380,7 +400,7 @@ class Publisher:
                 continue
             prepared = Prepared.from_dict(json.loads(row["payload"]))
             outcomes.append(await self._send(row["id"], row["user_id"], platform, prepared, row["attempts"], scheduled=True,
-                                             lag=lag))
+                                             lag=lag, held=row["attempts"]))
         return outcomes
 
     async def run_forever(self, interval: float, stop: asyncio.Event, housekeeping: Any = None,
@@ -410,22 +430,58 @@ class Publisher:
         log.info("Scheduler stopped")
 
     def cancel(self, user_id: str, post_id: str) -> str:
-        """Cancel a 'scheduled' post, or a 'recovering' one (its send was interrupted and the platform has not said
-        whether it arrived; the person decides, and the cancel wins over a late answer, #216). The API, the MCP tool
-        and Git sync all come through here."""
+        """Cancel a pending post (``cancel_pending``); the title. Git sync comes through here."""
+        return self.cancel_pending(user_id, post_id)[0]
+
+    def cancel_pending(self, user_id: str, post_id: str) -> tuple[str, str]:
+        """Cancel a 'scheduled' post, a 'recovering' one (its send was interrupted and the platform has not said whether
+        it arrived; the person decides, and the cancel wins over a late answer, #216) or an 'unconfirmed' one (the
+        platform may or may not have it; the person decides, #226). The title and the status it was cancelled from:
+        'recovering' or 'unconfirmed' means the post may already be on the platform, and its error now says so, so the
+        API's reply and the MCP tool's can tell the person honestly. The API, the MCP tool and Git sync all come
+        through here."""
         row = self.store.get_post(post_id)
         if not row or row["user_id"] != user_id:
             raise PlatformError(f"No post {post_id!r}.")
-        # One conditional update, so a scheduler claim can't land between a status check and the write.
+        # One conditional write, under the lock, so a scheduler claim can't land between the status check and it.
         name = getattr(self.platforms.get(row["platform"]), "name", row["platform"])
-        note = (f"Cancelled while Inkcast was still asking {name} whether an interrupted send arrived: it may already "
-                f"be on {name}. Check {name}, and remove it there if it is.")
-        if not self.store.cancel_if_pending(
-                post_id, user_id, events=self._event("post.cancelled", post_id, user_id, row["platform"]),
-                recovering_note=note):
+        notes = {
+            "recovering": (f"Cancelled while Inkcast was still asking {name} whether an interrupted send arrived: it may "
+                           f"already be on {name}. Check {name}, and remove it there if it is."),
+            "unconfirmed": (f"Cancelled while {name} had not said whether it arrived: it may already be on {name}. Check "
+                            f"{name}, and remove it there if it is."),
+        }
+        was = self.store.cancel_if_pending(
+            post_id, user_id, events=self._event("post.cancelled", post_id, user_id, row["platform"]), notes=notes)
+        if not was:
             status = (self.store.get_post(post_id) or row)["status"]
             raise PlatformError(
-                f"Post {post_id} is {status}; only scheduled or recovering posts can be cancelled. Published stories "
-                "have to be removed on the platform itself."
+                f"Post {post_id} is {status}; only scheduled, recovering or unconfirmed posts can be cancelled. Published "
+                "stories have to be removed on the platform itself."
             )
-        return row["title"]
+        return row["title"], was
+
+    async def resend(self, user_id: str, post_id: str, on_created: Any = None) -> Outcome:
+        """A person's decision on one of their 'unconfirmed' posts (#226): send it again, now, as exactly one new post,
+        and cancel the old one, whose error then says it may already be on the platform (the person checked first).
+        The decision is recorded as a ``post.resent`` event on the old post, with who made it and the new post's id.
+        ``on_created(platform_id, new_post_id)`` runs in the transaction that makes the new row, before anything is
+        sent (the ledger entries that named the old post follow the new one): if it raises, nothing is made. A second
+        resend, or one after a cancel, is refused: ``resend_post`` is one conditional transaction. A retryable failure
+        is reported, not queued: the person is there to try again."""
+        row = self.store.get_post(post_id)
+        if not row or row["user_id"] != user_id:
+            raise PlatformError(f"No post {post_id!r}.")
+        platform = self.platforms.get(row["platform"])
+        if platform is None:
+            raise PlatformError(f"Platform plug-in {row['platform']!r} is not installed.")
+        new_id = self.store.new_post_id()
+        note = (f"Resent by the person as post {new_id}; it may already be on {platform.name} from the first send. Check "
+                f"{platform.name}, and remove the extra copy there if it is.")
+        if not self.store.resend_post(post_id, user_id, new_id=new_id, note=note,
+                                      events=self._event("post.resent", post_id, user_id, platform.id, new_post_id=new_id),
+                                      on_created=functools.partial(on_created, platform.id) if on_created else None):
+            status = (self.store.get_post(post_id) or row)["status"]
+            raise PlatformError(f"Post {post_id} is {status}; only unconfirmed posts can be resent.")
+        prepared = Prepared.from_dict(json.loads(row["payload"]))
+        return await self._send(new_id, user_id, platform, prepared, attempts=1, held=0)

@@ -164,7 +164,8 @@ class FindingARecoveringPostCanBeCancelled(Harness):
 
     def test_the_refusal_names_what_can_be_cancelled(self):
         post_id = self.stuck()                                                # 'publishing': being sent right now
-        with self.assertRaisesRegex(PlatformError, "is publishing; only scheduled or recovering posts can be cancelled"):
+        with self.assertRaisesRegex(PlatformError,
+                                    "is publishing; only scheduled, recovering or unconfirmed posts can be cancelled"):
             self.publisher.cancel(self.user, post_id)
         self.assertEqual(self.status(post_id), "publishing")
         self.assertFalse(self.store.cancel_if_pending(post_id, "someone-else"))
@@ -248,7 +249,7 @@ class FindingRecoveryIsCapped(Harness):
         self.assertEqual((outcome.status, post["status"], self.platform.lookups), ("unconfirmed", "unconfirmed", 2))
         self.assertIn(SETTING, post["error"])
         self.assertIn("24 hours", post["error"])
-        self.assertIn("check Findable before publishing it again", post["error"])
+        self.assertIn("check Findable, then resend it", post["error"])           # a person decides (#226)
         self.assertIn(("post.recovered", "unconfirmed"), self.events(post_id))
         self.assertEqual(self.publisher.metrics.snapshot()["inkcast_publish_total"],
                          {(("platform", "findable"), ("status", "unconfirmed")): 1})
@@ -274,9 +275,10 @@ class FindingRecoveryIsCapped(Harness):
         asyncio.run(self.publisher.run_due(now=time.time() + DAY + 1))
         self.assertEqual(self.status(post_id), "cancelled")
 
-    def test_a_post_recovered_again_after_a_second_interruption_starts_its_clock_afresh(self):
-        """Recovered as missing, re-queued and sent by the same pass, which the process stops in: the second
-        recovery is measured from its own start, not the first's."""
+    def test_a_post_recovered_again_after_a_second_interruption_keeps_the_clock_of_the_first(self):
+        """Recovered as missing, re-queued and sent by the same pass, which the process stops in: the second recovery
+        is measured from the first interruption, not its own start, so the cap bounds how late the post can go out
+        as a whole (#226, item 2 of the review of #221; the PR had pinned a fresh clock per interruption)."""
         class Died(BaseException):
             """The process stopped right here: nothing after this line runs."""
 
@@ -284,6 +286,7 @@ class FindingRecoveryIsCapped(Harness):
             raise Died()
 
         post_id = self.recovering()
+        first = self.store.get_post(post_id)["recovering_since"]
         self.platform.refuse = False
         self.platform.on_publish = died
         with self.assertRaises(Died):
@@ -291,16 +294,17 @@ class FindingRecoveryIsCapped(Harness):
         self.platform.on_publish = None
         self.assertEqual((self.status(post_id), self.platform.sent), ("publishing", ["t"]))
         # The second send began 20 h on (review of #221: the cap counts from when the post became stuck, not from a
-        # late stuck pass).
+        # late stuck pass); the stuck pass that takes it keeps the first interruption's clock.
         self.store._exec("UPDATE posts SET updated_at = ?", time.time() + 20 * HOUR - STUCK_AFTER - 1)
         self.platform.refuse = True
         self.tick(later=20 * HOUR)                                            # the stuck pass that takes it
         self.assertEqual(self.status(post_id), "recovering")
-        self.assertAlmostEqual(self.store.get_post(post_id)["recovering_since"], time.time() + 20 * HOUR, delta=5)
-        self.tick(later=DAY + 1)                                              # 4 hours into this recovery: not capped
+        self.assertEqual(self.store.get_post(post_id)["recovering_since"], first)
+        self.tick(later=23 * HOUR)                                            # 23 hours since the first: still asked
         self.assertEqual(self.status(post_id), "recovering")
-        self.tick(later=DAY + 20 * HOUR + 1)                                  # 24 hours into it: capped
-        self.assertEqual(self.status(post_id), "unconfirmed")
+        self.platform.refuse = False                                          # the platform would say "missing" now
+        self.tick(later=DAY + 1)                                              # 24 hours since the first: capped, not asked
+        self.assertEqual((self.status(post_id), self.platform.sent), ("unconfirmed", ["t"]), "sent a day late")
 
     def test_the_context_hands_the_configured_cap_to_the_publisher(self):
         cfg = by_hand(database_path=self.path, publish_recovery_max_hours=6)

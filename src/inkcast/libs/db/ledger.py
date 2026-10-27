@@ -50,12 +50,22 @@ class LedgerRepo(Database):
                    *(row[k] for k in ("user_id", "source", "path", "platform", *FIELDS, "synced_at")))
         return row
 
+    def repoint_entries(self, from_post: str, /, **fields: Any) -> int:
+        """Every entry that points at ``from_post`` takes ``fields`` (``post_id`` among them): a person's resend of an
+        unconfirmed post makes a new post, and the file that became the old one now has the new one (#226), so the next
+        sync follows it instead of making a third. The number of entries changed."""
+        unknown = set(fields) - set(FIELDS)
+        if unknown:
+            raise ValueError(f"unknown ledger fields: {sorted(unknown)}")
+        cols = ", ".join(f"{k} = ?" for k in fields)
+        return self._exec(f"UPDATE ledger SET {cols}, synced_at = ? WHERE post_id = ?", *fields.values(), time.time(), from_post)
+
     def claim_new(self, user_id: str, source: str, path: str, platform: str, content_hash: str) -> bool:
         """Reserve a brand-new entry before creating a remote post, so two concurrent syncs of the same
         file can't both create one. True if this caller now owns it."""
         now = time.time()
         with self._tx() as c:
-            row = c.execute("SELECT status, synced_at FROM ledger WHERE user_id = ? AND source = ? AND path = ? AND"
+            row = c.execute("SELECT status, synced_at, post_id FROM ledger WHERE user_id = ? AND source = ? AND path = ? AND"
                             " platform = ?", (user_id, source, path, platform)).fetchone()
             if row is None:
                 c.execute("INSERT INTO ledger (user_id, source, path, platform, content_hash, status, synced_at)"
@@ -63,7 +73,10 @@ class LedgerRepo(Database):
                 return True
             if row["status"] in ("syncing",) and now - row["synced_at"] < CLAIM_TTL:
                 return False
-            if row["status"] in ("syncing", "failed", "missing", "cancelled"):
+            # An 'unconfirmed' entry that names a post is the person's to decide on (#226); one that names none (from
+            # before posts were recorded) has nothing to decide, and an edited file takes it over, as after a cancel.
+            if row["status"] in ("syncing", "failed", "missing", "cancelled") or \
+                    (row["status"] == "unconfirmed" and row["post_id"] is None):
                 # No post until the claim makes its own: a claim cut off before that is taken over (sync._one).
                 c.execute("UPDATE ledger SET status = 'syncing', content_hash = ?, post_id = NULL, synced_at = ? WHERE"
                           " user_id = ? AND source = ? AND path = ? AND platform = ?",
