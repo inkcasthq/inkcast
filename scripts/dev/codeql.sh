@@ -18,10 +18,10 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
 # Bump together with the github/codeql-action pin in codeql.yml: the bundle that version uses is
 # "bundleVersion" in the action's src/defaults.json at the pinned commit.
-CODEQL_ACTION_SHA=6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee   # v4.39.0
-CODEQL_BUNDLE=codeql-bundle-v2.27.2
-SHA256_linux64=f002864be6dd8d5d7bdb123aaf7291ec8e291012bd9f70b6d2362f730db52aeb
-SHA256_osx64=bdd42bab471ed16277048b35b9be7264d07bd19b7391c37d30c74e9555e61e92
+CODEQL_ACTION_SHA=9b3254085494b55a0f7c4c2b3d2d52cc712ce370   # v4.39.1
+CODEQL_BUNDLE=codeql-bundle-v2.27.3
+SHA256_linux64=64518dc413c8e7b5733fee2489e830a899bb1e3f28c8873b5869d5cc90164c5c
+SHA256_osx64=5a035e81cd8c76622d0e453d1d5197cfee46177f171d623f15fbb560a0b2b215
 
 CONFIG="$ROOT/.github/codeql/codeql-config.yml"
 LANGS="${LANGS:-python,javascript-typescript}"
