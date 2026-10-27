@@ -4,8 +4,6 @@ scope, replays are no-ops, and ratios come from their parts."""
 import time
 import unittest
 
-from fakes import seed_people
-
 from inkcast.libs.config import Config
 from inkcast.libs.db import Store
 from inkcast.libs.events import EVENT_TYPES, DomainEvent
@@ -52,7 +50,6 @@ class Rollups(unittest.TestCase):
     def setUp(self):
         self.store = Store(":memory:", "k" * 40)
         self.addCleanup(self.store.close)
-        seed_people(self.store, "u1", "u2")     # a rollup for a person without a users row is refused (#196)
         self.metrics = Metrics()
         self.metrics.counter("inkcast_kpi_events_total", "")
         self.engine = RollupEngine(self.store, metrics=self.metrics)

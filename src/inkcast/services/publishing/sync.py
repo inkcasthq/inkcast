@@ -33,7 +33,7 @@ from ...libs.db import Store
 from ...libs.db.ledger import CLAIM_TTL
 from ...libs.events import DomainEvent
 from ...libs.observability import Metrics
-from ...libs.pipeline import Outcome, Publisher
+from ...libs.pipeline import Publisher
 from ...libs.platforms import Platform, PlatformError, Prepared
 
 
@@ -114,12 +114,7 @@ class GitSync:
                                          remote_id=post["remote_id"])
 
         if entry and entry["status"] == "unconfirmed" and not req.dry_run:
-            checked = await self.publisher.confirm(user_id, platform, prepared)
-            if checked is not None and checked.status == "unavailable":  # rate-limited, unreachable: ask again next time
-                return SyncResult(**base, action="skipped", status="unconfirmed", message=(
-                    f"The last publish to {platform.name} may or may not have gone through, and {platform.name} couldn't "
-                    f"be asked just now ({checked.message}). The next sync will ask again."))
-            entry = self._resolve(user_id, src, path, platform, entry, checked)
+            entry = await self._confirm(user_id, src, path, platform, prepared, entry)
             if entry is None:
                 return SyncResult(**base, action="skipped", status="unconfirmed", message=(
                     f"The last publish to {platform.name} may or may not have gone through, and {platform.name} can't "
@@ -138,10 +133,8 @@ class GitSync:
                 # A post the scheduler has tried waits for its retry (INKCAST_PUBLISH_RETRY_DELAYS): its run_at is the
                 # retry's, so only a new time still ahead in the file is a change. A time that has passed, or is under
                 # SCHEDULE_LEAD away, has not changed: it is the file's own, which the scheduler passed when it tried
-                # the post (the lead is the tolerance between its clock and this one). A time later than the retry is
-                # a change however near: the retry would send the post before it (ADR-0015).
-                ahead = wanted is not None and (wanted >= time.time() + SCHEDULE_LEAD.total_seconds() or
-                                                wanted > post["run_at"])
+                # the post (the lead is the tolerance between its clock and this one).
+                ahead = wanted is not None and wanted >= time.time() + SCHEDULE_LEAD.total_seconds()
                 schedule_changed = ahead and abs(post["run_at"] - wanted) >= 1
             else:
                 # Not tried yet: its run_at is the time the file asked for. Compare with that, whatever the clock: in
@@ -169,14 +162,8 @@ class GitSync:
             # The replacement is scheduled at the time the file asks for, as written: passed or under SCHEDULE_LEAD
             # away, it is due at once, as a scheduled post the scheduler retries under its policy, never a "now" post
             # sent early and never retried (#187, ADR-0015). Only a file whose publish_at was removed sends now.
-            # The claim names no post until its own exists (on_record): stopped before that, it is taken over, never
-            # followed to the cancelled one.
-            self.store.put_entry(user_id, src, path, pid, status="syncing", post_id=None)
-            # Only the content changed, and the scheduler hasn't tried the post: the replacement keeps its schedule, so
-            # it keeps its creation too, and a post the scheduler is behind on stays as late as it is (ADR-0015).
-            kept = post["created_at"] if not schedule_changed and not post["attempts"] else None
-            return await self._create(user_id, req, path, story, platform, prepared, digest, entry, replace=True,
-                                      created_at=kept)
+            self.store.put_entry(user_id, src, path, pid, status="syncing")
+            return await self._create(user_id, req, path, story, platform, prepared, digest, entry, replace=True)
 
         if "update" not in platform.capabilities or not entry["remote_id"]:
             message = (f"Changed since it was published, but {platform.name} doesn't let Inkcast edit posts. "
@@ -200,8 +187,7 @@ class GitSync:
                           message="; ".join(o.notes) or None)
 
     async def _create(self, user_id: str, req: SyncRequest, path: str, story, platform: Platform, prepared: Prepared,
-                      digest: str, entry: dict | None, replace: bool = False,
-                      created_at: float | None = None) -> SyncResult:
+                      digest: str, entry: dict | None, replace: bool = False) -> SyncResult:
         src, pid = req.source, platform.id
         base = {"path": path, "platform": pid}
         action = "update" if replace else "create"
@@ -215,10 +201,7 @@ class GitSync:
             self.store.put_entry(user_id, src, path, pid, post_id=post_id)
 
         try:
-            # retry: a "now" post the platform rate-limits waits for the scheduler's retry (and the 429's
-            # Retry-After) instead of failing, which the next CI run would create afresh, paced by nothing (#188).
-            [o] = await self.publisher.publish(user_id, story, [pid], on_created=on_record, created_at=created_at,
-                                               retry=True)
+            [o] = await self.publisher.publish(user_id, story, [pid], on_created=on_record)
         except Exception:
             if not replace:
                 self.store.put_entry(user_id, src, path, pid, status="failed", message="internal error")
@@ -230,14 +213,14 @@ class GitSync:
                 self.store.put_entry(user_id, src, path, pid, status="failed", content_hash=digest, message=o.message)
             return SyncResult(**base, action="failed" if o.status == "failed" else "skipped", message=o.message)
         self.store.put_entry(user_id, src, path, pid, content_hash=digest, post_id=o.post_id, status=o.status,
-                             url=o.url, remote_id=o.remote_id,
-                             message=o.message if o.status in ("unconfirmed", "scheduled") else None)
+                             url=o.url, remote_id=o.remote_id, message=o.message if o.status == "unconfirmed" else None)
         return SyncResult(**base, action=action, status=o.status, post_id=o.post_id, url=o.url,
                           message=o.message or ("; ".join(o.notes) or None))
 
-    def _resolve(self, user_id: str, src: str, path: str, platform: Platform, entry: dict, o: Outcome | None) -> dict | None:
-        """Resolve an unconfirmed entry from what the platform said (``Publisher.confirm``): published → record it;
-        missing → allow a fresh create; None → can't tell."""
+    async def _confirm(self, user_id: str, src: str, path: str, platform: Platform, prepared: Prepared,
+                       entry: dict) -> dict | None:
+        """Resolve an unconfirmed entry: published → record it; missing → allow a fresh create; None → can't tell."""
+        o = await self.publisher.confirm(user_id, platform, prepared)
         if o is None:
             return None
         if o.status == "missing":

@@ -15,7 +15,7 @@ import unittest
 import httpx2
 import uvicorn
 import yaml
-from fakes import Fakes, people_named, seed_people
+from fakes import Fakes
 
 from inkcast.libs.authz import (
     MAX_DEPTH, RELATIONS, EngineError, Evaluator, Instrumented, InvalidRequest, LocalEngine, Model, OpenFgaEngine,
@@ -90,8 +90,6 @@ class LocalEngineModelTests(ModelYaml, unittest.TestCase):
         self.addCleanup(self.store.close)
         self.engine = LocalEngine(self.store)
         self.doc = yaml.safe_load(MODEL_TESTS.read_text())
-        # The store refuses a tuple for a person who has no users row (issue #196): the model's people get one each.
-        seed_people(self.store, *people_named(self.doc), "user:zed", "user:zed2")
         run(self.engine.write(yaml_tuples(self.doc)))
 
     def test_model_yaml_passes(self):

@@ -15,7 +15,6 @@ import unittest
 from pathlib import Path
 
 import yaml
-from fakes import seed_people
 
 from inkcast.launcher import build, resolve
 from inkcast.libs.config import (
@@ -195,7 +194,6 @@ class Defaults(unittest.TestCase):
     def test_purge_expired_without_a_policy_purges_at_7_and_90_days(self):
         store = Store(":memory:", "k" * 40)
         self.addCleanup(store.close)
-        seed_people(store, "u1")
         now = time.time()
         old, young = published(at=now - 8 * DAY), published(at=now - 6 * DAY)
         store.enqueue(old, young)
@@ -233,7 +231,6 @@ class ConfiguredOutboxRetention(unittest.TestCase):
     def setUp(self):
         self.store = Store(":memory:", "k" * 40)
         self.addCleanup(self.store.close)
-        seed_people(self.store, "u1")           # a row for a person without a users row is refused (#196)
         self.now = time.time()
 
     def test_purges_events_every_consumer_passed_at_that_age_and_not_before(self):
@@ -275,7 +272,6 @@ class ConfiguredHourlyRetention(unittest.TestCase):
     def setUp(self):
         self.store = Store(":memory:", "k" * 40)
         self.addCleanup(self.store.close)
-        seed_people(self.store, "u1")
         self.engine = RollupEngine(self.store)
         self.now = time.time()
 
@@ -324,7 +320,6 @@ class ReplayInsideTheOutboxRetention(unittest.TestCase):
     def setUp(self):
         self.store = Store(":memory:", "k" * 40)
         self.addCleanup(self.store.close)
-        seed_people(self.store, "u1")
         self.metrics = Metrics()
         self.metrics.counter("inkcast_kpi_events_total", "")
         self.engine = RollupEngine(self.store, metrics=self.metrics)
@@ -378,7 +373,6 @@ class SchedulerHousekeeping(unittest.TestCase):
 
     def seed(self, store: Store) -> tuple[DomainEvent, DomainEvent]:
         """An event 3 days old and one from today, both handled by every consumer."""
-        seed_people(store, "u1")
         old, young = published(at=time.time() - 3 * DAY), published(at=time.time())
         store.enqueue(old, young)
         store.advance("insights", 2)

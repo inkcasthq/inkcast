@@ -307,7 +307,7 @@ class TheDeleteAccountCursor(Scenario):
 
         self.assertEqual(self.tick(worker, T0 + 4)["erased"], 1, "newest first: bob's read, then ada's, got no answer; carol was reached")
         self.assertEqual(self.pass_errors, [], "two reads with no answer in a row failed the pass (#121)")
-        self.assertEqual(self.kc.read, ["bob", "bob", "ada", "carol"], "bob's ReadError came back at once: once more, on another connection (#182)")
+        self.assertEqual(self.kc.read, ["bob", "ada", "carol"])
         self.assertIsNone(self.row(carol))
         self.assertEqual(self.cursor(), ada_at, "the cursor stays before the oldest event of a person whose erasure did not happen")
         self.assertIsNotNone(self.row(ada))

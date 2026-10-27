@@ -36,9 +36,7 @@ a malformed id; ``PersonError``) is counted as ``inkcast_identity_sync_errors_to
 Inkcast user id only, and the pass goes on with the others (#103): that person is read again at the next pass or
 reconcile. So is a read about one person that reached Keycloak and got no answer (a timeout, the connection closed
 without an answer: one user whose read hangs on an LDAP referral must not block everyone after them, #121), and the
-pass does not read them again; a connection that failed under the read at once (closed while idle, reset by a pod
-restart) is read again on another connection first, since that is the connection's fault, not the person's (#182).
-A pass has a budget of ``TIMEOUT_BUDGET`` such reads (#152): at the third it ends,
+pass does not read them again. A pass has a budget of ``TIMEOUT_BUDGET`` such reads (#152): at the third it ends,
 as a success for what it did (the DELETE_ACCOUNT cursor stops before every event not acted on; a reconcile acts on
 whoever it read, but for what the breaker would hold while the people it left untried, not known to hang, could take
 its count to the minimum; the next is on schedule, or at the next pass when it left such people untried), so that an outage that begins mid-pass costs it three timeouts, not
@@ -107,19 +105,6 @@ LOOKBACK_MS = 60_000
 # transport error happens on the way there (a connection refused or reset, a connect timeout, the proxy, the
 # client's own pool) and is never about one person: it fails the pass as a whole, at once.
 PERSON_NO_ANSWER = (httpx2.ReadTimeout, httpx2.ReadError, httpx2.RemoteProtocolError)
-# Two of those also happen when the connection, not the person, is at fault (#182): a keep-alive connection the server
-# or a router closed while it was idle fails the next request as soon as it is written (``RemoteProtocolError``, the
-# server disconnected without sending a response), and a Keycloak pod restart resets a connection under a read
-# (``ReadError``). Such a read is made once more, on another connection: httpcore2 closes a connection that raised
-# mid-request and the pool drops it before it assigns the next one, so the retry never reuses it. But only when the
-# error came back within ``STALE_WITHIN`` seconds (on the monotonic clock: a wall clock stepped back would make a long
-# wait look short): a connection the server had already closed fails within a round
-# trip, while one cut after waiting (a proxy or firewall between here and Keycloak giving up on a lookup that hangs,
-# at its own timeout) is the hang itself, counted at once as before, so a retry never doubles what a hang costs the
-# pass and no hang escapes the budget. A ``ReadTimeout`` is never retried: the client waited its whole timeout. Only
-# GET reads about a person are retried (``_read_person``); nothing is ever sent twice.
-STALE_CONNECTION = (httpx2.ReadError, httpx2.RemoteProtocolError)
-STALE_WITHIN = 1.0
 # How many reads about people may get no answer in one pass before it ends (#152). Each costs the client's read
 # timeout (30 s, libs/runtime), so a pass waits at most 90 s on them: two people who hang never block anyone, and
 # an outage that begins mid-pass costs the pass three timeouts, not one per person. A constant, not a setting: it
@@ -256,8 +241,6 @@ def release_person(store: Any, user_id: str, via: str) -> bool:
 class KeycloakSync:
     def __init__(self, config: Any, store: Any, http: httpx2.AsyncClient, metrics: Any = None, clock=time.time):
         self.config, self.store, self.http, self.metrics, self.clock = config, store, http, metrics, clock
-        # How long a read took (``STALE_WITHIN``) is timed on a clock no NTP step moves; a scenario's clock stands in.
-        self.monotonic = time.monotonic if clock is time.time else clock
         issuer = config.oidc_issuer.rstrip("/")
         self.issuer = issuer
         self.admin = issuer.replace("/realms/", "/admin/realms/", 1)
@@ -287,9 +270,6 @@ class KeycloakSync:
                 "client_secret": self.config.keycloak_sync_secret.reveal()}, headers={"Accept": "application/json"})
         except httpx2.TransportError as exc:    # the service account's failure, never a person's (#121)
             raise SyncError(f"no answer from Keycloak's token endpoint ({type(exc).__name__})") from exc
-        if r.status_code >= 500:                # Keycloak, or a gateway in front of it, failing: no word on the account (#182)
-            raise SyncError(f"Keycloak's token endpoint answered HTTP {r.status_code}: Keycloak is failing, not refusing "
-                            "the sync service account")
         if r.status_code != 200:
             raise SyncError(f"Keycloak refused the sync service account (HTTP {r.status_code})")
         body = r.json()
@@ -312,35 +292,27 @@ class KeycloakSync:
         timeout, the connection closed without an answer; or a gateway in front of it that gave up waiting, 504,
         ``GatewayTimeout``) is that person's alone, like an error Keycloak answers (``PersonError``, status 0, the
         error's name), so one person whose read hangs blocks nobody after them (#121);
-        inside a pass it is one of the pass's ``TIMEOUT_BUDGET`` (#152), and the pass reads them no more. A connection
-        that failed under the read at once (``STALE_CONNECTION`` within ``STALE_WITHIN``: closed while idle, or reset by
-        a pod restart) is the connection's, not the person's: the read is made once more, on another connection, and
-        only its failure counts (#182). A transport
+        inside a pass it is one of the pass's ``TIMEOUT_BUDGET`` (#152), and the pass reads them no more. A transport
         error on the way there (a connection refused or reset, the client's pool) is never one person's: it fails the
         pass (``SyncError``). Either way only the error's class name is kept: nothing of its message. An answer,
         whatever it says, is Keycloak answering about a person. Whose last read got no answer is remembered
         (``_hanging``), for the reconcile's order."""
         p = _PASS.get()
         error: Exception | None = None
-        for attempt in (1, 2):
-            started = self.monotonic()
-            try:
-                r = await self._get(path, params)
-            except httpx2.TransportError as exc:
-                cause, error = type(exc).__name__, exc
-                if not isinstance(exc, PERSON_NO_ANSWER):
-                    raise SyncError(f"no answer from Keycloak to the {call} read ({cause}): on the way there, not about "
-                                    "a person") from exc
-                if attempt == 1 and isinstance(exc, STALE_CONNECTION) and self.monotonic() - started < STALE_WITHIN:
-                    continue                         # the connection, not the person: once more, on another one (#182)
-                break
+        try:
+            r = await self._get(path, params)
+        except httpx2.TransportError as exc:
+            cause, error = type(exc).__name__, exc
+            if not isinstance(exc, PERSON_NO_ANSWER):
+                raise SyncError(f"no answer from Keycloak to the {call} read ({cause}): on the way there, not about a "
+                                "person") from exc
+        else:
             if r.status_code != 504:
                 self._hanging.pop(keycloak_id, None)
                 if p is not None:
                     p.answered = True
                 return r
             cause = "GatewayTimeout"                 # a gateway in front of Keycloak gave up waiting: no answer either
-            break
         self._hanging[keycloak_id] = self.clock()
         if p is not None:
             p.timeouts += 1

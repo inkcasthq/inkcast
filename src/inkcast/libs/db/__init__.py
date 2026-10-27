@@ -18,8 +18,7 @@ OutboxRepo         (the row's owner)   outbox, outbox_cursors (events written wi
                                        drained by InsightsService)
 KpiRepo            InsightsService     kpi_rollups, kpi_applied
 AuthzRepo          LocalEngine         authz_tuples (only with INKCAST_AUTHZ_ENGINE=local)
-ErasureRepo        IdentityService     user_erasures (erase_user: every table above, one transaction;
-                                       the guard that refuses a row for a person without a users row)
+ErasureRepo        IdentityService     user_erasures (erase_user: every table above, one transaction)
 =================  ==================  =============================================
 """
 
@@ -47,7 +46,6 @@ class Store(IdentityRepo, VaultRepo, PostsRepo, LedgerRepo, OutboxRepo, KpiRepo,
 
     def __init__(self, path: str, secret_key: "str | SecretValue"):
         super().__init__(path)
-        self.install_owner_guards()         # no row for a person who has no users row (issue #196); one read once in place
         self.sealer = Sealer(secret_key)
         self._erasure_salt = derive_key(secret_key, "erasure")
         self.backfill_erasure_hashes()      # the rows from before users.erasure_hash (issue #113); then one read per open

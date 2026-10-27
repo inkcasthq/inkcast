@@ -8,8 +8,6 @@ import time
 import unittest
 from pathlib import Path
 
-from fakes import seed_people
-
 from inkcast.libs.config import RetentionPolicy, retention_problems
 from inkcast.libs.db import Store
 from inkcast.libs.events import DomainEvent, EventSink
@@ -64,7 +62,6 @@ class KpiAppliedOutlivesEveryEventTheOutboxHolds(unittest.TestCase):
     def setUp(self):
         self.store = Store(":memory:", "k" * 40)
         self.addCleanup(self.store.close)
-        seed_people(self.store, "u1", "u2")     # a row for a person without a users row is refused (#196)
         self.now = time.time()
 
     def test_a_batch_failing_half_way_longer_than_the_hourly_retention_is_not_counted_twice_when_fixed(self):
@@ -124,7 +121,6 @@ class TheDocumentedOutboxRetentionIsTheOnePurged(unittest.TestCase):
     def setUp(self):
         self.store = Store(":memory:", "k" * 40)
         self.addCleanup(self.store.close)
-        seed_people(self.store, "u1", "u2")     # a row for a person without a users row is refused (#196)
         self.now = time.time()
 
     def test_the_days_count_from_when_the_event_was_written_not_from_when_the_last_consumer_passed_it(self):

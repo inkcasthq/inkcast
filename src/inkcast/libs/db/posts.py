@@ -35,9 +35,7 @@ UPDATE posts SET status = 'unconfirmed' WHERE status = 'unknown';
 
 class PostsRepo(Database):
     def create_post(self, *, group_id: str, user_id: str, platform: str, title: str, status: str,
-                    run_at: float, payload: dict[str, Any], created_at: float | None = None) -> str:
-        """``created_at`` is now unless the post replaces one whose schedule it keeps (Git sync): then that one's, so
-        how late it is counts from when its time was first asked for (``overdue_count``, the lag; ADR-0015)."""
+                    run_at: float, payload: dict[str, Any]) -> str:
         post_id = "pst_" + uuid.uuid4().hex[:12]
         now = time.time()
         # A scheduled post is a fact worth an event the moment it exists; a "publishing" one gets its event
@@ -48,23 +46,18 @@ class PostsRepo(Database):
             c.execute(
                 "INSERT INTO posts (id, group_id, user_id, platform, title, status, run_at, payload, created_at, updated_at)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (post_id, group_id, user_id, platform, title, status, run_at, json.dumps(payload),
-                 now if created_at is None else created_at, now),
+                (post_id, group_id, user_id, platform, title, status, run_at, json.dumps(payload), now, now),
             )
             insert_events(c, events)
         return post_id
 
-    def update_post(self, post_id: str, events: Iterable[DomainEvent] | None = None, only_if: str | None = None,
-                    **fields: Any) -> None:
+    def update_post(self, post_id: str, events: Iterable[DomainEvent] | None = None, **fields: Any) -> None:
         """Change fields; ``events`` are written in the same transaction (the outbox). A post that no longer exists
-        (its owner was erased while the scheduler held it) is left alone, and its events are not written either.
-        ``only_if``: change it only while it still has this status (another worker may have moved it on)."""
+        (its owner was erased while the scheduler held it) is left alone, and its events are not written either."""
         fields["updated_at"] = time.time()
         cols = ", ".join(f"{k} = ?" for k in fields)
-        status = " AND status = ?" if only_if else ""
         with self._tx() as c:
-            if c.execute(f"UPDATE posts SET {cols} WHERE id = ?{status}",
-                         (*fields.values(), post_id, *([only_if] if only_if else []))).rowcount == 1:
+            if c.execute(f"UPDATE posts SET {cols} WHERE id = ?", (*fields.values(), post_id)).rowcount == 1:
                 insert_events(c, events)
 
     def cancel_if_scheduled(self, post_id: str, user_id: str, events: Iterable[DomainEvent] | None = None) -> bool:
@@ -87,19 +80,11 @@ class PostsRepo(Database):
         row = self._one("SELECT * FROM posts WHERE id = ?", post_id)
         return dict(row) if row else None
 
-    # A post whose person has no users row is never the scheduler's: left by a write in the instant of their erasure
-    # (issue #196; refused at the write now, and swept from a database from before that), it is neither sent nor
-    # recovered, whatever its status.
-    _OWNED = " AND EXISTS (SELECT 1 FROM users WHERE users.id = posts.user_id)"
-
     def claim_due_posts(self, now: float, limit: int = 20) -> list[dict[str, Any]]:
-        """Atomically move due scheduled posts to 'publishing' and return them, the one that has waited longest first:
-        from its time, or its creation when that came later (``oldest_due_age``), so a Git file dated last year
-        doesn't jump ahead of a post that was due before it was synced (ADR-0015); never one whose person has no row."""
+        """Atomically move due scheduled posts to 'publishing' and return them."""
         with self._tx() as c:
             rows = c.execute(
-                "SELECT * FROM posts WHERE status = 'scheduled' AND run_at <= ?" + self._OWNED
-                + " ORDER BY MAX(run_at, created_at), run_at LIMIT ?", (now, limit)
+                "SELECT * FROM posts WHERE status = 'scheduled' AND run_at <= ? ORDER BY run_at LIMIT ?", (now, limit)
             ).fetchall()
             for r in rows:
                 c.execute(
@@ -121,8 +106,8 @@ class PostsRepo(Database):
         are never simply put back in the queue (that is how schedulers post twice). A post left 'recovering' (that
         worker stopped too) is taken again: recovering only asks the platform, it never sends."""
         with self._tx() as c:
-            rows = c.execute("SELECT * FROM posts WHERE status IN ('publishing', 'recovering') AND updated_at < ?"
-                             + self._OWNED, (older_than,)).fetchall()
+            rows = c.execute("SELECT * FROM posts WHERE status IN ('publishing', 'recovering') AND updated_at < ?",
+                             (older_than,)).fetchall()
             for r in rows:
                 c.execute("UPDATE posts SET status = 'recovering', updated_at = ? WHERE id = ?", (time.time(), r["id"]))
         return [dict(r) for r in rows]
@@ -131,9 +116,8 @@ class PostsRepo(Database):
         rows = self._all("SELECT status, COUNT(*) AS n FROM posts GROUP BY status")
         return {r["status"]: r["n"] for r in rows}
 
-    # The queue gauges count what ``claim_due_posts`` would take (``_OWNED``): a post no claim takes is not behind.
     def due_count(self, now: float) -> int:
-        row = self._one("SELECT COUNT(*) AS n FROM posts WHERE status = 'scheduled' AND run_at <= ?" + self._OWNED, now)
+        row = self._one("SELECT COUNT(*) AS n FROM posts WHERE status = 'scheduled' AND run_at <= ?", now)
         return int(row["n"]) if row else 0
 
     # A post has waited since it could first be sent: its time, or its creation when that came later (a post made
@@ -142,15 +126,14 @@ class PostsRepo(Database):
 
     def oldest_due_age(self, now: float) -> float:
         """Seconds the oldest due, still-scheduled post has waited; 0.0 when nothing is due."""
-        row = self._one("SELECT MIN(MAX(run_at, created_at)) AS oldest FROM posts WHERE status = 'scheduled' AND run_at <= ?"
-                        + self._OWNED,
+        row = self._one("SELECT MIN(MAX(run_at, created_at)) AS oldest FROM posts WHERE status = 'scheduled' AND run_at <= ?",
                         now)
         return max(0.0, now - float(row["oldest"])) if row and row["oldest"] is not None else 0.0
 
     def overdue_count(self, now: float, grace: float) -> int:
         """Scheduled posts that have waited more than ``grace`` seconds: the scheduler is behind or stopped."""
-        row = self._one("SELECT COUNT(*) AS n FROM posts WHERE status = 'scheduled' AND run_at <= ? AND created_at <= ?"
-                        + self._OWNED, now - grace, now - grace)
+        row = self._one("SELECT COUNT(*) AS n FROM posts WHERE status = 'scheduled' AND run_at <= ? AND created_at <= ?",
+                        now - grace, now - grace)
         return int(row["n"]) if row else 0
 
     def post_status_counts(self, user_id: str, since: float) -> dict[str, dict[str, int]]:
@@ -164,11 +147,8 @@ class PostsRepo(Database):
         return out
 
     def list_posts(self, user_id: str, start: float, end: float) -> list[dict[str, Any]]:
-        """Posts whose time is up to ``end`` and that could be sent from ``start`` on: a post made after its time (a Git
-        file dated last year, ADR-0015) is listed from its creation, so it can be found while it waits and once sent."""
         rows = self._all(
-            "SELECT * FROM posts WHERE user_id = ? AND run_at <= ? AND MAX(run_at, created_at) >= ? ORDER BY run_at",
-            user_id, end, start,
+            "SELECT * FROM posts WHERE user_id = ? AND run_at BETWEEN ? AND ? ORDER BY run_at", user_id, start, end
         )
         return [dict(r) for r in rows]
 

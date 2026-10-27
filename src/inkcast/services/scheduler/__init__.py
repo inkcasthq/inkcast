@@ -12,27 +12,17 @@ except probes and /metrics on the metrics port. Overdue posts show up as the
 from __future__ import annotations
 
 import asyncio
-import logging
 
 from ...libs.runtime import Context
 from ...libs.service import ServiceSpec
-
-log = logging.getLogger(__name__)
 
 HEARTBEAT = "scheduler"
 
 
 def housekeeping(ctx: Context) -> None:
     """Every 90th tick: expired grants and tickets, then domain events and hourly KPI buckets past the configured
-    retention (INKCAST_OUTBOX_RETENTION_DAYS, INKCAST_KPI_HOURLY_RETENTION_DAYS; F1.10.S3, issue #91); and, once per
-    database, the rows left by writes in the instant of an erasure before the guard refused them (issue #196), logged
-    as counts only: no new erasure, and no audit row."""
+    retention (INKCAST_OUTBOX_RETENTION_DAYS, INKCAST_KPI_HOURLY_RETENTION_DAYS; F1.10.S3, issue #91)."""
     ctx.store.purge_expired(ctx.config.retention)
-    swept = ctx.store.sweep_orphans()
-    if swept:
-        rows = sum(swept.values())
-        log.warning("Removed %d row(s) from %d table(s) left for people erased before the write-time guard", rows,
-                    len(swept), extra={"event": "identity.erasure.orphans_swept", "rows": rows, "tables": len(swept)})
 
 
 async def run_scheduler(ctx: Context, stop: asyncio.Event) -> None:

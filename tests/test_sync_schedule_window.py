@@ -136,8 +136,7 @@ class FindingAnUnchangedFileIsLeftAloneWhateverTheClock(Window):
         when = self.clock_reaches(created.post_id, 90)
         self.sync(when)
         self.platform.error = PlatformError("Counting rate limit hit; try again shortly.", retryable=True, retry_after=5)
-        when = self.clock_reaches(created.post_id, -1)        # its time passes, and the scheduler tries it
-        asyncio.run(self.publisher.run_due())
+        asyncio.run(self.publisher.run_due(now=when.timestamp() + 1))
         post = self.store.get_post(created.post_id)
         self.assertEqual((post["status"], post["attempts"], self.platform.sends), ("scheduled", 1, 1))
         self.assertAlmostEqual(post["run_at"] - post["updated_at"], 60, delta=2, msg="the policy's first delay")
