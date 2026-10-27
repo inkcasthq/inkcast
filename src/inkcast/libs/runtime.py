@@ -88,6 +88,11 @@ def build_metrics(store: Store | None, registry: dict[str, Platform], config: Co
     m.gauge("inkcast_posts_oldest_due_age_seconds",
             "Age of the oldest due post still waiting (0 when the queue is empty): the queue's head-of-line lag.",
             lambda: {(): store.oldest_due_age(time.time())})
+    m.gauge("inkcast_posts_recovering_oldest_age_seconds",
+            "How long the oldest post whose send was interrupted has been 'recovering', the platform refusing to say "
+            "whether it arrived (0 when none is). InkcastPostRecoveringTooLong fires past an hour; "
+            "INKCAST_PUBLISH_RECOVERY_MAX_HOURS ends it unconfirmed.",
+            lambda: {(): store.oldest_recovering_age(time.time())})
     m.gauge("inkcast_outbox_pending", "Domain events a consumer has not handled yet, by consumer.",
             lambda: {(("consumer", c),): n for c, (n, _) in store.outbox_lag().items()})
     m.gauge("inkcast_outbox_oldest_age_seconds", "Age of the oldest unhandled event, by consumer (consumer lag).",
@@ -128,7 +133,8 @@ def build_context(config: Config, transport: httpx2.AsyncBaseTransport | None = 
     http = httpx2.AsyncClient(timeout=httpx2.Timeout(30.0, connect=10.0), transport=transport, follow_redirects=False)
     registry = load_platforms(http, config.platform_urls)
     metrics = build_metrics(store, registry, config)
-    publisher = Publisher(store, registry, metrics, retry=config.publish_retry) if store else None
+    publisher = Publisher(store, registry, metrics, retry=config.publish_retry,
+                          recovery_max=config.publish_recovery_max_seconds) if store else None
     verifier = TokenVerifier(store) if store else None
     cache = build_cache(config.cache_url, config.cache_password, metrics)
     authz = build_engine(config, store, http, metrics) if store else None
