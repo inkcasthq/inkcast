@@ -29,7 +29,7 @@ configMapGenerator:
       - OIDC_ISSUER=https://keycloak.apps-crc.testing/realms/inkcast-prod
       - OIDC_CLIENT_ID=inkcast-identity
       # The user sync (E9.F9.5.S2; #305, D2: on in both environments), as the realm's inkcast-sync service account. Its
-      # secret is the realm Secret's sync-client-secret, which the secrets Job (#323) also writes into inkcast-secrets as
+      # secret is the realm Secret's sync-client-secret, which env-secrets (#323) also writes into inkcast-secrets as
       # keycloak-sync-secret, mounted with the other secrets (deploy/kustomize/base/deployment.yaml).
       - INKCAST_KEYCLOAK_SYNC_CLIENT_ID=inkcast-sync
       - INKCAST_KEYCLOAK_SYNC_SECRET_FILE=/var/run/secrets/inkcast/keycloak-sync-secret

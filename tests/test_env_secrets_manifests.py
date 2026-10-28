@@ -148,10 +148,9 @@ class Rendered(unittest.TestCase):
                 files = [v for v in (*config.values(), *(e.get("value", "") for e in inkcast["containers"][0]["env"]))
                          if v.startswith(mount["mountPath"] + "/")]
                 read = {pathlib.PurePosixPath(f).name for f in files}
-                self.assertEqual(read, {"secret-key", "oidc-client-secret", "fga-api-token"},
-                                 "the keys Inkcast reads, each one env-secrets writes")
+                self.assertLessEqual({"secret-key", "oidc-client-secret", "fga-api-token"}, read)
                 written = {"secret-key", "fga-api-token", "oidc-client-secret", "keycloak-sync-secret"}
-                self.assertLessEqual(read, written)
+                self.assertLessEqual(read, written, "every key Inkcast reads from the Secret is one env-secrets writes")
 
     def test_the_self_host_overlays_carry_none_of_it(self):
         for name in OVERLAYS:

@@ -5,7 +5,7 @@
 # admits only Keycloak to it. In this namespace because a kustomization's `namespace:` renames every object it
 # renders: nothing here can live in environments/staging or environments/production.
 #
-# Applied once, after the realm Secrets exist (README, Hosted §2: the lab's bring-up order): the secrets Job (#323)
+# Applied once, after the realm Secrets exist (README, Hosted §2: the lab's bring-up order): env-secrets (#323)
 # writes `inkcast-<side>-realm` here (keys identity-client-secret and sync-client-secret) and the same values into
 # `inkcast-secrets` in the environment's namespace (oidc-client-secret and keycloak-sync-secret). The import Job
 # reads the Secret through spec.placeholders; no secret value is in Git. An import creates its realm once and never
