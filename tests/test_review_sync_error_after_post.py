@@ -93,7 +93,7 @@ def at(seconds_from_now: float) -> datetime:
 
 def the_post_pointer(*args, **kwargs) -> bool:
     """The ledger write that names the post just made, before anything is sent (``on_created``)."""
-    return set(kwargs) == {"post_id"}
+    return set(kwargs) == {"post_id", "content_hash"}
 
 
 class Review(unittest.TestCase):
