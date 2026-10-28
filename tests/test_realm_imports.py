@@ -3,7 +3,7 @@
 """The lab's Keycloak realms as code (issue #305, D1 and D2): one ``KeycloakRealmImport`` per environment, generated
 by scripts/gen-realm-imports.py from the one realm file (deploy/keycloak/realm-inkcast.json) and the environment's own
 settings, so the realm's name, the client's redirect and the environment's issuer agree by construction; the client
-secrets only ever as placeholders fed from the realm Secret the secrets Job writes (#323); the realms' mail caught by
+secrets only ever as placeholders fed from the realm Secret env-secrets writes (#323); the realms' mail caught by
 a Mailpit that only Keycloak may reach; and the user sync on in both environments, reading the same Secret.
 
 The operator's contract is the one at Keycloak 26.6.7 (operator/src/main/java/org/keycloak/operator at that tag):
@@ -145,7 +145,7 @@ class GeneratedImports(unittest.TestCase):
     def test_secrets_are_placeholders_fed_from_the_realm_secret_and_nothing_else(self):
         """No secret value is rendered: each client's secret stays ``${...}``, every placeholder left in the text is
         declared under spec.placeholders (an undeclared one would reach Keycloak literally), and each is fed from the
-        key of Secret inkcast-<side>-realm that the secrets Job writes (#323)."""
+        key of Secret inkcast-<side>-realm that env-secrets writes (#323)."""
         for env, side in ENVIRONMENTS.items():
             with self.subTest(env=env):
                 _, text, doc = self.imports[env]
@@ -302,11 +302,11 @@ class Rendered(unittest.TestCase):
         self.assertEqual({(d["kind"], d["metadata"]["name"]) for d in docs},
                          {("KeycloakRealmImport", "inkcast-staging"), ("KeycloakRealmImport", "inkcast-prod"),
                           ("Deployment", "mailpit"), ("Service", "mailpit"), ("NetworkPolicy", "mailpit")},
-                         "no Namespace and no Secret: the lab's Keycloak owns the namespace, the secrets Job the Secrets")
+                         "no Namespace and no Secret: the lab's Keycloak owns the namespace, env-secrets the Secrets")
 
     def test_the_sync_is_on_in_both_environments_reading_the_secret_the_job_writes(self):
-        """D2: INKCAST_KEYCLOAK_SYNC_CLIENT_ID is the realm's service account and the secret comes from the file the
-        secrets Job writes into inkcast-secrets (#323), mounted where the base mounts that Secret, beside the identity
+        """D2: INKCAST_KEYCLOAK_SYNC_CLIENT_ID is the realm's service account and the secret comes from the file that
+        env-secrets writes into inkcast-secrets (#323), mounted where the base mounts that Secret, beside the identity
         client's secret, so one Secret carries both halves of the contract."""
         realm = json.loads(REALM_FILE.read_text())
         sync_client = next(c["clientId"] for c in realm["clients"] if c["serviceAccountsEnabled"])
