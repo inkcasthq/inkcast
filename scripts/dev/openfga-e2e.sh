@@ -49,18 +49,21 @@ $k -n "$ns" rollout status deploy/openfga --timeout=300s
 $k -n "$ns" get cluster,job,pods -o wide | cut -c1-120
 
 echo "-- 2. Inkcast refuses to start until the ids are pinned, and names them"
+needle="INKCAST_FGA_STORE_ID and INKCAST_FGA_MODEL_ID"
 deadline=$((SECONDS + 180)); named=""
 while [ $SECONDS -lt $deadline ]; do
   log="$($k -n "$ns" logs deploy/inkcast --tail=40 2>/dev/null || true)"
-  if echo "$log" | grep -q "INKCAST_FGA_STORE_ID and INKCAST_FGA_MODEL_ID"; then named=1; break; fi
+  case "$log" in *"$needle"*) named=1; break ;; esac   # no pipe into grep -q: under pipefail that fails at random
   sleep 3
 done
 [ -n "$named" ] || { echo "Inkcast did not name the unpinned ids within 180 s; last log:" >&2; echo "$log" >&2; exit 1; }
-echo "$log" | grep "INKCAST_FGA_STORE_ID and INKCAST_FGA_MODEL_ID" | tail -1 | cut -c1-200
+grep -F "$needle" <<< "$log" | tail -1 | cut -c1-200
 
 echo "-- 3. inkcast authz write-model, twice"
-# The key as the pods hold it, read back from the Secret into a file the command reads as INKCAST_FGA_API_TOKEN_FILE.
+# The key as the pods hold it, read back from the Secret into a file the command reads as INKCAST_FGA_API_TOKEN_FILE,
+# and into a header file for curl (never on a command line).
 $k -n "$ns" get secret inkcast-secrets -o jsonpath='{.data.fga-api-token}' | base64 -d > "$work/fga-api-token"
+printf 'Authorization: Bearer %s\n' "$(cat "$work/fga-api-token")" > "$work/auth-header"
 forward openfga 28080:8080
 for _ in $(seq 1 30); do curl -sf localhost:28080/healthz >/dev/null && break; sleep 1; done
 curl -sf localhost:28080/healthz | python3 -c 'import json,sys; s=json.load(sys.stdin)["status"]; print("openfga /healthz:", s); sys.exit(0 if s=="SERVING" else 1)'
@@ -68,9 +71,11 @@ write_model() { INKCAST_FGA_API_URL=http://localhost:28080 INKCAST_FGA_API_TOKEN
 first="$(write_model)"; echo "$first"
 second="$(write_model)"
 [ "$first" = "$second" ] || { echo "the second run printed different ids:" >&2; echo "$second" >&2; exit 1; }
+# Exactly the two lines, each a ULID (26 chars of Crockford base32), before they are evaluated as assignments.
+ids="$(grep -Ec '^INKCAST_FGA_(STORE|MODEL)_ID=[0-9A-HJKMNP-TV-Z]{26}$' <<< "$first" || true)"
+[ "$ids" = 2 ] && [ "$(wc -l <<< "$first")" -eq 2 ] || { echo "write-model printed something other than the two ids:" >&2; echo "$first" >&2; exit 1; }
 eval "$first"   # INKCAST_FGA_STORE_ID and INKCAST_FGA_MODEL_ID, as printed
-[ -n "${INKCAST_FGA_STORE_ID:-}" ] && [ -n "${INKCAST_FGA_MODEL_ID:-}" ] || { echo "write-model printed no ids" >&2; exit 1; }
-versions="$(curl -sf -H "Authorization: Bearer $(cat "$work/fga-api-token")" \
+versions="$(curl -sf -H @"$work/auth-header" \
   "localhost:28080/stores/$INKCAST_FGA_STORE_ID/authorization-models?page_size=100" \
   | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["authorization_models"]))')"
 [ "$versions" = 1 ] || { echo "expected one model version after two runs, found $versions" >&2; exit 1; }

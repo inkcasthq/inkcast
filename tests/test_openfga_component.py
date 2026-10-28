@@ -269,6 +269,17 @@ class SameModel(unittest.TestCase):
             self.assertFalse(same_model(self.stored(model), changed))
             self.assertFalse(same_model(self.stored(changed), model))
 
+    def test_only_the_version_s_own_id_is_set_aside(self):
+        """A relation may be called `id`; it counts, and removing it is a change."""
+        named_id = {"schema_version": "1.1", "type_definitions": [
+            {"type": "user"},
+            {"type": "doc", "relations": {"id": {"this": {}}},
+             "metadata": {"relations": {"id": {"directly_related_user_types": [{"type": "user"}]}}}}]}
+        self.assertTrue(same_model(self.stored(named_id), named_id))
+        without = {"schema_version": "1.1", "type_definitions": [{"type": "user"}, {"type": "doc"}]}
+        self.assertFalse(same_model(self.stored(named_id), without))
+        self.assertFalse(same_model(self.stored(without), named_id))
+
 
 class WriteModel(unittest.TestCase):
     """``inkcast authz write-model`` against the fake OpenFGA (tests/fakes.py): the store is created, the model
@@ -343,13 +354,20 @@ class WriteModel(unittest.TestCase):
         self.assertEqual(len(self.fakes.fga_models[store_id]), 3)
 
     def test_the_store_name_and_the_key_file_are_honoured(self):
+        """A name OpenFGA allows (spaces, `&`, `/`) reaches it intact through the query string, and is found again;
+        the key comes from the file INKCAST_FGA_API_TOKEN_FILE names; an empty INKCAST_FGA_TIMEOUT is the default."""
         with tempfile.NamedTemporaryFile("w", suffix=".key", delete=False) as f:
             f.write(self.fakes.fga_token + "\n")
         self.addCleanup(pathlib.Path(f.name).unlink)
-        code, out, err = self.run_cli("--store", "inkcast-staging", INKCAST_FGA_API_TOKEN="", INKCAST_FGA_API_TOKEN_FILE=f.name)
+        name = "inkcast staging & docs/eu"
+        code, out, err = self.run_cli("--store", name, INKCAST_FGA_API_TOKEN="", INKCAST_FGA_API_TOKEN_FILE=f.name,
+                                      INKCAST_FGA_TIMEOUT="")
         self.assertEqual(code, 0, err)
-        self.assertEqual(list(self.fakes.fga_stores.values()), ["inkcast-staging"])
+        self.assertEqual(list(self.fakes.fga_stores.values()), [name])
         self.assertEqual(self.fakes.fga_calls[0][1], "/fga/stores")
+        code, out2, err2 = self.run_cli("--store", name, INKCAST_FGA_API_TOKEN="", INKCAST_FGA_API_TOKEN_FILE=f.name)
+        self.assertEqual((code, out2), (0, out), err2)
+        self.assertEqual(list(self.fakes.fga_stores.values()), [name], "found by its exact name, not created again")
 
     def test_refusals_name_the_problem_and_print_no_id(self):
         code, out, err = self.run_cli(INKCAST_FGA_API_URL="")

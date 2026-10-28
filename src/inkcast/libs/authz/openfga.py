@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import time
 from typing import Any, Iterable, Sequence
+from urllib.parse import urlencode
 
 import httpx2
 
@@ -226,8 +227,10 @@ class OpenFgaAdmin:
         found: list[str] = []
         token = ""
         while True:
-            query = f"stores?name={name}&page_size={STORES_PAGE}" + (f"&continuation_token={token}" if token else "")
-            answer = await self._request("GET", query, retry=True)
+            params: dict[str, Any] = {"name": name, "page_size": STORES_PAGE}   # a name may hold spaces, `&` or `/`
+            if token:
+                params["continuation_token"] = token
+            answer = await self._request("GET", f"stores?{urlencode(params)}", retry=True)
             stores = answer.get("stores")
             if not isinstance(stores, list):
                 raise EngineError("OpenFGA list-stores answered without stores")
@@ -276,8 +279,9 @@ def same_model(stored: dict[str, Any], model: dict[str, Any]) -> bool:
     metadata comes back as ``{"directly_related_user_types": [], "module": "", "source_info": null}`` where the file
     has ``{}``; ``conditions: {}``, ``"metadata": null`` on a type without relations), and adds the ``id``. Both
     sides are compared with empty values dropped at every level, so only a difference in substance (a relation, a
-    type, an allowed user type, a rewrite) tells them apart."""
-    return _canonical(stored) == _canonical(model)
+    type, an allowed user type, a rewrite) tells them apart. Only the version's own ``id`` is set aside: a relation
+    or a condition may carry that name."""
+    return _canonical({k: v for k, v in stored.items() if k != "id"}) == _canonical({k: v for k, v in model.items() if k != "id"})
 
 
 _EMPTY = (None, "", {}, [])
@@ -287,8 +291,6 @@ def _canonical(value: Any) -> Any:
     if isinstance(value, dict):
         out = {}
         for key, item in value.items():
-            if key == "id":
-                continue
             item = _canonical(item)
             if item not in _EMPTY:
                 out[key] = item

@@ -61,8 +61,16 @@ def authz_main(argv: list[str], environ: Mapping[str, str] | None = None, out: A
         print(f"inkcast authz: {exc}", file=err)
         return 1
     admin = OpenFgaAdmin(url, token, http=http, timeout=timeout)
+
+    async def run() -> tuple[str, str, list[str]]:
+        try:
+            return await _write_model(admin, args.store, model)
+        finally:
+            if http is None:   # the client this command opened closes on the loop that used it
+                await admin.http.aclose()
+
     try:
-        store_id, model_id, notes = asyncio.run(_write_model(admin, args.store, model))
+        store_id, model_id, notes = asyncio.run(run())
     except (EngineError, InvalidRequest) as exc:
         print(f"inkcast authz: {exc}", file=err)
         return 1
@@ -79,7 +87,7 @@ def _fga_settings(settings: Mapping[str, str]) -> tuple[str, Any, float]:
         raise ConfigError("INKCAST_FGA_API_URL is not set: the OpenFGA server to write to (http://openfga:8080 in the "
                           "component, or a port-forward to it).")
     try:
-        timeout = float(settings.get("INKCAST_FGA_TIMEOUT", "5"))
+        timeout = float(settings.get("INKCAST_FGA_TIMEOUT", "").strip() or "5")   # unset or empty: the default
     except ValueError:
         timeout = 0.0
     if not 0 < timeout < float("inf"):

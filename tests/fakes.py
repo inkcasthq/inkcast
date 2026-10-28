@@ -461,7 +461,7 @@ class Fakes:
         page = int(request.query_params.get("page_size", 50))
         if not 1 <= page <= 100:
             return self._fga_invalid("page_size must be between 1 and 100")
-        rows = list(reversed(self.fga_models[request.path_params["store"]]))
+        rows = list(reversed(self.fga_models.get(request.path_params["store"], [])))
         start = int(request.query_params.get("continuation_token") or 0)
         chunk = rows[start:start + page]
         return JSONResponse({"authorization_models": chunk,
@@ -477,7 +477,7 @@ class Fakes:
             return self._fga_invalid("invalid WriteAuthorizationModelRequest.TypeDefinitions: value must contain at least 1 item(s)")
         model = {"id": self._fga_new_id(), "schema_version": body["schema_version"],
                  "type_definitions": body["type_definitions"], "conditions": body.get("conditions") or {}}
-        self.fga_models[request.path_params["store"]].append(model)
+        self.fga_models.setdefault(request.path_params["store"], []).append(model)
         return JSONResponse({"authorization_model_id": model["id"]}, status_code=201)
 
     @staticmethod
@@ -591,7 +591,7 @@ class Fakes:
         _, refused = await self._fga_begin(request)
         if refused:
             return refused
-        models = {m["id"]: m for m in self.fga_models[request.path_params["store"]]}
+        models = {m["id"]: m for m in self.fga_models.get(request.path_params["store"], [])}
         if request.path_params["model"] not in models:
             return self._fga_invalid("Authorization Model not found", "authorization_model_not_found")
         return JSONResponse({"authorization_model": models[request.path_params["model"]]})
