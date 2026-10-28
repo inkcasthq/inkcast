@@ -353,12 +353,13 @@ class GitSync:
         src, pid = req.source, entry["platform"]
         name = getattr(self.platforms.get(pid), "name", pid)
         base = {"path": path, "platform": pid}
+        if entry["status"] == "syncing" and time.time() - entry["synced_at"] < CLAIM_TTL:
+            # Its post is being made now. The claim names it before the sync holding it writes the entry's status: a
+            # cancel in between would be recorded 'scheduled' by that write, and never followed once the file is gone.
+            return SyncResult(**base, action="skipped", status="syncing",
+                              message="Another sync of this file is in progress; run the sync again.")
         post = self.store.get_post(entry["post_id"]) if entry["post_id"] else None
         if post is None:
-            if entry["status"] == "syncing" and time.time() - entry["synced_at"] < CLAIM_TTL:
-                # Its post is being made now: the sync holding the claim names it after this one has looked.
-                return SyncResult(**base, action="skipped", status="syncing",
-                                  message="Another sync of this file is in progress; run the sync again.")
             if entry["status"] == "unconfirmed":  # from before posts were recorded: nothing to cancel, maybe published
                 return SyncResult(**base, action="removed", status="unconfirmed", message=(
                     f"Its last publish to {name} may or may not have gone through, and Inkcast has no post of it to "

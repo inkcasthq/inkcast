@@ -3,6 +3,9 @@
 """Adversarial review of #230 (a file removed from the repository cancels its pending post): each case failed on the
 build's head and passes with its fix."""
 
+import threading
+from unittest import mock
+
 from inkcast.libs.platforms import PlatformError
 
 from test_sync_error_after_post import at
@@ -38,3 +41,31 @@ class AFilePutBackAfterItsUncertainPostWasRemoved(RemovedCase):
         again = self.sync(at(2 * 24 * 3600))
         self.assertEqual((again.action, again.status), ("create", "scheduled"))
         self.assertNotEqual(again.post_id, first.post_id)
+
+
+class ARemovalWhileAnotherSyncHoldsTheFile(RemovedCase):
+    """Another sync is making the file's post: its claim names the post before that sync's last write (the entry's
+    status). A removal in between cancelled the post, and that last write then recorded it 'scheduled', for good: the
+    file is gone, so no later sync follows the post. A fresh claim is another sync's work in progress, post or not."""
+
+    def test_a_removal_between_the_claim_naming_its_post_and_the_last_write_waits(self):
+        real, removal = self.store.put_entry, {}
+
+        def last_write(*args, **kwargs):  # the creating sync's last write: the removal comes in just before it
+            if kwargs.get("status") == "scheduled" and not removal:
+                other = threading.Thread(target=lambda: removal.update(result=self.remove()))
+                other.start()
+                other.join()
+            return real(*args, **kwargs)
+
+        with mock.patch.object(self.store, "put_entry", last_write):
+            made = self.sync(at(2 * 24 * 3600))
+        self.assertIn("result", removal, "the removal never ran")
+        post, entry = self.store.get_post(made.post_id), self.entry()
+        self.assertEqual(entry["status"], post["status"], "the ledger names the post with a status it does not have")
+        r = removal["result"]
+        self.assertEqual((r.action, r.status), ("skipped", "syncing"))
+        self.assertIn("run the sync again", r.message)
+        rerun = self.remove()
+        self.assertEqual((rerun.action, rerun.status, rerun.post_id), ("removed", "cancelled", made.post_id))
+        self.assertEqual((self.entry()["status"], self.store.get_post(made.post_id)["status"]), ("cancelled", "cancelled"))
