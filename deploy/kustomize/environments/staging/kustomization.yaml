@@ -12,6 +12,12 @@ configMapGenerator:
   - name: inkcast-config
     behavior: merge
     literals:
+      # Where this environment lives on OpenShift Local (apps domain apps-crc.testing), each name suffixed -staging
+      # (#305): its own public URL (the Route host below) and its own realm on the lab's Keycloak, whose client is
+      # inkcast-identity (deploy/keycloak/realm-inkcast.json).
+      - INKCAST_PUBLIC_URL=https://inkcast-staging.apps-crc.testing
+      - OIDC_ISSUER=https://keycloak.apps-crc.testing/realms/inkcast-staging
+      - OIDC_CLIENT_ID=inkcast-identity
       - INKCAST_ENV=staging       # same checks as production, but a weak key or a reveal flag only warns
       # Staging rehearses production: OpenFGA (components/openfga, through the overlay), never the in-process engine.
       # The store and the model version are pinned here, as literals in Git: `inkcast authz write-model` prints both
@@ -54,6 +60,13 @@ images:
   - name: ghcr.io/inkcasthq/inkcast
     digest: sha256:31a19c863e5d36871ae359f7dbbf3a81eddc7f17867aa63c300688248f3911d3
 patches:
+  # The Route's host matches INKCAST_PUBLIC_URL above: one host per environment, so both Routes are admitted on one
+  # cluster (#305).
+  - target: {kind: Route, name: inkcast}
+    patch: |-
+      - op: replace
+        path: /spec/host
+        value: inkcast-staging.apps-crc.testing
   # The lab's two environments share one PostgreSQL (deploy/kustomize/shared/inkcast-db, #296): the component's
   # per-namespace Cluster is dropped here, and OpenFGA's Deployment and migrate Job read the Secret openfga-db-app
   # that scripts/deploy/openfga-db-credentials.sh writes, pointing at the shared cluster. The kubernetes, openshift

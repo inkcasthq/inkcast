@@ -16,6 +16,12 @@ configMapGenerator:
   - name: inkcast-config
     behavior: merge
     literals:
+      # Where this environment lives on OpenShift Local (apps domain apps-crc.testing), each name suffixed -prod
+      # (#305): its own public URL (the Route host below) and its own realm on the lab's Keycloak, whose client is
+      # inkcast-identity (deploy/keycloak/realm-inkcast.json).
+      - INKCAST_PUBLIC_URL=https://inkcast-prod.apps-crc.testing
+      - OIDC_ISSUER=https://keycloak.apps-crc.testing/realms/inkcast-prod
+      - OIDC_CLIENT_ID=inkcast-identity
       - INKCAST_AUTHZ_ENGINE=openfga
       - INKCAST_AUTHZ_ALLOW_LOCAL=false
       - INKCAST_FGA_STORE_ID=
@@ -65,6 +71,13 @@ images:
   - name: ghcr.io/inkcasthq/inkcast
     digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
 patches:
+  # The Route's host matches INKCAST_PUBLIC_URL above: one host per environment, so both Routes are admitted on one
+  # cluster (#305).
+  - target: {kind: Route, name: inkcast}
+    patch: |-
+      - op: replace
+        path: /spec/host
+        value: inkcast-prod.apps-crc.testing
   # The lab's two environments share one PostgreSQL (deploy/kustomize/shared/inkcast-db, #296): the component's
   # per-namespace Cluster is dropped here, and OpenFGA's Deployment and migrate Job read the Secret openfga-db-app
   # that scripts/deploy/openfga-db-credentials.sh writes, pointing at the shared cluster. The kubernetes, openshift
