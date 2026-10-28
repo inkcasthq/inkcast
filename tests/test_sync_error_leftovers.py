@@ -6,7 +6,7 @@
    and both later writes of the entry fail (or the process stops there). The entry kept the replaced post's content
    hash, so once the claim expired the next sync took the unchanged file for an edit: it replaced the replacement
    again, and made again a replacement a person had cancelled. The entry now takes the content hash with the post it
-   names, in the row's own transaction.
+   names, in the row's own transaction. The third symptom, a published replacement read as `stale`, goes with it.
 3. A send the platform refused, whose ``failed`` write was locked: the entry read "internal error" instead of the
    platform's reason. It keeps the reason now.
 
@@ -70,6 +70,23 @@ class FindingADoubleFaultOnTheReplacePath(SyncCase):
         again = self.sync(at(2 * 24 * 3600), body="Better body.")
         self.assertEqual((again.action, again.status), ("unchanged", "cancelled"), "the person's cancel was undone")
         self.assertEqual([p["status"] for p in self.posts()], ["cancelled", "cancelled"])
+
+    def test_a_published_replacement_is_not_read_as_stale(self):
+        """The third symptom: the edit removes publish_at, so the replacement is a "now" post the sync itself sends;
+        both writes of the entry after it fail, and the claim expires."""
+        self.sync(at(2 * 24 * 3600))
+        locked = Locked(self.store.put_entry, every_write_of_the_outcome)
+        with mock.patch.object(self.store, "put_entry", locked), self.assertRaises(sqlite3.OperationalError):
+            self.sync(None, body="Better body.")
+        self.assertEqual(locked.raised, 2, "the outcome's write and _after_error's")
+        replaced, replacement = self.posts()
+        self.assertEqual((replaced["status"], replacement["status"], self.platform.sent),
+                         ("cancelled", "published", ["Better body."]))
+        self.store._exec("UPDATE ledger SET synced_at = synced_at - ?", CLAIM_TTL + 1)
+        again = self.sync(None, body="Better body.")
+        self.assertEqual((again.action, again.status, again.post_id), ("unchanged", "published", replacement["id"]),
+                         "the published replacement read as stale")
+        self.assertIsNone(self.entry()["message"])
 
 
 class FindingWhatTheGuideSaysOfARerun(SyncCase):
