@@ -56,6 +56,16 @@ features:
   - id: F9.3.S2
     title: First-broker-login flow links by verified email; manual verification runbook
     status: planned
+    change: 'refined by ADR-0018 section 8 (issue #324)'
+    acceptance:
+    - 'The realm keeps Keycloak''s default first-broker-login flow: an existing account with the same email is linked
+      only after the person confirms and proves it (Verify Existing Account By Email, or By Re-authentication); never
+      the AutoLink authenticator'
+    - 'duplicateEmailsAllowed stays false, so a disabled account''s email stays reserved until its Keycloak user is
+      removed (F9.5.S10) and a social sign-in with it cannot make a second account meanwhile'
+    - 'Inkcast keys on the Keycloak user id (oidc:<issuer>#<sub>) and never links or merges accounts by email'
+    - 'Measured on kind: a social sign-in whose email matches an enabled account is linked only after verification; one
+      whose email matches a disabled account makes no new account'
 - id: F9.4
   title: MFA and operators
   stories:
@@ -121,7 +131,9 @@ features:
     title: 'A person gone from Keycloak with no DELETE_ACCOUNT event (an administrator''s deletion, a trimmed event) is
       erased after INKCAST_KEYCLOAK_ERASE_AFTER_DAYS'
     status: done
-    change: 'new; issue #86, built in PR #98'
+    change: 'new; issue #86, built in PR #98; its rule that a disabled-but-present person is never erased is replaced by
+      F9.5.S9 (issue #330, ADR-0018): every cut-off person is erased INKCAST_KEYCLOAK_ERASE_AFTER_DAYS after the
+      account-cleanup job told them'
     acceptance:
     - 'INKCAST_KEYCLOAK_ERASE_AFTER_DAYS, default 30: N > 0 erases a person still gone N days after the cut-off (exactly
       N counts); 0 erases at the first reconcile that finds them gone; off never erases on a 404 (cut off only)'
@@ -192,6 +204,78 @@ features:
       cut off earlier, confirm and dismiss by kind, trips, one person as today, the events pass closed and open, a mixed
       trip, re-enabled before confirmation (reconcile, events pass, sign-in, mid-reconcile sign-in), breaker off, the
       store, the migration, the alert and posture texts'
+  - id: F9.5.S9
+    title: 'The account-cleanup job: a cut-off person is told, reminded and erased INKCAST_KEYCLOAK_ERASE_AFTER_DAYS
+      after the notice (replaces F9.5.S6''s rule)'
+    status: planned
+    change: 'new; issue #330; ADR-0018 sections 1 to 5; needs F7.4.S4, F3.3.S8 and F3.3.S9'
+    acceptance:
+    - 'The rule, stated in the README, the E9 design, the alerts runbook and the posture check: every person Inkcast has
+      cut off (Keycloak reports them disabled or 404) is erased INKCAST_KEYCLOAK_ERASE_AFTER_DAYS after the job told
+      them, unless Keycloak reports them enabled again, they sign in, or they are on legal hold; the reconcile no longer
+      erases; a self-deletion still erases at once'
+    - 'Settings validated at start-up, naming the variable: INKCAST_KEYCLOAK_ERASE_AFTER_DAYS whole days 14 to 365 (0
+      and off refused), INKCAST_ACCOUNT_REMINDER_DAYS 1 to 13 and below it; both set explicitly in
+      deploy/kustomize/environments/{staging,production}'
+    - 'inkcast accounts cleanup [--dry-run] runs as the CronJob inkcast-account-cleanup (daily, concurrencyPolicy
+      Forbid, the backup''s pod affinity while the database is SQLite); one run at a time through a lease in sync_state'
+    - 'Each run: nothing while a breaker pass is open; each disabled person read from Keycloak as disabled or 404 is
+      sent the notice, then gets users.erase_at and notified_at; the reminder goes INKCAST_ACCOUNT_REMINDER_DAYS before
+      (reminded_at); at erase_at they are read again and erased, or unscheduled when Keycloak has them enabled; a failed
+      send is retried at the next run; a person with no email address is scheduled and counted'
+    - 'A run with at least INKCAST_KEYCLOAK_BREAKER_MIN people due, and more than _PERCENT of the people in Inkcast,
+      erases nobody and records a breaker pass of kind erase, resolved by inkcast identity confirm-deletions or
+      dismiss-deletions'
+    - 'It fails closed: without the sync client, or when Keycloak cannot be read, the run exits 1 and erases nobody;
+      every step is a compare-and-set on the row (STANDING gains erase_at)'
+    - 'upsert_user also clears erase_at, notified_at and reminded_at; the reconcile does not count a person whose
+      erasure is due among the newly gone'
+    - 'Audit: user_erasures gains via and notified_at; the events identity.account.scheduled, .reminded and .erased
+      carry ids and counts only'
+    - 'Gauges read from the database: inkcast_identity_accounts{state}, inkcast_identity_erasure_overdue,
+      inkcast_identity_notice_wait_oldest_seconds; alerts InkcastAccountCleanupMissing (no success for 26 h, from
+      kube_cronjob_status_last_successful_time), InkcastAccountErasureOverdue and InkcastAccountNoticeFailing, each with
+      a runbook section'
+    - 'Roll-out: everyone already cut off is notified at the first run and gets the full window; the terms shown at
+      sign-up state the period'
+    - 'Tests: each state and transition, the boundaries (a second before erase_at, and at it), re-enabled before
+      erasure, a sign-in during a run, a failed send, the mass guard, a breaker pass open, Keycloak down, two runs at
+      once, the migration; kind e2e: an administrator disables a person, Mailpit receives the notice and its link
+      downloads the bundle, and with erase_at moved into the past in the database the next run erases them'
+  - id: F9.5.S10
+    title: 'Remove the Keycloak user at erasure: a separate cleanup client; local users always, federated users only
+      once out of the directory group'
+    status: planned
+    change: 'new; issue #331; ADR-0018 section 9; owner decisions 1 to 3 first; needs F9.5.S9 and F9.8.S3''s
+      measurements'
+    acceptance:
+    - 'Measured on OpenShift Local before building, and recorded in the E9 design: GET
+      /admin/realms/{realm}/users/{id}/groups for a person who left the group, one deleted in LDAP, a member an
+      administrator disabled, and with LDAP scaled to 0'
+    - 'Realm: a confidential client inkcast-cleanup whose service account holds realm-management view-users and
+      manage-users only; its secret (INKCAST_KEYCLOAK_CLEANUP_SECRET) is mounted into the CronJob only; the sync client
+      keeps view-users and view-events'
+    - 'The job deletes by id, just before Inkcast''s erasure, only a person it has just read as enabled false: a local
+      person always; a federated person only when Keycloak no longer lists them in the environment''s directory group
+      (if the measurement refutes that, never, and inkcast_identity_keycloak_copies_kept counts them for an operator,
+      with a runbook section)'
+    - 'The sync''s admin-events pass alerts on any admin event made by inkcast-cleanup other than a user DELETE'
+    - 'Without the client configured, the job erases Inkcast''s data only, counts the Keycloak copies left, and the
+      posture check warns in production and staging'
+    - 'Tests against the Keycloak-shaped fake and on kind: a disabled local person is gone from Keycloak and Inkcast
+      after erasure and their email is free; on OpenShift Local: a federated member an administrator disabled is kept'
+  - id: F9.5.S11
+    title: 'A cut-off person''s scheduled posts are paused; nothing paused goes out on their return without them'
+    status: planned
+    change: 'new; issue #332; ADR-0018 owner decision 4'
+    acceptance:
+    - 'The scheduler does not claim a post whose person has disabled_at set (posts.py _OWNED); a person the breaker
+      holds (held_at) keeps publishing'
+    - 'What a paused post becomes when its person returns is decided within ADR-0015''s rules and recorded; nothing
+      paused is sent on their return without their action'
+    - 'The account notice says that scheduled posts are paused'
+    - 'Tests: a due post of a cut-off person is not claimed, a held person''s is, the return, and the lag gauges leave
+      paused posts out'
 - id: F9.6
   title: Enterprise SSO
   stories:
@@ -257,7 +341,8 @@ features:
     - 'Recorded from Keycloak 26.6.7 source: a person no longer matched by the user filter (left the group or deleted in
       LDAP) fails validation; with removeInvalidUsersEnabled (default true, UserStorageProviderModel line 126) Keycloak
       deletes the local copy, so the admin API answers 404 and the sync cuts them off and erases them after
-      INKCAST_KEYCLOAK_ERASE_AFTER_DAYS; with it false they read enabled false and are cut off but never erased'
+      INKCAST_KEYCLOAK_ERASE_AFTER_DAYS; with it false they read enabled false and are cut off, and the
+      account-cleanup job erases them (F9.5.S9, issue #330, ADR-0018)'
     - 'Recorded: a re-imported person gets a new Keycloak id (LDAPStorageProvider line 746 adds a local user), so rejoining
       after the local copy was deleted is a new Inkcast account; the decision (true or false) is the owner''s and is
       written in the realm file with this reason'
