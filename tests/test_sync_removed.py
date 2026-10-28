@@ -106,14 +106,15 @@ class ARemovedFilesPendingPostIsCancelled(RemovedCase):
         self.assertEqual([e["action"] for e in self.events("sync.result")], ["create"])  # a dry run writes no event
 
     def test_a_file_put_back_is_published_as_a_new_post(self):
-        first = self.sync(at(2 * 24 * 3600))
+        when = at(2 * 24 * 3600)   # once: at() rounds to the second, so a second call can land a second later
+        first = self.sync(when)
         self.remove()
-        again = self.sync(at(2 * 24 * 3600))  # the same content as before
+        again = self.sync(when)  # the same content as before
         self.assertEqual((again.action, again.status), ("create", "scheduled"))
         self.assertNotEqual(again.post_id, first.post_id)
         self.assertEqual([p["status"] for p in self.posts()], ["cancelled", "scheduled"])
         self.assertEqual((self.entry()["post_id"], self.entry()["message"]), (again.post_id, None))
-        self.assertEqual(self.sync(at(2 * 24 * 3600)).action, "unchanged")
+        self.assertEqual(self.sync(when).action, "unchanged")
 
     def test_a_post_being_sent_is_not_cancelled_and_the_sync_asks_for_a_rerun(self):
         first = self.sync(at(2 * 24 * 3600))

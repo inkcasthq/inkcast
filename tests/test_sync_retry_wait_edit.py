@@ -54,9 +54,10 @@ class Waiting(SyncCase):
 
 class FindingABodyEditKeepsTheWait(Waiting):
     def test_a_body_edit_during_the_wait_goes_out_at_the_retry_with_the_new_body(self):
-        post = self.waiting()
+        when = at(-600)   # one time for every sync: see test_an_unchanged_file_is_left_alone
+        post = self.waiting(when)
         before = self.entry()
-        edited = self.sync(at(-600), body="Edited.")
+        edited = self.sync(when, body="Edited.")
         self.assertEqual((edited.action, edited.status, edited.post_id), ("update", "scheduled", post["id"]))
         self.assertIn("waits for the retry", edited.message)
         self.assert_waits(post, post["run_at"])
@@ -65,12 +66,12 @@ class FindingABodyEditKeepsTheWait(Waiting):
 
         self.tick(post["run_at"] - 5)
         self.assertEqual(self.platform.sent, ["Body."], "sent before the platform's wait was over")
-        self.assertEqual(self.sync(at(-600), body="Edited.").action, "unchanged")
+        self.assertEqual(self.sync(when, body="Edited.").action, "unchanged")
         self.tick(post["run_at"] + 1)
         self.assertEqual(self.platform.sent, ["Body.", "Edited."])
         self.assertEqual((self.store.get_post(post["id"])["status"], self.store.get_post(post["id"])["attempts"]),
                          ("published", 2))
-        self.assertEqual(self.sync(at(-600), body="Edited.").action, "unchanged")
+        self.assertEqual(self.sync(when, body="Edited.").action, "unchanged")
 
     def test_an_undated_post_the_platform_rate_limited_keeps_its_wait_too(self):
         """A "now" post (no publish_at): the sync's own send got the 429 and handed it to the scheduler (#188)."""
@@ -128,8 +129,9 @@ class FindingATimeChangeKeepsTheWait(Waiting):
         self.assertEqual(self.platform.sent, ["Body."])
 
     def test_an_unchanged_file_is_left_alone(self):
-        post = self.waiting()
-        self.assertEqual(self.sync(at(-600)).action, "unchanged")
+        when = at(-600)   # once: at() rounds to the second, so a second call can land a second later and read as a change
+        post = self.waiting(when)
+        self.assertEqual(self.sync(when).action, "unchanged")
         self.assertEqual(self.store.get_post(post["id"])["updated_at"], post["updated_at"])
 
 
@@ -231,11 +233,12 @@ class FindingARowFromBeforeTheColumns(Waiting):
     def test_a_waiting_post_from_before_the_columns_keeps_its_retry(self):
         """No requested_at and no not_before: its run_at is the retry's. The file reads as changed once (its time is
         compared with nothing), and the edit in place keeps the retry."""
-        post = self.waiting()
+        when = at(-600)   # one time for every sync: see test_an_unchanged_file_is_left_alone
+        post = self.waiting(when)
         self.store._exec("UPDATE posts SET requested_at = NULL, not_before = NULL WHERE id = ?", post["id"])
-        self.assertEqual(self.sync(at(-600)).action, "update")
+        self.assertEqual(self.sync(when).action, "update")
         self.assert_waits(post, post["run_at"])
-        self.assertEqual(self.sync(at(-600)).action, "unchanged")
+        self.assertEqual(self.sync(when).action, "unchanged")
         self.tick(post["run_at"] - 5)
         self.assertEqual(self.platform.sent, ["Body."])
 
