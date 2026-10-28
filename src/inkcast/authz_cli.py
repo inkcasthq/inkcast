@@ -15,7 +15,7 @@ this model (``same_model``), so a second run changes nothing. Prints, on stdout 
 
 so ``eval "$(inkcast authz write-model)"`` or a pull request can pin both (docs/authorization.md §8). With both
 ``INKCAST_FGA_STORE_ID`` and ``INKCAST_FGA_MODEL_ID`` set, a version is held by hand and wins at start-up: it prints
-them, writes nothing and calls nothing.
+them, writes nothing and calls nothing. These three settings are read as start-up reads them, ``NAME_FILE`` first.
 
 The deployment runs it as the init container ``authz-model`` of every Inkcast pod that checks permissions (E3.F3.9.S6,
 components/openfga/authz-model.yaml), before the server, which then pins the same store and version by name: nothing
@@ -39,7 +39,7 @@ import httpx2
 from .libs.authz.model import PACKAGED_MODEL
 from .libs.authz.openfga import OpenFgaAdmin, same_model
 from .libs.authz.types import EngineError, InvalidRequest
-from .libs.config import ConfigError, secrets_provider, settings_from
+from .libs.config import ConfigError, secrets_provider, setting, settings_from
 from .libs.observability import setup_logging
 from .libs.secrets import NamingError, SecretFetchError
 
@@ -59,7 +59,12 @@ def authz_main(argv: list[str], environ: Mapping[str, str] | None = None, out: A
     args = parser.parse_args(argv)
     out, err = out or sys.stdout, err or sys.stderr
     settings = settings_from(environ if environ is not None else os.environ)
-    pinned = [settings.get(name, "").strip() for name in ("INKCAST_FGA_STORE_ID", "INKCAST_FGA_MODEL_ID")]
+    try:   # read as start-up reads them (NAME_FILE first), or the writer and the server disagree on the store
+        pinned = [setting(settings, name) for name in ("INKCAST_FGA_STORE_ID", "INKCAST_FGA_MODEL_ID")]
+        store_name = args.store or setting(settings, "INKCAST_FGA_STORE_NAME", DEFAULT_STORE)   # the server's name too
+    except ConfigError as exc:
+        print(f"inkcast authz: {exc}", file=err)
+        return 1
     if all(pinned):   # the start-up rule (libs/authz pin_model): both ids set win, and nothing is resolved or written
         print("nothing to do: INKCAST_FGA_STORE_ID and INKCAST_FGA_MODEL_ID pin a version by hand, and win over the "
               "store's name; no store is created and no model written (unset both to write one)", file=err)
@@ -75,7 +80,6 @@ def authz_main(argv: list[str], environ: Mapping[str, str] | None = None, out: A
         print(f"inkcast authz: {exc}", file=err)
         return 1
     admin = OpenFgaAdmin(url, token, http=http, timeout=timeout)
-    store_name = args.store or settings.get("INKCAST_FGA_STORE_NAME", "").strip() or DEFAULT_STORE   # the server's name too
 
     async def run() -> tuple[str, str, list[str]]:
         try:

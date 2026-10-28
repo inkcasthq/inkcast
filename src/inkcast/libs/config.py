@@ -395,6 +395,12 @@ def backup_keep_from(environ: Mapping[str, str]) -> int:
     return _Env(environ).backup_keep()
 
 
+def setting(environ: Mapping[str, str], name: str, default: str = "") -> str:
+    """NAME as start-up reads it: the file ``NAME_FILE`` names first, then NAME, stripped; a ConfigError naming the
+    variable when that file can't be read. For a command that must agree with the server on a setting."""
+    return _Env(environ).get(name, default)
+
+
 def _problems(problems: list[str]) -> None:
     """Raise the problems found at load, one plainly or several as a list."""
     if len(problems) == 1:

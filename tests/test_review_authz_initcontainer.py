@@ -10,6 +10,9 @@ younger one, and an answer can be lost after its row has landed."""
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import tempfile
 import threading
 import time
 
@@ -162,6 +165,41 @@ class Orphans(Reordered):
     def test_a_younger_store_whose_create_answer_was_lost_is_deleted_by_the_next_run(self):
         self.fakes.lose_younger_answer = True
         self.assertIn("POST stores", self.assert_heals(self.race(2)))
+
+
+
+class FileSettings(FakeOpenFga):
+    """K4: start-up reads INKCAST_FGA_STORE_ID, _MODEL_ID and _STORE_NAME through ``NAME_FILE`` first
+    (libs/config ``_Env.get``), so the writer must too. Otherwise ids pinned through files make it create a store and
+    write a version no server uses, and a name given through a file makes it write into the default store."""
+
+    def file(self, value: str) -> str:
+        directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, directory)
+        path = os.path.join(directory, "value")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(value + "\n")
+        return path
+
+    def test_ids_pinned_through_files_mean_nothing_to_do(self):
+        code, out, err = self.writer(INKCAST_FGA_STORE_ID_FILE=self.file("01JSTORE0000000000000000AA"),
+                                     INKCAST_FGA_MODEL_ID_FILE=self.file("01JMODEL0000000000000000AA"))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "INKCAST_FGA_STORE_ID=01JSTORE0000000000000000AA\nINKCAST_FGA_MODEL_ID=01JMODEL0000000000000000AA\n")
+        self.assertEqual(self.fakes.fga_calls, [], "no call at all")
+
+    def test_the_store_name_given_through_a_file_is_the_one_written(self):
+        env = {"INKCAST_FGA_STORE_NAME": "", "INKCAST_FGA_STORE_NAME_FILE": self.file("inkcast-staging")}
+        store_id, model_id = self.job(**env)
+        self.assertEqual(self.fakes.fga_stores, {store_id: "inkcast-staging"})
+        pinned = pin_model(self.config(**env))
+        self.assertEqual((pinned.fga_store_id, pinned.fga_model_id), (store_id, model_id))
+
+    def test_an_unreadable_file_is_named_and_nothing_is_called(self):
+        code, out, err = self.writer(INKCAST_FGA_STORE_ID_FILE="/nonexistent/store-id")
+        self.assertEqual((code, out), (1, ""))
+        self.assertIn("INKCAST_FGA_STORE_ID_FILE", err)
+        self.assertEqual(self.fakes.fga_calls, [])
 
 
 if __name__ == "__main__":
