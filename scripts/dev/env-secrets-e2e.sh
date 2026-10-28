@@ -213,15 +213,20 @@ for _ in $(seq 1 60); do
 import json, sys
 for pod in json.load(sys.stdin)["items"]:
     for s in pod["status"].get("initContainerStatuses", []):
-        ended = s.get("state", {}).get("terminated") or s.get("lastState", {}).get("terminated") or {}
-        if s["name"] == "env-secrets" and ended.get("exitCode") == 1:
-            print(pod["metadata"]["name"])')"
+        if s["name"] != "env-secrets":
+            continue
+        # The attempt that failed: the current one, or the previous one once the kubelet has started its retry,
+        # whose own log is empty until it fails too. Its log is read by that name, so the read never races the retry.
+        if s.get("state", {}).get("terminated", {}).get("exitCode") == 1:
+            print(pod["metadata"]["name"])
+        elif s.get("lastState", {}).get("terminated", {}).get("exitCode") == 1:
+            print(pod["metadata"]["name"], "--previous")')"
   [ -n "$failed" ] && break
   sleep 2
 done
 [ -n "$failed" ] || { echo "the init container did not fail on the disagreement within 120 s" >&2; exit 1; }
-$k -n "$ns" logs "$failed" -c env-secrets > "$work/init.log" 2>/dev/null \
-  || $k -n "$ns" logs "$failed" -c env-secrets --previous > "$work/init.log"
+# shellcheck disable=SC2086  # "$failed" is the pod's name, then --previous when the failed attempt is the last one
+$k -n "$ns" logs $failed -c env-secrets > "$work/init.log"
 cat "$work/init.log"
 check no-value "$work/init.log"
 named="$(cat "$work/init.log")"
