@@ -1,6 +1,6 @@
 # ADR-0017: A post waiting for its retry is changed in place
 
-**Status:** accepted, 2026-10-27 (owner) · **Epic:** E2 (Git publishing) · **Issue:** #204 · **Supersedes:** ADR-0015's rule for a post waiting for a retry, and its "Open" bullet
+**Status:** accepted, 2026-10-27 (owner) · **Epic:** E2 (Git publishing) · **Issue:** #204 · **Supersedes:** ADR-0015's rule for a post waiting for a retry, and the first half of its "Open" bullet (a schedule-only change to a post a person cancelled is still ignored)
 
 ## Context
 
@@ -30,7 +30,7 @@ ADR-0015 compared a tried post's file time with its `run_at` and needed a `SCHED
 
 - `posts.requested_at`: the time asked for: a Git file's `publish_at`, or a person's scheduled time. NULL for a post asked for "now". Written when the post is made.
 - `posts.not_before`: the earliest the platform allows a send. Written whenever the scheduler re-queues a post it has tried: by a retry (the retry's time) and by recovery's re-send (that moment).
-- An author's change (`PostsRepo.edit_waiting`) sets the content and `requested_at`, and sets `run_at = max(requested_at or now, not_before)`. The attempt count, the post id and `created_at` are kept. The write applies only while the post is still `scheduled` with the attempt count the sync read. If the scheduler claimed it, or tried it again, in between, the sync reports `skipped` and the next sync applies the change.
+- An author's change (`PostsRepo.edit_waiting`) sets the content and `requested_at`, and sets `run_at = max(requested_at or now, the wait)`. The wait is the post's current `run_at` when that is later than the time asked for. Otherwise it is `not_before`: the post waits for the time asked for, because an earlier edit moved it past the wait. A scheduler from before the column (a rolling deploy, a rollback) re-queues a post without writing `not_before`, so a stale `not_before` is never trusted over `run_at`. The attempt count, the post id and `created_at` are kept. The write applies only while the post is still `scheduled` with the attempt count the sync read. If the scheduler claimed it, or tried it again, in between, the sync reports `skipped` and the next sync applies the change.
 - The file's ledger entry takes the new content in the same transaction. If that write fails, the change rolls back.
 - Before the change, the sync checks the connection and the destination (`Publisher.refusal`), as it does for a new post. A refusal leaves both the post and the entry unchanged.
 - Git sync compares a tried post's file time with `requested_at`, so `SCHEDULE_LEAD` no longer takes part in deciding what changed.

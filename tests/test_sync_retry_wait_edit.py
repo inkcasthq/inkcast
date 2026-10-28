@@ -190,7 +190,44 @@ class FindingAnEditThatCannotLandChangesNothing(Waiting):
         self.assertEqual(self.store.get_post(post["id"]), post)
 
 
+class FindingAnEditBeforeTheSyncWritesNothing(Waiting):
+    def test_a_post_a_person_cancelled_during_the_sync_keeps_its_content(self):
+        post = self.waiting()
+        entry = self.entry()
+        real = self.publisher.refusal
+
+        async def cancelled_first(*args, **kwargs):  # the person's cancel lands between the sync's read and its write
+            self.publisher.cancel(self.user, post["id"])
+            return await real(*args, **kwargs)
+
+        with mock.patch.object(self.publisher, "refusal", cancelled_first):
+            raced = self.sync(at(-600), body="Edited.")
+        now = self.store.get_post(post["id"])
+        self.assertEqual((raced.action, now["status"], now["payload"]), ("skipped", "cancelled", post["payload"]))
+        self.assertEqual(self.entry()["content_hash"], entry["content_hash"], "the entry took content never sent")
+
+
 class FindingARowFromBeforeTheColumns(Waiting):
+    def test_a_legacy_row_moved_later_then_back_keeps_its_retry(self):
+        """The first edit records the retry as not_before, so moving the time back finds it."""
+        post = self.waiting()
+        self.store._exec("UPDATE posts SET requested_at = NULL, not_before = NULL WHERE id = ?", post["id"])
+        self.sync(at(WAIT + 600))
+        self.sync(at(WAIT - 100))
+        self.assert_waits(post, post["run_at"])
+
+    def test_a_retry_written_by_a_scheduler_from_before_the_columns_is_kept(self):
+        """A rolling deploy or a rollback: an old scheduler re-queues the post for a longer wait and leaves not_before
+        at the first wait. The edit keeps the longer one."""
+        post = self.waiting()
+        longer = time.time() + 1800
+        self.store._exec("UPDATE posts SET run_at = ?, attempts = 2 WHERE id = ?", longer, post["id"])
+        self.assertEqual(self.sync(at(-600), body="Edited.").action, "update")
+        now = self.store.get_post(post["id"])
+        self.assertAlmostEqual(now["run_at"], longer, delta=1, msg="sent before the old scheduler's wait")
+        self.tick(post["run_at"] + 1)
+        self.assertEqual(self.platform.sent, ["Body."])
+
     def test_a_waiting_post_from_before_the_columns_keeps_its_retry(self):
         """No requested_at and no not_before: its run_at is the retry's. The file reads as changed once (its time is
         compared with nothing), and the edit in place keeps the retry."""

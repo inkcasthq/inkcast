@@ -85,11 +85,16 @@ class PostsRepo(Database):
         nothing changed."""
         now = time.time()
         with self._tx() as c:
-            row = c.execute("SELECT run_at, not_before FROM posts WHERE id = ? AND user_id = ? AND status = 'scheduled'"
-                            " AND attempts = ?", (post_id, user_id, attempts)).fetchone()
+            row = c.execute("SELECT run_at, requested_at, not_before FROM posts WHERE id = ? AND user_id = ?"
+                            " AND status = 'scheduled' AND attempts = ?", (post_id, user_id, attempts)).fetchone()
             if row is None:
                 return None
-            floor = row["not_before"] if row["not_before"] is not None else row["run_at"]
+            # A run_at later than the time asked for is the wait itself. not_before is read only when the post waits
+            # for the time asked for (an earlier edit moved it past the wait), and is otherwise not trusted: a
+            # scheduler from before the column (a rolling deploy, a rollback) re-queues a post without writing it.
+            asked = row["requested_at"]
+            waits_for_asked = asked is not None and abs(row["run_at"] - asked) < 1 and row["not_before"] is not None
+            floor = row["not_before"] if waits_for_asked else row["run_at"]
             run_at = max(now if requested_at is None else requested_at, floor)
             c.execute("UPDATE posts SET title = ?, payload = ?, requested_at = ?, not_before = ?, run_at = ?,"
                       " updated_at = ? WHERE id = ?",
