@@ -31,7 +31,7 @@ inputs:
     description: "'true', 'false', or 'auto' (dry run on pull requests, real sync otherwise)."
     default: auto
   comment:
-    description: On pull requests, comment the dry-run preview (needs `pull-requests: write`).
+    description: "On pull requests, comment the dry-run preview (needs `pull-requests: write`)."
     default: "false"
   fail-on-stale:
     description: Fail when a changed file couldn't be updated because the platform can't edit posts.
