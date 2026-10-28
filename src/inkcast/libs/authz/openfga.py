@@ -285,6 +285,8 @@ def same_model(stored: dict[str, Any], model: dict[str, Any]) -> bool:
 
 
 _EMPTY = (None, "", {}, [])
+# Empty messages whose presence is the meaning: `wildcard` is `type:*`, `this` a directly assignable relation.
+_PRESENT_WHEN_EMPTY = ("wildcard", "this")
 
 
 def _canonical(value: Any) -> Any:
@@ -292,7 +294,7 @@ def _canonical(value: Any) -> Any:
         out = {}
         for key, item in value.items():
             item = _canonical(item)
-            if item not in _EMPTY:
+            if item not in _EMPTY or key in _PRESENT_WHEN_EMPTY:
                 out[key] = item
         return out
     if isinstance(value, list):
