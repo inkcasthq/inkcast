@@ -31,7 +31,7 @@ import sqlite3
 import time
 from datetime import datetime, timezone
 
-from ...libs.content.story import SCHEDULE_LEAD, StoryError, parse_story
+from ...libs.content.story import StoryError, parse_story
 from ...libs.contracts.models import LedgerEntry, SyncRequest, SyncResponse, SyncResult
 from ...libs.db import Store
 from ...libs.db.ledger import CLAIM_TTL
@@ -165,14 +165,12 @@ class GitSync:
         if post and post["status"] == "scheduled":  # not sent yet: the schedule time matters too
             wanted = story.publish_at.timestamp() if story.publish_at else None  # the time as written (ADR-0015)
             if post["attempts"]:
-                # A post the scheduler has tried waits for its retry (INKCAST_PUBLISH_RETRY_DELAYS): its run_at is the
-                # retry's, so only a new time still ahead in the file is a change. A time that has passed, or is under
-                # SCHEDULE_LEAD away, has not changed: it is the file's own, which the scheduler passed when it tried
-                # the post (the lead is the tolerance between its clock and this one). A time later than the retry is
-                # a change however near: the retry would send the post before it (ADR-0015).
-                ahead = wanted is not None and (wanted >= time.time() + SCHEDULE_LEAD.total_seconds() or
-                                                wanted > post["run_at"])
-                schedule_changed = ahead and abs(post["run_at"] - wanted) >= 1
+                # A post the scheduler has tried waits for its retry: its run_at is the retry's, so compare with the
+                # time it was asked for (None: now). A row from before requested_at has none, and reads as changed
+                # once if the file has a time: the edit in place keeps its retry, so nothing is sent sooner (#204).
+                asked = post["requested_at"]
+                schedule_changed = (wanted is None) != (asked is None) or \
+                    (wanted is not None and asked is not None and abs(asked - wanted) >= 1)
             else:
                 # Not tried yet: its run_at is the time the file asked for. Compare with that, whatever the clock: in
                 # the minutes before it, or once it has passed (the scheduler behind), an unchanged file has not
@@ -185,6 +183,9 @@ class GitSync:
                 self.store.put_entry(user_id, src, path, pid, message=None)
             return SyncResult(**base, action="unchanged", status=entry["status"], post_id=entry["post_id"],
                               url=entry["url"])
+
+        if post and post["status"] == "scheduled" and post["attempts"]:
+            return await self._edit_waiting(user_id, req, path, platform, prepared, digest, post, story)
 
         if post and post["status"] == "scheduled":  # not sent yet: replace what will be sent
             if req.dry_run:
@@ -243,6 +244,37 @@ class GitSync:
                              remote_id=o.remote_id or entry["remote_id"], message=None)
         return SyncResult(**base, action="update", status=o.status, post_id=entry["post_id"], url=o.url or entry["url"],
                           message="; ".join(o.notes) or None)
+
+    async def _edit_waiting(self, user_id: str, req: SyncRequest, path: str, platform: Platform, prepared: Prepared,
+                            digest: str, post: dict, story) -> SyncResult:
+        """A changed file whose post the scheduler has tried and that waits for its retry (#204, ADR-0017): the post is
+        changed in place, never replaced. A replacement was a new post, untried and due at the file's time, which has
+        passed: it went out at the next tick, before the platform's Retry-After, and its attempts started again.
+        In place, the post keeps its attempts and the platform's wait (``PostsRepo.edit_waiting``) and takes the new
+        content and time; the file's entry takes the new content in the same transaction."""
+        src, pid = req.source, platform.id
+        base = {"path": path, "platform": pid}
+        wanted = story.publish_at.timestamp() if story.publish_at else None
+        if req.dry_run:
+            return SyncResult(**base, action="update", status="scheduled", post_id=post["id"], preview=prepared.preview,
+                              message="Would change the post that waits for its retry, keeping the retry.")
+        refused = await self.publisher.refusal(user_id, story, platform, prepared, retry=True)
+        if refused is not None:  # the waiting post and the entry stay as they are; the next sync tries again
+            return SyncResult(**base, action=refused.status, status="scheduled", post_id=post["id"], message=refused.message)
+
+        def record(c: sqlite3.Connection) -> None:
+            self.publisher.store.put_entry_in(c, user_id, src, path, pid, content_hash=digest, status="scheduled",
+                                              post_id=post["id"], message=None)
+
+        run_at = self.publisher.store.edit_waiting(post["id"], user_id, attempts=post["attempts"], title=prepared.title,
+                                                   payload=prepared.to_dict(), requested_at=wanted, also=record)
+        if run_at is None:  # the scheduler claimed it, or tried it again, since this sync read it
+            return SyncResult(**base, action="skipped", status="scheduled", post_id=post["id"],
+                              message="The scheduled post changed state during this sync; run the sync again.")
+        when = datetime.fromtimestamp(run_at, timezone.utc).isoformat(timespec="seconds")
+        waits = run_at - (time.time() if wanted is None else wanted) >= 1
+        return SyncResult(**base, action="update", status="scheduled", post_id=post["id"], message=(
+            f"It waits for the retry of its last send to {platform.name}: it goes out at {when}." if waits else None))
 
     async def _create(self, user_id: str, req: SyncRequest, path: str, story, platform: Platform, prepared: Prepared,
                       digest: str, entry: dict | None, replace: bool = False,

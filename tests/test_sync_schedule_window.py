@@ -93,7 +93,8 @@ class Window(unittest.TestCase):
         """Time passes until ``seconds_before`` seconds before the post's time: the post's time and the file's
         ``publish_at`` are the same value, now that far ahead (negative: that far behind, the scheduler late)."""
         when = at(seconds_before)
-        self.store._exec("UPDATE posts SET run_at = ? WHERE id = ?", when.timestamp(), post_id)
+        self.store._exec("UPDATE posts SET run_at = ?, requested_at = ? WHERE id = ?", when.timestamp(), when.timestamp(),
+                         post_id)
         return when
 
     def posts(self) -> list[dict]:

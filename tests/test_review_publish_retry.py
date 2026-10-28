@@ -75,15 +75,18 @@ class GitSyncFollowsTheRetryPolicy(unittest.TestCase):
         due = datetime.now(timezone.utc) + timedelta(days=2)
         created = self.sync(story(due))
         self.assertEqual((created.action, created.status), ("create", "scheduled"))
-        # Its time comes: the scheduler sends it, the platform answers 429, and the post waits 6 h for its retry.
-        self.store._exec("UPDATE posts SET run_at = ? WHERE id = ?", time.time() - 1, created.post_id)
+        # Its time comes (an hour ago, here): the scheduler sends it, the platform answers 429, and the post waits 6 h
+        # for its retry. The file's time and the post's are the same value, now past.
+        passed = (datetime.now(timezone.utc) - timedelta(hours=1)).replace(microsecond=0)
+        self.store._exec("UPDATE posts SET run_at = ?, requested_at = ? WHERE id = ?", passed.timestamp(),
+                         passed.timestamp(), created.post_id)
         asyncio.run(self.publisher.run_due())
         post = self.store.get_post(created.post_id)
         self.assertEqual((self.platform.sends, post["status"], post["attempts"]), (1, "scheduled", 1))
         self.assertAlmostEqual(post["run_at"] - time.time(), 21600, delta=60)
 
-        # A CI run an hour later: the same file, its publish_at now past (here written as the past it has become).
-        again = self.sync(story(datetime.now(timezone.utc) - timedelta(hours=1)))
+        # A CI run during the wait: the same file, its publish_at past.
+        again = self.sync(story(passed))
         self.assertEqual(self.platform.sends, 1, "the sync sent the post at once, hours before its retry")
         self.assertEqual((again.action, again.status, again.post_id), ("unchanged", "scheduled", created.post_id))
         post = self.store.get_post(created.post_id)
@@ -91,7 +94,8 @@ class GitSyncFollowsTheRetryPolicy(unittest.TestCase):
         self.assertAlmostEqual(post["run_at"] - time.time(), 21600, delta=60)
 
     def test_a_new_date_in_the_file_still_reschedules_a_post_waiting_for_its_retry(self):
-        """What the fix keeps: moving publish_at to a new future time is a change, retry or not."""
+        """What the fix keeps: moving publish_at to a new future time is a change, retry or not. The waiting post takes
+        it in place, keeping its attempts (#204)."""
         created = self.sync(story(datetime.now(timezone.utc) + timedelta(days=2)))
         self.store._exec("UPDATE posts SET run_at = ? WHERE id = ?", time.time() - 1, created.post_id)
         asyncio.run(self.publisher.run_due())
@@ -100,7 +104,8 @@ class GitSyncFollowsTheRetryPolicy(unittest.TestCase):
         self.assertEqual((moved.action, moved.status, self.platform.sends), ("update", "scheduled", 1))
         self.assertAlmostEqual(self.store.get_post(moved.post_id)["run_at"], later.replace(microsecond=0).timestamp(),
                                delta=1)
-        self.assertEqual(self.store.get_post(created.post_id)["status"], "cancelled")
+        self.assertEqual(moved.post_id, created.post_id)
+        self.assertEqual(self.store.get_post(created.post_id)["attempts"], 1)
 
 
 def doc_section(path: str, heading: str) -> str:

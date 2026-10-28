@@ -20,6 +20,7 @@ Each ADR records one significant decision: the context, the options considered, 
 | [0014](0014-postgresql-on-cloudnativepg.md) | PostgreSQL on CloudNativePG: replicas, WAL archiving and point-in-time recovery, PgBouncer; SQLite backups as the stopgap | Accepted |
 | [0015](0015-publish-at-is-always-scheduled.md) | A Git file's `publish_at` is always a scheduled post at the time as written; nothing is sent before it; only a file with no `publish_at` is a "now" post | Accepted |
 | [0016](0016-mockup-standard-and-frontend-targets.md) | One mockup standard (tokens, state, typed data, section types, checks); React + TypeScript for Inkcast, Preact + TypeScript for embedded pages | Accepted |
+| [0017](0017-a-post-waiting-for-its-retry-is-changed-in-place.md) | A post waiting for its retry is changed in place; the post records the time asked for (`requested_at`) and the platform's wait (`not_before`) | Accepted |
 
 ---
 <!-- inkcast-nav -->

@@ -114,7 +114,7 @@ class FindingARetryWaitNeverSendsBeforeANewTime(Review):
         self.assertEqual(self.platform.sends, 1, "sent at the retry, before the time the file asks for")
         asyncio.run(self.publisher.run_due(now=later.timestamp() + 1))
         self.assertEqual(self.platform.sends, 2)
-        self.assertEqual([p["status"] for p in self.posts()], ["cancelled", "published"], "one send, no twin")
+        self.assertEqual([p["status"] for p in self.posts()], ["published"], "one send, no twin; changed in place (#204)")
 
 
 class FindingAReplacementCutOffIsNotLost(Review):
@@ -185,8 +185,8 @@ class Measured(Review):
     def behind(self, post_id: str, seconds: float) -> datetime:
         """The post was scheduled a day ahead; its time passed ``seconds`` ago and the scheduler has not sent it."""
         when = at(-seconds)
-        self.store._exec("UPDATE posts SET run_at = ?, created_at = ? WHERE id = ?", when.timestamp(),
-                         when.timestamp() - 86400, post_id)
+        self.store._exec("UPDATE posts SET run_at = ?, requested_at = ?, created_at = ? WHERE id = ?", when.timestamp(),
+                         when.timestamp(), when.timestamp() - 86400, post_id)
         return when
 
     def lag_of_the_send(self) -> float:

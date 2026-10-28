@@ -106,25 +106,10 @@ class Publisher:
         group = "grp_" + uuid.uuid4().hex[:10]
         for prepared in ready:
             platform = self.platforms[prepared.platform]
-            connected = self.store.get_credentials(user_id, platform.id)
-            if not connected:
-                help_text = platform.not_connected_help(story.for_platform(platform.id))
-                outcomes.append(Outcome(platform.id, "skipped", message=(
-                    f"{platform.name} isn't connected. Use inkcast_connect to add it."
-                    + (f" {help_text}" if help_text else "")
-                )))
+            refused = await self.refusal(user_id, story, platform, prepared, retry=retry)
+            if refused is not None:
+                outcomes.append(refused)
                 continue
-            creds, account = connected
-            # Resolve destinations up front so a typo fails now, not at 3am.
-            try:
-                if prepared.destination:
-                    await platform.resolve_destination(creds, Account.from_dict(account), prepared.destination)
-            except PlatformError as exc:
-                # A lookup that will pass (a 429) is no typo: when asked to retry, the send resolves it again, and
-                # its retryable failure goes to the scheduler under the policy and the Retry-After (#188).
-                if not (retry and getattr(exc, "retryable", False)):
-                    outcomes.append(Outcome(platform.id, "failed", message=str(exc)))
-                    continue
 
             run_at = story.publish_at.timestamp() if story.publish_at else time.time()
             post_id = self.store.create_post(
@@ -138,6 +123,29 @@ class Publisher:
                 outcomes.append(await self._send(post_id, user_id, platform, prepared, attempts=1, retry=retry, held=0))
         order = {pid: i for i, pid in enumerate(platform_ids)}
         return sorted(outcomes, key=lambda o: order.get(o.platform, 99))
+
+    async def refusal(self, user_id: str, story: Story, platform: Platform, prepared: Prepared,
+                      retry: bool = False) -> Outcome | None:
+        """Why ``prepared`` can't go to ``platform``: not connected ('skipped'), or a destination that doesn't resolve
+        ('failed'). None when it can. Checked before a post is made, and before Git sync changes a post waiting for its
+        retry (#204), so a typo fails now, not at 3am. ``retry`` as for ``publish``."""
+        connected = self.store.get_credentials(user_id, platform.id)
+        if not connected:
+            help_text = platform.not_connected_help(story.for_platform(platform.id))
+            return Outcome(platform.id, "skipped", message=(
+                f"{platform.name} isn't connected. Use inkcast_connect to add it."
+                + (f" {help_text}" if help_text else "")
+            ))
+        creds, account = connected
+        try:
+            if prepared.destination:
+                await platform.resolve_destination(creds, Account.from_dict(account), prepared.destination)
+        except PlatformError as exc:
+            # A lookup that will pass (a 429) is no typo: when asked to retry, the send resolves it again, and
+            # its retryable failure goes to the scheduler under the policy and the Retry-After (#188).
+            if not (retry and getattr(exc, "retryable", False)):
+                return Outcome(platform.id, "failed", message=str(exc))
+        return None
 
     async def _send(self, post_id: str, user_id: str, platform: Platform, prepared: Prepared, attempts: int,
                     scheduled: bool = False, lag: float | None = None, retry: bool = False, held: int = 0) -> Outcome:
@@ -205,8 +213,10 @@ class Publisher:
                 # worker took the post over meanwhile, its recovery decides (and may have sent it already). "Still
                 # this send's" is the status and the attempt count (``held``): that worker's re-send holds the post
                 # as 'publishing' too, one attempt on, and a late failure written over it would queue a third (#226).
+                # not_before: the wait an author's edit during it keeps (``PostsRepo.edit_waiting``, #204).
+                after = time.time() + delay
                 written = self.store.update_post(
-                    post_id, status="scheduled", run_at=time.time() + delay, attempts=attempts, error=f"retrying: {exc}",
+                    post_id, status="scheduled", run_at=after, not_before=after, attempts=attempts, error=f"retrying: {exc}",
                     only_if="publishing", if_attempts=held,
                     events=self._event("post.scheduled", post_id, user_id, platform.id, retry=attempts))
                 if written:
@@ -375,7 +385,9 @@ class Publisher:
                                              **fence)
             outcome = Outcome(platform.id, "unconfirmed", post_id=post_id, message=message)
         elif found.status == "missing":
-            written = self.store.update_post(post_id, status="scheduled", run_at=time.time(), events=recovered("scheduled"),
+            again = time.time()
+            written = self.store.update_post(post_id, status="scheduled", run_at=again, not_before=again,
+                                             events=recovered("scheduled"),
                                              error=f"Interrupted before {platform.name} received it; sending again.",
                                              **fence)
             outcome = Outcome(platform.id, "scheduled", post_id=post_id, message="Interrupted; sending again.")

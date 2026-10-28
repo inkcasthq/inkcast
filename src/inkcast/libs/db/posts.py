@@ -38,7 +38,12 @@ UPDATE posts SET status = 'unconfirmed' WHERE status = 'unknown';
 # inkcast_posts_recovering_oldest_age_seconds gauge (the InkcastPostRecoveringTooLong alert), and
 # INKCAST_PUBLISH_RECOVERY_MAX_HOURS is measured from it (#216). NULL on a row from before the column: counted from its
 # last change until the next stuck pass sets it, from the row's run_at (the earliest its send can have begun).
-COLUMNS = (("posts", "recovering_since", "REAL"),)
+# requested_at: the time the post was asked for (a Git file's publish_at, a person's scheduled time); NULL for a post
+# asked for "now". not_before: the earliest the platform allows it again, written whenever the scheduler re-queues a
+# post it has tried (a retry after a 429's Retry-After, or recovery's re-send). A post waiting for its retry has
+# run_at = max(requested_at, not_before), so an author's change keeps both (``edit_waiting``, #204, ADR-0017).
+# A tried row from before the columns has neither: its run_at is the retry's, and is read as its not_before.
+COLUMNS = (("posts", "recovering_since", "REAL"), ("posts", "requested_at", "REAL"), ("posts", "not_before", "REAL"))
 
 
 class PostsRepo(Database):
@@ -57,15 +62,41 @@ class PostsRepo(Database):
                               attrs={"platform": platform, "run_at": run_at})] if status == "scheduled" else []
         with self._tx() as c:
             c.execute(
-                "INSERT INTO posts (id, group_id, user_id, platform, title, status, run_at, payload, created_at, updated_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (post_id, group_id, user_id, platform, title, status, run_at, json.dumps(payload),
-                 now if created_at is None else created_at, now),
+                "INSERT INTO posts (id, group_id, user_id, platform, title, status, run_at, requested_at, payload,"
+                " created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (post_id, group_id, user_id, platform, title, status, run_at, run_at if status == "scheduled" else None,
+                 json.dumps(payload), now if created_at is None else created_at, now),
             )
             insert_events(c, events)
             if on_created:
                 on_created(post_id)
         return post_id
+
+    def edit_waiting(self, post_id: str, user_id: str, *, attempts: int, title: str, payload: dict[str, Any],
+                     requested_at: float | None, also: Callable[[sqlite3.Connection], None] | None = None) -> float | None:
+        """An author's change to a post the scheduler has tried and that waits for its retry (#204, ADR-0017): the
+        same row takes the new content and the new requested time, and keeps its attempt count and the platform's
+        wait. Its run_at becomes the later of the time asked for (now, for None) and ``not_before``, so the change
+        never sends it before the time written nor before the platform allows.
+
+        Only while it is still 'scheduled' with ``attempts`` sends: the scheduler may have claimed it since the caller
+        read it, or tried it again and set a later wait. ``also`` runs on the transaction's connection when the post
+        changed (Git sync's ledger entry): if it raises, the change rolls back with it. The new run_at, or None when
+        nothing changed."""
+        now = time.time()
+        with self._tx() as c:
+            row = c.execute("SELECT run_at, not_before FROM posts WHERE id = ? AND user_id = ? AND status = 'scheduled'"
+                            " AND attempts = ?", (post_id, user_id, attempts)).fetchone()
+            if row is None:
+                return None
+            floor = row["not_before"] if row["not_before"] is not None else row["run_at"]
+            run_at = max(now if requested_at is None else requested_at, floor)
+            c.execute("UPDATE posts SET title = ?, payload = ?, requested_at = ?, not_before = ?, run_at = ?,"
+                      " updated_at = ? WHERE id = ?",
+                      (title, json.dumps(payload), requested_at, floor, run_at, now, post_id))
+            if also is not None:
+                also(c)
+        return run_at
 
     def update_post(self, post_id: str, events: Iterable[DomainEvent] | None = None, only_if: str | None = None,
                     unless: str | None = None, if_attempts: int | None = None, unless_found_at: int | None = None,

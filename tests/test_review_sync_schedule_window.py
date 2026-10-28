@@ -87,7 +87,8 @@ class Window(unittest.TestCase):
 
     def clock_reaches(self, post_id: str, seconds_before: float) -> datetime:
         when = at(seconds_before)
-        self.store._exec("UPDATE posts SET run_at = ? WHERE id = ?", when.timestamp(), post_id)
+        self.store._exec("UPDATE posts SET run_at = ?, requested_at = ? WHERE id = ?", when.timestamp(), when.timestamp(),
+                         post_id)
         return when
 
     def posts(self) -> list[dict]:
