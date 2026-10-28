@@ -5,11 +5,14 @@
 # the OpenFGA Deployment and Services, and the egress rule that lets Inkcast's pods reach it. Every image is pinned
 # by digest (scripts/images.py), so an air-gapped registry mirrors exactly these.
 #
-# What it sets on Inkcast: the engine, the server's URL and where the preshared key is read from. The key is one
-# more entry in the `inkcast-secrets` Secret (`fga-api-token`): Inkcast reads it as INKCAST_FGA_API_TOKEN_FILE and
-# OpenFGA as OPENFGA_AUTHN_PRESHARED_KEYS, so both sides hold the same value. The store and model ids are pinned per
-# deployment (overlays/kubernetes, overlays/openshift and the environments carry the literals), written once by
-# `inkcast authz write-model` (README, Hosted §2); until they are pinned Inkcast refuses to start and names them.
+# What it sets on Inkcast: the engine, the server's URL, where the preshared key is read from, and the store's name.
+# The key is one more entry in the `inkcast-secrets` Secret (`fga-api-token`): Inkcast reads it as
+# INKCAST_FGA_API_TOKEN_FILE and OpenFGA as OPENFGA_AUTHN_PRESHARED_KEYS, so both sides hold the same value. The store
+# and the model version are written by the deployment itself (E3.F3.9.S6, issue #315): the Job inkcast-authz-model
+# (authz-model.yaml) runs `inkcast authz write-model` with the release's image on every apply, and Inkcast's pods pin,
+# at start-up, the store INKCAST_FGA_STORE_NAME names and its version equal to the packaged model, refusing to start
+# (naming the Job) until it has written them. One OpenFGA per namespace, so the name is the default, `inkcast`.
+# Explicit INKCAST_FGA_STORE_ID and INKCAST_FGA_MODEL_ID in an overlay or environment still win when both are set.
 #
 # The ingress side (only Inkcast's pods may reach OpenFGA) and credentials from the secrets store are E3.F3.9.S2.
 apiVersion: kustomize.config.k8s.io/v1alpha1
@@ -20,6 +23,7 @@ resources:
   - deployment.yaml
   - service.yaml
   - networkpolicy.yaml
+  - authz-model.yaml
 configMapGenerator:
   - name: inkcast-config
     behavior: merge
@@ -27,3 +31,4 @@ configMapGenerator:
       - INKCAST_AUTHZ_ENGINE=openfga
       - INKCAST_FGA_API_URL=http://openfga:8080
       - INKCAST_FGA_API_TOKEN_FILE=/var/run/secrets/inkcast/fga-api-token
+      - INKCAST_FGA_STORE_NAME=inkcast

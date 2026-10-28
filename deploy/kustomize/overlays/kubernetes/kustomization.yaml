@@ -9,16 +9,11 @@ resources:
   - namespace.yaml
   - ../../base
   - httproute.yaml
-configMapGenerator:
-  # OpenFGA's store and the pinned model version (components/openfga sets the engine and the server's URL): write
-  # them once with `inkcast authz write-model` and pin both here. Until then Inkcast refuses to start and names them.
-  # A self-host that keeps the in-process engine instead leaves the component out and sets
-  # INKCAST_AUTHZ_ENGINE=local with INKCAST_AUTHZ_ALLOW_LOCAL=true (README, Hosted §2).
-  - name: inkcast-config
-    behavior: merge
-    literals:
-      - INKCAST_FGA_STORE_ID=
-      - INKCAST_FGA_MODEL_ID=
+# OpenFGA's store and model version need no pinning here: the component's Job inkcast-authz-model writes them on
+# every apply, and Inkcast pins the version equal to its packaged model at start-up (E3.F3.9.S6). To hold a
+# specific version instead, merge INKCAST_FGA_STORE_ID and INKCAST_FGA_MODEL_ID into inkcast-config: both set, they
+# win. A self-host that keeps the in-process engine leaves the component out and sets INKCAST_AUTHZ_ENGINE=local
+# with INKCAST_AUTHZ_ALLOW_LOCAL=true (README, Hosted §2).
 components:
   - ../../components/openfga            # permission checks: OpenFGA on CloudNativePG (E3.F3.9.S1)
   - ../../components/servicemonitor
@@ -50,6 +45,17 @@ patches:
         value: 1001
       - op: add
         path: /spec/jobTemplate/spec/template/spec/securityContext/fsGroup
+        value: 1001
+  - target: {kind: Job, name: inkcast-authz-model}   # the same uid as the server, and the group that reads the mounted key
+    patch: |-
+      - op: add
+        path: /spec/template/spec/securityContext/runAsUser
+        value: 1001
+      - op: add
+        path: /spec/template/spec/securityContext/runAsGroup
+        value: 1001
+      - op: add
+        path: /spec/template/spec/securityContext/fsGroup
         value: 1001
   - target: {kind: NetworkPolicy, name: inkcast}
     patch: |-

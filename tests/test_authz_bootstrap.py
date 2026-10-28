@@ -93,9 +93,16 @@ class StartUp(FakeOpenFga):
         self.assertEqual(pinned.authz_engine, "openfga")
         self.assertEqual(self.calls(), [("GET", "stores"), ("GET", f"stores/{store_id}/authorization-models")],
                          "reads only: start-up never creates a store or writes a model")
-        engine = build_engine(pinned, None, httpx2.AsyncClient(), Metrics())
+        http = httpx2.AsyncClient()
+        engine = build_engine(pinned, None, http, Metrics())
         self.assertEqual((engine.name, engine.engine.store_id, engine.engine.model_id), ("openfga", store_id, model_id))
-        self.assertIsNone(run(engine.ready()), "the pinned version is what readiness checks")
+
+        async def ready_then_close():
+            try:
+                return await engine.ready()
+            finally:
+                await http.aclose()
+        self.assertIsNone(run(ready_then_close()), "the pinned version is what readiness checks")
         self.assertEqual(self.fakes.fga_stores, {store_id: "inkcast"})
         self.assertEqual(len(self.fakes.fga_models[store_id]), 1)
 

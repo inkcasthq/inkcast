@@ -2,20 +2,23 @@
 # Copyright 2026 ScalarOps Technologies LLC
 """``inkcast authz write-model`` (E3.F3.9.S1, issue #279): the store and the model version a deployment pins.
 
-    inkcast authz write-model                       # the packaged model, the store named "inkcast"
+    inkcast authz write-model                       # the packaged model, the store INKCAST_FGA_STORE_NAME names
     inkcast authz write-model --store NAME --model PATH
 
-Reads ``INKCAST_FGA_API_URL`` and the preshared key ``INKCAST_FGA_API_TOKEN`` (or ``_FILE``) through the secrets
-design, nothing else: not the store or model ids, which are what it produces. Creates the store when no store of
-that name exists; writes the model as a new version unless the store's newest version already is this model
-(``same_model``), so a second run changes nothing. Prints, on stdout and nothing else there::
+Reads ``INKCAST_FGA_API_URL``, the store's name ``INKCAST_FGA_STORE_NAME`` (``inkcast`` when unset; ``--store``
+wins) and the preshared key ``INKCAST_FGA_API_TOKEN`` (or ``_FILE``) through the secrets design, nothing else: not
+the store or model ids, which are what it produces. Creates the store when no store of that name exists; writes the
+model as a new version unless the store's newest version already is this model (``same_model``), so a second run
+changes nothing. Prints, on stdout and nothing else there::
 
     INKCAST_FGA_STORE_ID=01...
     INKCAST_FGA_MODEL_ID=01...
 
-so ``eval "$(inkcast authz write-model)"`` or a pull request can pin both (docs/authorization.md §8). What happened
-(store created or found, model written or unchanged) goes to stderr. The key is never printed. Exit 0 when the ids
-are printed, 1 on a configuration or OpenFGA problem, with the reason on stderr.
+so ``eval "$(inkcast authz write-model)"`` or a pull request can pin both (docs/authorization.md §8). The deployment
+runs it as the Job ``inkcast-authz-model`` on every apply (E3.F3.9.S6, components/openfga/authz-model.yaml), and the
+pods pin the same store and version by name at start-up, so nothing is pinned by hand. What happened (store created
+or found, model written or unchanged) goes to stderr. The key is never printed. Exit 0 when the ids are printed, 1
+on a configuration or OpenFGA problem, with the reason on stderr.
 """
 
 from __future__ import annotations
@@ -46,7 +49,8 @@ def authz_main(argv: list[str], environ: Mapping[str, str] | None = None, out: A
     commands = parser.add_subparsers(dest="command", required=True)
     write = commands.add_parser("write-model", help="create the store if it is missing, write the model once, and print "
                                                     "INKCAST_FGA_STORE_ID and INKCAST_FGA_MODEL_ID to pin")
-    write.add_argument("--store", default=DEFAULT_STORE, metavar="NAME", help=f"the store's name (default: {DEFAULT_STORE})")
+    write.add_argument("--store", default=None, metavar="NAME",
+                       help=f"the store's name (default: INKCAST_FGA_STORE_NAME, or {DEFAULT_STORE})")
     write.add_argument("--model", default=None, metavar="PATH",
                        help="a compiled model (authz/model.json) to write instead of the packaged one")
     args = parser.parse_args(argv)
@@ -61,10 +65,11 @@ def authz_main(argv: list[str], environ: Mapping[str, str] | None = None, out: A
         print(f"inkcast authz: {exc}", file=err)
         return 1
     admin = OpenFgaAdmin(url, token, http=http, timeout=timeout)
+    store_name = args.store or settings.get("INKCAST_FGA_STORE_NAME", "").strip() or DEFAULT_STORE   # one name for the Job and the pods
 
     async def run() -> tuple[str, str, list[str]]:
         try:
-            return await _write_model(admin, args.store, model)
+            return await _write_model(admin, store_name, model)
         finally:
             if http is None:   # the client this command opened closes on the loop that used it
                 await admin.http.aclose()

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping
 from urllib.parse import urlparse
@@ -42,6 +43,12 @@ SECRET_SETTINGS: dict[str, str] = {
     "INKCAST_FGA_API_TOKEN": "authz",  # OpenFGA's preshared key, when INKCAST_AUTHZ_ENGINE=openfga (E3.F3.6)
 }
 AUTHZ_ENGINES = ("local", "openfga")
+# The Job that creates the OpenFGA store and writes the packaged model on each release (E3.F3.9.S6,
+# deploy/kustomize/components/openfga/authz-model.yaml): named in the refusals that wait for it.
+AUTHZ_MODEL_JOB = "inkcast-authz-model"
+# OpenFGA's store-name rule (openfga/api openfga_service.proto, CreateStoreRequest.name and ListStoresRequest.name),
+# applied to INKCAST_FGA_STORE_NAME at start-up so a name the server would refuse is named here, before any call.
+FGA_STORE_NAME = re.compile(r"[a-zA-Z0-9\s.\-/^_&@]{3,64}", re.ASCII)
 DAYS_OR_OFF_RULE = "{name} must be a whole number of days, 0 or more, or 'off' (got {got!r})."
 # The publish retry policy (F1.10.S1, issue #89): sends in all, and the seconds between them. The 30 s floor is
 # there because a 429 means "slow down"; the ceiling (6 h) and the count keep the whole window a few days at most.
@@ -708,6 +715,9 @@ class Config:
     fga_api_url: str = ""
     fga_store_id: str = ""
     fga_model_id: str = ""  # every deploy pins a model version; a change is a new version, never an edit
+    # INKCAST_FGA_STORE_NAME (E3.F3.9.S6): with both ids unset, start-up resolves the store by this name and pins
+    # the version equal to the packaged model (libs/authz pin_model), refusing to start until the Job has written it.
+    fga_store_name: str = ""
     fga_api_token: SecretValue = SecretValue("")  # preshared-key bearer auth; empty when OpenFGA runs without one
     fga_timeout_seconds: float = 5.0
     extra_allowed_hosts: tuple[str, ...] = ()
@@ -876,13 +886,27 @@ class Config:
             return [f"INKCAST_AUTHZ_ENGINE must be one of {', '.join(AUTHZ_ENGINES)} (got {self.authz_engine!r})."]
         if self.authz_engine == "openfga":
             # Each missing one by name: a deployment whose ids are not pinned yet (E3.F3.9.S1) must read what to pin.
-            missing = [name for name, value in (("INKCAST_FGA_API_URL", self.fga_api_url),
-                                                ("INKCAST_FGA_STORE_ID", self.fga_store_id),
-                                                ("INKCAST_FGA_MODEL_ID", self.fga_model_id)) if not value]
+            # The store name (E3.F3.9.S6) stands in for the pair of ids, never for half of it: with both unset, the
+            # pod resolves them at start-up (libs/authz pin_model); explicit ids win and are not looked up.
+            missing = ["INKCAST_FGA_API_URL"] if not self.fga_api_url else []
+            unset = [name for name, value in (("INKCAST_FGA_STORE_ID", self.fga_store_id),
+                                              ("INKCAST_FGA_MODEL_ID", self.fga_model_id)) if not value]
+            if len(unset) == 1 or (unset and not self.fga_store_name):
+                missing += unset
             if missing:
                 names = missing[0] if len(missing) == 1 else ", ".join(missing[:-1]) + " and " + missing[-1]
+                if len(unset) == 2 and not self.fga_store_name:
+                    how = (f" Or set INKCAST_FGA_STORE_NAME instead of both ids: the {AUTHZ_MODEL_JOB} Job writes the "
+                           "packaged model to that store, and start-up pins the version equal to it.")
+                elif len(unset) == 1 and self.fga_store_name:
+                    how = " INKCAST_FGA_STORE_NAME stands in for the pair only, with both ids unset."
+                else:
+                    how = ""
                 problems.append(f"INKCAST_AUTHZ_ENGINE=openfga needs {names} (the server, the store and the pinned "
-                                "model version; `inkcast authz write-model` prints the store and model ids).")
+                                f"model version; `inkcast authz write-model` prints the store and model ids).{how}")
+            if self.fga_store_name and not FGA_STORE_NAME.fullmatch(self.fga_store_name):
+                problems.append("INKCAST_FGA_STORE_NAME must be 3 to 64 characters of letters, digits, spaces and "
+                                ". - / ^ _ & @ (OpenFGA's store-name rule).")
             if self.fga_api_url and urlparse(self.fga_api_url).scheme not in ("http", "https"):
                 problems.append("INKCAST_FGA_API_URL must be an http(s) URL.")
             if not 0 < self.fga_timeout_seconds < float("inf"):  # also nan, which httpx2 reads as "no timeout"
@@ -1005,6 +1029,7 @@ def load_config(environ: Mapping[str, str] | None = None) -> Config:
         fga_api_url=env.get("INKCAST_FGA_API_URL").rstrip("/"),
         fga_store_id=env.get("INKCAST_FGA_STORE_ID"),
         fga_model_id=env.get("INKCAST_FGA_MODEL_ID"),
+        fga_store_name=env.get("INKCAST_FGA_STORE_NAME").strip(),
         # Asked for only when OpenFGA is the engine: no credential is fetched that nothing uses.
         fga_api_token=secret("INKCAST_FGA_API_TOKEN") if authz_engine == "openfga" else SecretValue(""),
         fga_timeout_seconds=env.float("INKCAST_FGA_TIMEOUT", "5"),

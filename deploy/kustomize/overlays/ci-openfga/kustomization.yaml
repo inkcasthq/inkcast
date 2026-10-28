@@ -1,8 +1,9 @@
 # Used only by CI (kind): the CI overlay plus the OpenFGA component (E3.F3.9.S1), in its own namespace so the other
 # kind steps keep the in-process engine. Proves, through scripts/dev/openfga-e2e.sh, that the component applies
-# under Pod Security "restricted", the migrate Job completes, Inkcast refuses to start until the store and model
-# ids are pinned (naming them), `inkcast authz write-model` writes them once, and readiness passes against OpenFGA.
-# The CloudNativePG operator is installed first (scripts/versions.env). The end-to-end suite on OpenFGA is F3.9.S3.
+# under Pod Security "restricted", the migrate Job completes, the Job inkcast-authz-model writes the store and the
+# model with no manual step, Inkcast pins them by name and rolls out on its own with readiness passing against
+# OpenFGA, and a second apply runs the Job again, which changes nothing (E3.F3.9.S6). The CloudNativePG operator is
+# installed first (scripts/versions.env). The end-to-end suite on OpenFGA is F3.9.S3.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: inkcast-openfga
@@ -27,15 +28,23 @@ configMapGenerator:
       - INKCAST_ENV=ci                  # the throwaway key below would fail the production posture checks
       - INKCAST_LOGIN=password
       - INKCAST_PASSWORD_FILE=/var/run/secrets/inkcast/password
-      # Pinned by the script after `inkcast authz write-model`; empty here so the refusal is what CI sees first.
-      - INKCAST_FGA_STORE_ID=
-      - INKCAST_FGA_MODEL_ID=
 images:
   - name: ghcr.io/inkcasthq/inkcast
     newName: inkcast
     newTag: ci
 patches:
   - target: {kind: Deployment, name: inkcast}
+    patch: |-
+      - op: add
+        path: /spec/template/spec/securityContext/runAsUser
+        value: 1001
+      - op: add
+        path: /spec/template/spec/securityContext/fsGroup
+        value: 1001
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never
+  - target: {kind: Job, name: inkcast-authz-model}   # the image loaded into kind, as the server's; the same uid and group
     patch: |-
       - op: add
         path: /spec/template/spec/securityContext/runAsUser

@@ -15,13 +15,15 @@ not in error messages.
 
 ``OpenFgaAdmin`` (E3.F3.9.S1) is the operator's side of the same API, for ``inkcast authz write-model``: the store
 by name (``GET /stores?name=``, ``POST /stores``) and the model versions of a store (``GET`` and ``POST``
-``/stores/{id}/authorization-models``), over the same transport and the same key.
+``/stores/{id}/authorization-models``), over the same transport and the same key. ``resolve_pinned_model``
+(E3.F3.9.S6) is a pod's read-only side of it at start-up: the store by name and the version equal to the packaged
+model, or a named refusal until the ``inkcast-authz-model`` Job has written them.
 """
 
 from __future__ import annotations
 
 import time
-from typing import Any, Iterable, Sequence
+from typing import Any, AsyncIterator, Iterable, Sequence
 from urllib.parse import urlencode
 
 import httpx2
@@ -35,6 +37,7 @@ MAX_TUPLES_PER_WRITE = 100   # OPENFGA_MAX_TUPLES_PER_WRITE
 READ_PAGE = 100              # the largest page Read allows
 READY_TTL = 30.0             # how long a readiness answer is reused, so /readyz never hammers OpenFGA
 STORES_PAGE = 100            # the largest page ListStores allows (openfga/api: ListStoresRequest.page_size <= 100)
+MODELS_PAGE = 100            # likewise ReadAuthorizationModels (ReadAuthorizationModelsRequest.page_size <= 100)
 
 
 def _headers(token: SecretValue) -> dict[str, str]:
@@ -270,6 +273,49 @@ class OpenFgaAdmin:
         if not model_id:
             raise EngineError("OpenFGA write-authorization-model answered without an authorization_model_id")
         return model_id
+
+    async def models(self, store_id: str) -> AsyncIterator[dict[str, Any]]:
+        """Every model version of the store, newest first (OpenFGA v1.22.0 orders by id, descending:
+        pkg/storage/postgres/postgres.go, ReadAuthorizationModels), a page at a time."""
+        token = ""
+        while True:
+            params: dict[str, Any] = {"page_size": MODELS_PAGE}
+            if token:
+                params["continuation_token"] = token
+            answer = await self._request("GET", f"stores/{store_id}/authorization-models?{urlencode(params)}", retry=True)
+            models = answer.get("authorization_models")
+            if not isinstance(models, list):
+                raise EngineError("OpenFGA read-authorization-models answered without authorization_models")
+            for model in models:
+                if not isinstance(model, dict) or not model.get("id"):
+                    raise EngineError("OpenFGA read-authorization-models answered a model without an id")
+                yield model
+            token = str(answer.get("continuation_token") or "")
+            if not token:
+                return
+
+
+async def resolve_pinned_model(admin: OpenFgaAdmin, store_name: str, model: dict[str, Any], *, job: str) -> tuple[str, str]:
+    """(store id, model id) for a process that pins by store name (E3.F3.9.S6): the one store called ``store_name``
+    and its newest version equal to ``model`` (``same_model``), which may sit under a newer release's version
+    after a rollback. Reads only: creating the store or writing the version is the ``job`` Job's, run once per
+    release, because find-then-create is not atomic across replicas. ``EngineError`` names what is missing and
+    that Job, so the process refuses to start and is restarted until the Job has run; two stores of the name are
+    refused by ``find_store``, never picked from."""
+    store_id = await admin.find_store(store_name)
+    if store_id is None:
+        raise EngineError(f"OpenFGA holds no store named {store_name!r}: the {job} Job (inkcast authz write-model) "
+                          "creates it and writes the packaged model; refusing to start until it has")
+    newest, seen = "", 0
+    async for version in admin.models(store_id):
+        seen += 1
+        newest = newest or str(version["id"])
+        if same_model(version, model):
+            return store_id, str(version["id"])
+    held = f"{seen} version{'s' if seen != 1 else ''}, the newest {newest}" if seen else "no version at all"
+    raise EngineError(f"store {store_name!r} ({store_id}) holds no version equal to this release's packaged model "
+                      f"({held}): the {job} Job (inkcast authz write-model) writes it on each release; refusing to "
+                      "start until it has")
 
 
 def same_model(stored: dict[str, Any], model: dict[str, Any]) -> bool:

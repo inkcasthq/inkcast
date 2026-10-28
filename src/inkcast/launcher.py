@@ -14,8 +14,11 @@
 Configuration problems stop the process before it serves anything, with exit code 78
 (EX_CONFIG) and a list of what to fix, so a bad rollout fails fast and visibly. That gate covers
 reading the configuration (a dangling NAME_FILE, a bad number), ``Config.validate`` for the services
-in this process, and the security posture checks (libs/secrets/checks.py): a ``fail`` stops the
-process, a ``warn`` is logged once with the event ``config.posture.warn``.
+in this process, the security posture checks (libs/secrets/checks.py): a ``fail`` stops the
+process, a ``warn`` is logged once with the event ``config.posture.warn``; and, with OpenFGA pinned
+by store name, the ids read from the server (libs/authz ``pin_model``): until the
+``inkcast-authz-model`` Job has written the store and the model, the process refuses with the same
+exit code and is restarted, so it starts on its own once the Job has run.
 """
 
 from __future__ import annotations
@@ -29,6 +32,7 @@ import sys
 from importlib.metadata import entry_points
 
 from . import __version__
+from .libs.authz import pin_model
 from .libs.config import Config, ConfigError, load_config
 from .libs.http.app import compose, metrics_app
 from .libs.observability import setup_logging
@@ -196,6 +200,8 @@ def main(argv: list[str] | None = None) -> None:
     try:
         specs = resolve(app_name)
         gate(config, specs)
+        if any("authz" in s.needs for s in specs):   # a Gateway checks nothing and pins nothing
+            config = pin_model(config)
     except ConfigError as exc:
         refuse(str(exc))
         return  # pragma: no cover - refuse() exits

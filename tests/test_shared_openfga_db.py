@@ -190,7 +190,8 @@ class Rendered(unittest.TestCase):
                 docs = self.docs[name]
                 self.assertEqual(one(docs, "ServiceAccount", "inkcast").get("imagePullSecrets"), PULL)
                 inkcast = {key: pod for key, pod in templates(docs).items() if runs_inkcast(pod)}
-                self.assertEqual(set(inkcast), {("Deployment", "inkcast"), ("CronJob", "inkcast-backup")})
+                self.assertEqual(set(inkcast), {("Deployment", "inkcast"), ("CronJob", "inkcast-backup"),
+                                                ("Job", "inkcast-authz-model")})   # the model writer (E3.F3.9.S6)
                 for key, pod in templates(docs).items():
                     if key in inkcast:
                         self.assertEqual(pod.get("serviceAccountName"), "inkcast", key)
