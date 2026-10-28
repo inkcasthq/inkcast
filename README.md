@@ -156,6 +156,7 @@ A second `write-model` run finds the store and the model and changes nothing; a 
 - **Network:** default-deny NetworkPolicy, plus optional FQDN egress allow-lists (Cilium, or OVN EgressFirewall).
 - **Probes and metrics:** `/livez` and `/readyz` probes, with Prometheus metrics on a separate, unrouted port.
 - **Exposure:** an edge-TLS Route with HSTS on OpenShift, or a Gateway API HTTPRoute on Kubernetes.
+- **Outbound trust on OpenShift:** Inkcast trusts the cluster's CA bundle, so a Keycloak whose certificate comes from your own CA verifies. The bundle is the ConfigMap `inkcast-trusted-ca`, which the Cluster Network Operator fills (the system CAs plus `proxy/cluster.spec.trustedCA`); `SSL_CERT_FILE` names it.
 
 Optional components add a ServiceMonitor, an ExternalSecret and a Kyverno image-signature policy. The cloud-native design is in [docs/architecture.md](docs/architecture.md); the build and deploy pipeline is in [docs/cicd.md](docs/cicd.md).
 

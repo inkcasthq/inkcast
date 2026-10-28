@@ -1,0 +1,11 @@
+# The cluster's CA bundle for Inkcast's outbound HTTPS (issue #308): OpenShift's "Certificate injection using
+# Operators". The Cluster Network Operator fills this ConfigMap with key ca-bundle.crt: the system CAs plus those
+# proxy/cluster.spec.trustedCA adds, so a Keycloak with a certificate from the organisation's own CA verifies.
+# No `data` on purpose: the operator owns it and deletes whatever else is there. Re-applying this file, client- or
+# server-side, leaves the injected bundle in place (measured on OpenShift Local, 4.22).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: inkcast-trusted-ca
+  labels:
+    config.openshift.io/inject-trusted-cabundle: "true"
