@@ -24,6 +24,13 @@ on:
 permissions:
   contents: read
 
+# One run per environment at a time, in the order they were triggered: each run closes the promotion PRs older than
+# its own, so two overlapping runs could close each other's. A run still waiting is replaced by a newer one, whose
+# digest supersedes it anyway.
+concurrency:
+  group: promote-${{ inputs.environment || 'staging' }}
+  cancel-in-progress: false
+
 jobs:
   promote:
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
@@ -86,3 +93,10 @@ jobs:
           scripts/ci-run.sh "open the promotion pull request" gh pr create --title "deploy($ENVIRONMENT): ${DIGEST:0:19}" \
             --body "Promotes \`$IMAGE@$DIGEST\` to **$ENVIRONMENT**. Signature (publish.yml) and SLSA provenance verified by this workflow." \
             --label deploy
+          # The open promotion PR is always the latest one: close this environment's older ones and their branches.
+          new=$(gh pr view "$branch" --json number --jq .number)
+          gh pr list --state open --label deploy --limit 200 --json number,headRefName,author,labels |
+            python3 scripts/superseded_promotions.py --environment "$ENVIRONMENT" --current "$branch" |
+            while read -r n; do
+              gh pr close "$n" --delete-branch --comment "Superseded by #$new, the latest promotion to $ENVIRONMENT."
+            done
