@@ -140,8 +140,14 @@ class TheClientHonoursSslCertFile(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.get({"SSL_CERT_FILE": str(self.ca_file)})).text, "ok")
 
     async def test_refused_without_it(self):
-        with self.assertRaises(httpx2.ConnectError):
+        with self.assertRaises(httpx2.ConnectError) as refused:
             await self.get({})
+        # Refused for the certificate, not for any connect error: the chain ends in the verification failure.
+        chain, exc = [], refused.exception
+        while exc is not None and len(chain) < 10:
+            chain.append(exc)
+            exc = exc.__cause__ or exc.__context__
+        self.assertTrue(any(isinstance(e, ssl.SSLCertVerificationError) for e in chain), [type(e) for e in chain])
 
 
 if __name__ == "__main__":
