@@ -73,11 +73,26 @@ features:
     title: 'Notifier seam (libs/notify): email via in-cluster SMTP relay (air-gapped), signed webhook, Slack/Teams webhook
       URL; Redactor on every body'
     status: planned
-    change: new
+    change: 'new; the email channel is F7.4.S4 (issue #327, ADR-0018)'
   - id: F7.4.S3
     title: 'Customer notifications: failed, unconfirmed, posts at risk (reauth), weekly digest from KPIs'
     status: planned
     change: new
+  - id: F7.4.S4
+    title: 'Email to a person: the notifier''s SMTP channel (libs/notify), first used by the account notices'
+    status: planned
+    change: 'new; issue #327; split from F7.4.S2 for ADR-0018''s notices'
+    acceptance:
+    - 'libs/notify sends one email (plain text, and an HTML part) to one address through an SMTP relay:
+      INKCAST_SMTP_HOST, _PORT, _FROM, _USERNAME, and the password as INKCAST_SMTP_PASSWORD or _FILE as
+      docs/reference/secrets.md says; TLS (STARTTLS or implicit) unless INKCAST_SMTP_TLS=off, which production refuses'
+    - 'Templates live in the repository and the Redactor runs on every body; a send returns accepted or a classified
+      error (retryable or permanent); logs carry the template name and the user id, never the address or the body'
+    - 'Each setting is validated at start-up, naming the variable; the posture check email-channel says whether email is
+      configured, and warns in production and staging when it is not'
+    - 'Proven on kind with Mailpit (as F9.2.S1 does): a template is delivered, and a refused connection is a retryable
+      error'
+    - 'The network policy lets only the pods that send mail reach the relay'
 - id: F7.5
   title: Publish now through the queue
   stories:

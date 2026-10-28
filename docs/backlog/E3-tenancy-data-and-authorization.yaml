@@ -147,6 +147,54 @@ features:
     - 'Schema-versioned JSON: profile, posts with markdown and per-platform results, schedules, ledger, connected platforms
       (names and accounts only), token names, scopes and dates, KPI rollups'
     - Tests prove no secret is in the bundle and another account's data never appears
+  - id: F3.3.S8
+    title: 'Export for a cut-off person: an emailed link (7 days, 5 downloads, never past the erasure)'
+    status: planned
+    change: 'new; issue #328; ADR-0018 section 6, builds on F3.3.S7 (#61) and F7.4.S4'
+    acceptance:
+    - 'Each account notice carries a link to /account/export/<token>: a 256-bit random token stored only as its hash
+      (table export_links, in USER_TABLES), valid INKCAST_EXPORT_LINK_DAYS (default 7; 1 to 14, validated at start-up
+      naming the variable; set explicitly in staging and production) and never past users.erase_at, for at most 5
+      downloads'
+    - 'GET shows a page; the bundle (F3.3.S7''s schema, never credentials or tokens) downloads only by a POST from that
+      page, so a mail scanner that opens links uses up nothing; an unknown, used-up or expired token gets the same
+      neutral page'
+    - 'An expired link offers to send a new one to the address on file, at most once a day per person; the address
+      cannot be changed there'
+    - 'users.email_since records when the current address arrived (at creation, and when a sign-in changes it); an
+      address that changed within the 7 days before the cut-off gets the notice without a link, and the notice says to
+      contact support'
+    - 'inkcast accounts export off|on --user <id> --by <who> stops or restores the links for one person, audited; each
+      download is an identity.account.exported event (ids only)'
+    - 'Tests: another person''s data never appears, expiry at the boundary, the download cap, the POST-only download,
+      the email-age rule, and erasure removes the links'
+  - id: F3.3.S9
+    title: 'Legal hold: an operator stops one person''s erasure, audited'
+    status: planned
+    change: 'new; issue #329; ADR-0018 section 10 (GDPR Art. 17(3)(e))'
+    acceptance:
+    - 'inkcast accounts hold --user <id> --ref <matter> --by <who>, release --user <id> --by <who>, and holds;
+      users.legal_hold_at and legal_hold_ref added through COLUMNS; the ref is a matter reference, checked for length
+      and characters'
+    - 'Store.erase_user refuses a person on hold (STANDING gains the hold), so no path erases them: the account-cleanup
+      job, a self-deletion''s return or event, or a breaker confirmation'
+    - 'A hold placed on a scheduled person clears users.erase_at; on release the person is disabled again, so the next
+      cleanup run notifies them and gives them a full window'
+    - 'Each hold and release is audited (identity.account.legal_hold.set and .released, with the id, the ref and who);
+      inkcast_identity_accounts{state="legal_hold"} counts them'
+    - 'Tests: every erasure path refused while held, the release, the audit'
+  - id: F3.3.S10
+    title: 'Import an export bundle into a new account: posts and schedules become drafts, nothing is sent'
+    status: planned
+    change: 'new; issue #333; ADR-0018 owner decision 7; after F3.3.S7 (#61)'
+    acceptance:
+    - 'MCP inkcast_import and REST POST /api/v1/account/import take an F3.3.S7 bundle from a signed-in person (schema
+      version checked, size limited)'
+    - 'Posts become drafts with their markdown and title; schedules become drafts that show the time they had; the
+      import sends and schedules nothing; credentials, tokens and per-platform results are not imported'
+    - 'Importing the same bundle twice adds nothing the second time (the bundle''s id)'
+    - 'Tests: a round trip from export to import, a bundle of a newer schema refused, ids from the bundle never trusted
+      as another person''s'
 - id: F3.4
   title: Bring your own platform app credentials per workspace
   stories:
