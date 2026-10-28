@@ -33,9 +33,9 @@ def pin_model(config: Any) -> Any:
     and ``INKCAST_FGA_MODEL_ID`` win and nothing is asked; otherwise, with ``INKCAST_FGA_STORE_NAME``, the store
     and its version equal to the packaged model are read from OpenFGA (``resolve_pinned_model``) and pinned on a
     copy. Every other outcome (no store or no equal version yet, two stores of the name, OpenFGA unreachable or
-    refusing the key) is a ``ConfigError`` that names it, so the process refuses to start and, restarted, asks again:
-    the pods start on their own once the ``inkcast-authz-model`` Job has written the store and the model."""
-    from ..config import AUTHZ_MODEL_JOB, ConfigError
+    refusing the key) is a ``ConfigError`` that names it, so the process refuses to start and, restarted, asks again.
+    In the cluster the pod's init container ``authz-model`` has written the store and the model before this runs."""
+    from ..config import AUTHZ_MODEL_WRITER, ConfigError
     if config.authz_engine != "openfga" or (config.fga_store_id and config.fga_model_id) or not config.fga_store_name:
         return config
     admin = OpenFgaAdmin(config.fga_api_url, config.fga_api_token, timeout=config.fga_timeout_seconds)
@@ -43,7 +43,7 @@ def pin_model(config: Any) -> Any:
     async def resolve() -> tuple[str, str]:
         try:
             return await resolve_pinned_model(admin, config.fga_store_name, json.loads(PACKAGED_MODEL.read_text()),
-                                              job=AUTHZ_MODEL_JOB)
+                                              writer=AUTHZ_MODEL_WRITER)
         finally:
             await admin.http.aclose()   # the client this call opened closes on the loop that used it
 

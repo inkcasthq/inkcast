@@ -1,79 +1,44 @@
-# The store and the model version a release pins, written by the deployment itself (E3.F3.9.S6, issue #315):
-# `inkcast authz write-model` with the release's own image (the `images` entry every overlay and environment rewrites
-# for the Deployment rewrites this one too), so the store INKCAST_FGA_STORE_NAME names holds a version equal to the
-# packaged model before Inkcast's pods pin it at start-up (libs/authz pin_model). Idempotent: a run that finds the
-# version writes nothing. One Job, never a step in each replica: its find-then-create is not atomic.
+# The store and the model version Inkcast pins, written by the pod itself (E3.F3.9.S6, issue #315): the init container
+# authz-model runs `inkcast authz write-model` with the pod's own image (the `images` entry that rewrites the server's
+# image rewrites initContainers too) before the server starts, which then pins the store INKCAST_FGA_STORE_NAME names
+# and its version equal to the packaged model (libs/authz pin_model). Patched by kustomization.yaml into every Inkcast
+# Deployment whose processes check permissions: all but the Gateway of components/split-services.
 #
-# It runs on every apply without the "field is immutable" a changed image would raise on an existing Job: a finished
-# Job (complete or failed) is deleted ttlSecondsAfterFinished later by the TTL-after-finished controller, pod and log
-# with it, so the next `oc apply -k` of a release creates it again with that release's image. A release applied while
-# the previous Job still exists (during its run and the minute after) is refused for this object only, naming it:
-# apply again once it is gone; a GitOps controller re-applies on its own. While the Job retries (a fresh install:
-# the Cluster bootstraps, then the migrate Job, then OpenFGA serves) Inkcast's pods refuse to start, naming this Job,
-# and are restarted: they come up on their own once it has run.
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: inkcast-authz-model
-  labels: {app.kubernetes.io/name: inkcast, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: authz-model}
-spec:
-  backoffLimit: 20
-  activeDeadlineSeconds: 1800
-  ttlSecondsAfterFinished: 60
-  template:
-    metadata:
-      labels: {app.kubernetes.io/name: inkcast, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: authz-model}
-    spec:
-      restartPolicy: OnFailure
-      serviceAccountName: inkcast
-      automountServiceAccountToken: false
-      enableServiceLinks: false
+# Every pod start runs it, so there is nothing to re-run by hand and nothing immutable to apply over: a release, a
+# rollback or a restart writes what its own image packages. Idempotent: a version equal to the packaged model is not
+# written again. While OpenFGA does not answer (a fresh install: the database, then the migrate Job, then OpenFGA),
+# it fails and the kubelet starts it again, backing off from 10 s to 300 s. Pods starting together converge on one
+# store (authz_cli._write_model). With INKCAST_FGA_STORE_ID and INKCAST_FGA_MODEL_ID both pinned it does nothing.
+#
+# It runs in the server's pod: the same ServiceAccount and pull secrets, the same restricted-v2 security context, the
+# same NetworkPolicies (DNS, and OpenFGA's 8080 through inkcast-to-openfga), and the pod's `secrets` volume (0440) for
+# the preshared key. It reads inkcast-config and nothing else of the server's: no INKCAST_SECRET_KEY_FILE.
+#
+# progressDeadlineSeconds: on a fresh install the pod waits for OpenFGA and then for the kubelet's back-off, which can
+# outlast the default 600 s; 900 s matches the README's `rollout status --timeout=15m`.
+#
+# The label marks the Deployments that carry it, for overlays that patch the init container (overlays/openshift: the
+# cluster's CA bundle, as for the server).
+- op: add
+  path: /metadata/labels/inkcast.io~1authz-model
+  value: init-container
+- op: add
+  path: /spec/progressDeadlineSeconds
+  value: 900
+- op: add
+  path: /spec/template/spec/initContainers
+  value:
+    - name: authz-model
+      image: ghcr.io/inkcasthq/inkcast:0.1.0   # the server's image: overlays and environments pin both by digest
+      args: ["authz", "write-model"]
+      envFrom:
+        - configMapRef: {name: inkcast-config}   # INKCAST_FGA_API_URL, INKCAST_FGA_API_TOKEN_FILE, INKCAST_FGA_STORE_NAME
+      resources:
+        requests: {cpu: 20m, memory: 64Mi}
+        limits: {memory: 256Mi}
       securityContext:
-        runAsNonRoot: true
-        seccompProfile: {type: RuntimeDefault}
-      containers:
-        - name: write-model
-          image: ghcr.io/inkcasthq/inkcast:0.1.0   # the same image as the server; environments pin both by digest
-          args: ["authz", "write-model"]
-          envFrom:
-            - configMapRef: {name: inkcast-config}   # INKCAST_FGA_API_URL, INKCAST_FGA_API_TOKEN_FILE, INKCAST_FGA_STORE_NAME
-          resources:
-            requests: {cpu: 20m, memory: 64Mi}
-            limits: {memory: 256Mi}
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities: {drop: [ALL]}
-          volumeMounts:
-            - {name: secrets, mountPath: /var/run/secrets/inkcast, readOnly: true}
-      volumes:
-        - name: secrets
-          secret:
-            secretName: inkcast-secrets   # the key (fga-api-token), mounted as the server mounts it
-            defaultMode: 0440
----
-# The Job's pod: out to DNS and OpenFGA's API, nothing else and nothing in. Its own policy, because the base policy
-# and inkcast-to-openfga select the server's pods (component=server), a label this pod must not carry: the Services
-# select it too, and would route requests to a pod that serves nothing.
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: inkcast-authz-model
-  labels: {app.kubernetes.io/name: inkcast, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: authz-model}
-spec:
-  podSelector:
-    matchLabels: {app.kubernetes.io/component: authz-model}
-  policyTypes: [Ingress, Egress]
-  egress:
-    - ports:                                     # DNS
-        - {port: 53, protocol: UDP}
-        - {port: 53, protocol: TCP}
-        - {port: 5353, protocol: UDP}           # OpenShift DNS
-        - {port: 5353, protocol: TCP}
-    - to:
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/name: openfga
-              app.kubernetes.io/component: authz
-      ports:
-        - {port: 8080, protocol: TCP}
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: {drop: [ALL]}
+      volumeMounts:
+        - {name: secrets, mountPath: /var/run/secrets/inkcast, readOnly: true}

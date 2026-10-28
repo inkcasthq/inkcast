@@ -212,7 +212,7 @@ jobs:
         run: |
           pip install -e . 'playwright==1.56.0'
           python -m playwright install --with-deps chromium
-      - name: OpenFGA on CloudNativePG (E3.F3.9.S1, S6; components/openfga under restricted, the migrate Job, the authz-model Job on every apply, readiness)
+      - name: OpenFGA on CloudNativePG (E3.F3.9.S1, S6; components/openfga under restricted, the migrate Job, the authz-model init container, readiness)
         run: scripts/ci-run.sh "openfga on kind" scripts/dev/openfga-e2e.sh
       - name: Dashboards on kind (deploy/dev; Prometheus and Grafana, seeded, every panel checked)
         run: BUILD=0 scripts/ci-run.sh "dashboards on kind" scripts/dev/stack.sh kind
@@ -234,8 +234,8 @@ jobs:
           done
           kubectl -n inkcast-openfga get cluster,job -o wide || true
           kubectl -n inkcast-openfga logs job/openfga-migrate --tail=50 || true
-          kubectl -n inkcast-openfga logs job/inkcast-authz-model --tail=50 || true
-          kubectl -n inkcast-openfga logs job/inkcast-authz-model --previous --tail=20 || true
+          kubectl -n inkcast-openfga logs deploy/inkcast -c authz-model --tail=50 || true
+          kubectl -n inkcast-openfga logs deploy/inkcast -c authz-model --previous --tail=20 || true
 
   dashboards:
     # The local observability stack under Docker Compose (deploy/dev): Inkcast + fake platforms + Prometheus +

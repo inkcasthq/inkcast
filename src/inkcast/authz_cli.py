@@ -6,19 +6,22 @@
     inkcast authz write-model --store NAME --model PATH
 
 Reads ``INKCAST_FGA_API_URL``, the store's name ``INKCAST_FGA_STORE_NAME`` (``inkcast`` when unset; ``--store``
-wins) and the preshared key ``INKCAST_FGA_API_TOKEN`` (or ``_FILE``) through the secrets design, nothing else: not
-the store or model ids, which are what it produces. Creates the store when no store of that name exists; writes the
-model as a new version unless the store's newest version already is this model (``same_model``), so a second run
-changes nothing. Prints, on stdout and nothing else there::
+wins) and the preshared key ``INKCAST_FGA_API_TOKEN`` (or ``_FILE``) through the secrets design. Creates the store
+when no store of that name exists; writes the model as a new version unless the store's newest version already is
+this model (``same_model``), so a second run changes nothing. Prints, on stdout and nothing else there::
 
     INKCAST_FGA_STORE_ID=01...
     INKCAST_FGA_MODEL_ID=01...
 
-so ``eval "$(inkcast authz write-model)"`` or a pull request can pin both (docs/authorization.md §8). The deployment
-runs it as the Job ``inkcast-authz-model`` on every apply (E3.F3.9.S6, components/openfga/authz-model.yaml), and the
-pods pin the same store and version by name at start-up, so nothing is pinned by hand. What happened (store created
-or found, model written or unchanged) goes to stderr. The key is never printed. Exit 0 when the ids are printed, 1
-on a configuration or OpenFGA problem, with the reason on stderr.
+so ``eval "$(inkcast authz write-model)"`` or a pull request can pin both (docs/authorization.md §8). With both
+``INKCAST_FGA_STORE_ID`` and ``INKCAST_FGA_MODEL_ID`` set, a version is held by hand and wins at start-up: it prints
+them, writes nothing and calls nothing.
+
+The deployment runs it as the init container ``authz-model`` of every Inkcast pod that checks permissions (E3.F3.9.S6,
+components/openfga/authz-model.yaml), before the server, which then pins the same store and version by name: nothing
+is pinned by hand. Pods starting together on a fresh install converge on one store (``_write_model``). What happened
+(store created, found or deleted, model written or unchanged) goes to stderr. The key is never printed. Exit 0 when
+the ids are printed, 1 on a configuration or OpenFGA problem, with the reason on stderr.
 """
 
 from __future__ import annotations
@@ -56,6 +59,13 @@ def authz_main(argv: list[str], environ: Mapping[str, str] | None = None, out: A
     args = parser.parse_args(argv)
     out, err = out or sys.stdout, err or sys.stderr
     settings = settings_from(environ if environ is not None else os.environ)
+    pinned = [settings.get(name, "").strip() for name in ("INKCAST_FGA_STORE_ID", "INKCAST_FGA_MODEL_ID")]
+    if all(pinned):   # the start-up rule (libs/authz pin_model): both ids set win, and nothing is resolved or written
+        print("nothing to do: INKCAST_FGA_STORE_ID and INKCAST_FGA_MODEL_ID pin a version by hand, and win over the "
+              "store's name; no store is created and no model written (unset both to write one)", file=err)
+        print(f"INKCAST_FGA_STORE_ID={pinned[0]}", file=out)
+        print(f"INKCAST_FGA_MODEL_ID={pinned[1]}", file=out)
+        return 0
     # The ids are the output a script reads: no log line in front of them (setup_logging writes to stdout).
     setup_logging(settings.get("INKCAST_LOG_FORMAT", "text").lower(), "WARNING", service="Authz")
     try:
@@ -65,7 +75,7 @@ def authz_main(argv: list[str], environ: Mapping[str, str] | None = None, out: A
         print(f"inkcast authz: {exc}", file=err)
         return 1
     admin = OpenFgaAdmin(url, token, http=http, timeout=timeout)
-    store_name = args.store or settings.get("INKCAST_FGA_STORE_NAME", "").strip() or DEFAULT_STORE   # one name for the Job and the pods
+    store_name = args.store or settings.get("INKCAST_FGA_STORE_NAME", "").strip() or DEFAULT_STORE   # the server's name too
 
     async def run() -> tuple[str, str, list[str]]:
         try:
@@ -121,14 +131,31 @@ def _load_model(path: pathlib.Path) -> dict[str, Any]:
 
 async def _write_model(admin: OpenFgaAdmin, store_name: str, model: dict[str, Any]) -> tuple[str, str, list[str]]:
     """(store id, model id, what happened). Idempotent: the second run finds the store and sees the newest model is
-    this one, and writes nothing."""
+    this one, and writes nothing.
+
+    Convergent (E3.F3.9.S6): every Inkcast pod runs this before its server, so pods starting together on a fresh
+    install may each find no store and each create one (find-then-create is not atomic, and OpenFGA does not keep
+    names unique). A writer that created a store lists the stores of the name again; every writer uses the oldest
+    (``OpenFgaAdmin.stores``), and one whose own store is not the oldest deletes it before writing anything into it,
+    so no server ever pins it. A writer deletes no store it did not create: one it finds may hold tuples. Two stores
+    that remain (made by hand, or a create whose older id lands after a younger store's writer has listed) are
+    refused by the server's start-up, which names both."""
     notes = []
-    store_id = await admin.find_store(store_name)
-    if store_id is None:
-        store_id = await admin.create_store(store_name)
-        notes.append(f"store {store_name!r} created: {store_id}")
-    else:
-        notes.append(f"store {store_name!r} found: {store_id}")
+    stores = await admin.stores(store_name)
+    created = None
+    if not stores:
+        created = await admin.create_store(store_name)
+        notes.append(f"store {store_name!r} created: {created}")
+        stores = sorted({*await admin.stores(store_name), created})   # with the racers' stores that landed meanwhile
+    store_id = stores[0]
+    if created is not None and created != store_id:
+        await admin.delete_store(created)
+        notes.append(f"store {created} deleted: {len(stores)} stores named {store_name!r} were created at once, and "
+                     f"every writer uses the oldest, {store_id}")
+    elif created is None:
+        notes.append(f"store {store_name!r} found: {store_id}" + ("" if len(stores) == 1 else
+                     f" (the oldest of {len(stores)} stores named {store_name!r}: {', '.join(stores)}; a writer "
+                     "deletes only a store it created, and Inkcast refuses to start until one is left)"))
     newest = await admin.newest_model(store_id)
     if newest is not None and same_model(newest, model):
         model_id = str(newest["id"])

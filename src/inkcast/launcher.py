@@ -16,9 +16,9 @@ Configuration problems stop the process before it serves anything, with exit cod
 reading the configuration (a dangling NAME_FILE, a bad number), ``Config.validate`` for the services
 in this process, the security posture checks (libs/secrets/checks.py): a ``fail`` stops the
 process, a ``warn`` is logged once with the event ``config.posture.warn``; and, with OpenFGA pinned
-by store name, the ids read from the server (libs/authz ``pin_model``): until the
-``inkcast-authz-model`` Job has written the store and the model, the process refuses with the same
-exit code and is restarted, so it starts on its own once the Job has run.
+by store name, the ids read from the server (libs/authz ``pin_model``): the pod's init container
+``authz-model`` writes the store and the model first, and while OpenFGA does not answer or does not
+hold them the process refuses with the same exit code, naming why.
 """
 
 from __future__ import annotations

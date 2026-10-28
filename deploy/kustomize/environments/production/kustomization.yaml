@@ -10,11 +10,11 @@ resources:
   - ../../overlays/openshift      # or ../../overlays/kubernetes
 configMapGenerator:
   # The hosted service runs OpenFGA (ADR-0007; components/openfga, through the overlay) and refuses the in-process
-  # engine. The store and the model version are written by the deployment (E3.F3.9.S6): the Job inkcast-authz-model
-  # runs `inkcast authz write-model` with this release's image on every apply, and the pods pin, at start-up, the
-  # store named below and its version equal to the packaged model, refusing to start (naming the Job) until it has
-  # written them. A model change travels with the image; a rollback is the image's revert. To hold one version by
-  # hand instead, pin INKCAST_FGA_STORE_ID and INKCAST_FGA_MODEL_ID here: both set, they win and nothing is resolved.
+  # engine. The store and the model version are written by the pods (E3.F3.9.S6): the init container authz-model
+  # runs `inkcast authz write-model` with the pod's own image before the server, which then pins the store named
+  # below and its version equal to the packaged model. A model change travels with the image; a rollback is the
+  # image's revert. To hold one version by hand instead, pin INKCAST_FGA_STORE_ID and INKCAST_FGA_MODEL_ID here: both
+  # set, they win, nothing is resolved and the init container writes nothing.
   - name: inkcast-config
     behavior: merge
     literals:
@@ -114,9 +114,4 @@ patches:
     patch: |-
       - op: add
         path: /spec/jobTemplate/spec/template/spec/imagePullSecrets
-        value: [{name: ghcr-pull}]
-  - target: {kind: Job, name: inkcast-authz-model}
-    patch: |-
-      - op: add
-        path: /spec/template/spec/imagePullSecrets
         value: [{name: ghcr-pull}]

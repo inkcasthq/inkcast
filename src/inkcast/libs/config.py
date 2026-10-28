@@ -43,9 +43,9 @@ SECRET_SETTINGS: dict[str, str] = {
     "INKCAST_FGA_API_TOKEN": "authz",  # OpenFGA's preshared key, when INKCAST_AUTHZ_ENGINE=openfga (E3.F3.6)
 }
 AUTHZ_ENGINES = ("local", "openfga")
-# The Job that creates the OpenFGA store and writes the packaged model on each release (E3.F3.9.S6,
-# deploy/kustomize/components/openfga/authz-model.yaml): named in the refusals that wait for it.
-AUTHZ_MODEL_JOB = "inkcast-authz-model"
+# What creates the OpenFGA store and writes the packaged model (E3.F3.9.S6): the init container of every Inkcast pod
+# that checks permissions (deploy/kustomize/components/openfga/authz-model.yaml), named in the refusals that wait for it.
+AUTHZ_MODEL_WRITER = "the init container authz-model (`inkcast authz write-model`)"
 # OpenFGA's store-name rule (openfga/api openfga_service.proto, CreateStoreRequest.name and ListStoresRequest.name),
 # applied to INKCAST_FGA_STORE_NAME at start-up so a name the server would refuse is named here, before any call.
 FGA_STORE_NAME = re.compile(r"[a-zA-Z0-9\s.\-/^_&@]{3,64}", re.ASCII)
@@ -716,7 +716,7 @@ class Config:
     fga_store_id: str = ""
     fga_model_id: str = ""  # every deploy pins a model version; a change is a new version, never an edit
     # INKCAST_FGA_STORE_NAME (E3.F3.9.S6): with both ids unset, start-up resolves the store by this name and pins
-    # the version equal to the packaged model (libs/authz pin_model), refusing to start until the Job has written it.
+    # the version equal to the packaged model (libs/authz pin_model), refusing to start until the writer has written it.
     fga_store_name: str = ""
     fga_api_token: SecretValue = SecretValue("")  # preshared-key bearer auth; empty when OpenFGA runs without one
     fga_timeout_seconds: float = 5.0
@@ -896,7 +896,7 @@ class Config:
             if missing:
                 names = missing[0] if len(missing) == 1 else ", ".join(missing[:-1]) + " and " + missing[-1]
                 if len(unset) == 2 and not self.fga_store_name:
-                    how = (f" Or set INKCAST_FGA_STORE_NAME instead of both ids: the {AUTHZ_MODEL_JOB} Job writes the "
+                    how = (f" Or set INKCAST_FGA_STORE_NAME instead of both ids: {AUTHZ_MODEL_WRITER} writes the "
                            "packaged model to that store, and start-up pins the version equal to it.")
                 elif len(unset) == 1 and self.fga_store_name:
                     how = " INKCAST_FGA_STORE_NAME stands in for the pair only, with both ids unset."
