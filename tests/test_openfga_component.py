@@ -325,7 +325,9 @@ class WriteModel(unittest.TestCase):
         self.assertIn("created", err)
         self.assertIn("model written", err)
         calls = [(m, p.removeprefix("/fga/")) for m, p, _ in self.fakes.fga_calls]
-        self.assertEqual(calls, [("GET", "stores"), ("POST", "stores"), ("GET", f"stores/{store_id}/authorization-models"),
+        self.assertEqual(calls, [("GET", "stores"), ("POST", "stores"),
+                                 ("GET", "stores"),   # after creating: racers that created theirs at once (E3.F3.9.S6)
+                                 ("GET", f"stores/{store_id}/authorization-models"),
                                  ("POST", f"stores/{store_id}/authorization-models")])
         # Second run: the store is found and the newest version is this model, so nothing is written.
         code, out2, err2 = self.run_cli()
@@ -386,12 +388,14 @@ class WriteModel(unittest.TestCase):
         code, out, err = self.run_cli("--model", "/nonexistent/model.json")
         self.assertEqual((code, out), (1, ""))
         self.assertIn("can't be loaded", err)
+        # Two stores of the name it did not create (E3.F3.9.S6): every writer uses the oldest and deletes neither
+        # (tests/test_authz_bootstrap.py Convergence has the races); the server still refuses two, naming both.
         self.fakes.fga_stores = {"01JFAKE0000000000000000001": "inkcast", "01JFAKE0000000000000000002": "inkcast"}
         self.fakes.fga_models = {k: [] for k in self.fakes.fga_stores}
         code, out, err = self.run_cli()
-        self.assertEqual((code, out), (1, ""))
-        self.assertIn("2 stores named 'inkcast'", err)
-        self.assertEqual(len(self.fakes.fga_stores), 2, "neither chosen, none created")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.ids(out)[0], "01JFAKE0000000000000000001", "the oldest")
+        self.assertEqual(len(self.fakes.fga_stores), 2, "neither deleted: this writer created neither")
 
     def test_an_unreachable_server_fails_closed(self):
         code, out, err = self.run_cli(INKCAST_FGA_API_URL="http://127.0.0.1:9/fga", INKCAST_FGA_TIMEOUT="1")
@@ -419,7 +423,7 @@ class KindJob(unittest.TestCase):
         self.assertRegex(versions["CNPG_MANIFEST_SHA256"], r"^[0-9a-f]{64}$")
         script = (ROOT / "scripts" / "dev" / "openfga-e2e.sh").read_text()
         for needed in ("CNPG_MANIFEST_SHA256", "apply --server-side", "overlays/ci-openfga", "job/openfga-migrate",
-                       "job/inkcast-authz-model", "/readyz", "model written", "model unchanged"):
+                       "-c authz-model", "rollout restart deploy/inkcast", "/readyz", "model written", "model unchanged"):
             self.assertIn(needed, script)
         self.assertNotIn("sha256sum -c", script, "not on macOS: compare the digest as scripts/kind-tools.sh does")
         ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text()

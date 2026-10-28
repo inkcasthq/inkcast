@@ -6,6 +6,7 @@ contract mistakes (field names, auth headers, PKCE, limits)."""
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import json
@@ -16,7 +17,7 @@ from urllib.parse import urlencode
 
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse
+from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.routing import Route
 
 from inkcast.libs.authz import EngineError, Evaluator, InvalidRequest, Model, Tuple
@@ -65,6 +66,16 @@ class Fakes:
         self.fga_tuples: list[tuple[str, str, str]] = []
         self.fga_calls: list[tuple[str, str, dict | None]] = []
         self.fga_fail_next: int | None = None  # answer the next call with this status (503, 429...)
+        # Races on CreateStore (E3.F3.9.S6), as pods starting together on a fresh install make them. `fga_racers`:
+        # every create waits, before its id is made, until that many creates have arrived (each racer listed no
+        # store), and answers only once all of them have landed (each racer then lists them all). `fga_hold_create`:
+        # an Event the next create waits for before its id is made (a create that lands late: OpenFGA makes the id
+        # when it handles the request, create_store.go). `fga_create_lands_but_answers`: a status to answer the next
+        # create with after its store has landed (an answer lost to a timeout). `fga_races_reset()` clears them.
+        self.fga_racers = 1
+        self.fga_hold_create = None
+        self.fga_create_lands_but_answers: int | None = None
+        self._fga_creates = {"arrived": 0, "landed": 0}
         self._fga_evaluator = Evaluator(Model.load(), _FgaSource(self))
         # The stores (id -> name) and each store's model versions, oldest first, as `inkcast authz write-model`
         # (E3.F3.9.S1) sees them: it lists stores by name, creates one, lists the newest version and writes one.
@@ -404,7 +415,7 @@ class Fakes:
         if self.fga_token and request.headers.get("authorization") != f"Bearer {self.fga_token}":
             return None, JSONResponse({"code": "unauthenticated", "message": "unauthenticated"}, status_code=401)
         store = request.path_params.get("store")   # the /stores collection itself has none
-        if store is not None and store not in self.fga_stores:
+        if store is not None and store not in self.fga_stores and request.method != "DELETE":
             return None, JSONResponse({"code": "store_id_not_found", "message": "store id not found"}, status_code=404)
         model_ids = [m["id"] for m in self.fga_models.get(store, [])]
         if body is not None and "authorization_model_id" in body and body["authorization_model_id"] not in model_ids:
@@ -448,10 +459,42 @@ class Fakes:
         name = body.get("name")
         if not isinstance(name, str) or not self._FGA_NAME.match(name):
             return self._fga_invalid("invalid CreateStoreRequest.Name: value does not match regex pattern")
+        self._fga_creates["arrived"] += 1
+        await self._fga_until(lambda: self._fga_creates["arrived"] >= self.fga_racers)
+        if self.fga_hold_create is not None:
+            hold, self.fga_hold_create = self.fga_hold_create, None
+            await self._fga_until(hold.is_set)
         store_id = self._fga_new_id()
         self.fga_stores[store_id] = name
         self.fga_models[store_id] = []
+        self._fga_creates["landed"] += 1
+        await self._fga_until(lambda: self._fga_creates["landed"] >= self.fga_racers)
+        if self.fga_create_lands_but_answers:
+            status, self.fga_create_lands_but_answers = self.fga_create_lands_but_answers, None
+            return JSONResponse({"code": "internal_error", "message": "the store landed; the answer did not"}, status_code=status)
         return JSONResponse({"id": store_id, "name": name}, status_code=201)
+
+    def fga_races_reset(self) -> None:
+        self.fga_racers, self.fga_hold_create, self.fga_create_lands_but_answers = 1, None, None
+        self._fga_creates = {"arrived": 0, "landed": 0}
+
+    @staticmethod
+    async def _fga_until(done, seconds: float = 5.0) -> None:
+        """Wait on the server's own loop, so the racers' other requests are served meanwhile, until ``done()``."""
+        deadline = time.monotonic() + seconds
+        while not done() and time.monotonic() < deadline:
+            await asyncio.sleep(0.005)
+
+    async def fga_stores_delete(self, request: Request):
+        """DELETE /stores/{id}, as OpenFGA v1.22.0 answers it: 204, for an unknown id too (commands/delete_store.go
+        returns an empty answer on ErrNotFound; stores.go sets the 204), and ListStores no longer returns the store
+        (postgres.go DeleteStore sets deleted_at)."""
+        _, refused = await self._fga_begin(request)
+        if refused:
+            return refused
+        self.fga_stores.pop(request.path_params["store"], None)
+        self.fga_models.pop(request.path_params["store"], None)
+        return Response(status_code=204)
 
     async def fga_models_list(self, request: Request):
         """Newest first, as OpenFGA orders them (authorization_model_id desc)."""
@@ -624,6 +667,7 @@ class Fakes:
             Route("/devto/api/articles/{aid:int}", self.devto_update, methods=["PUT"]),
             Route("/fga/stores", self.fga_stores_list),
             Route("/fga/stores", self.fga_stores_create, methods=["POST"]),
+            Route("/fga/stores/{store}", self.fga_stores_delete, methods=["DELETE"]),
             Route("/fga/stores/{store}/authorization-models", self.fga_models_list),
             Route("/fga/stores/{store}/authorization-models", self.fga_models_write, methods=["POST"]),
             Route("/fga/stores/{store}/check", self.fga_check, methods=["POST"]),
