@@ -31,8 +31,9 @@ components:
 patches:
   # Outbound HTTPS (Keycloak, the platforms) trusts the injected bundle, not only the image's own CAs (#308). The
   # HTTP client reads SSL_CERT_FILE. The mount is not optional: until the operator fills the ConfigMap, the pod waits
-  # in ContainerCreating rather than starting without the file.
-  - target: {kind: Deployment, name: inkcast}
+  # in ContainerCreating rather than starting without the file. By label, so components/split-services' Deployments
+  # (which replace the one named inkcast) get it too.
+  - target: {kind: Deployment, labelSelector: app.kubernetes.io/name=inkcast}
     patch: |-
       - op: add
         path: /spec/template/spec/volumes/-
