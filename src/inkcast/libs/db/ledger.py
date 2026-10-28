@@ -9,6 +9,7 @@ creating a duplicate.
 
 from __future__ import annotations
 
+import sqlite3
 import time
 from typing import Any
 
@@ -39,15 +40,25 @@ class LedgerRepo(Database):
         return dict(row) if row else None
 
     def put_entry(self, user_id: str, source: str, path: str, platform: str, **fields: Any) -> dict[str, Any]:
+        with self._lock:
+            return self.put_entry_in(self._conn, user_id, source, path, platform, **fields)
+
+    @staticmethod
+    def put_entry_in(c: sqlite3.Connection, user_id: str, source: str, path: str, platform: str,
+                     **fields: Any) -> dict[str, Any]:
+        """``put_entry`` on ``c``, inside a transaction another write holds: the entry is written with that write or
+        not at all (Git sync's claim, with the cancel of the post it replaces, #224)."""
         unknown = set(fields) - set(FIELDS)
         if unknown:
             raise ValueError(f"unknown ledger fields: {sorted(unknown)}")
-        current = self.get_entry(user_id, source, path, platform) or {}
+        found = c.execute("SELECT * FROM ledger WHERE user_id = ? AND source = ? AND path = ? AND platform = ?",
+                          (user_id, source, path, platform)).fetchone()
+        current = dict(found) if found else {}
         row = {"user_id": user_id, "source": source, "path": path, "platform": platform,
                **{k: current.get(k) for k in FIELDS}, **fields, "synced_at": time.time()}
-        self._exec("INSERT OR REPLACE INTO ledger (user_id, source, path, platform, content_hash, post_id, remote_id,"
-                   " url, status, message, synced_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                   *(row[k] for k in ("user_id", "source", "path", "platform", *FIELDS, "synced_at")))
+        c.execute("INSERT OR REPLACE INTO ledger (user_id, source, path, platform, content_hash, post_id, remote_id,"
+                  " url, status, message, synced_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                  tuple(row[k] for k in ("user_id", "source", "path", "platform", *FIELDS, "synced_at")))
         return row
 
     def repoint_entries(self, from_post: str, /, **fields: Any) -> int:
