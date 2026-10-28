@@ -94,7 +94,7 @@ def removed_since(rev: str, patterns: list[str]) -> list[str]:
         raise CliError(f"can't run git to list the files removed since {rev}: {exc}") from exc
     if diff.returncode != 0:
         raise CliError(f"can't list the files removed since {rev}: {diff.stderr.strip() or 'git diff failed'}")
-    globs = [glob_pattern(p) for p in patterns]
+    globs = [glob_pattern(str(pathlib.PurePosixPath(p))) for p in patterns]  # as ``collect`` writes paths: no ``./``
     found: list[str] = []
     for raw in diff.stdout.split("\0"):
         path = str(pathlib.PurePosixPath(raw)) if raw else ""

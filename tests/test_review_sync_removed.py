@@ -4,12 +4,15 @@
 build's head and passes with its fix."""
 
 import threading
+import unittest
 from unittest import mock
 
+from inkcast.cli import collect, removed_since
 from inkcast.libs.platforms import PlatformError
 
 from test_sync_error_after_post import at
 from test_sync_removed import RemovedCase
+from test_sync_removed_client import inside, repo_with_a_removal
 
 
 class AFilePutBackAfterItsUncertainPostWasRemoved(RemovedCase):
@@ -69,3 +72,14 @@ class ARemovalWhileAnotherSyncHoldsTheFile(RemovedCase):
         rerun = self.remove()
         self.assertEqual((rerun.action, rerun.status, rerun.post_id), ("removed", "cancelled", made.post_id))
         self.assertEqual((self.entry()["status"], self.store.get_post(made.post_id)["status"]), ("cancelled", "cancelled"))
+
+
+class TheCliReportsWhatItWouldHaveSynced(unittest.TestCase):
+    def test_a_pattern_written_with_a_leading_dot_slash_reports_its_removed_files(self):
+        """``collect`` drops a leading ``./`` (``posts/kept.md`` is what the ledger knows), so the same pattern must match
+        git's paths, which never have one: otherwise every removal is missed and the post goes out."""
+        repo, first = repo_with_a_removal()
+        with inside(repo):
+            self.assertEqual(collect(["./posts/*.md"]), ["posts/kept.md", "posts/moved.md"])
+            self.assertEqual(removed_since(first, ["./posts/**/*.md"]), ["posts/a.md", "posts/renamed.md"])
+            self.assertEqual(removed_since(first, ["./posts/a.md"]), ["posts/a.md"])
