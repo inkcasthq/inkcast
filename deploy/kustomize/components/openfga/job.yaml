@@ -1,0 +1,43 @@
+# The schema, before the server: `openfga migrate` (OpenFGA v1.22.0, cmd/migrate/migrate.go) brings the database to
+# the current revision and is a no-op when it already is. The server reports NOT_SERVING on /healthz until the
+# revision is current (pkg/storage/sqlcommon/sqlcommon.go, IsVersionReady), so its startup probe holds the rollout
+# back until this Job completes. OPENFGA_TIMEOUT is how long the command keeps retrying the first connection
+# (cmd/migrate/flags.go): long enough for the Cluster to bootstrap on a fresh install.
+#
+# A Job's template is immutable: to run a changed one (an image bump), delete the finished Job first
+# (`kubectl delete job openfga-migrate`), then apply again. Running it again on a current schema changes nothing.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: openfga-migrate
+  labels: {app.kubernetes.io/name: openfga, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: authz-migrate}
+spec:
+  backoffLimit: 10
+  activeDeadlineSeconds: 1800
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: openfga, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: authz-migrate}
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: migrate
+          image: openfga/openfga:v1.22.0@sha256:9cf9a20af32a40434cd3a788c429879439ee9ea9abf65c9c200ee17cd43f769e
+          args: ["migrate"]
+          env:
+            - {name: OPENFGA_DATASTORE_ENGINE, value: postgres}
+            - name: OPENFGA_DATASTORE_URI
+              valueFrom: {secretKeyRef: {name: openfga-db-app, key: uri}}
+            - {name: OPENFGA_TIMEOUT, value: 10m}
+            - {name: OPENFGA_LOG_FORMAT, value: json}
+          resources:
+            requests: {cpu: 20m, memory: 64Mi}
+            limits: {memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}

@@ -12,12 +12,17 @@ Fail closed: a timeout, a connection error, a 5xx, a 401 or a 404 (wrong store o
 a write is never retried blindly, because a duplicate write is itself a 400 and the first attempt may have
 landed. The preshared key (``INKCAST_FGA_API_TOKEN``) travels as a bearer header and nowhere else: not in logs,
 not in error messages.
+
+``OpenFgaAdmin`` (E3.F3.9.S1) is the operator's side of the same API, for ``inkcast authz write-model``: the store
+by name (``GET /stores?name=``, ``POST /stores``) and the model versions of a store (``GET`` and ``POST``
+``/stores/{id}/authorization-models``), over the same transport and the same key.
 """
 
 from __future__ import annotations
 
 import time
 from typing import Any, Iterable, Sequence
+from urllib.parse import urlencode
 
 import httpx2
 
@@ -29,6 +34,46 @@ CONSISTENCY = {"minimize_latency": "MINIMIZE_LATENCY", "higher_consistency": "HI
 MAX_TUPLES_PER_WRITE = 100   # OPENFGA_MAX_TUPLES_PER_WRITE
 READ_PAGE = 100              # the largest page Read allows
 READY_TTL = 30.0             # how long a readiness answer is reused, so /readyz never hammers OpenFGA
+STORES_PAGE = 100            # the largest page ListStores allows (openfga/api: ListStoresRequest.page_size <= 100)
+
+
+def _headers(token: SecretValue) -> dict[str, str]:
+    headers = {"Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token.reveal()}"
+    return headers
+
+
+async def _call(http: httpx2.AsyncClient, method: str, url: str, body: dict[str, Any] | None, *, label: str,
+                headers: dict[str, str], timeout: httpx2.Timeout, retry: bool) -> dict[str, Any]:
+    """One request and its answer as a JSON object; the failure rules of the module docstring. ``label`` is the
+    path as it is named in errors (never the full URL: the base carries nothing secret, but it stays short)."""
+    for attempt in (1, 2):
+        try:
+            r = await http.request(method, url, json=body, headers=headers, timeout=timeout)
+            break
+        except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
+            if retry and attempt == 1:
+                continue  # the request never left: once more is safe
+            raise EngineError(f"OpenFGA unreachable ({type(exc).__name__}) for {method} {label}") from exc
+        except httpx2.HTTPError as exc:  # read timeouts, protocol errors: the request may have landed
+            raise EngineError(f"OpenFGA request failed ({type(exc).__name__}) for {method} {label}") from exc
+    if 200 <= r.status_code < 300:
+        try:
+            answer = r.json() if r.content else {}
+        except ValueError as exc:
+            raise EngineError(f"OpenFGA answered {method} {label} with a non-JSON body (HTTP {r.status_code})") from exc
+        if not isinstance(answer, dict):
+            raise EngineError(f"OpenFGA answered {method} {label} with a JSON {type(answer).__name__}, not an object")
+        return answer
+    code, message = _error(r)
+    if r.status_code in (400, 422):
+        raise InvalidRequest(f"OpenFGA refused {method} {label} ({code}): {message}")
+    if r.status_code in (401, 403):
+        raise EngineError(f"OpenFGA refused the credentials for {method} {label} (HTTP {r.status_code}, {code})")
+    if r.status_code == 404:
+        raise EngineError(f"OpenFGA store or model not found for {method} {label} (HTTP 404, {code})")
+    raise EngineError(f"OpenFGA answered {method} {label} with HTTP {r.status_code} ({code})")
 
 
 class OpenFgaEngine:
@@ -49,39 +94,11 @@ class OpenFgaEngine:
     # ---- transport ------------------------------------------------------------------------------------------
 
     def _headers(self) -> dict[str, str]:
-        headers = {"Accept": "application/json"}
-        if self.token:
-            headers["Authorization"] = f"Bearer {self.token.reveal()}"
-        return headers
+        return _headers(self.token)
 
     async def _request(self, method: str, path: str, body: dict[str, Any] | None = None, *, retry: bool) -> dict[str, Any]:
-        url = f"{self.base}/{path}"
-        for attempt in (1, 2):
-            try:
-                r = await self.http.request(method, url, json=body, headers=self._headers(), timeout=self.timeout)
-                break
-            except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
-                if retry and attempt == 1:
-                    continue  # the request never left: once more is safe
-                raise EngineError(f"OpenFGA unreachable ({type(exc).__name__}) for {method} {path}") from exc
-            except httpx2.HTTPError as exc:  # read timeouts, protocol errors: the request may have landed
-                raise EngineError(f"OpenFGA request failed ({type(exc).__name__}) for {method} {path}") from exc
-        if 200 <= r.status_code < 300:
-            try:
-                answer = r.json() if r.content else {}
-            except ValueError as exc:
-                raise EngineError(f"OpenFGA answered {method} {path} with a non-JSON body (HTTP {r.status_code})") from exc
-            if not isinstance(answer, dict):
-                raise EngineError(f"OpenFGA answered {method} {path} with a JSON {type(answer).__name__}, not an object")
-            return answer
-        code, message = _error(r)
-        if r.status_code in (400, 422):
-            raise InvalidRequest(f"OpenFGA refused {method} {path} ({code}): {message}")
-        if r.status_code in (401, 403):
-            raise EngineError(f"OpenFGA refused the credentials for {method} {path} (HTTP {r.status_code}, {code})")
-        if r.status_code == 404:
-            raise EngineError(f"OpenFGA store or model not found for {method} {path} (HTTP 404, {code})")
-        raise EngineError(f"OpenFGA answered {method} {path} with HTTP {r.status_code} ({code})")
+        return await _call(self.http, method, f"{self.base}/{path}", body, label=path, headers=self._headers(),
+                           timeout=self.timeout, retry=retry)
 
     # ---- the PolicyEngine -----------------------------------------------------------------------------------
 
@@ -184,6 +201,105 @@ class OpenFgaEngine:
             problem = str(exc)
         self._ready = (now, problem)
         return problem
+
+
+class OpenFgaAdmin:
+    """The store and its model versions, for ``inkcast authz write-model`` (E3.F3.9.S1). Reads are retried once on a
+    connection error like the engine's; the two writes (a store, a model version) never are, because each one that
+    lands is a new object."""
+
+    def __init__(self, api_url: str, token: "SecretValue | str" = "", http: httpx2.AsyncClient | None = None,
+                 timeout: float = 5.0):
+        if not api_url:
+            raise EngineError("OpenFGA needs INKCAST_FGA_API_URL")
+        self.base = api_url.rstrip("/")
+        self.token = SecretValue(token)
+        self.http = http or httpx2.AsyncClient()
+        self.timeout = httpx2.Timeout(timeout, connect=min(timeout, 3.0))
+
+    async def _request(self, method: str, path: str, body: dict[str, Any] | None = None, *, retry: bool) -> dict[str, Any]:
+        return await _call(self.http, method, f"{self.base}/{path}", body, label=path.split("?")[0],
+                           headers=_headers(self.token), timeout=self.timeout, retry=retry)
+
+    async def find_store(self, name: str) -> str | None:
+        """The id of the store called ``name``, or None. ListStores filters on the exact name; several stores may
+        share one (OpenFGA does not forbid it), and that is refused rather than guessed at."""
+        found: list[str] = []
+        token = ""
+        while True:
+            params: dict[str, Any] = {"name": name, "page_size": STORES_PAGE}   # a name may hold spaces, `&` or `/`
+            if token:
+                params["continuation_token"] = token
+            answer = await self._request("GET", f"stores?{urlencode(params)}", retry=True)
+            stores = answer.get("stores")
+            if not isinstance(stores, list):
+                raise EngineError("OpenFGA list-stores answered without stores")
+            found += [str(s.get("id", "")) for s in stores if isinstance(s, dict) and s.get("name") == name]
+            token = str(answer.get("continuation_token") or "")
+            if not token:
+                break
+        if len(found) > 1:
+            raise EngineError(f"OpenFGA holds {len(found)} stores named {name!r} ({', '.join(found)}): pin "
+                              "INKCAST_FGA_STORE_ID to the one Inkcast uses and delete or rename the others")
+        return found[0] if found else None
+
+    async def create_store(self, name: str) -> str:
+        answer = await self._request("POST", "stores", {"name": name}, retry=False)
+        store_id = str(answer.get("id", ""))
+        if not store_id:
+            raise EngineError("OpenFGA create-store answered without an id")
+        return store_id
+
+    async def newest_model(self, store_id: str) -> dict[str, Any] | None:
+        """The store's newest model version (OpenFGA lists them newest first), or None when it holds none."""
+        answer = await self._request("GET", f"stores/{store_id}/authorization-models?page_size=1", retry=True)
+        models = answer.get("authorization_models")
+        if not isinstance(models, list):
+            raise EngineError("OpenFGA read-authorization-models answered without authorization_models")
+        if not models:
+            return None
+        if not isinstance(models[0], dict) or not models[0].get("id"):
+            raise EngineError("OpenFGA read-authorization-models answered a model without an id")
+        return models[0]
+
+    async def write_model(self, store_id: str, model: dict[str, Any]) -> str:
+        """A new model version from a compiled model (``authz/model.json``): its id."""
+        body = {k: model[k] for k in ("schema_version", "type_definitions", "conditions") if k in model}
+        answer = await self._request("POST", f"stores/{store_id}/authorization-models", body, retry=False)
+        model_id = str(answer.get("authorization_model_id", ""))
+        if not model_id:
+            raise EngineError("OpenFGA write-authorization-model answered without an authorization_model_id")
+        return model_id
+
+
+def same_model(stored: dict[str, Any], model: dict[str, Any]) -> bool:
+    """Whether a model version OpenFGA answers is the compiled ``model`` (``authz/model.json``).
+
+    OpenFGA answers protobuf JSON with every field populated (v1.22.0, observed 2026-10-28: a computed relation's
+    metadata comes back as ``{"directly_related_user_types": [], "module": "", "source_info": null}`` where the file
+    has ``{}``; ``conditions: {}``, ``"metadata": null`` on a type without relations), and adds the ``id``. Both
+    sides are compared with empty values dropped at every level, so only a difference in substance (a relation, a
+    type, an allowed user type, a rewrite) tells them apart. Only the version's own ``id`` is set aside: a relation
+    or a condition may carry that name."""
+    return _canonical({k: v for k, v in stored.items() if k != "id"}) == _canonical({k: v for k, v in model.items() if k != "id"})
+
+
+_EMPTY = (None, "", {}, [])
+# Empty messages whose presence is the meaning: `wildcard` is `type:*`, `this` a directly assignable relation.
+_PRESENT_WHEN_EMPTY = ("wildcard", "this")
+
+
+def _canonical(value: Any) -> Any:
+    if isinstance(value, dict):
+        out = {}
+        for key, item in value.items():
+            item = _canonical(item)
+            if item not in _EMPTY or key in _PRESENT_WHEN_EMPTY:
+                out[key] = item
+        return out
+    if isinstance(value, list):
+        return [_canonical(item) for item in value]
+    return value
 
 
 def _consistency(value: str) -> str:

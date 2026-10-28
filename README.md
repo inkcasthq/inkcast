@@ -130,17 +130,28 @@ Claude reads the file and passes its text to Inkcast. Inkcast never touches your
 
 ### 2. Run Inkcast on OpenShift or Kubernetes
 
+Permission checks run in OpenFGA ([design](docs/authorization.md)), on a PostgreSQL that the [CloudNativePG](https://cloudnative-pg.io) operator runs: install the operator first (its release manifest, server-side; the version CI tests is in `scripts/versions.env`).
+
 ```bash
 oc new-project inkcast
 oc create secret generic inkcast-secrets \
-  --from-literal=secret-key="$(openssl rand -base64 48)" --from-literal=oidc-client-secret=…
+  --from-literal=secret-key="$(openssl rand -base64 48)" --from-literal=oidc-client-secret=… \
+  --from-literal=fga-api-token="$(openssl rand -base64 48)"    # OpenFGA's preshared key; Inkcast reads the same entry
 # edit deploy/kustomize/base/kustomization.yaml (public URL, OIDC issuer, image) and the Route host, then:
 oc apply -k deploy/kustomize/overlays/openshift          # or: kubectl apply -k deploy/kustomize/overlays/kubernetes
+oc -n inkcast wait --for=condition=complete job/openfga-migrate --timeout=10m
+# Inkcast now refuses to start, naming INKCAST_FGA_STORE_ID and INKCAST_FGA_MODEL_ID. Write the store and the model once:
+oc -n inkcast port-forward svc/openfga 8080:8080 &
+INKCAST_FGA_API_URL=http://localhost:8080 INKCAST_FGA_API_TOKEN_FILE=<the key's file> inkcast authz write-model
+# It prints INKCAST_FGA_STORE_ID=… and INKCAST_FGA_MODEL_ID=…: pin both in the overlay's inkcast-config literals
+# (deploy/kustomize/overlays/openshift/kustomization.yaml, or your environment's), then apply again.
 ```
+
+A second `write-model` run finds the store and the model and changes nothing; a model change is a pull request that moves `INKCAST_FGA_MODEL_ID`, a rollback a revert. To keep the in-process engine instead (a small self-host), leave `components/openfga` out of your overlay and set `INKCAST_AUTHZ_ENGINE=local` with `INKCAST_AUTHZ_ALLOW_LOCAL=true`.
 
 **What the manifests set up:**
 
-- **Pod security:** restricted, i.e. arbitrary non-root UID, read-only root filesystem, no capabilities.
+- **Pod security:** restricted, i.e. arbitrary non-root UID, read-only root filesystem, no capabilities. OpenFGA and its database run the same way.
 - **Network:** default-deny NetworkPolicy, plus optional FQDN egress allow-lists (Cilium, or OVN EgressFirewall).
 - **Probes and metrics:** `/livez` and `/readyz` probes, with Prometheus metrics on a separate, unrouted port.
 - **Exposure:** an edge-TLS Route with HSTS on OpenShift, or a Gateway API HTTPRoute on Kubernetes.

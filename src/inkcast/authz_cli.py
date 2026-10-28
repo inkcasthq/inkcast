@@ -1,0 +1,138 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
+# Copyright 2026 ScalarOps Technologies LLC
+"""``inkcast authz write-model`` (E3.F3.9.S1, issue #279): the store and the model version a deployment pins.
+
+    inkcast authz write-model                       # the packaged model, the store named "inkcast"
+    inkcast authz write-model --store NAME --model PATH
+
+Reads ``INKCAST_FGA_API_URL`` and the preshared key ``INKCAST_FGA_API_TOKEN`` (or ``_FILE``) through the secrets
+design, nothing else: not the store or model ids, which are what it produces. Creates the store when no store of
+that name exists; writes the model as a new version unless the store's newest version already is this model
+(``same_model``), so a second run changes nothing. Prints, on stdout and nothing else there::
+
+    INKCAST_FGA_STORE_ID=01...
+    INKCAST_FGA_MODEL_ID=01...
+
+so ``eval "$(inkcast authz write-model)"`` or a pull request can pin both (docs/authorization.md §8). What happened
+(store created or found, model written or unchanged) goes to stderr. The key is never printed. Exit 0 when the ids
+are printed, 1 on a configuration or OpenFGA problem, with the reason on stderr.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import os
+import pathlib
+import sys
+from typing import Any, Mapping
+
+import httpx2
+
+from .libs.authz.model import PACKAGED_MODEL
+from .libs.authz.openfga import OpenFgaAdmin, same_model
+from .libs.authz.types import EngineError, InvalidRequest
+from .libs.config import ConfigError, secrets_provider, settings_from
+from .libs.observability import setup_logging
+from .libs.secrets import NamingError, SecretFetchError
+
+DEFAULT_STORE = "inkcast"
+
+
+def authz_main(argv: list[str], environ: Mapping[str, str] | None = None, out: Any = None, err: Any = None,
+               http: httpx2.AsyncClient | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="inkcast authz", description="The OpenFGA store Inkcast checks permissions in.")
+    commands = parser.add_subparsers(dest="command", required=True)
+    write = commands.add_parser("write-model", help="create the store if it is missing, write the model once, and print "
+                                                    "INKCAST_FGA_STORE_ID and INKCAST_FGA_MODEL_ID to pin")
+    write.add_argument("--store", default=DEFAULT_STORE, metavar="NAME", help=f"the store's name (default: {DEFAULT_STORE})")
+    write.add_argument("--model", default=None, metavar="PATH",
+                       help="a compiled model (authz/model.json) to write instead of the packaged one")
+    args = parser.parse_args(argv)
+    out, err = out or sys.stdout, err or sys.stderr
+    settings = settings_from(environ if environ is not None else os.environ)
+    # The ids are the output a script reads: no log line in front of them (setup_logging writes to stdout).
+    setup_logging(settings.get("INKCAST_LOG_FORMAT", "text").lower(), "WARNING", service="Authz")
+    try:
+        url, token, timeout = _fga_settings(settings)
+        model = _load_model(pathlib.Path(args.model) if args.model else PACKAGED_MODEL)
+    except ConfigError as exc:
+        print(f"inkcast authz: {exc}", file=err)
+        return 1
+    admin = OpenFgaAdmin(url, token, http=http, timeout=timeout)
+
+    async def run() -> tuple[str, str, list[str]]:
+        try:
+            return await _write_model(admin, args.store, model)
+        finally:
+            if http is None:   # the client this command opened closes on the loop that used it
+                await admin.http.aclose()
+
+    try:
+        store_id, model_id, notes = asyncio.run(run())
+    except (EngineError, InvalidRequest) as exc:
+        print(f"inkcast authz: {exc}", file=err)
+        return 1
+    for note in notes:
+        print(note, file=err)
+    print(f"INKCAST_FGA_STORE_ID={store_id}", file=out)
+    print(f"INKCAST_FGA_MODEL_ID={model_id}", file=out)
+    return 0
+
+
+def _fga_settings(settings: Mapping[str, str]) -> tuple[str, Any, float]:
+    url = settings.get("INKCAST_FGA_API_URL", "").strip().rstrip("/")
+    if not url:
+        raise ConfigError("INKCAST_FGA_API_URL is not set: the OpenFGA server to write to (http://openfga:8080 in the "
+                          "component, or a port-forward to it).")
+    try:
+        timeout = float(settings.get("INKCAST_FGA_TIMEOUT", "").strip() or "5")   # unset or empty: the default
+    except ValueError:
+        timeout = 0.0
+    if not 0 < timeout < float("inf"):
+        raise ConfigError("INKCAST_FGA_TIMEOUT must be a positive number of seconds.")
+    provider = secrets_provider(settings, service=settings.get("INKCAST_APP_NAME", "All"))
+    try:
+        token = provider.get("INKCAST_FGA_API_TOKEN")  # empty when OpenFGA runs without authentication
+    except (OSError, SecretFetchError, NamingError) as exc:
+        raise ConfigError(f"INKCAST_FGA_API_TOKEN can't be read: {exc}") from exc
+    return url, token, timeout
+
+
+def _load_model(path: pathlib.Path) -> dict[str, Any]:
+    try:
+        model = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ConfigError(f"authorization model {path} can't be loaded: {exc}") from exc
+    if not isinstance(model, dict) or not isinstance(model.get("type_definitions"), list) or not model["type_definitions"]:
+        raise ConfigError(f"authorization model {path} is not a compiled model: it needs type_definitions "
+                          "(fga model transform --file authz/model.fga --output-format json)")
+    if model.get("schema_version") != "1.1":
+        raise ConfigError(f"authorization model {path} has schema_version {model.get('schema_version')!r}; Inkcast's "
+                          "engines evaluate 1.1")
+    return model
+
+
+async def _write_model(admin: OpenFgaAdmin, store_name: str, model: dict[str, Any]) -> tuple[str, str, list[str]]:
+    """(store id, model id, what happened). Idempotent: the second run finds the store and sees the newest model is
+    this one, and writes nothing."""
+    notes = []
+    store_id = await admin.find_store(store_name)
+    if store_id is None:
+        store_id = await admin.create_store(store_name)
+        notes.append(f"store {store_name!r} created: {store_id}")
+    else:
+        notes.append(f"store {store_name!r} found: {store_id}")
+    newest = await admin.newest_model(store_id)
+    if newest is not None and same_model(newest, model):
+        model_id = str(newest["id"])
+        notes.append(f"model unchanged: the store's newest version {model_id} is this model")
+    else:
+        model_id = await admin.write_model(store_id, model)
+        notes.append(f"model written: version {model_id}" + ("" if newest is None else f" (the newest was {newest['id']})"))
+    return store_id, model_id, notes
+
+
+if __name__ == "__main__":  # pragma: no cover
+    sys.exit(authz_main(sys.argv[1:]))

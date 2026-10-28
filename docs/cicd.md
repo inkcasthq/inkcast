@@ -23,7 +23,8 @@ pull request ─► ci.yml ─────────────────�
                        the end-to-end walkthrough on 3.14, see walkthrough.md)          │
                  manifests (render every overlay/environment)                         │
                  image (build + Grype scan → code scanning)                           │
-                 kind (deploy real image + manifests under PSS restricted, smoke)     │
+                 kind (deploy real image + manifests under PSS restricted, smoke;     │
+                       OpenFGA on CloudNativePG, the migrate Job, write-model)         │
                  codeql (python + js)                                                 ┘
 
 push to main ──► publish.yml: gate (= ci.yml) ► build+push (digest) ► sbom ► attest (sign, SBOM attest,
@@ -133,6 +134,7 @@ The one to retire today is **`.github/workflows/publish.yml:codeql`**. It's left
 | Vendored assets | `scripts/vendor-assets.sh` (offline verify); `--outdated`, `--update`, `--upgrade` |
 | Manifests | `kubectl kustomize deploy/kustomize/overlays/openshift` |
 | Cluster smoke | `kind create cluster && kind load docker-image inkcast:ci && kubectl apply -k deploy/kustomize/overlays/ci` |
+| OpenFGA on kind | `scripts/dev/openfga-e2e.sh` (the CloudNativePG release pinned in `scripts/versions.env`, the `ci-openfga` overlay, `inkcast authz write-model`) |
 
 ## Not verified yet
 

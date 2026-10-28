@@ -6,12 +6,17 @@ kind: Kustomization
 resources:
   - ../../overlays/openshift      # or ../../overlays/kubernetes
 configMapGenerator:
-  # The hosted service runs OpenFGA (ADR-0007): refuse the in-process engine the self-host overlays allow. This
-  # environment doesn't start until INKCAST_AUTHZ_ENGINE=openfga and its INKCAST_FGA_* settings land (E3.F3.9).
+  # The hosted service runs OpenFGA (ADR-0007; components/openfga, through the overlay) and refuses the in-process
+  # engine. The store and the model version are pinned here, as literals in Git: `inkcast authz write-model` prints
+  # both (README, Hosted §2); a model change is a pull request that moves INKCAST_FGA_MODEL_ID, a rollback a revert.
+  # Until both are pinned Inkcast refuses to start and names the missing variable.
   - name: inkcast-config
     behavior: merge
     literals:
+      - INKCAST_AUTHZ_ENGINE=openfga
       - INKCAST_AUTHZ_ALLOW_LOCAL=false
+      - INKCAST_FGA_STORE_ID=
+      - INKCAST_FGA_MODEL_ID=
       # A person gone from Keycloak (deleted by an administrator, or a self-deletion whose event the sync never saw)
       # is cut off at once and erased this many days later (E9.F9.5.S6). 0 erases at the first reconcile; off never
       # erases on a 404, which the posture check warns about here. The default is 30: stated so it is a choice.

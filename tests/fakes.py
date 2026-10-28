@@ -66,6 +66,13 @@ class Fakes:
         self.fga_calls: list[tuple[str, str, dict | None]] = []
         self.fga_fail_next: int | None = None  # answer the next call with this status (503, 429...)
         self._fga_evaluator = Evaluator(Model.load(), _FgaSource(self))
+        # The stores (id -> name) and each store's model versions, oldest first, as `inkcast authz write-model`
+        # (E3.F3.9.S1) sees them: it lists stores by name, creates one, lists the newest version and writes one.
+        # The default store holds the stub version the engine's readiness check reads; a write-model test empties it.
+        self.fga_stores: dict[str, str] = {self.fga_store: "inkcast-tests"}
+        self.fga_models: dict[str, list[dict]] = {
+            self.fga_store: [{"id": self.fga_model, "schema_version": "1.1", "type_definitions": [{"type": "user"}]}]}
+        self._fga_seq = 0
 
     # ---- Keycloak-style OIDC ------------------------------------------------
 
@@ -396,9 +403,11 @@ class Fakes:
             return None, JSONResponse({"code": "internal_error", "message": "forced by the test"}, status_code=status)
         if self.fga_token and request.headers.get("authorization") != f"Bearer {self.fga_token}":
             return None, JSONResponse({"code": "unauthenticated", "message": "unauthenticated"}, status_code=401)
-        if request.path_params["store"] != self.fga_store:
+        store = request.path_params.get("store")   # the /stores collection itself has none
+        if store is not None and store not in self.fga_stores:
             return None, JSONResponse({"code": "store_id_not_found", "message": "store id not found"}, status_code=404)
-        if body is not None and body.get("authorization_model_id", self.fga_model) != self.fga_model:
+        model_ids = [m["id"] for m in self.fga_models.get(store, [])]
+        if body is not None and "authorization_model_id" in body and body["authorization_model_id"] not in model_ids:
             return None, JSONResponse({"code": "authorization_model_not_found",
                                        "message": f"Authorization Model '{body['authorization_model_id']}' not found"},
                                       status_code=400)
@@ -409,6 +418,67 @@ class Fakes:
     @staticmethod
     def _fga_invalid(message: str, code: str = "validation_error") -> JSONResponse:
         return JSONResponse({"code": code, "message": message}, status_code=400)
+
+    _FGA_NAME = re.compile(r"^[a-zA-Z0-9\s.\-/^_&@]{3,64}$")   # CreateStoreRequest.name and ListStoresRequest.name
+
+    def _fga_new_id(self) -> str:
+        """A ULID-shaped id (26 chars of Crockford base32) that sorts after every earlier one, as OpenFGA's do."""
+        self._fga_seq += 1
+        return f"01JFAKE{self._fga_seq:019d}"
+
+    async def fga_stores_list(self, request: Request):
+        _, refused = await self._fga_begin(request)
+        if refused:
+            return refused
+        name = request.query_params.get("name", "")
+        if name and not self._FGA_NAME.match(name):
+            return self._fga_invalid("invalid ListStoresRequest.Name: value does not match regex pattern")
+        page = int(request.query_params.get("page_size", 50))
+        if not 1 <= page <= 100:
+            return self._fga_invalid("page_size must be between 1 and 100")
+        rows = [{"id": sid, "name": sname} for sid, sname in self.fga_stores.items() if not name or sname == name]
+        start = int(request.query_params.get("continuation_token") or 0)
+        chunk = rows[start:start + page]
+        return JSONResponse({"stores": chunk, "continuation_token": str(start + page) if start + page < len(rows) else ""})
+
+    async def fga_stores_create(self, request: Request):
+        body, refused = await self._fga_begin(request)
+        if refused:
+            return refused
+        name = body.get("name")
+        if not isinstance(name, str) or not self._FGA_NAME.match(name):
+            return self._fga_invalid("invalid CreateStoreRequest.Name: value does not match regex pattern")
+        store_id = self._fga_new_id()
+        self.fga_stores[store_id] = name
+        self.fga_models[store_id] = []
+        return JSONResponse({"id": store_id, "name": name}, status_code=201)
+
+    async def fga_models_list(self, request: Request):
+        """Newest first, as OpenFGA orders them (authorization_model_id desc)."""
+        _, refused = await self._fga_begin(request)
+        if refused:
+            return refused
+        page = int(request.query_params.get("page_size", 50))
+        if not 1 <= page <= 100:
+            return self._fga_invalid("page_size must be between 1 and 100")
+        rows = list(reversed(self.fga_models.get(request.path_params["store"], [])))
+        start = int(request.query_params.get("continuation_token") or 0)
+        chunk = rows[start:start + page]
+        return JSONResponse({"authorization_models": chunk,
+                             "continuation_token": str(start + page) if start + page < len(rows) else ""})
+
+    async def fga_models_write(self, request: Request):
+        body, refused = await self._fga_begin(request)
+        if refused:
+            return refused
+        if body.get("schema_version") not in ("1.0", "1.1", "1.2"):
+            return self._fga_invalid("invalid WriteAuthorizationModelRequest.SchemaVersion: value must be in list [1.0 1.1 1.2]")
+        if not isinstance(body.get("type_definitions"), list) or not body["type_definitions"]:
+            return self._fga_invalid("invalid WriteAuthorizationModelRequest.TypeDefinitions: value must contain at least 1 item(s)")
+        model = {"id": self._fga_new_id(), "schema_version": body["schema_version"],
+                 "type_definitions": body["type_definitions"], "conditions": body.get("conditions") or {}}
+        self.fga_models.setdefault(request.path_params["store"], []).append(model)
+        return JSONResponse({"authorization_model_id": model["id"]}, status_code=201)
 
     @staticmethod
     def _fga_key(key) -> tuple[str, str, str]:
@@ -521,10 +591,10 @@ class Fakes:
         _, refused = await self._fga_begin(request)
         if refused:
             return refused
-        if request.path_params["model"] != self.fga_model:
+        models = {m["id"]: m for m in self.fga_models.get(request.path_params["store"], [])}
+        if request.path_params["model"] not in models:
             return self._fga_invalid("Authorization Model not found", "authorization_model_not_found")
-        return JSONResponse({"authorization_model": {"id": self.fga_model, "schema_version": "1.1",
-                                                     "type_definitions": [{"type": "user"}]}})
+        return JSONResponse({"authorization_model": models[request.path_params["model"]]})
 
     def app(self) -> Starlette:
         kc = "/kc/realms/inkcast"
@@ -552,6 +622,10 @@ class Fakes:
             Route("/devto/api/articles", self.devto_create, methods=["POST"]),
             Route("/devto/api/articles/me/all", self.devto_mine),
             Route("/devto/api/articles/{aid:int}", self.devto_update, methods=["PUT"]),
+            Route("/fga/stores", self.fga_stores_list),
+            Route("/fga/stores", self.fga_stores_create, methods=["POST"]),
+            Route("/fga/stores/{store}/authorization-models", self.fga_models_list),
+            Route("/fga/stores/{store}/authorization-models", self.fga_models_write, methods=["POST"]),
             Route("/fga/stores/{store}/check", self.fga_check, methods=["POST"]),
             Route("/fga/stores/{store}/batch-check", self.fga_batch_check, methods=["POST"]),
             Route("/fga/stores/{store}/list-objects", self.fga_list_objects, methods=["POST"]),

@@ -875,9 +875,14 @@ class Config:
         if self.authz_engine not in AUTHZ_ENGINES:
             return [f"INKCAST_AUTHZ_ENGINE must be one of {', '.join(AUTHZ_ENGINES)} (got {self.authz_engine!r})."]
         if self.authz_engine == "openfga":
-            if not (self.fga_api_url and self.fga_store_id and self.fga_model_id):
-                problems.append("INKCAST_AUTHZ_ENGINE=openfga needs INKCAST_FGA_API_URL, INKCAST_FGA_STORE_ID and "
-                                "INKCAST_FGA_MODEL_ID (the pinned model version).")
+            # Each missing one by name: a deployment whose ids are not pinned yet (E3.F3.9.S1) must read what to pin.
+            missing = [name for name, value in (("INKCAST_FGA_API_URL", self.fga_api_url),
+                                                ("INKCAST_FGA_STORE_ID", self.fga_store_id),
+                                                ("INKCAST_FGA_MODEL_ID", self.fga_model_id)) if not value]
+            if missing:
+                names = missing[0] if len(missing) == 1 else ", ".join(missing[:-1]) + " and " + missing[-1]
+                problems.append(f"INKCAST_AUTHZ_ENGINE=openfga needs {names} (the server, the store and the pinned "
+                                "model version; `inkcast authz write-model` prints the store and model ids).")
             if self.fga_api_url and urlparse(self.fga_api_url).scheme not in ("http", "https"):
                 problems.append("INKCAST_FGA_API_URL must be an http(s) URL.")
             if not 0 < self.fga_timeout_seconds < float("inf"):  # also nan, which httpx2 reads as "no timeout"
