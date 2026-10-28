@@ -338,9 +338,10 @@ class GitSync:
         (``Publisher.cancel_pending``), with the entry's write in that transaction. The cancel is one conditional write,
         so a sync of the same path racing this one (an edit's replace, the scheduler's claim, a person's cancel) can't
         both move the post: the loser reports the post changed state and asks for a re-run. A published post stays on
-        the platform: Inkcast never deletes there. The entry stays, pointing at the cancelled post, with nothing
-        standing as sent (an empty hash), so a file put back at the same path is published as a new post, as an edited
-        file is after a person's cancel. Only this user's entries of this repository are read: a removal never touches
+        the platform: Inkcast never deletes there. The entry stays, pointing at the cancelled post. A scheduled post was
+        never sent, so nothing stands as sent (an empty hash) and a file put back at the same path is published as a new
+        post; one that may already be on the platform keeps its hash, so only an edited file is, as after a person's
+        cancel. Only this user's entries of this repository are read: a removal never touches
         another person's post, nor a post of the same path from another repository."""
         entries = self.store.list_entries(user_id, req.source, path)
         if not entries:
@@ -379,8 +380,12 @@ class GitSync:
         if req.dry_run:
             return SyncResult(**base, action="removed", **found, message=f"Would cancel post {post['id']} ({post['status']}).{maybe}")
 
+        # Only a scheduled post was never sent: put back, its file is published anew. One that may already be on the
+        # platform keeps its hash, so the same file put back is 'unchanged', as after a person's cancel: no second copy.
+        cleared = {"content_hash": ""} if post["status"] == "scheduled" else {}
+
         def record(c: sqlite3.Connection) -> None:
-            self.publisher.store.put_entry_in(c, user_id, src, path, pid, status="cancelled", content_hash="",
+            self.publisher.store.put_entry_in(c, user_id, src, path, pid, status="cancelled", **cleared,
                                               message="Removed from the repository; its post was cancelled.")
 
         try:
