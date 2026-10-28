@@ -15,7 +15,7 @@ A personal access token lets CI sync stories, and do nothing else.
 
 | Scope | Allows |
 |---|---|
-| `stories:sync` | sync files (create, update, skip) |
+| `stories:sync` | sync files (create, update, skip; cancel a removed file's pending post) |
 | `posts:read` | list posts, previews, dry runs, the ledger |
 | `posts:write` | publish, schedule and cancel single posts |
 | `connections:read` / `connections:write` | see connected platforms; create connect links and disconnect |
@@ -85,8 +85,21 @@ Publishing by hand (`inkcast_publish`, `POST /api/v1/posts`) is different: there
 | `stale` | Changed, but the platform can't edit posts (Medium). Edit it by hand at the URL shown; Inkcast won't post it again |
 | `skipped` | The platform isn't connected, another sync of the file is running, or the file's post needs your decision: its last publish is `unconfirmed` (resend or cancel it, below), or its send was interrupted and Inkcast is still asking the platform whether it arrived (`recovering`; cancel it if you don't want it) |
 | `failed` | Invalid file or platform error; the next sync tries again |
+| `removed` | The file was removed from the repository: its pending post was cancelled, or, if it had been published, left on the platform (the status and message say which) |
 
 Files are matched to earlier posts by repository, path and platform. If you rename a file, it counts as a new story; to keep it linked, keep the path.
+
+### Removing a file
+
+A push that deletes a file cancels the file's pending post: one that is `scheduled`, or `recovering` or `unconfirmed` (its send was interrupted, or the platform's answer was lost; it may already be on the platform, and the result says so, as a cancel by hand does). A published post stays on the platform: Inkcast never deletes there; remove it by hand if you want it gone. A removal cancels only posts that came from that repository's sync (matched by repository, path and platform), never a post published by hand or from another repository. A renamed file is a removal and a new story. If you put the file back at the same path, a file whose `scheduled` post was cancelled is published as a new post; one whose post may already be on the platform (`recovering`, `unconfirmed`) is published again only once you change it, as after a cancel by hand, so a revert never sends a second copy.
+
+The action works this out from the push itself: the files deleted between the commit before the push and the pushed commit (`git diff --no-renames --diff-filter=D`), within `paths`. The first push of a branch has no commit before it, so it reports no removals; on a pull request the dry run says which posts the merge would cancel. From any other CI, or a laptop, name the base revision yourself:
+
+```bash
+inkcast sync --removed-since 1a2b3c4 'posts/**/*.md'   # the commit the last sync ran at
+```
+
+If the revision isn't in the clone (a shallow checkout), the command stops with exit code `2` and says so; fetch it, or sync without the option.
 
 If a sync fails part-way (the request errors because Inkcast's database was busy, say), run it again:
 

@@ -13,6 +13,8 @@ update     payload changed and the platform can edit posts (DEV): edit in place;
 stale      payload changed but the platform can't edit (Medium): leave it, say so
 skipped    platform not connected, or another sync of this file is in progress
 failed     validation or platform error; the next sync tries again
+removed    the file is gone from the repository (``SyncRequest.removed``): its pending post is cancelled;
+           a published one stays on the platform (``_removed``, #230)
 =========  ======================================================================
 
 A brand-new entry is claimed in the ledger *before* anything is sent, so two CI runs racing on
@@ -61,6 +63,8 @@ class GitSync:
         results: list[SyncResult] = []
         for f in req.files:
             results += await self._file(user_id, req, f.path, f.markdown, f.image_base_url or req.image_base_url)
+        for path in req.removed:
+            results += self._removed(user_id, req, path)
         for r in results:
             self._count(r.platform, r.action)
         if not req.dry_run:
@@ -327,6 +331,72 @@ class GitSync:
             raise
         return SyncResult(**base, action=action, status=o.status, post_id=o.post_id, url=o.url,
                           message=o.message or ("; ".join(o.notes) or None))
+
+    def _removed(self, user_id: str, req: SyncRequest, path: str) -> list[SyncResult]:
+        """A file removed from the repository (#230): one result per platform entry of (user, source, path). A pending
+        post ('scheduled', 'recovering' or 'unconfirmed') is cancelled through the transition a person's cancel uses
+        (``Publisher.cancel_pending``), with the entry's write in that transaction. The cancel is one conditional write,
+        so a sync of the same path racing this one (an edit's replace, the scheduler's claim, a person's cancel) can't
+        both move the post: the loser reports the post changed state and asks for a re-run. A published post stays on
+        the platform: Inkcast never deletes there. The entry stays, pointing at the cancelled post. A scheduled post was
+        never sent, so nothing stands as sent (an empty hash) and a file put back at the same path is published as a new
+        post; one that may already be on the platform keeps its hash, so only an edited file is, as after a person's
+        cancel. Only this user's entries of this repository are read: a removal never touches
+        another person's post, nor a post of the same path from another repository."""
+        entries = self.store.list_entries(user_id, req.source, path)
+        if not entries:
+            return [SyncResult(path=path, platform="*", action="removed",
+                               message="No post came from this file; nothing to cancel.")]
+        return [self._cancel_removed(user_id, req, path, entry) for entry in entries]
+
+    def _cancel_removed(self, user_id: str, req: SyncRequest, path: str, entry: dict) -> SyncResult:
+        src, pid = req.source, entry["platform"]
+        name = getattr(self.platforms.get(pid), "name", pid)
+        base = {"path": path, "platform": pid}
+        if entry["status"] == "syncing" and time.time() - entry["synced_at"] < CLAIM_TTL:
+            # Its post is being made now. The claim names it before the sync holding it writes the entry's status: a
+            # cancel in between would be recorded 'scheduled' by that write, and never followed once the file is gone.
+            return SyncResult(**base, action="skipped", status="syncing",
+                              message="Another sync of this file is in progress; run the sync again.")
+        post = self.store.get_post(entry["post_id"]) if entry["post_id"] else None
+        if post is None:
+            if entry["status"] == "unconfirmed":  # from before posts were recorded: nothing to cancel, maybe published
+                return SyncResult(**base, action="removed", status="unconfirmed", message=(
+                    f"Its last publish to {name} may or may not have gone through, and Inkcast has no post of it to "
+                    f"cancel. Check {name}, and remove it there if it did arrive."))
+            return SyncResult(**base, action="removed", status=entry["status"],
+                              message=f"Inkcast has no post of this file on {name}; nothing to cancel.")
+        found = {"status": post["status"], "post_id": post["id"], "url": entry["url"] or post["result_url"]}
+        if post["status"] == "publishing":
+            return SyncResult(**base, action="skipped", **found, message=(
+                f"Its post is being sent to {name} right now and can't be cancelled; run the sync again once it has "
+                f"settled, or cancel it then (inkcast_cancel, or POST /api/v1/posts/{post['id']}/cancel)."))
+        if post["status"] not in self.store.PENDING:
+            if post["status"] in ("published", "draft", "unlisted"):
+                return SyncResult(**base, action="removed", **found, message=(
+                    f"Post {post['id']} is {post['status']} and stays on {name}: Inkcast never removes a post from a "
+                    f"platform. Remove it there if you don't want it."))
+            return SyncResult(**base, action="removed", **found, message=f"Post {post['id']} is {post['status']}; nothing to cancel.")
+        maybe = "" if post["status"] == "scheduled" else f" It may already be on {name}: check, and remove it there if it is."
+        if req.dry_run:
+            return SyncResult(**base, action="removed", **found, message=f"Would cancel post {post['id']} ({post['status']}).{maybe}")
+
+        # Only a scheduled post was never sent: put back, its file is published anew. One that may already be on the
+        # platform keeps its hash, so the same file put back is 'unchanged', as after a person's cancel: no second copy.
+        cleared = {"content_hash": ""} if post["status"] == "scheduled" else {}
+
+        def record(c: sqlite3.Connection) -> None:
+            self.publisher.store.put_entry_in(c, user_id, src, path, pid, status="cancelled", **cleared,
+                                              message="Removed from the repository; its post was cancelled.")
+
+        try:
+            self.publisher.cancel_pending(user_id, post["id"], also=record)
+        except PlatformError:  # it went out, the scheduler claimed it, a person decided, or another sync replaced it
+            now = self.store.get_post(post["id"]) or post
+            return SyncResult(**base, action="skipped", status=now["status"], post_id=post["id"],
+                              message="The post changed state during this sync; run the sync again.")
+        return SyncResult(**base, action="removed", status="cancelled", post_id=post["id"], url=entry["url"],
+                          message=f"Post {post['id']} was cancelled.{maybe}")
 
     @staticmethod
     def _decision(platform: Platform, post_id: str, checked: Outcome | None, dry_run: bool = False) -> str:

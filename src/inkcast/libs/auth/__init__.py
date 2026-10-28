@@ -28,7 +28,8 @@ SCOPE = "inkcast"  # the OAuth scope; implies every fine-grained scope
 SCOPES: dict[str, str] = {
     "posts:read": "List posts and preview stories.",
     "posts:write": "Publish, schedule and cancel posts.",
-    "stories:sync": "Sync markdown files from a repository (create, update or skip by content).",
+    "stories:sync": "Sync markdown files from a repository (create, update or skip by content, and cancel the "
+                    "pending post of a removed file).",
     "connections:read": "See which platforms are connected and list their destinations.",
     "connections:write": "Create connect links and disconnect platforms.",
     "insights:read": "Read your publishing KPIs (counts, success and on-time rates, Git sync outcomes).",

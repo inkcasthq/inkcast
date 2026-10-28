@@ -168,7 +168,7 @@ CATALOGUE: tuple[Kpi, ...] = (
         "Total lag of scheduled sends (divide by posts_on_time + posts_late for the mean).",
         producer="post.published", dims=("platform",)),
     Kpi("sync_results", _CUS, "files", "sum", "events", "can_view_usage", "InsightsService",
-        "Git publishing outcomes per (file, platform): create, update, unchanged, stale, skipped, failed.",
+        "Git publishing outcomes per (file, platform): create, update, unchanged, stale, skipped, failed, removed.",
         producer="sync.result", dims=("platform", "action")),
     Kpi("approval_cycle_seconds", _CUS, "seconds", "sum", "events", "can_view_usage", "InsightsService",
         "Time from a post's approval request to its approval (E4 approvals).", producer="post.approved",

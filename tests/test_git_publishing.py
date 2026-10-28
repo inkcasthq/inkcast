@@ -10,6 +10,7 @@ import json
 import os
 import pathlib
 import re
+import subprocess
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -236,6 +237,59 @@ class GitPublishing(Harness):
         self.assertRegex(outputs.read_text(), r"urls=https://dev.to/")
         sent = self.fakes.devto_articles[-1]["body_markdown"]
         self.assertRegex(sent, r"\(https://raw\.githubusercontent\.com/acme/blog-[^/]+/abc123/posts/2026/img/x\.png\)")
+
+    def test_a_removed_file_cancels_its_pending_post_through_the_cli(self):
+        """Issue #230: the push that deletes a file cancels the file's scheduled post; the CLI takes the commit before
+        the push (as the action passes it) and the server cancels the post that came from that file."""
+        repo = pathlib.Path(tempfile.mkdtemp())
+        (repo / "posts").mkdir()
+        when = (datetime.now(timezone.utc) + timedelta(days=2)).replace(microsecond=0).isoformat()
+        (repo / "posts" / "gone.md").write_text(story("Gone", platforms="[devto]", extra=f"publish_at: {when}\n"))
+
+        def git(*args: str) -> str:
+            return subprocess.run(["git", "-c", "user.name=on-call", "-c", "user.email=on-call@example.com", *args],
+                                  cwd=repo, capture_output=True, text=True, check=True).stdout.strip()
+
+        git("init", "-q", "-b", "main")
+        git("add", ".")
+        git("commit", "-q", "-m", "add")
+        before = git("rev-parse", "HEAD")
+        source = f"github.com/acme/blog-{self.id()}"
+        old_env, old_cwd = dict(os.environ), os.getcwd()
+        made, out = io.StringIO(), io.StringIO()
+        try:
+            os.environ.update({"INKCAST_URL": self.base, "INKCAST_TOKEN": self.pat["token"]})
+            os.chdir(repo)
+            with contextlib.redirect_stdout(made):
+                created = sync_main(["posts/**/*.md", "--source", source, "--json"])
+            git("rm", "-q", "posts/gone.md")
+            git("commit", "-q", "-m", "remove")
+            with contextlib.redirect_stdout(out):
+                removed = sync_main(["--removed-since", before, "posts/**/*.md", "--source", source])
+        finally:
+            os.chdir(old_cwd)
+            os.environ.clear()
+            os.environ.update(old_env)
+        self.assertEqual((created, removed), (0, 0))
+        [first] = json.loads(made.getvalue())
+        self.assertEqual((first["action"], first["status"]), ("create", "scheduled"))
+        self.assertRegex(out.getvalue(), r"D removed\s+devto\s+posts/gone\.md\n    Post pst_\w+ was cancelled\.")
+        self.assertEqual(self.app.store.get_post(first["post_id"])["status"], "cancelled")
+        [entry] = self.call("GET", f"/api/v1/ledger?source={source}").json()
+        self.assertEqual((entry["path"], entry["status"], entry["post_id"]), ("posts/gone.md", "cancelled", first["post_id"]))
+
+    def test_a_sync_needs_files_or_removed_and_never_both_for_a_path(self):
+        neither = self.call("POST", "/api/v1/stories:sync", json={"source": self.id()})
+        self.assertEqual(neither.status_code, 422, neither.text)
+        self.assertIn("files or removed is required", neither.json()["message"])
+        both = self.call("POST", "/api/v1/stories:sync", json={
+            "source": self.id(), "files": [{"path": "p.md", "markdown": story("Both")}], "removed": ["p.md"]})
+        self.assertEqual(both.status_code, 422, both.text)
+        self.assertIn("both synced and removed: p.md", both.json()["message"])
+        self.assertEqual(self.call("GET", f"/api/v1/ledger?source={self.id()}").json(), [])
+        never = self.sync({}, removed=["posts/never.md"])[("posts/never.md", "*")]
+        self.assertEqual((never["action"], never["status"], never["message"]),
+                         ("removed", None, "No post came from this file; nothing to cancel."))
 
     def test_token_browser_flow_shows_the_token_once(self):
         async def run():

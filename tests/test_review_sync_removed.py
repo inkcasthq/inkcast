@@ -1,0 +1,120 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
+# Copyright 2026 ScalarOps Technologies LLC
+"""Adversarial review of #230 (a file removed from the repository cancels its pending post): each case failed on the
+build's head and passes with its fix."""
+
+import pathlib
+import subprocess
+import tempfile
+import threading
+import unittest
+from unittest import mock
+
+from inkcast.cli import CliError, collect, removed_since
+from inkcast.libs.platforms import PlatformError
+
+from test_sync_error_after_post import at
+from test_sync_removed import RemovedCase
+from test_sync_removed_client import inside, repo_with_a_removal
+
+
+class AFilePutBackAfterItsUncertainPostWasRemoved(RemovedCase):
+    """A removal clears the entry's hash so a file put back is published anew. For a post that may already be on the
+    platform ('unconfirmed', 'recovering'), that made a revert of the removal send a second copy, which a person's
+    cancel never does: there, the same file stays 'unchanged'."""
+
+    def test_an_unconfirmed_post_that_arrived_is_not_sent_again_when_the_file_is_put_back(self):
+        self.platform.error = PlatformError("timed out after sending", uncertain=True)
+        first = self.sync()  # its answer was lost, but it arrived: the platform has it
+        self.platform.error = None
+        self.assertEqual((first.status, self.platform.sent), ("unconfirmed", ["Body."]))
+        self.assertEqual((self.remove().action, self.store.get_post(first.post_id)["status"]), ("removed", "cancelled"))
+        again = self.sync()  # the removal is reverted: the same file is back
+        self.assertEqual(self.platform.sent, ["Body."], "a second copy went to the platform")
+        self.assertEqual((again.action, again.status, again.post_id), ("unchanged", "cancelled", first.post_id))
+
+    def test_a_recovering_post_is_not_made_again_when_the_file_is_put_back(self):
+        first = self.sync(at(2 * 24 * 3600))
+        self.store.update_post(first.post_id, status="recovering")  # its send was interrupted: it may have arrived
+        self.remove()
+        again = self.sync(at(2 * 24 * 3600))
+        self.assertEqual((again.action, again.post_id), ("unchanged", first.post_id))
+        self.assertEqual([p["status"] for p in self.posts()], ["cancelled"], "a second post was made")
+
+    def test_a_scheduled_post_was_never_sent_and_is_made_again(self):
+        first = self.sync(at(2 * 24 * 3600))
+        self.remove()
+        again = self.sync(at(2 * 24 * 3600))
+        self.assertEqual((again.action, again.status), ("create", "scheduled"))
+        self.assertNotEqual(again.post_id, first.post_id)
+
+
+class ARemovalWhileAnotherSyncHoldsTheFile(RemovedCase):
+    """Another sync is making the file's post: its claim names the post before that sync's last write (the entry's
+    status). A removal in between cancelled the post, and that last write then recorded it 'scheduled', for good: the
+    file is gone, so no later sync follows the post. A fresh claim is another sync's work in progress, post or not."""
+
+    def test_a_removal_between_the_claim_naming_its_post_and_the_last_write_waits(self):
+        real, removal = self.store.put_entry, {}
+
+        def last_write(*args, **kwargs):  # the creating sync's last write: the removal comes in just before it
+            if kwargs.get("status") == "scheduled" and not removal:
+                other = threading.Thread(target=lambda: removal.update(result=self.remove()))
+                other.start()
+                other.join()
+            return real(*args, **kwargs)
+
+        with mock.patch.object(self.store, "put_entry", last_write):
+            made = self.sync(at(2 * 24 * 3600))
+        self.assertIn("result", removal, "the removal never ran")
+        post, entry = self.store.get_post(made.post_id), self.entry()
+        self.assertEqual(entry["status"], post["status"], "the ledger names the post with a status it does not have")
+        r = removal["result"]
+        self.assertEqual((r.action, r.status), ("skipped", "syncing"))
+        self.assertIn("run the sync again", r.message)
+        rerun = self.remove()
+        self.assertEqual((rerun.action, rerun.status, rerun.post_id), ("removed", "cancelled", made.post_id))
+        self.assertEqual((self.entry()["status"], self.store.get_post(made.post_id)["status"]), ("cancelled", "cancelled"))
+
+
+class TheCliReportsWhatItWouldHaveSynced(unittest.TestCase):
+    def test_a_pattern_written_with_a_leading_dot_slash_reports_its_removed_files(self):
+        """``collect`` drops a leading ``./`` (``posts/kept.md`` is what the ledger knows), so the same pattern must match
+        git's paths, which never have one: otherwise every removal is missed and the post goes out."""
+        repo, first = repo_with_a_removal()
+        with inside(repo):
+            self.assertEqual(collect(["./posts/*.md"]), ["posts/kept.md", "posts/moved.md"])
+            self.assertEqual(removed_since(first, ["./posts/**/*.md"]), ["posts/a.md", "posts/renamed.md"])
+            self.assertEqual(removed_since(first, ["./posts/a.md"]), ["posts/a.md"])
+
+    def test_a_removed_file_whose_name_is_not_utf8_does_not_stop_the_sync(self):
+        """Git names a file in bytes. A push that deletes any file whose name isn't UTF-8 (an image named in Latin-1,
+        outside the globs) made ``removed_since`` raise UnicodeDecodeError, and ``inkcast sync`` died with a traceback
+        before syncing anything. Such a name was never a synced path (a request carries text): it is left out."""
+        repo = pathlib.Path(tempfile.mkdtemp())
+
+        def git(*args: str | bytes, data: bytes | None = None) -> str:
+            return subprocess.run(["git", "-c", "user.name=on-call", "-c", "user.email=on-call@example.com", *args],
+                                  cwd=repo, input=data, capture_output=True, check=True).stdout.decode().strip()
+
+        git("init", "-q", "-b", "main")
+        (repo / "posts").mkdir()
+        (repo / "posts" / "a.md").write_text("# a\n")
+        git("add", ".")
+        blob = git("hash-object", "-w", "--stdin", data=b"image")
+        git("update-index", "--add", "--cacheinfo", b"100644," + blob.encode() + b",img/caf\xe9.png")  # through the index:
+        git("commit", "-q", "-m", "first")                                                            # no such file on disk
+        first = git("rev-parse", "HEAD")
+        git("rm", "-q", "--cached", b"img/caf\xe9.png", "posts/a.md")
+        git("commit", "-q", "-m", "second")
+        with inside(repo):
+            self.assertEqual(removed_since(first, ["**/*.md"]), ["posts/a.md"])
+
+    def test_a_revision_that_reads_as_a_git_option_is_refused(self):
+        """``--removed-since --output=FILE`` reached git diff as an option: git wrote the diff to FILE, and the sync
+        reported no removals at all."""
+        repo, _ = repo_with_a_removal()
+        written = repo / "written-by-git"
+        with inside(repo), self.assertRaisesRegex(CliError, "isn't a revision"):
+            removed_since(f"--output={written}", ["posts/**/*.md"])
+        self.assertFalse(written.exists(), "git took the revision for an option")
