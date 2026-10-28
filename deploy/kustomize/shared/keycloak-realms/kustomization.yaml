@@ -1,0 +1,23 @@
+# The lab's Keycloak realms as code (issue #305, D1): inkcast-staging and inkcast-prod on the one Keycloak the
+# operator runs in namespace `keycloak` (CR `keycloak`, RHBK 26.6.7), each imported by a KeycloakRealmImport that
+# scripts/gen-realm-imports.py generates from deploy/keycloak/realm-inkcast.json and the environment's own settings
+# (`--check` in the tests keeps them current), plus the Mailpit both realms send their mail to and the policy that
+# admits only Keycloak to it. In this namespace because a kustomization's `namespace:` renames every object it
+# renders: nothing here can live in environments/staging or environments/production.
+#
+# Applied once, after the realm Secrets exist (README, Hosted §2: the lab's bring-up order): the secrets Job (#323)
+# writes `inkcast-<side>-realm` here (keys identity-client-secret and sync-client-secret) and the same values into
+# `inkcast-secrets` in the environment's namespace (oidc-client-secret and keycloak-sync-secret). The import Job
+# reads the Secret through spec.placeholders; no secret value is in Git. An import creates its realm once and never
+# changes it (`kc.sh import --override=false`). Change a realm that has people through the admin console or API, and
+# the realm file in the same pull request. Deleting a realm deletes its accounts, and the user sync then treats each
+# person as deleted, so delete and re-import only a realm with no accounts to keep. The imports stay: their Jobs are the
+# import's log, and a re-apply changes nothing.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: keycloak
+resources:
+  - mailpit.yaml
+  - networkpolicy.yaml
+  - realm-inkcast-staging.yaml
+  - realm-inkcast-prod.yaml
