@@ -9,6 +9,7 @@
     inkcast checks                   # the security posture table for this configuration
     inkcast identity ...             # resolve a pass the Keycloak user sync's breaker holds (breaker.py)
     inkcast authz write-model        # OpenFGA: the store and the model version to pin (authz_cli.py)
+    inkcast env-secrets              # a lab environment's generated Secrets, in its OpenFGA pod (env_secrets.py)
     inkcast all | web | worker       # v0.1 modes, still accepted
 
 Configuration problems stop the process before it serves anything, with exit code 78
@@ -164,10 +165,14 @@ def main(argv: list[str] | None = None) -> None:
     if argv[:1] == ["authz"]:  # an operator writes the model to OpenFGA and pins the ids it prints (#279)
         from .authz_cli import authz_main
         sys.exit(authz_main(argv[1:]))
+    if argv[:1] == ["env-secrets"]:  # the init container that makes a lab environment's Secrets (#323)
+        from .env_secrets import env_secrets_main
+        sys.exit(env_secrets_main(argv[1:]))
 
     parser = argparse.ArgumentParser(prog="inkcast", description=f"Inkcast {__version__}")
     parser.add_argument("command", nargs="?", default=None,
-                        help="run (default) | services | checks | sync | backup | restore | backups | identity | authz, "
+                        help="run (default) | services | checks | sync | backup | restore | backups | identity | authz | "
+                             "env-secrets, "
                              "or a v0.1 mode: all | web | worker")
     parser.add_argument("names", nargs="?", default=None, help="for run: CamelCase service name(s), comma-separated")
     args = parser.parse_args(argv)

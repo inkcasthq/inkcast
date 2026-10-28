@@ -9,6 +9,7 @@ OpenFGA's pod, the ServiceAccount and the RBAC by name) are tests/test_env_secre
 from __future__ import annotations
 
 import base64
+import copy
 import datetime
 import io
 import json
@@ -63,7 +64,7 @@ class FakeKube:
 
     def values(self, namespace: str, name: str) -> dict[str, str] | None:
         obj = self.objects.get((namespace, name))
-        return None if obj is None else {k: base64.b64decode(v).decode() for k, v in obj["data"].items()}
+        return None if obj is None else {k: base64.b64decode(v).decode(errors="replace") for k, v in obj["data"].items()}
 
     def every_value(self) -> list[str]:
         """Every value stored, but a role's name (not a secret, and named in the output on purpose)."""
@@ -238,12 +239,12 @@ class FreshSide(EnvSecretsCase):
 
     def test_a_second_run_writes_nothing(self):
         self.assertEqual(self.run_main()[0], 0)
-        before = json.dumps(self.kube.objects, sort_keys=True)
+        before = copy.deepcopy(self.kube.objects)
         self.kube.requests.clear()
         code, out, err = self.run_main()
         self.assertEqual(code, 0, err)
         self.assertEqual(self.kube.writes(), [])
-        self.assertEqual(json.dumps(self.kube.objects, sort_keys=True), before)
+        self.assertEqual(self.kube.objects, before)
         self.assertEqual(out.count(": kept"), 4, out)
 
     def test_it_touches_only_its_own_side_s_secrets(self):
@@ -455,7 +456,7 @@ class Races(EnvSecretsCase):
             409, "AlreadyExists", 'secrets "inkcast-pg-openfga-staging" already exists')
         code, _, err = self.run_main()
         self.assertEqual(code, 1)
-        self.assertIn("another writer", err)
+        self.assertIn("Another writer kept changing these Secrets", err)
         self.assertEqual(len([w for w in self.kube.writes() if w[0] == "POST"]), env_secrets.ATTEMPTS)
 
 
