@@ -70,7 +70,7 @@ def mailpit(root: pathlib.Path) -> tuple[str, str]:
 def realm_import(root: pathlib.Path, env: str, side: str) -> dict:
     name = f"inkcast-{side}"
     settings = literals(root, env)
-    public_url = settings["INKCAST_PUBLIC_URL"]
+    public_url = settings["INKCAST_PUBLIC_URL"].rstrip("/")     # as libs/config.py reads it: the redirect login.py sends
     if settings.get("OIDC_ISSUER") != f"{KEYCLOAK_ISSUER}{name}":
         raise SystemExit(f"{env}: OIDC_ISSUER must be {KEYCLOAK_ISSUER}{name} (the realm imported for it), "
                          f"not {settings.get('OIDC_ISSUER')!r}")

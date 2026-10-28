@@ -14,6 +14,8 @@ import pathlib
 import tempfile
 import unittest
 
+import yaml
+from inkcast.libs.config import load_config
 from test_realm_imports import copy_inputs, generator_module
 
 
@@ -49,6 +51,30 @@ class PlaceholderGuard(unittest.TestCase):
     def test_keycloak_message_keys_still_pass(self):
         """Keycloak's own message keys (``${client_account}``) name no variable and stay as they are: still allowed."""
         self.assertEqual(len(self.generate("${client_account}")), 2)
+
+
+class PublicUrl(unittest.TestCase):
+    """The client's URLs are the ones Inkcast sends: libs/config.py strips a trailing slash from INKCAST_PUBLIC_URL and
+    login.py sends public_url + "/auth/callback". Keycloak matches a redirect exactly: with ".../" + "/auth/callback"
+    registered, the app's redirect is answered 400 "Invalid parameter: redirect_uri" (measured on the pinned 26.6.1)."""
+
+    def test_a_trailing_slash_on_the_public_url_still_gives_the_app_s_redirect(self):
+        url = "https://inkcast-staging.apps-crc.testing"
+        gen = generator_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            copy_inputs(root)
+            env = root / "deploy" / "kustomize" / "environments" / "staging" / "kustomization.yaml"
+            text = env.read_text()
+            self.assertIn(f"INKCAST_PUBLIC_URL={url}\n", text)
+            env.write_text(text.replace(f"INKCAST_PUBLIC_URL={url}\n", f"INKCAST_PUBLIC_URL={url}/\n"))
+            out = gen.files(root)[root / "deploy" / "kustomize" / "shared" / "keycloak-realms" / "realm-inkcast-staging.yaml"]
+        realm = yaml.safe_load(out)["spec"]["realm"]
+        client = next(c for c in realm["clients"] if c["clientId"] == "inkcast-identity")
+        app = load_config({"INKCAST_PUBLIC_URL": f"{url}/"})
+        self.assertEqual(client["redirectUris"], [f"{app.public_url}/auth/callback"])
+        self.assertEqual(client["webOrigins"], [app.public_url])
+        self.assertEqual(realm["smtpServer"]["from"], "no-reply@inkcast-staging.apps-crc.testing")
 
 
 if __name__ == "__main__":
