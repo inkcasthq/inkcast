@@ -46,7 +46,7 @@ import ssl
 import string
 import sys
 from dataclasses import dataclass, field
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 from urllib.parse import quote
 
 import httpx2
@@ -180,25 +180,29 @@ class Kube:
 
     def __init__(self, http: httpx2.Client):
         self.http = http
+        self.seen: set[str] = set()  # every value read or sent, as text and as the API's base64: cut from its errors
 
     def read(self, ref: Ref) -> Stored | None:
         answer = self.http.get(f"/api/v1/namespaces/{ref.namespace}/secrets/{ref.name}")
         if answer.status_code == 404:
             return None
         if answer.status_code != 200:
-            raise _refused("read", ref, answer)
+            raise _refused("read", ref, answer, self.seen)
         obj = answer.json()
         data, unreadable = {}, []
         for key, encoded in (obj.get("data") or {}).items():
+            self.seen.add(encoded)
             try:
                 data[key] = base64.b64decode(encoded).decode("utf-8")
             except (ValueError, UnicodeDecodeError):
                 unreadable.append(key)
+        self.seen.update(data.values())
         return Stored(data, obj["metadata"]["resourceVersion"], tuple(unreadable))
 
     def write(self, change: Write) -> bool:
         """Create the Secret, or add keys to the version read. False when another writer got there first (409)."""
         encoded = {key: base64.b64encode(value.encode()).decode() for key, value in change.values.items()}
+        self.seen.update(change.values.values(), encoded.values())
         if change.version is None:
             answer = self.http.post(f"/api/v1/namespaces/{change.ref.namespace}/secrets", json={
                 "apiVersion": "v1", "kind": "Secret", "type": change.type,
@@ -213,21 +217,25 @@ class Kube:
         if answer.status_code == 409:
             return False
         if answer.status_code not in done:
-            raise _refused(verb, change.ref, answer)
+            raise _refused(verb, change.ref, answer, self.seen)
         return True
 
 
-def _refused(verb: str, ref: Ref, answer: httpx2.Response) -> Refusal:
-    """The API's own answer, never a body that could hold data: a Status carries the reason and a message."""
+def _refused(verb: str, ref: Ref, answer: httpx2.Response, seen: Iterable[str] = ()) -> Refusal:
+    """The API's own answer, never a body that could hold data: a Status carries the reason and a message. A webhook
+    that denies a write may quote the object in them, so every value this run read or sent is cut out first."""
     try:
         body = answer.json()
     except ValueError:
         body = {}
     if not isinstance(body, dict) or body.get("kind") != "Status":
         body = {}
-    text = f"{verb} Secret {ref}: HTTP {answer.status_code} {body.get('reason', '')}".rstrip()
-    if body.get("message"):
-        text += f": {body['message']}"
+    reason, message = (str(body.get(key) or "") for key in ("reason", "message"))
+    for value in sorted(filter(None, seen), key=len, reverse=True):
+        reason, message = reason.replace(value, "…"), message.replace(value, "…")
+    text = f"{verb} Secret {ref}: HTTP {answer.status_code} {reason}".rstrip()
+    if message:
+        text += f": {message}"
     if answer.status_code == 403:
         grant = GRANTS.get(ref.namespace, "deploy/kustomize/components/env-secrets (rbac.yaml)")
         text += f". The Role that allows it is in {grant}: apply it."
