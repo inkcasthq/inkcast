@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import base64
 import json
+import shutil
+import unittest
 
 import httpx2
 from test_env_secrets import EnvSecretsCase, FakeKube, status
+from test_openfga_component import one, pod_spec, render
 
 
 class QuotingWebhook(FakeKube):
@@ -64,3 +67,31 @@ class ApiMessagesNeverCarryAValue(EnvSecretsCase):
                     self.assertTrue(value)
                     for form in (value, base64.b64encode(value.encode()).decode()):
                         self.assertNotIn(form, out + err)
+
+
+class TheMigrateJobWaitsForEnvSecrets(EnvSecretsCase):
+    """The environments' openfga-migrate Job reads openfga-db-app, which nobody makes before the apply any more: the
+    init container env-secrets creates it, and only once every read it does succeeds, Keycloak's namespace included
+    (shared/keycloak-access applied, Keycloak installed). A Job's activeDeadlineSeconds counts from the Job's start,
+    with its pod waiting on the missing Secret (CreateContainerConfigError) or not; once it passes, the Job is Failed
+    (DeadlineExceeded) for good, and only a person deleting it and applying again runs the migration: OpenFGA's
+    server stays NOT_SERVING on the old schema. Real failures stay bounded by backoffLimit (restartPolicy OnFailure
+    counts container restarts)."""
+
+    def test_openfga_db_app_waits_on_keycloak_s_namespace(self):
+        self.kube.forbidden.add(("get", "keycloak", "inkcast-staging-realm"))
+        code, _, err = self.run_main()
+        self.assertEqual(code, 1)
+        self.assertIn("deploy/kustomize/shared/keycloak-access", err)
+        self.assertNotIn(("inkcast-staging", "openfga-db-app"), self.kube.objects, "the migrate Job's input is not made")
+
+    @unittest.skipUnless(shutil.which("kubectl"), "kubectl renders the kustomizations (CI's manifests job has it)")
+    def test_the_migrate_job_has_no_deadline_while_env_secrets_makes_its_secret(self):
+        for target in ("environments/staging", "environments/production", "overlays/ci-env-secrets"):
+            with self.subTest(target=target):
+                job = one(render(target), "Job", "openfga-migrate")
+                (container,) = pod_spec(job)["containers"]
+                uri = {e["name"]: e for e in container["env"]}["OPENFGA_DATASTORE_URI"]
+                self.assertEqual(uri["valueFrom"]["secretKeyRef"]["name"], "openfga-db-app")
+                self.assertNotIn("activeDeadlineSeconds", job["spec"], "a deadline fails the Job for good")
+                self.assertEqual((job["spec"]["backoffLimit"], pod_spec(job)["restartPolicy"]), (10, "OnFailure"))
