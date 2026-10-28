@@ -237,6 +237,34 @@ class FreshSide(EnvSecretsCase):
         self.assertEqual(len(values), 2 * 8)
         self.assertEqual(len(set(values)), 2 * 5)
 
+    def test_a_realm_client_secret_holds_nothing_the_realm_import_would_misread(self):
+        """kc.sh import substitutes the value into the realm's JSON: a quote or a backslash breaks the import, and
+        ${...} is expanded from the import Job's environment, which holds Keycloak's database password (measured on
+        Keycloak 26.6.1 in the review of PR #325). Generated values are alphanumeric, so none of those can occur."""
+        forbidden = set('"\\${}')
+        values = [env_secrets.make_keycloak_client() for _ in range(500)]
+        self.assertFalse(forbidden.intersection("".join(values)))
+        self.assertLessEqual(set("".join(values)), ALPHANUMERIC)
+        self.assertEqual(self.run_main()[0], 0)
+        realm = self.kube.values("keycloak", "inkcast-staging-realm")
+        self.assertFalse(forbidden.intersection("".join(realm.values())))
+
+    def test_staging_and_prod_are_drawn_independently_and_never_read_each_other(self):
+        """Both realms have the same client ids (inkcast-identity, inkcast-sync): only different values keep staging's
+        credentials from signing in to inkcast-prod. Each side's run reads and writes its own side's Secrets only."""
+        sides = {}
+        for namespace, side in SIDES.items():
+            self.namespace(namespace)
+            self.kube.requests.clear()
+            self.assertEqual(self.run_main()[0], 0)
+            self.assertEqual({ns for _, ns, _, _ in self.kube.requests}, {"inkcast-db", "keycloak", namespace})
+            self.assertTrue(all(side in name for _, _, name, _ in self.kube.requests if name != "openfga-db-app"
+                                and name != "inkcast-secrets"), self.kube.requests)
+            sides[side] = {**{f"realm {k}": v for k, v in self.kube.values("keycloak", f"inkcast-{side}-realm").items()},
+                           **{f"app {k}": v for k, v in self.kube.values(namespace, "inkcast-secrets").items()},
+                           "password": self.kube.values("inkcast-db", f"inkcast-pg-openfga-{side}")["password"]}
+        self.assertFalse(set(sides["staging"].values()) & set(sides["prod"].values()), "a value shared between the sides")
+
     def test_a_second_run_writes_nothing(self):
         self.assertEqual(self.run_main()[0], 0)
         before = copy.deepcopy(self.kube.objects)
@@ -407,6 +435,26 @@ class BothSides(EnvSecretsCase):
                 self.assertEqual(code, 1, case)
                 self.assertIn(needle, err)
                 self.assertEqual(self.kube.writes(), [], case)
+
+    def test_a_value_the_realm_import_would_misread_is_refused_never_copied(self):
+        """A hand-made oidc-client-secret holding ${...} would, copied to the realm Secret, be expanded by the import
+        (Keycloak's database password in the client's secret); a quote would break the import. Refused, naming the
+        Secret and key it is in; nothing written."""
+        for bad in ("pre-${KC_DB_PASSWORD}-post", 'quote"inside', "back\\slash", "new\nline"):
+            for where in ("app", "realm"):
+                with self.subTest(value=bad.encode(), where=where):
+                    self.kube = FakeKube()
+                    if where == "app":
+                        self.kube.seed("inkcast-staging", "inkcast-secrets", **{"oidc-client-secret": bad})
+                        needle = "inkcast-staging/inkcast-secrets oidc-client-secret holds a character"
+                    else:
+                        self.kube.seed("keycloak", "inkcast-staging-realm", **{"identity-client-secret": bad})
+                        needle = "keycloak/inkcast-staging-realm identity-client-secret holds a character"
+                    code, _, err = self.run_main()
+                    self.assertEqual(code, 1)
+                    self.assertIn(needle, err)
+                    self.assertNotIn("KC_DB_PASSWORD", err, "the value itself is never printed")
+                    self.assertEqual(self.kube.writes(), [])
 
     def test_a_value_that_is_not_text_is_named(self):
         self.kube.seed("inkcast-staging", "inkcast-secrets")

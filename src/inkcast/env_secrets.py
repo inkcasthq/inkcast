@@ -60,6 +60,10 @@ DB_HOST, DB_PORT = "inkcast-pg-rw.inkcast-db.svc", 5432
 PART_OF = {"app.kubernetes.io/part-of": "inkcast"}
 # The keys that must agree: (the realm Secret's, inkcast-secrets'), the identity client's then the sync client's.
 CLIENT_PAIRS = (("identity-client-secret", "oidc-client-secret"), ("sync-client-secret", "keycloak-sync-secret"))
+# What a realm client secret must not hold: kc.sh import substitutes the value into the realm's JSON text, so a quote,
+# a backslash or a control character breaks the import, and ${...} in it is expanded from the import Job's environment
+# (a copy of the Keycloak server's, with its database password): measured on Keycloak 26.6.1 in PR #325's review.
+UNSAFE_IN_REALM = frozenset('"\\${}') | frozenset(map(chr, range(0x20))) | {"\x7f"}
 ATTEMPTS = 5  # rounds of read, check, write when other writers keep winning races
 # Which kustomization grants this run its access in each namespace: named when the API refuses a call.
 GRANTS = {DB_NAMESPACE: "deploy/kustomize/shared/inkcast-db (rbac.yaml)",
@@ -73,8 +77,9 @@ def _alphanumeric(length: int) -> str:
 
 def make_keycloak_client() -> str:
     """Keycloak's own format for a client authenticated by a secret: 32 alphanumerics, about 190 bits
-    (KeycloakModelUtils.generateSecret and SecretGenerator.randomString at 26.6.7). Nothing to escape in the realm
-    JSON that its ${...} placeholder is substituted into, nor in a form body."""
+    (KeycloakModelUtils.generateSecret and SecretGenerator.randomString at 26.6.7). Nothing in UNSAFE_IN_REALM, nothing
+    to escape in a form body. Drawn per side: both realms have the same client ids, so a staging value that equalled
+    prod's would sign in to prod."""
     return _alphanumeric(32)
 
 
@@ -282,7 +287,14 @@ def decide(layout: Layout, stored: Mapping[Ref, Stored | None]) -> Plan:
     app_new: dict[str, tuple[str, str]] = {}
     for realm_key, app_key in CLIENT_PAIRS:
         in_realm, in_app = value(layout.realm, realm_key), value(layout.app, app_key)
-        if in_realm and in_app and in_realm != in_app:
+        bound = in_realm or in_app  # what the realm Secret holds, or would once copied
+        if bound and UNSAFE_IN_REALM.intersection(bound):
+            where = f"{layout.realm} {realm_key}" if in_realm else f"{layout.app} {app_key}"
+            plan.problems.append(
+                f"{where} holds a character the realm import cannot take: a double quote, a backslash, $, {{, }} or a "
+                "control character (kc.sh import substitutes the value into the realm's JSON and expands ${...} in it). "
+                "Put a value without them on both sides, and on the client in Keycloak if the realm is imported.")
+        elif in_realm and in_app and in_realm != in_app:
             plan.problems.append(
                 f"{layout.realm} {realm_key} and {layout.app} {app_key} disagree. Keycloak's realm holds what "
                 f"{layout.realm} held when it was imported: remove the key from the Secret that is wrong, and the next "
