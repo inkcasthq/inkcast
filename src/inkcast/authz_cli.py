@@ -136,8 +136,8 @@ async def _write_model(admin: OpenFgaAdmin, store_name: str, model: dict[str, An
     Convergent (E3.F3.9.S6): every Inkcast pod runs this before its server, so pods starting together on a fresh
     install may each find no store and each create one (find-then-create is not atomic, and OpenFGA does not keep
     names unique). A writer that created a store lists the stores of the name again; every writer uses the oldest
-    (``OpenFgaAdmin.stores``), and one whose own store is not the oldest deletes it before writing anything into it,
-    so no server ever pins it. A writer deletes no store it did not create: one it finds may hold tuples. Two stores
+    (``OpenFgaAdmin.stores``), and one whose own store is not the oldest deletes it while it holds no version, so no
+    server ever pins it. A writer deletes no store it did not create: one it finds may hold tuples. Two stores
     that remain (made by hand, or a create whose older id lands after a younger store's writer has listed) are
     refused by the server's start-up, which names both."""
     notes = []
@@ -148,10 +148,15 @@ async def _write_model(admin: OpenFgaAdmin, store_name: str, model: dict[str, An
         notes.append(f"store {store_name!r} created: {created}")
         stores = sorted({*await admin.stores(store_name), created})   # with the racers' stores that landed meanwhile
     store_id = stores[0]
-    if created is not None and created != store_id:
+    # Only while it holds no version: a writer that found it alone (its older racer's row not landed yet) may have
+    # written one, and its server pinned it; OpenFGA's delete is soft, so that server would go on in a hidden store.
+    if created is not None and created != store_id and await admin.newest_model(created) is None:
         await admin.delete_store(created)
         notes.append(f"store {created} deleted: {len(stores)} stores named {store_name!r} were created at once, and "
                      f"every writer uses the oldest, {store_id}")
+    elif created is not None and created != store_id:
+        notes.append(f"store {created} kept: another writer wrote a version into it; Inkcast refuses to start until "
+                     f"one store named {store_name!r} is left")
     elif created is None:
         notes.append(f"store {store_name!r} found: {store_id}" + ("" if len(stores) == 1 else
                      f" (the oldest of {len(stores)} stores named {store_name!r}: {', '.join(stores)}; a writer "
