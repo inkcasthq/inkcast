@@ -293,8 +293,8 @@ features:
   stories:
   - id: F3.9.S1
     title: 'Kustomize component: OpenFGA on Postgres, OpenShift restricted-v2, migrate Job, mirrored images'
-    status: planned
-    change: new
+    status: done
+    change: 'built in PR #285'
     acceptance:
     - 'The kubernetes and openshift overlays use OpenFGA and drop INKCAST_AUTHZ_ALLOW_LOCAL=true (set in PR #49 so
       the self-host install path starts before OpenFGA ships)'
