@@ -1,0 +1,12 @@
+# Each environment's `inkcast env-secrets` creates only its own four Secrets (issue #323, review concern C1). RBAC
+# can't narrow `create` to a name ("the name of the new object may not be known at authorization time", Kubernetes,
+# "Using RBAC Authorization"), so the Roles in shared/inkcast-db and shared/keycloak-access let either side create any
+# Secret in those namespaces, and a side whose Secret is absent adopts the one it finds: without this policy, staging's
+# run could choose production's database password and client secrets. This admission policy does the narrowing.
+# Cluster-scoped, so it is a kustomization of its own, with no `namespace:` (kustomize's built-in schema doesn't know
+# this kind and would stamp the namespace of a kustomization that included it). Applied before shared/inkcast-db and
+# shared/keycloak-access, so their `create` is never in force without it (README, scripts/dev/env-secrets-e2e.sh).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - policy.yaml

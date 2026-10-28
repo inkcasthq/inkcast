@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 # Copyright 2026 ScalarOps Technologies LLC
-# The cluster makes every generated Secret of a lab environment, on kind (E3.F3.9.S7, issue #323): the shared database
-# with its Roles (overlays/ci-inkcast-db), the Keycloak access (shared/keycloak-access), and an environment composed
+# The cluster makes every generated Secret of a lab environment, on kind (E3.F3.9.S7, issue #323): the admission policy
+# (shared/env-secrets-admission), the shared database with its Roles (overlays/ci-inkcast-db), the Keycloak access
+# (shared/keycloak-access), and an environment composed
 # as environments/staging composes it (overlays/ci-env-secrets: OpenFGA on the shared database, components/
 # env-secrets, no Secret made by anyone). Each proof fails the script:
 #
 #   1. fresh: none of the four Secrets exists; one apply; OpenFGA (its migrate Job against the shared database with
 #      the generated password, the server with the generated preshared key) and Inkcast (the mounted inkcast-secrets)
 #      come up; the three pairs agree; the init container's log holds no value;
+#  1b. staging's account is denied a create of production's Secrets, or of any other name, in inkcast-db and keycloak
+#      (a server-side dry run, as that account), and admitted for its own;
 #   2. the namespace rebuilt (deleted, applied again): the role's password and both client secrets come back the
 #      same, copied from inkcast-db and keycloak, and OpenFGA connects with them;
 #   3. the shared sides lost: the next start of OpenFGA's pod copies them back from the app namespace;
@@ -172,7 +175,8 @@ init_log() {  # the env-secrets container's log of the newest OpenFGA pod, check
 echo "== Prerequisites: the CloudNativePG operator (scripts/dev/openfga-e2e.sh installs it), Keycloak's namespace"
 $k -n cnpg-system rollout status deploy/cnpg-controller-manager --timeout=120s
 $k get namespace keycloak -o name >/dev/null 2>&1 || $k create namespace keycloak
-echo "== The shared database and the Keycloak access, as the lab applies them"
+echo "== The admission policy, the shared database and the Keycloak access, as the lab applies them"
+$k apply -k "$ROOT/deploy/kustomize/shared/env-secrets-admission"
 $k apply -k "$ROOT/deploy/kustomize/overlays/ci-inkcast-db"
 $k apply -k "$ROOT/deploy/kustomize/shared/keycloak-access"
 $k -n inkcast-db wait --for=condition=Ready cluster/inkcast-pg --timeout=600s
@@ -184,6 +188,25 @@ check agree
 check fingerprint "$work/first"
 init_log
 serving
+
+echo "-- 1b. staging's account cannot create production's Secrets (the admission policy; RBAC lets it create any name)"
+as_staging=(--as=system:serviceaccount:inkcast-staging:inkcast-env-secrets --dry-run=server -o name)
+denied() {  # namespace name: a server-side dry run as staging's account, which admission runs and nothing stores
+  local said
+  for _ in $(seq 1 15); do   # a new policy takes effect within seconds of its apply
+    said="$($k -n "$1" create secret generic "$2" --from-literal=probe=x "${as_staging[@]}" 2>&1)" || true
+    case "$said" in *"creates only its own Secrets, not $1/$2"*) echo "denied: $1/$2"; return 0 ;; esac
+    sleep 2
+  done
+  echo "staging's account was not denied $1/$2: $said" >&2; exit 1
+}
+denied inkcast-db inkcast-pg-openfga-prod
+denied keycloak inkcast-prod-realm
+denied keycloak a-secret-of-any-other-name
+# Its own: admission lets it through, and the store answers that it exists.
+own="$($k -n keycloak create secret generic inkcast-staging-realm --from-literal=probe=x "${as_staging[@]}" 2>&1)" || true
+case "$own" in *AlreadyExists*|*"already exists"*) echo "admitted: keycloak/inkcast-staging-realm (it exists)" ;;
+  *) echo "staging's own Secret was not admitted: $own" >&2; exit 1 ;; esac
 
 echo "-- 2. the namespace rebuilt: the values come back from inkcast-db and keycloak"
 $k delete namespace "$ns" --timeout=300s

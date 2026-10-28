@@ -3,8 +3,9 @@
 # password Secret by name, and create it when it is absent. Never `patch` or `update`: a role Secret is only ever
 # created whole, and a value is never replaced. One Role per side, so staging's run cannot read prod's password.
 # `create` cannot be limited by name (the Kubernetes documentation, "Using RBAC Authorization", Referring to
-# resources: "the name of the new object may not be known at authorization time"), so each side may create a Secret
-# of any name in this namespace; it cannot read or change one it did not name.
+# resources: "the name of the new object may not be known at authorization time"); the admission policy in
+# shared/env-secrets-admission, applied before this, narrows it to the side's own Secret. Without it, a side's run
+# could create the other side's Secret first, and the other side would adopt that value.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
