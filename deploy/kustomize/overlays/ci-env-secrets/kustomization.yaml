@@ -1,0 +1,60 @@
+# Used only by CI (kind): a lab environment as environments/staging composes it, where it matters for its Secrets
+# (E3.F3.9.S7, issue #323): the namespace inkcast-staging, OpenFGA from components/openfga on the shared database
+# (the component's own Cluster dropped, as the environments drop it) and components/env-secrets, and no Secret at all:
+# no secretGenerator, nothing created by hand. scripts/dev/env-secrets-e2e.sh proves the init container makes every
+# Secret in agreement, OpenFGA and Inkcast start on them, and a rebuilt namespace gets the same values back.
+#
+# What differs from the environment, and why: the image is the CI build (loaded into kind, never pulled); Inkcast's
+# pod has a uid (Kubernetes, not the restricted-v2 SCC that assigns one); and Inkcast checks permissions in-process,
+# so it reaches readiness without OpenFGA's store and model ids (that path is scripts/dev/openfga-e2e.sh's), while
+# the script checks OpenFGA itself with the generated key. No Route, no injected CA bundle: OpenShift only.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: inkcast-staging
+resources:
+  - namespace.yaml
+  - ../../base
+components:
+  - ../../components/openfga
+  - ../../components/env-secrets
+configMapGenerator:
+  - name: inkcast-config
+    behavior: merge
+    literals:
+      - INKCAST_PUBLIC_URL=http://localhost:8787
+      - INKCAST_ENV=ci
+      - INKCAST_AUTHZ_ALLOW_LOCAL=true
+images:
+  - name: ghcr.io/inkcasthq/inkcast
+    newName: inkcast
+    newTag: ci
+patches:
+  # A patch, not a literal: components/openfga's merge of the same ConfigMap comes after this kustomization's own.
+  - target: {kind: ConfigMap, name: inkcast-config}
+    patch: |-
+      - op: replace
+        path: /data/INKCAST_AUTHZ_ENGINE
+        value: local
+  - target: {kind: Cluster, name: openfga-db}
+    patch: |-
+      $patch: delete
+      apiVersion: postgresql.cnpg.io/v1
+      kind: Cluster
+      metadata:
+        name: openfga-db
+  - target: {kind: Deployment, name: openfga}
+    patch: |-
+      - op: add
+        path: /spec/template/spec/initContainers/0/imagePullPolicy
+        value: Never
+  - target: {kind: Deployment, name: inkcast}
+    patch: |-
+      - op: add
+        path: /spec/template/spec/securityContext/runAsUser
+        value: 1001
+      - op: add
+        path: /spec/template/spec/securityContext/fsGroup
+        value: 1001
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never

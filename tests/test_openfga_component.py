@@ -175,10 +175,17 @@ class Rendered(unittest.TestCase):
                 self.assertEqual(one(self.docs[name], "Deployment", "openfga")["metadata"]["namespace"], "inkcast")
 
     def test_the_rendered_openfga_pods_are_admitted_under_restricted_v2(self):
-        """The overlays patch Inkcast's own pod with a uid on Kubernetes; OpenFGA's pod needs none anywhere."""
+        """The overlays patch Inkcast's own pod with a uid on Kubernetes; OpenFGA's pod needs none anywhere. The
+        environments' init container env-secrets and its token volume (components/env-secrets) are checked in
+        tests/test_env_secrets_manifests.py; the rest of their pod is the component's."""
         for name in self.docs:
             with self.subTest(overlay=name):
-                assert_restricted_v2(self, pod_spec(one(self.docs[name], "Deployment", "openfga")), f"{name}: Deployment")
+                pod = copy.deepcopy(pod_spec(one(self.docs[name], "Deployment", "openfga")))
+                if name.startswith("environments/"):
+                    (init,) = pod.pop("initContainers")
+                    self.assertEqual(init["name"], "env-secrets")
+                    self.assertEqual([v["name"] for v in pod.pop("volumes")], ["api-token"])
+                assert_restricted_v2(self, pod, f"{name}: Deployment")
                 assert_restricted_v2(self, pod_spec(one(self.docs[name], "Job", "openfga-migrate")), f"{name}: Job")
 
     def test_the_hosted_environments_name_the_store_and_pin_no_id(self):
