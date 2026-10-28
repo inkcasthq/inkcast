@@ -48,7 +48,18 @@ tag vX.Y.Z ────► publish.yml (same) ► release: GitHub Release + mani
 **Staging**
 
 - Updated by an automatic PR after every green main build.
-- Merging is the deploy.
+- The PR's CI waits for a person to approve it. `promote.yml` opens the PR with the workflow's `GITHUB_TOKEN`, and
+  GitHub creates the `pull_request` runs that follow "in an approval-required state"
+  ([GitHub docs](https://docs.github.com/en/actions/concepts/security/github_token)). Until someone with write access
+  approves them, the PR has no check runs and branch protection keeps it blocked. Approve them on the Actions tab
+  ("Approve and run"), or with the API:
+
+  ```bash
+  gh api "repos/inkcasthq/inkcast/actions/runs?status=action_required&branch=promote/staging-<12 hex>" \
+    --jq '.workflow_runs[].id' | while read -r id; do gh api -X POST "repos/inkcasthq/inkcast/actions/runs/$id/approve"; done
+  ```
+
+- Merging, once those checks pass, is the deploy.
 
 **Production**
 
@@ -138,11 +149,12 @@ The one to retire today is **`.github/workflows/publish.yml:codeql`**. It's left
 
 ## Not verified yet
 
-These workflows were written alongside the code and checked for YAML validity. They have **not** run on GitHub yet. The first PR will exercise `ci.yml`; the first merge exercises publish → attest → promote. Check in particular:
+`ci.yml` runs on every PR, and publish → attest → promote on every push to main. Since 2026-10-27, each successful
+publish has opened a staging promotion PR (the first was #243). The Grype gate, the GHCR signature and attestation
+permissions, and the `kind` job all pass there. Two paths have not run on GitHub yet:
 
-- the Grype severity gate on the first base-image scan;
-- the GHCR permissions for signatures and attestations;
-- that `kind` and `kubectl` are on the runner image, as they are on current `ubuntu-latest`.
+- a manual `promote.yml` run for `production`;
+- a `v*.*.*` tag: publish's `release` job.
 
 Follow-ups are in [issues/14](issues/14-ci-pipeline.md), [26](issues/26-helm-chart.md), [28](issues/28-hashed-dependency-lock.md), [29](issues/29-gitops-bootstrap.md) and [30](issues/30-admission-policies.md).
 
