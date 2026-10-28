@@ -66,6 +66,12 @@ tag vX.Y.Z ────► publish.yml (same) ► release: GitHub Release + mani
 - Updated by a manual `promote.yml` run, using the GitHub Environment `production` with required reviewers.
 - The PR changes `deploy/kustomize/environments/production`, which CODEOWNERS protects.
 
+**One open promotion PR per environment**, always the latest. After `promote.yml` opens one, it closes that
+environment's older promotion PRs and deletes their branches, with a comment naming the new PR: merging an older one
+would roll the environment back. It closes only the PRs it opened itself (label `deploy`, author the Actions bot,
+head `promote/<environment>-<12 hex>`; `scripts/superseded_promotions.py`). Runs for one environment queue rather than
+overlap, so two runs never close each other's PR. A re-run for the same digest closes nothing.
+
 **Rollback** is a revert of the digest PR. The previous digest is still signed and still in the registry.
 
 ## Versioning
