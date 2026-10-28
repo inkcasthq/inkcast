@@ -1,0 +1,21 @@
+# The base policy (base/networkpolicy.yaml) lets Inkcast's pods out to DNS and 443 only: this adds OpenFGA's API
+# port, to its pods in this namespace. It lives in the component, not the base, because the base's label transform
+# (includeSelectors) would rewrite the pod selectors here (#21). The matching ingress policy on OpenFGA's side,
+# admitting only Inkcast's pods, is E3.F3.9.S2.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: inkcast-to-openfga
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: server
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: openfga
+              app.kubernetes.io/component: authz
+      ports:
+        - {port: 8080, protocol: TCP}

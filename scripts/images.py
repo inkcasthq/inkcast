@@ -27,8 +27,9 @@ FILES = ["Dockerfile", "deploy/**/*.Dockerfile", "deploy/**/*.yaml", "deploy/**/
 # name:tag with at least one registry/namespace part or a library name, then an optional @sha256 digest.
 REF = re.compile(r"(?P<name>(?:[a-z0-9][a-z0-9.-]*(?::\d+)?/)?(?:[a-z0-9._-]+/)*[a-z0-9._-]+):(?P<tag>[A-Za-z0-9][A-Za-z0-9._-]*)"
                  r"(?:@(?P<digest>sha256:[0-9a-f]{64}))?")
-# Where a reference can appear: FROM, `image:` (manifests, Compose), and a registry-qualified name anywhere (docker run).
-CONTEXT = re.compile(r"^\s*FROM\s+(\S+)|^\s*-?\s*image:\s*['\"]?([^\s'\"#]+)"
+# Where a reference can appear: FROM, `image:` (manifests, Compose), `imageName:` (a CloudNativePG Cluster), and a
+# registry-qualified name anywhere (docker run).
+CONTEXT = re.compile(r"^\s*FROM\s+(\S+)|^\s*-?\s*image(?:Name)?:\s*['\"]?([^\s'\"#]+)"
                      r"|\s((?:quay\.io|docker\.io|gcr\.io|registry\.k8s\.io|mcr\.microsoft\.com)/[^\s'\"]+)")
 OURS = ("inkcast", "inkcast-fakes", "ghcr.io/inkcasthq/")
 

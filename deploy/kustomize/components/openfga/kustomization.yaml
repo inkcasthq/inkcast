@@ -1,0 +1,29 @@
+# OpenFGA for Inkcast's permission checks (E3.F3.9.S1, issue #279; design: docs/authorization.md §8, ADR-0007).
+#
+# What it adds: a PostgreSQL `Cluster` run by the CloudNativePG operator (a cluster prerequisite, like user-workload
+# monitoring for the ServiceMonitor; ADR-0014), a `migrate` Job that brings the schema up before the server answers,
+# the OpenFGA Deployment and Services, and the egress rule that lets Inkcast's pods reach it. Every image is pinned
+# by digest (scripts/images.py), so an air-gapped registry mirrors exactly these.
+#
+# What it sets on Inkcast: the engine, the server's URL and where the preshared key is read from. The key is one
+# more entry in the `inkcast-secrets` Secret (`fga-api-token`): Inkcast reads it as INKCAST_FGA_API_TOKEN_FILE and
+# OpenFGA as OPENFGA_AUTHN_PRESHARED_KEYS, so both sides hold the same value. The store and model ids are pinned per
+# deployment (overlays/kubernetes, overlays/openshift and the environments carry the literals), written once by
+# `inkcast authz write-model` (README, Hosted §2); until they are pinned Inkcast refuses to start and names them.
+#
+# The ingress side (only Inkcast's pods may reach OpenFGA) and credentials from the secrets store are E3.F3.9.S2.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - cluster.yaml
+  - job.yaml
+  - deployment.yaml
+  - service.yaml
+  - networkpolicy.yaml
+configMapGenerator:
+  - name: inkcast-config
+    behavior: merge
+    literals:
+      - INKCAST_AUTHZ_ENGINE=openfga
+      - INKCAST_FGA_API_URL=http://openfga:8080
+      - INKCAST_FGA_API_TOKEN_FILE=/var/run/secrets/inkcast/fga-api-token

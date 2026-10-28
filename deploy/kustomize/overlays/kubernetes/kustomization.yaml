@@ -1,6 +1,7 @@
 # kubectl create namespace inkcast   (or keep namespace.yaml below)
-# kubectl -n inkcast create secret generic inkcast-secrets --from-literal=secret-key=... --from-literal=oidc-client-secret=...
-# kubectl apply -k deploy/kustomize/overlays/kubernetes
+# kubectl -n inkcast create secret generic inkcast-secrets --from-literal=secret-key=... --from-literal=oidc-client-secret=... \
+#   --from-literal=fga-api-token=...                      # OpenFGA's preshared key (components/openfga)
+# kubectl apply -k deploy/kustomize/overlays/kubernetes   # needs the CloudNativePG operator (README, Hosted §2)
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: inkcast
@@ -9,13 +10,17 @@ resources:
   - ../../base
   - httproute.yaml
 configMapGenerator:
-  # Self-host install path: the in-process authorization engine (INKCAST_AUTHZ_ENGINE=local, the default) is accepted
-  # until this overlay ships OpenFGA (E3.F3.9). The hosted environment (environments/production) turns this off.
+  # OpenFGA's store and the pinned model version (components/openfga sets the engine and the server's URL): write
+  # them once with `inkcast authz write-model` and pin both here. Until then Inkcast refuses to start and names them.
+  # A self-host that keeps the in-process engine instead leaves the component out and sets
+  # INKCAST_AUTHZ_ENGINE=local with INKCAST_AUTHZ_ALLOW_LOCAL=true (README, Hosted §2).
   - name: inkcast-config
     behavior: merge
     literals:
-      - INKCAST_AUTHZ_ALLOW_LOCAL=true
+      - INKCAST_FGA_STORE_ID=
+      - INKCAST_FGA_MODEL_ID=
 components:
+  - ../../components/openfga            # permission checks: OpenFGA on CloudNativePG (E3.F3.9.S1)
   - ../../components/servicemonitor
   - ../../components/metrics-access     # the metrics port: Prometheus pods only (#21)
   - ../../components/prometheus-rules   # alerts and SLO burn rates (generated: scripts/gen-alerts.py)

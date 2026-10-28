@@ -1,0 +1,69 @@
+# OpenFGA v1.22.0 (docs/research/openfga-2026-10.md). Settings are the server's own environment names
+# (cmd/run/flags.go): the datastore from the operator's Secret, preshared-key authentication with the key Inkcast
+# sends as INKCAST_FGA_API_TOKEN. The image runs as uid 65532 (a numeric USER in its config), so `runAsNonRoot`
+# is satisfied without a runAsUser here: the restricted-v2 SCC assigns one on OpenShift, and Kubernetes keeps the
+# image's. No volume, no fsGroup: the binary writes nothing.
+#
+# Ports (pkg/server/config/config.go, DefaultConfig): HTTP 8080 (the API and /healthz, which answers without a key),
+# gRPC 8081, Prometheus 2112. /healthz is NOT_SERVING until the schema is current (job.yaml), so the startup probe
+# allows five minutes for the migrate Job on a fresh install.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openfga
+  labels: {app.kubernetes.io/name: openfga, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: authz}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: openfga
+      app.kubernetes.io/component: authz
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: openfga
+        app.kubernetes.io/part-of: inkcast
+        app.kubernetes.io/component: authz
+        inkcast.io/service: openfga        # the `service` label on its series (components/servicemonitor)
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: openfga
+          image: openfga/openfga:v1.22.0@sha256:9cf9a20af32a40434cd3a788c429879439ee9ea9abf65c9c200ee17cd43f769e
+          args: ["run"]
+          env:
+            - {name: OPENFGA_DATASTORE_ENGINE, value: postgres}
+            - name: OPENFGA_DATASTORE_URI
+              valueFrom: {secretKeyRef: {name: openfga-db-app, key: uri}}
+            - {name: OPENFGA_AUTHN_METHOD, value: preshared}
+            - name: OPENFGA_AUTHN_PRESHARED_KEYS
+              valueFrom: {secretKeyRef: {name: inkcast-secrets, key: fga-api-token}}
+            - {name: OPENFGA_LOG_FORMAT, value: json}
+          ports:
+            - {name: http, containerPort: 8080}
+            - {name: grpc, containerPort: 8081}
+            - {name: metrics, containerPort: 2112}
+          startupProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}

@@ -1,0 +1,26 @@
+# The API, for Inkcast (INKCAST_FGA_API_URL=http://openfga:8080).
+apiVersion: v1
+kind: Service
+metadata:
+  name: openfga
+  labels: {app.kubernetes.io/name: openfga, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: authz}
+spec:
+  selector:
+    app.kubernetes.io/name: openfga
+    app.kubernetes.io/component: authz
+  ports:
+    - {name: http, port: 8080, targetPort: http}
+---
+# Metrics on their own Service, labelled like inkcast-metrics so the existing ServiceMonitor (which selects
+# app.kubernetes.io/component=metrics and scrapes the port named `metrics`) picks it up with no second monitor.
+apiVersion: v1
+kind: Service
+metadata:
+  name: openfga-metrics
+  labels: {app.kubernetes.io/name: openfga, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: metrics}
+spec:
+  selector:
+    app.kubernetes.io/name: openfga
+    app.kubernetes.io/component: authz
+  ports:
+    - {name: metrics, port: 2112, targetPort: metrics}
