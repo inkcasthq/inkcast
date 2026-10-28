@@ -137,7 +137,9 @@ async def _write_model(admin: OpenFgaAdmin, store_name: str, model: dict[str, An
     install may each find no store and each create one (find-then-create is not atomic, and OpenFGA does not keep
     names unique). A writer that created a store lists the stores of the name again; every writer uses the oldest
     (``OpenFgaAdmin.stores``), and one whose own store is not the oldest deletes it while it holds no version, so no
-    server ever pins it. A writer deletes no store it did not create: one it finds may hold tuples. Two stores
+    server ever pins it. A writer that created none deletes every younger store that holds no version (one whose
+    racer's delete, or create answer, was lost): OpenFGA writes a tuple only under a version (server/write.go), so it
+    holds none, and no server pins it. A store holding a version is never deleted: it may hold tuples. Two stores
     that remain (made by hand, or a create whose older id lands after a younger store's writer has listed) are
     refused by the server's start-up, which names both."""
     notes = []
@@ -158,9 +160,15 @@ async def _write_model(admin: OpenFgaAdmin, store_name: str, model: dict[str, An
         notes.append(f"store {created} kept: another writer wrote a version into it; Inkcast refuses to start until "
                      f"one store named {store_name!r} is left")
     elif created is None:
+        empty = [other for other in stores[1:] if await admin.newest_model(other) is None]
+        for other in empty:
+            await admin.delete_store(other)
+            notes.append(f"store {other} deleted: it holds no version, and every writer uses the oldest store named "
+                         f"{store_name!r}, {store_id}")
+        stores = [other for other in stores if other not in empty]
         notes.append(f"store {store_name!r} found: {store_id}" + ("" if len(stores) == 1 else
                      f" (the oldest of {len(stores)} stores named {store_name!r}: {', '.join(stores)}; a writer "
-                     "deletes only a store it created, and Inkcast refuses to start until one is left)"))
+                     "deletes no store that holds a version, and Inkcast refuses to start until one is left)"))
     newest = await admin.newest_model(store_id)
     if newest is not None and same_model(newest, model):
         model_id = str(newest["id"])

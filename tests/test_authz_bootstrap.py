@@ -303,21 +303,22 @@ class Convergence(FakeOpenFga):
         self.assertEqual(self.fakes.fga_stores, {landed: "inkcast"}, "adopted, not created again")
         self.assertEqual(len(self.fakes.fga_models[landed]), 1)
 
-    def test_a_writer_never_deletes_a_store_it_did_not_create(self):
+    def test_a_writer_never_deletes_a_store_that_holds_a_version(self):
         """Two stores of the name that this writer did not create (made by hand, or left by a race this design does
-        not close: a create whose id is older but which lands after a younger store's writer has listed): it writes
-        into the oldest and deletes neither, because either may hold tuples. The server still refuses two, naming
-        both, so the duplicate is seen."""
+        not close: a create whose id is older but which lands after a younger store's writer has listed), the younger
+        holding a version: it writes into the oldest and deletes neither, because either may hold tuples. The server
+        still refuses two, naming both, so the duplicate is seen."""
         older, younger = "01JFAKE0000000000000000001", "01JFAKE0000000000000000002"
         self.fakes.fga_stores = {younger: "inkcast", older: "inkcast"}
-        self.fakes.fga_models = {younger: [], older: []}
+        self.fakes.fga_models = {younger: [{"id": "01JHANDMADE000000000000001", **json.loads(PACKAGED_MODEL.read_text())}],
+                                 older: []}
         code, out, err = self.writer()
         self.assertEqual(code, 0, err)
         self.assertEqual(self.ids(out)[0], older, "the oldest, as every writer chooses")
         self.assertIn("2 stores named 'inkcast'", err)
         self.assertEqual(self.deleted(), [])
         self.assertEqual(set(self.fakes.fga_stores), {older, younger})
-        self.assertEqual((len(self.fakes.fga_models[older]), self.fakes.fga_models[younger]), (1, []))
+        self.assertEqual((len(self.fakes.fga_models[older]), len(self.fakes.fga_models[younger])), (1, 1))
         message = self.refusal(self.config())
         self.assertIn("2 stores named 'inkcast'", message)
         self.assertIn(older, message)

@@ -9,6 +9,7 @@ younger one, and an answer can be lost after its row has landed."""
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 
@@ -25,16 +26,34 @@ SLOW = {"INKCAST_FGA_TIMEOUT": "30"}   # a create held by the test must not time
 
 class ReorderingFakes(Fakes):
     """``create_plan``: one step per create, in arrival order: ``("land-late", event)`` makes the id, then waits for
-    the event before the row lands; ``("answer-late", event)`` lands the row, then waits before answering."""
+    the event before the row lands; ``("answer-late", event)`` lands the row, then waits before answering.
+    ``lose_younger_answer``: of the racers' creates (``Fakes.fga_racers``), the younger lands and answers 503.
+    ``delete_fails``: that many DELETEs answer 503 and delete nothing."""
 
     def __init__(self, base: str):
         super().__init__(base)
         self.create_plan: list[tuple[str, threading.Event]] = []
         self.minted: list[str] = []
+        self.lose_younger_answer = False
+        self.delete_fails = 0
+
+    async def fga_stores_delete(self, request: Request):
+        if not self.delete_fails:
+            return await super().fga_stores_delete(request)
+        self.delete_fails -= 1
+        self.fga_calls.append((request.method, request.url.path, None))
+        return JSONResponse({"code": "internal_error", "message": "the delete did not land"}, status_code=503)
 
     async def fga_stores_create(self, request: Request):
         if not self.create_plan:
-            return await super().fga_stores_create(request)
+            response = await super().fga_stores_create(request)
+            # Every racer's row has landed before any racer is answered, so the largest id is the younger's.
+            younger = response.status_code == 201 and json.loads(response.body)["id"] == max(self.fga_stores)
+            if self.lose_younger_answer and younger:
+                self.lose_younger_answer = False
+                return JSONResponse({"code": "internal_error", "message": "the store landed; the answer did not"},
+                                    status_code=503)
+            return response
         step, event = self.create_plan.pop(0)
         body, refused = await self._fga_begin(request)
         if refused:
@@ -60,6 +79,7 @@ class Reordered(FakeOpenFga):
     def setUp(self):
         super().setUp()
         self.fakes.create_plan, self.fakes.minted = [], []
+        self.fakes.lose_younger_answer, self.fakes.delete_fails = False, 0
 
     def until(self, done, what: str) -> None:
         deadline = time.monotonic() + 10
@@ -101,6 +121,47 @@ class GhostStore(Reordered):
         message = self.refusal(self.config())  # two stores holding a version: the next start-up names both
         self.assertIn("2 stores named 'inkcast'", message)
         self.assertIn(younger, message)
+
+
+class Orphans(Reordered):
+    """F2: two pods racing on a fresh install, one of whose calls is lost: the younger racer's DELETE of its own
+    store, or the younger racer's create answer (its row landed). That writer exits 1 and the kubelet starts it
+    again; the run that follows creates nothing, finds two stores, and on the PR head deletes neither (it deletes only
+    a store it knows it created), so every server start refuses two stores until a person deletes one. The younger
+    store holds no version (nobody wrote into it), hence no tuple, and no server pins it."""
+
+    def race(self, racers: int) -> list[tuple[int, str, str]]:
+        self.fakes.fga_racers = racers
+        results: list = [None] * racers
+        threads = [threading.Thread(target=lambda i=i: results.__setitem__(i, self.writer()), name=f"racer-{i}")
+                   for i in range(racers)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(30)
+        self.assertEqual([m for m, p, _ in self.fakes.fga_calls if p == "/fga/stores"].count("POST"), racers)
+        return results
+
+    def assert_heals(self, results: list[tuple[int, str, str]]) -> str:
+        """The racer that failed is started again by the kubelet: one store is left and the server pins it."""
+        (failed,) = [err for code, _, err in results if code != 0]
+        (ok,) = [out for code, out, _ in results if code == 0]
+        oldest = self.ids(ok)[0]
+        self.fakes.fga_races_reset()
+        store_id, model_id = self.job()
+        self.assertEqual(store_id, oldest)
+        self.assertEqual(self.fakes.fga_stores, {oldest: "inkcast"}, "the younger store, holding no version, is gone")
+        pinned = pin_model(self.config())
+        self.assertEqual((pinned.fga_store_id, pinned.fga_model_id), (store_id, model_id))
+        return failed
+
+    def test_a_lost_delete_is_finished_by_the_next_run(self):
+        self.fakes.delete_fails = 1
+        self.assertIn("DELETE stores/", self.assert_heals(self.race(2)))
+
+    def test_a_younger_store_whose_create_answer_was_lost_is_deleted_by_the_next_run(self):
+        self.fakes.lose_younger_answer = True
+        self.assertIn("POST stores", self.assert_heals(self.race(2)))
 
 
 if __name__ == "__main__":

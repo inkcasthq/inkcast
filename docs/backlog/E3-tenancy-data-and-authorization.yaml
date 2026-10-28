@@ -345,7 +345,9 @@ features:
       cluster's CA bundle as the server does
     - 'Pods starting together on a fresh install converge on one store: a writer that created a store lists the
       stores of the name again, every writer uses the oldest, and one whose own store is not the oldest deletes it
-      before writing into it; a writer never deletes a store it did not create; the model write stays idempotent'
+      before writing into it, while it holds no version; a writer that created none deletes every younger store that
+      holds no version (left by a racer whose delete or create answer was lost), and none that holds one; the model
+      write stays idempotent'
     - 'Inkcast pins the model version that equals its own packaged model: with the ids unset and the store named,
       start-up resolves the store by name and the version equal to the packaged model. It refuses to start with a
       named error (exit 78) while that version doesn''t exist'

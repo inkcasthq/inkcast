@@ -388,14 +388,16 @@ class WriteModel(unittest.TestCase):
         code, out, err = self.run_cli("--model", "/nonexistent/model.json")
         self.assertEqual((code, out), (1, ""))
         self.assertIn("can't be loaded", err)
-        # Two stores of the name it did not create (E3.F3.9.S6): every writer uses the oldest and deletes neither
-        # (tests/test_authz_bootstrap.py Convergence has the races); the server still refuses two, naming both.
+        # Two stores of the name it did not create, the younger holding a version (E3.F3.9.S6): every writer uses the
+        # oldest and deletes neither (tests/test_authz_bootstrap.py Convergence has the races); the server still
+        # refuses two, naming both.
         self.fakes.fga_stores = {"01JFAKE0000000000000000001": "inkcast", "01JFAKE0000000000000000002": "inkcast"}
-        self.fakes.fga_models = {k: [] for k in self.fakes.fga_stores}
+        version = {"id": "01JHANDMADE000000000000001", **json.loads(PACKAGED_MODEL.read_text())}
+        self.fakes.fga_models = {"01JFAKE0000000000000000001": [], "01JFAKE0000000000000000002": [version]}
         code, out, err = self.run_cli()
         self.assertEqual(code, 0, err)
         self.assertEqual(self.ids(out)[0], "01JFAKE0000000000000000001", "the oldest")
-        self.assertEqual(len(self.fakes.fga_stores), 2, "neither deleted: this writer created neither")
+        self.assertEqual(len(self.fakes.fga_stores), 2, "neither deleted: the younger holds a version")
 
     def test_an_unreachable_server_fails_closed(self):
         code, out, err = self.run_cli(INKCAST_FGA_API_URL="http://127.0.0.1:9/fga", INKCAST_FGA_TIMEOUT="1")
