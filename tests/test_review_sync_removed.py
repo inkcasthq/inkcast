@@ -10,7 +10,7 @@ import threading
 import unittest
 from unittest import mock
 
-from inkcast.cli import collect, removed_since
+from inkcast.cli import CliError, collect, removed_since
 from inkcast.libs.platforms import PlatformError
 
 from test_sync_error_after_post import at
@@ -109,3 +109,12 @@ class TheCliReportsWhatItWouldHaveSynced(unittest.TestCase):
         git("commit", "-q", "-m", "second")
         with inside(repo):
             self.assertEqual(removed_since(first, ["**/*.md"]), ["posts/a.md"])
+
+    def test_a_revision_that_reads_as_a_git_option_is_refused(self):
+        """``--removed-since --output=FILE`` reached git diff as an option: git wrote the diff to FILE, and the sync
+        reported no removals at all."""
+        repo, _ = repo_with_a_removal()
+        written = repo / "written-by-git"
+        with inside(repo), self.assertRaisesRegex(CliError, "isn't a revision"):
+            removed_since(f"--output={written}", ["posts/**/*.md"])
+        self.assertFalse(written.exists(), "git took the revision for an option")

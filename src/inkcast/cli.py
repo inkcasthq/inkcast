@@ -87,6 +87,8 @@ def removed_since(rev: str, patterns: list[str]) -> list[str]:
     ``git diff --no-renames --diff-filter=D``, so a renamed file is a removal (its new path is a new story), relative
     to the current directory as the collected paths are. Raises ``CliError`` when git can't tell (not a repository,
     or ``rev`` unknown: a shallow clone that never fetched it)."""
+    if rev.startswith("-"):  # git would read it as an option (``--output=FILE`` writes a file), never a revision
+        raise CliError(f"{rev!r} isn't a revision")
     try:
         diff = subprocess.run(["git", "diff", "--no-renames", "--diff-filter=D", "--name-only", "--relative", "-z",
                                rev, "HEAD"], capture_output=True)
