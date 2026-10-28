@@ -1,0 +1,26 @@
+# Who may reach Mailpit: the Keycloak server's pods in this namespace, on SMTP (1025), and nothing else. The
+# operator labels every pod of the StatefulSet app=keycloak, app.kubernetes.io/managed-by=keycloak-operator
+# (Constants.DEFAULT_LABELS) and app.kubernetes.io/instance=<the Keycloak CR's name> (Utils.allInstanceLabels), at
+# Keycloak 26.6.7, operator/src/main/java/org/keycloak/operator; the realm import Jobs carry app=keycloak-realm-import
+# instead (KeycloakRealmImportJobDependentResource) and send no mail, so they are not admitted. The API port (8025)
+# is open to no pod: read the mail with `oc -n keycloak port-forward svc/mailpit 8025:8025`. The readiness probe
+# comes from the node, outside NetworkPolicy on OVN-Kubernetes, as the shared database's policy
+# (shared/inkcast-db/networkpolicy.yaml) already relies on. Egress is not restricted: Mailpit makes no connection.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mailpit
+  labels: {app.kubernetes.io/name: mailpit, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: mail-catcher}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: mailpit, app.kubernetes.io/part-of: inkcast}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: keycloak
+              app.kubernetes.io/managed-by: keycloak-operator
+              app.kubernetes.io/instance: keycloak
+      ports:
+        - {port: 1025, protocol: TCP}

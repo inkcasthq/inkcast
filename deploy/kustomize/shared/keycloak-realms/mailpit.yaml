@@ -1,0 +1,59 @@
+# The lab's mail catcher (issue #305, D1): both realms send their verification and password-reset emails here, plain
+# SMTP on 1025, no auth (the generated imports' smtpServer, scripts/gen-realm-imports.py, reads this Service's name
+# and port). Nothing leaves the cluster; read the mail with `oc -n keycloak port-forward svc/mailpit 8025:8025`.
+# The same image and settings as the dev Keycloak's Mailpit (deploy/keycloak/keycloak.yaml), pinned by digest
+# (scripts/images.py), but no runAsUser: the restricted-v2 SCC assigns one per namespace, as for OpenFGA
+# (components/openfga). The image declares no USER, so a cluster without SCCs needs runAsUser set, as the dev
+# manifest does. Its message store is a temporary file (/tmp, an emptyDir): the mail is gone with the pod, which is
+# the point of a catcher.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mailpit
+  labels: {app.kubernetes.io/name: mailpit, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: mail-catcher}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels: {app.kubernetes.io/name: mailpit, app.kubernetes.io/part-of: inkcast}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: mailpit, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: mail-catcher}
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: mailpit
+          image: axllent/mailpit:v1.28.3@sha256:27cfb8893806ed676042a00f4db70325a0d57cc5217349d210b6dd903e1a7e67
+          ports:
+            - {name: smtp, containerPort: 1025}
+            - {name: http, containerPort: 8025}
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}              # its message store (a temporary file)
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mailpit
+  labels: {app.kubernetes.io/name: mailpit, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: mail-catcher}
+spec:
+  selector: {app.kubernetes.io/name: mailpit, app.kubernetes.io/part-of: inkcast}
+  ports:
+    - {name: smtp, port: 1025, targetPort: smtp}
+    - {name: http, port: 8025, targetPort: http}
