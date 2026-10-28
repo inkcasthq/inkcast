@@ -2,12 +2,16 @@
 # Copyright 2026 ScalarOps Technologies LLC
 """Review of PR #336 (issue #323, ``inkcast env-secrets``): what tests/test_env_secrets.py and
 tests/test_env_secrets_manifests.py leave unproved, each case failing on the code it was written against: 57ebd3e,
-whose src, deploy and tests are 768217a's."""
+whose src, deploy and tests are 768217a's. The integrator's cases for the review's concerns follow: C1 (each side
+creates only its own Secrets: an admission policy), C4 (what each account is granted), C5 (a patch race), C7 (an
+admission denial is not a missing Role)."""
 
 from __future__ import annotations
 
 import base64
 import json
+import pathlib
+import re
 import shutil
 import unittest
 
@@ -95,3 +99,129 @@ class TheMigrateJobWaitsForEnvSecrets(EnvSecretsCase):
                 self.assertEqual(uri["valueFrom"]["secretKeyRef"]["name"], "openfga-db-app")
                 self.assertNotIn("activeDeadlineSeconds", job["spec"], "a deadline fails the Job for good")
                 self.assertEqual((job["spec"]["backoffLimit"], pod_spec(job)["restartPolicy"]), (10, "OnFailure"))
+
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+SA = "inkcast-env-secrets"
+ACCOUNTS = {f"system:serviceaccount:inkcast-{side}:{SA}" for side in ("staging", "prod")}
+
+
+class AdmissionDenials(EnvSecretsCase):
+    """C7: a 403 from an admission policy or webhook is not a missing Role; telling the operator to apply the Role
+    sends them to the wrong place. An authorization 403 keeps the Role's location (Failures in test_env_secrets)."""
+
+    def test_an_admission_denial_names_the_policy_not_a_role(self):
+        for message, names in (
+                ("secrets \"inkcast-pg-openfga-staging\" is forbidden: ValidatingAdmissionPolicy "
+                 "'inkcast-env-secrets-creates-its-own' with binding 'inkcast-env-secrets-creates-its-own' denied "
+                 "request: inkcast env-secrets of staging creates only its own Secrets, not inkcast-db/x",
+                 "deploy/kustomize/shared/env-secrets-admission"),
+                ('admission webhook "secrets.policy.example" denied the request: not here', "admission")):
+            with self.subTest(message=message[:40]):
+                self.kube = FakeKube()
+                self.kube.answers[("create", "inkcast-db", "inkcast-pg-openfga-staging")] = status(403, "Forbidden", message)
+                code, _, err = self.run_main()
+                self.assertEqual(code, 1)
+                self.assertIn("create Secret inkcast-db/inkcast-pg-openfga-staging: HTTP 403 Forbidden", err)
+                self.assertNotIn("The Role that allows it", err)
+                self.assertIn(names, err)
+
+
+@unittest.skipUnless(shutil.which("kubectl"), "kubectl renders the kustomizations (CI's manifests job has it)")
+class EachSideCreatesItsOwn(unittest.TestCase):
+    """C1: RBAC cannot narrow `create` to a name, so either side's account could create the other's shared Secret
+    first, and the other side would adopt that value (its database password, its client secrets). The admission
+    policy narrows it; the kind e2e proves it denies (scripts/dev/env-secrets-e2e.sh, step 1b)."""
+
+    def test_the_policy_is_cluster_scoped_bound_to_deny_and_names_each_side_s_four_secrets(self):
+        docs = render("shared/env-secrets-admission")
+        self.assertEqual(sorted(d["kind"] for d in docs), ["ValidatingAdmissionPolicy", "ValidatingAdmissionPolicyBinding"])
+        for d in docs:
+            self.assertNotIn("namespace", d["metadata"], f"{d['kind']} is cluster-scoped")
+        policy = one(docs, "ValidatingAdmissionPolicy", "inkcast-env-secrets-creates-its-own")["spec"]
+        binding = one(docs, "ValidatingAdmissionPolicyBinding", "inkcast-env-secrets-creates-its-own")["spec"]
+        self.assertEqual((binding["policyName"], binding["validationActions"]), ("inkcast-env-secrets-creates-its-own", ["Deny"]))
+        self.assertNotIn("matchResources", binding, "every namespace: the shared ones and both sides'")
+        self.assertEqual(policy["failurePolicy"], "Fail")
+        self.assertEqual(policy["matchConstraints"]["resourceRules"],
+                         [{"apiGroups": [""], "apiVersions": ["v1"], "operations": ["CREATE"], "resources": ["secrets"]}])
+        (condition,) = policy["matchConditions"]
+        self.assertEqual(set(re.findall(r"'([^']+)'", condition["expression"])), ACCOUNTS, "these two accounts only")
+        (rule,) = policy["validations"]
+        names = set(re.findall(r"'([^']+)'", rule["expression"]))
+        for name in ("inkcast-secrets", "openfga-db-app", "inkcast-db", "inkcast-pg-openfga-", "keycloak", "-realm"):
+            self.assertIn(name, names)
+
+    def test_the_policy_is_applied_before_the_roles_that_grant_create(self):
+        readme = (ROOT / "README.md").read_text()
+        e2e = (ROOT / "scripts/dev/env-secrets-e2e.sh").read_text()
+        for text, first, after in ((readme, "oc apply -k deploy/kustomize/shared/env-secrets-admission",
+                                    ("oc apply -k deploy/kustomize/shared/inkcast-db",
+                                     "oc apply -k deploy/kustomize/shared/keycloak-access")),
+                                   (e2e, '$k apply -k "$ROOT/deploy/kustomize/shared/env-secrets-admission"',
+                                    ('$k apply -k "$ROOT/deploy/kustomize/overlays/ci-inkcast-db"',
+                                     '$k apply -k "$ROOT/deploy/kustomize/shared/keycloak-access"'))):
+            self.assertIn(first, text)
+            for later in after:
+                self.assertLess(text.index(first), text.index(later), later)
+        self.assertIn("denied inkcast-db inkcast-pg-openfga-prod", e2e)
+        self.assertIn("denied keycloak inkcast-prod-realm", e2e)
+
+
+def grants(docs: list[dict]) -> dict[tuple, set]:
+    """(kind, namespace, name) of each subject -> {(namespace or *, verb, resource, resourceName or *)}."""
+    rules = {(d["metadata"].get("namespace") if d["kind"] == "Role" else None, d["metadata"]["name"]): d.get("rules", [])
+             for d in docs if d["kind"] in ("Role", "ClusterRole")}
+    found: dict[tuple, set] = {}
+    for b in (d for d in docs if d["kind"] in ("RoleBinding", "ClusterRoleBinding")):
+        ns, ref = b["metadata"].get("namespace"), b["roleRef"]
+        bound = rules.get((ns if ref["kind"] == "Role" else None, ref["name"]),
+                          [{"verbs": [f"all of {ref['kind']} {ref['name']}"], "resources": ["*"]}])
+        for s in b.get("subjects", []):
+            who = (s["kind"], s.get("namespace") or ns, s["name"])
+            found.setdefault(who, set()).update((ns or "*", v, res, n) for r in bound for v in r["verbs"]
+                                                for res in r["resources"] for n in r.get("resourceNames") or ["*"])
+    return found
+
+
+@unittest.skipUnless(shutil.which("kubectl"), "kubectl renders the kustomizations (CI's manifests job has it)")
+class EffectiveRbac(unittest.TestCase):
+    """C4: the manifest tests check objects by name; this checks what each account is granted, from every binding the
+    lab applies, so a widened rule or an extra binding fails it."""
+
+    LAB = ("environments/staging", "environments/production", "shared/inkcast-db", "shared/keycloak-access")
+
+    def test_each_side_s_account_is_granted_exactly_its_own_secrets_and_nobody_else_is(self):
+        found = grants([d for target in self.LAB for d in render(target)])
+        for ns, side in (("inkcast-staging", "staging"), ("inkcast-prod", "prod")):
+            own = {(ns, "get", "inkcast-secrets"), (ns, "patch", "inkcast-secrets"), (ns, "get", "openfga-db-app"),
+                   (ns, "create", "*"), ("inkcast-db", "get", f"inkcast-pg-openfga-{side}"), ("inkcast-db", "create", "*"),
+                   ("keycloak", "get", f"inkcast-{side}-realm"), ("keycloak", "patch", f"inkcast-{side}-realm"),
+                   ("keycloak", "create", "*")}
+            self.assertEqual(found.pop(("ServiceAccount", ns, SA)), {(n, v, "secrets", r) for n, v, r in own}, side)
+        self.assertEqual({who: g for who, g in found.items() if any(res in ("secrets", "*") for _, _, res, _ in g)},
+                         {}, "no other subject reaches a Secret through what the lab applies")
+
+
+class PatchRaceRereads(EnvSecretsCase):
+    """C5: a patch that loses a race to an unrelated change (another key added) is sent again on the new version;
+    the existing race tests pass even when a patch's conflict is ignored."""
+
+    def test_a_patch_that_loses_a_race_to_an_unrelated_change_is_sent_again_on_the_new_version(self):
+        self.seed_db_pair("staging", "c3" * 24)
+        self.kube.seed("keycloak", "inkcast-staging-realm", **{"identity-client-secret": "I" * 32, "sync-client-secret": "S" * 32})
+        self.kube.seed("inkcast-staging", "inkcast-secrets", **{"secret-key": "k" * 64, "oidc-client-secret": "I" * 32,
+                       "keycloak-sync-secret": "S" * 32})
+
+        def other_writer(method, ns, name):  # someone adds a key env-secrets does not manage
+            obj = self.kube.objects[("inkcast-staging", "inkcast-secrets")]
+            obj["data"]["github-client-secret"] = base64.b64encode(b"G" * 40).decode()
+            self.kube.version += 1
+            obj["metadata"]["resourceVersion"] = str(self.kube.version)
+        self.kube.before_write = other_writer
+        code, _, err = self.run_main()
+        self.assertEqual(code, 0, err)
+        inkcast = self.kube.values("inkcast-staging", "inkcast-secrets")
+        self.assertEqual(len(inkcast.get("fga-api-token", "")), 64, "the key was added on the second round")
+        self.assertEqual(inkcast["github-client-secret"], "G" * 40)
+        self.assertEqual([w for w in self.kube.writes() if w[0] == "PATCH"], [("PATCH", "inkcast-staging", "inkcast-secrets")] * 2)

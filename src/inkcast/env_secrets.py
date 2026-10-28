@@ -68,6 +68,8 @@ ATTEMPTS = 5  # rounds of read, check, write when other writers keep winning rac
 # Which kustomization grants this run its access in each namespace: named when the API refuses a call.
 GRANTS = {DB_NAMESPACE: "deploy/kustomize/shared/inkcast-db (rbac.yaml)",
           KEYCLOAK_NAMESPACE: "deploy/kustomize/shared/keycloak-access"}
+# Each side creates only its own Secrets: RBAC can't narrow `create` to a name, so this policy does (review C1, #323).
+ADMISSION = "deploy/kustomize/shared/env-secrets-admission"
 ALPHANUMERIC = string.ascii_letters + string.digits
 
 
@@ -236,7 +238,11 @@ def _refused(verb: str, ref: Ref, answer: httpx2.Response, seen: Iterable[str] =
     text = f"{verb} Secret {ref}: HTTP {answer.status_code} {reason}".rstrip()
     if message:
         text += f": {message}"
-    if answer.status_code == 403:
+    if answer.status_code == 403 and "ValidatingAdmissionPolicy" in message:
+        text += f". An admission policy refused it; this command's is in {ADMISSION}."
+    elif answer.status_code == 403 and "admission webhook" in message:
+        text += ". An admission webhook refused it, not RBAC: its message above says why."
+    elif answer.status_code == 403:
         grant = GRANTS.get(ref.namespace, "deploy/kustomize/components/env-secrets (rbac.yaml)")
         text += f". The Role that allows it is in {grant}: apply it."
     return Refusal(text)
