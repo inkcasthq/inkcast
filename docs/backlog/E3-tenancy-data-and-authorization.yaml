@@ -331,22 +331,31 @@ features:
       migrate Job completes against its own database, a staging role cannot connect to openfga_prod, a pod in a
       third namespace cannot reach 5432, and a pod in each app namespace pulls the image with ghcr-pull
   - id: F3.9.S6
-    title: 'Write and pin the OpenFGA model from the deployment, with no manual step: the Job inkcast-authz-model
-      (components/openfga) runs inkcast authz write-model with the release''s image on every apply, deleted after
-      its TTL so the next apply creates it again; INKCAST_FGA_STORE_NAME pins by name at start-up (the store and
-      the version equal to the packaged model), with a named refusal until the Job has written them'
+    title: 'Write and pin the OpenFGA model from the deployment, with no manual step: the init container authz-model
+      (components/openfga) runs inkcast authz write-model with the pod''s own image before the server, on every pod
+      start; INKCAST_FGA_STORE_NAME pins by name at start-up (the store and the version equal to the packaged
+      model), with a named refusal while they are missing'
     status: in-progress
     change: 'new; issue #315'
     acceptance:
-    - A Job in each environment runs `inkcast authz write-model` with the release's image (same digest as the
-      Deployment) on every `oc apply -k` of the environment, without an immutable-field error when the image changes
+    - An init container authz-model on every Inkcast Deployment whose processes check permissions (the all-in-one
+      Deployment, or each split service but the Gateway) runs `inkcast authz write-model` with the server's image
+      (the same digest) before the server, on every pod start, with no Job, nothing immutable to apply over and no
+      manual step; it fits restricted-v2, reads inkcast-config and the key mounted 0440, and on OpenShift trusts the
+      cluster's CA bundle as the server does
+    - 'Pods starting together on a fresh install converge on one store: a writer that created a store lists the
+      stores of the name again, every writer uses the oldest, and one whose own store is not the oldest deletes it
+      before writing into it; a writer never deletes a store it did not create; the model write stays idempotent'
     - 'Inkcast pins the model version that equals its own packaged model: with the ids unset and the store named,
       start-up resolves the store by name and the version equal to the packaged model. It refuses to start with a
-      named error while that version doesn''t exist yet, so pods start on their own once the Job has run'
-    - Explicit INKCAST_FGA_STORE_ID / INKCAST_FGA_MODEL_ID still win when set (existing deployments are unchanged)
+      named error (exit 78) while that version doesn''t exist'
+    - Explicit INKCAST_FGA_STORE_ID / INKCAST_FGA_MODEL_ID still win when set (existing deployments are unchanged),
+      and the init container then writes nothing and calls nothing
     - 'Negative tests: OpenFGA down, store missing, only an older model present, two stores of the same name (a
-      refusal that names the problem, not a silent pick)'
-    - 'Proven on kind in CI and on OpenShift Local: a fresh inkcast-staging reaches Ready with no manual step'
+      refusal that names the problem, not a silent pick), two and three racers, a create that lands late, a create
+      whose answer is lost'
+    - 'Proven on kind in CI and on OpenShift Local: a fresh inkcast-staging reaches Ready with no manual step, and a
+      restarted pod finds the model unchanged with the same ids and one store'
 - id: F3.10
   title: 'Backing services: Valkey and PostgreSQL in the cluster'
   stories:
