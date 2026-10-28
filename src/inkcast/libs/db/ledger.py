@@ -148,8 +148,13 @@ class LedgerRepo(Database):
         rows = self._all("SELECT status, COUNT(*) AS n FROM ledger WHERE user_id = ? GROUP BY status ORDER BY status", user_id)
         return {r["status"]: int(r["n"]) for r in rows}
 
-    def list_entries(self, user_id: str, source: str | None = None) -> list[dict[str, Any]]:
-        if source:
+    def list_entries(self, user_id: str, source: str | None = None, path: str | None = None) -> list[dict[str, Any]]:
+        """The user's entries: of one repository with ``source``, of one of its files (one per platform) with ``path``
+        too. Never another user's, and never another repository's: a removal cancels only what its own sync made."""
+        if source and path:
+            rows = self._all("SELECT * FROM ledger WHERE user_id = ? AND source = ? AND path = ? ORDER BY platform",
+                             user_id, source, path)
+        elif source:
             rows = self._all("SELECT * FROM ledger WHERE user_id = ? AND source = ? ORDER BY path, platform", user_id, source)
         else:
             rows = self._all("SELECT * FROM ledger WHERE user_id = ? ORDER BY source, path, platform", user_id)

@@ -4,9 +4,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints, model_validator
 
 from ..content.story import SCHEDULE_HORIZON_DAYS
 
@@ -139,8 +139,14 @@ class TokenCreated(TokenInfo):
 # ---- Git publishing: stories sync and the publish ledger (PublishingApi) -------------------
 
 
+RepoPath = Annotated[str, StringConstraints(min_length=1, max_length=500)]
+"""A path in the repository, as a synced file names it and as ``SyncRequest.removed`` lists it: the same bounds."""
+
+SYNC_BATCH = 50  # files, and removed paths, per request
+
+
 class SyncFile(BaseModel):
-    path: str = Field(min_length=1, max_length=500, description="Path of the file in the repository, e.g. `posts/hello.md`.")
+    path: RepoPath = Field(description="Path of the file in the repository, e.g. `posts/hello.md`.")
     markdown: str = Field(description="Full text of the file, including YAML front matter.")
     image_base_url: str | None = Field(None, description="Base URL for this file's relative images (overrides the "
                                        "request's), e.g. the raw URL of the file's directory at this commit.")
@@ -150,13 +156,28 @@ class SyncRequest(BaseModel):
     source: str = Field(min_length=1, max_length=300,
                         description="Stable id of the repository, e.g. `github.com/acme/blog`. Ledger entries are keyed by it.")
     ref: str | None = Field(None, max_length=300, description="Commit or ref being synced, for the record.")
-    files: list[SyncFile] = Field(min_length=1, max_length=50)
+    files: list[SyncFile] = Field(default_factory=list, max_length=SYNC_BATCH,
+                                  description="Files to publish or update. May be empty only when `removed` is not.")
+    removed: list[RepoPath] = Field(default_factory=list, max_length=SYNC_BATCH, description=(
+        "Paths removed from the repository since the last sync (the action sends `git diff --no-renames "
+        "--diff-filter=D` between the commit before the push and the pushed one, within its `paths`). A removed file's "
+        "pending post (scheduled, recovering or unconfirmed) is cancelled; a published one stays on the platform. A path "
+        "absent from `files` is never read as removed, because a sync may cover a subset of the repository."))
     platforms: list[str] | None = Field(None, description="Override the platforms in each file's front matter.")
     image_base_url: str | None = Field(None, description="Base URL that relative image paths resolve against.")
     dry_run: bool = Field(False, description="Report what would happen and preview each platform; change nothing.")
 
+    @model_validator(mode="after")
+    def _files_or_removed(self) -> SyncRequest:
+        if not self.files and not self.removed:
+            raise ValueError("files or removed is required")
+        both = {f.path for f in self.files} & set(self.removed)
+        if both:
+            raise ValueError(f"a path can't be both synced and removed: {sorted(both)[0]}")
+        return self
 
-SyncAction = Literal["create", "update", "unchanged", "stale", "skipped", "failed"]
+
+SyncAction = Literal["create", "update", "unchanged", "stale", "skipped", "failed", "removed"]
 
 
 class SyncResult(BaseModel):
@@ -164,7 +185,9 @@ class SyncResult(BaseModel):
     platform: str
     action: SyncAction = Field(description="create: new post. update: post edited in place. unchanged: content "
                                "already synced. stale: changed, but the platform can't edit posts, so it was "
-                               "left alone. skipped: not connected or opted out. failed: see message.")
+                               "left alone. skipped: not connected or opted out. failed: see message. removed: the "
+                               "file was removed from the repository; its pending post was cancelled, or a published "
+                               "one left on the platform (status and message say which).")
     status: str | None = Field(None, description="Post status after the sync (published, scheduled, draft...).")
     post_id: str | None = None
     url: str | None = None

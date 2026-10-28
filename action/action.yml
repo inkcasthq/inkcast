@@ -7,8 +7,9 @@
 #       paths: posts/**/*.md
 #
 # New files are published (or scheduled, if their front matter has publish_at), changed files are
-# updated in place where the platform allows it, unchanged files are skipped. On pull requests it
-# runs as a dry run and can comment the preview on the PR. See docs/git-publishing.md.
+# updated in place where the platform allows it, unchanged files are skipped, and a removed file's
+# pending post is cancelled. On pull requests it runs as a dry run and can comment the preview on
+# the PR. See docs/git-publishing.md.
 name: Inkcast publish
 description: Publish and update markdown stories on Medium, DEV and other platforms via Inkcast.
 author: ScalarOps Technologies LLC
@@ -66,6 +67,8 @@ runs:
         DRY_RUN: ${{ inputs.dry-run }}
         FAIL_ON_STALE: ${{ inputs.fail-on-stale }}
         EVENT: ${{ github.event_name }}
+        PUSH_BEFORE: ${{ github.event.before }}
+        PR_BASE: ${{ github.event.pull_request.base.sha }}
       run: |
         set -euo pipefail
         args=()
@@ -74,6 +77,19 @@ runs:
         fi
         [ -n "$PLATFORMS" ] && args+=(--platforms "$PLATFORMS")
         [ "$FAIL_ON_STALE" = "true" ] && args+=(--fail-on-stale)
+        # Files removed by this push are reported too, so their pending posts are cancelled: the client diffs the
+        # commit before the push against the checkout (a pull request: its base, for the dry run). The first push
+        # of a branch has no commit before it (all zeros), so nothing is reported. A shallow checkout fetches the
+        # base commit on its own; one that can't be fetched (a force push dropped it) reports no removals, and says so.
+        base=""
+        case "$EVENT" in push) base="$PUSH_BEFORE" ;; pull_request) base="$PR_BASE" ;; esac
+        if [ -n "$base" ] && [ "$base" != "0000000000000000000000000000000000000000" ]; then
+          if git cat-file -e "$base^{commit}" 2>/dev/null || git fetch --quiet --no-tags --depth=1 origin "$base"; then
+            args+=(--removed-since "$base")
+          else
+            echo "::notice::Inkcast: the commit before this push ($base) can't be read, so removed files weren't reported."
+          fi
+        fi
         read -r -a globs <<< "$PATHS"
         inkcast sync "${args[@]}" "${globs[@]}" | tee "$RUNNER_TEMP/inkcast-sync.txt"
     - name: Comment the preview on the pull request

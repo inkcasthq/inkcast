@@ -6,12 +6,13 @@
     export INKCAST_TOKEN=ink_pat_...          # a personal access token with the stories:sync scope
     inkcast sync 'posts/**/*.md'              # publish new files, update changed ones, skip the rest
     inkcast sync --dry-run 'posts/**/*.md'    # say what would happen, with per-platform previews
+    inkcast sync --removed-since <rev> 'posts/**/*.md'   # and cancel the pending posts of files removed since <rev>
 
 The token is read from an environment variable only (never a command-line argument, which other
-users of the machine could see). Files are sent in batches of 50; each batch carries an
-Idempotency-Key, so a retried batch can never publish twice. In GitHub Actions the repository,
-commit and image URLs are detected automatically, results go to the job summary, and the step
-outputs ``results`` (JSON) and ``urls``.
+users of the machine could see). Files are sent in batches of 50, removed paths in batches of their
+own; each batch carries an Idempotency-Key, so a retried batch can never publish twice. In GitHub
+Actions the repository, commit and image URLs are detected automatically, results go to the job
+summary, and the step outputs ``results`` (JSON) and ``urls``.
 
 Exit codes: 0 all good, 1 something failed, 2 usage or configuration problem.
 """
@@ -24,6 +25,7 @@ import hashlib
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 from typing import Any
@@ -32,7 +34,12 @@ from urllib.parse import urlparse
 import httpx2
 
 BATCH = 50
-ICONS = {"create": "+", "update": "~", "unchanged": "=", "stale": "!", "skipped": "-", "failed": "x"}
+ICONS = {"create": "+", "update": "~", "unchanged": "=", "stale": "!", "skipped": "-", "failed": "x", "removed": "D"}
+MARKDOWN = (".md", ".markdown")
+
+
+class CliError(Exception):
+    """A usage or environment problem the command reports and exits 2 on."""
 
 
 def _git(*args: str) -> str:
@@ -40,6 +47,61 @@ def _git(*args: str) -> str:
         return subprocess.run(["git", *args], capture_output=True, text=True, check=True).stdout.strip()
     except (OSError, subprocess.CalledProcessError):
         return ""
+
+
+def glob_pattern(pattern: str) -> re.Pattern[str]:
+    """``glob.glob(pattern, recursive=True)`` as a regular expression on a relative path, for files that no longer
+    exist: ``**`` crosses directories (and matches none), ``*`` and ``?`` stay inside one, ``[...]`` is a class."""
+    out, i = [], 0
+    while i < len(pattern):
+        ch = pattern[i]
+        if pattern.startswith("**/", i):
+            out.append("(?:.*/)?")
+            i += 3
+        elif pattern.startswith("**", i):
+            out.append(".*")
+            i += 2
+        elif ch == "*":
+            out.append("[^/]*")
+            i += 1
+        elif ch == "?":
+            out.append("[^/]")
+            i += 1
+        elif ch == "[":
+            end = pattern.find("]", i + 1)
+            if end == -1:
+                out.append(re.escape(ch))
+                i += 1
+            else:
+                body = pattern[i + 1:end].replace("\\", "\\\\")
+                out.append("[" + ("^" + body[1:] if body.startswith("!") else body) + "]")
+                i = end + 1
+        else:
+            out.append(re.escape(ch))
+            i += 1
+    return re.compile("".join(out) + r"\Z")
+
+
+def removed_since(rev: str, patterns: list[str]) -> list[str]:
+    """The markdown files ``patterns`` would have collected that ``rev`` had and HEAD no longer has, in git's order:
+    ``git diff --no-renames --diff-filter=D``, so a renamed file is a removal (its new path is a new story), relative
+    to the current directory as the collected paths are. Raises ``CliError`` when git can't tell (not a repository,
+    or ``rev`` unknown: a shallow clone that never fetched it)."""
+    try:
+        diff = subprocess.run(["git", "diff", "--no-renames", "--diff-filter=D", "--name-only", "--relative", "-z",
+                               rev, "HEAD"], capture_output=True, text=True)
+    except OSError as exc:
+        raise CliError(f"can't run git to list the files removed since {rev}: {exc}") from exc
+    if diff.returncode != 0:
+        raise CliError(f"can't list the files removed since {rev}: {diff.stderr.strip() or 'git diff failed'}")
+    globs = [glob_pattern(p) for p in patterns]
+    found: list[str] = []
+    for raw in diff.stdout.split("\0"):
+        path = str(pathlib.PurePosixPath(raw)) if raw else ""
+        if path and pathlib.PurePosixPath(path).suffix.lower() in MARKDOWN and path not in found \
+                and any(g.match(path) for g in globs):
+            found.append(path)
+    return found
 
 
 def detect_source() -> str:
@@ -72,13 +134,15 @@ def collect(patterns: list[str]) -> list[str]:
         matches = sorted(glob.glob(pattern, recursive=True)) or ([pattern] if os.path.isfile(pattern) else [])
         for m in matches:
             p = pathlib.PurePosixPath(pathlib.Path(m).as_posix())
-            if p.suffix.lower() in (".md", ".markdown") and str(p) not in found:
+            if p.suffix.lower() in MARKDOWN and str(p) not in found:
                 found.append(str(p))
     return found
 
 
 def build_requests(paths: list[str], source: str, ref: str | None, platforms: list[str] | None,
-                   image_base: str | None, dry_run: bool) -> list[dict[str, Any]]:
+                   image_base: str | None, dry_run: bool, removed: list[str] = ()) -> list[dict[str, Any]]:
+    """The file batches, then the removed paths in batches of their own (``files`` empty): a server from before
+    ``removed`` refuses those with a 422 instead of silently keeping the posts."""
     batches = []
     for i in range(0, len(paths), BATCH):
         files = []
@@ -88,6 +152,9 @@ def build_requests(paths: list[str], source: str, ref: str | None, platforms: li
             files.append({"path": path, "markdown": pathlib.Path(path).read_text(encoding="utf-8"),
                           "image_base_url": base})
         batches.append({"source": source, "ref": ref, "files": files, "platforms": platforms, "dry_run": dry_run})
+    for i in range(0, len(removed), BATCH):
+        batches.append({"source": source, "ref": ref, "files": [], "removed": list(removed[i:i + BATCH]),
+                        "platforms": platforms, "dry_run": dry_run})
     return batches
 
 
@@ -125,6 +192,9 @@ def sync_main(argv: list[str]) -> int:
                         help="public base URL of the repository root for relative images; default: raw GitHub URL")
     parser.add_argument("--dry-run", action="store_true", help="report and preview only; change nothing")
     parser.add_argument("--fail-on-stale", action="store_true", help="exit 1 if a changed file couldn't be updated")
+    parser.add_argument("--removed-since", metavar="REV", default=None,
+                        help="also report the matching files removed between REV and HEAD (git diff), so their pending "
+                             "posts are cancelled; the GitHub action passes the commit before the push")
     parser.add_argument("--json", action="store_true", help="print the raw results as JSON")
     args = parser.parse_args(argv)
 
@@ -141,8 +211,16 @@ def sync_main(argv: list[str]) -> int:
               file=sys.stderr)
         return 2
     paths = collect(args.paths)
-    if not paths:
-        print("inkcast sync: no markdown files matched.", file=sys.stderr)
+    removed: list[str] = []
+    if args.removed_since:
+        try:
+            removed = removed_since(args.removed_since, args.paths)
+        except CliError as exc:
+            print(f"inkcast sync: {exc}", file=sys.stderr)
+            return 2
+    if not paths and not removed:
+        print("inkcast sync: no markdown files matched" + (", and none were removed." if args.removed_since else "."),
+              file=sys.stderr)
         return 0
     source = args.source or detect_source()
     if not source:
@@ -155,7 +233,7 @@ def sync_main(argv: list[str]) -> int:
     results: list[dict[str, Any]] = []
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json", "User-Agent": "inkcast-sync"}
     with httpx2.Client(base_url=args.url.rstrip("/"), timeout=120, headers=headers) as client:
-        for body in build_requests(paths, source, ref, platforms, image_base, args.dry_run):
+        for body in build_requests(paths, source, ref, platforms, image_base, args.dry_run, removed):
             key = hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
             try:
                 r = client.post("/api/v1/stories:sync", json=body, headers={"Idempotency-Key": key})
