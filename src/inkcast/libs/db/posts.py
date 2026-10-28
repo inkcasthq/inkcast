@@ -10,6 +10,7 @@ The table doubles as the durable work queue: ``claim_due_posts`` moves due rows 
 from __future__ import annotations
 
 import json
+import sqlite3
 import time
 import uuid
 from typing import Any, Callable, Iterable
@@ -97,7 +98,8 @@ class PostsRepo(Database):
     PENDING = ("scheduled", "recovering", "unconfirmed")  # the statuses a person can cancel from (#216, #226)
 
     def cancel_if_pending(self, post_id: str, user_id: str, events: Iterable[DomainEvent] | None = None,
-                          notes: dict[str, str] | None = None) -> str | None:
+                          notes: dict[str, str] | None = None,
+                          also: Callable[[sqlite3.Connection], None] | None = None) -> str | None:
         """Move one of the user's posts from 'scheduled', 'recovering' or 'unconfirmed' to 'cancelled', in one
         transaction. A 'recovering' post (its send was interrupted, and the platform has not said whether it arrived)
         is the person's to cancel too (#216), and so is an 'unconfirmed' one (#226): recovery writes its answer only
@@ -109,7 +111,9 @@ class PostsRepo(Database):
         write lock, so a claim can't slip in between them and send the post after the cancel reported success.
         ``events`` are written only when the cancel happened, in the same transaction (the outbox). ``notes`` maps a
         status to the error that replaces the post's (what recovery said it would do next, why it was unconfirmed)
-        when cancelled from it: a post that may already be on the platform says so."""
+        when cancelled from it: a post that may already be on the platform says so. ``also`` is a write that belongs
+        with the cancel, run on the transaction's connection only when the cancel happened: if it raises, the cancel and
+        its events roll back with it (Git sync's claim on the file whose post it replaces, #224)."""
         with self._tx() as c:
             row = c.execute("SELECT status FROM posts WHERE id = ? AND user_id = ?", (post_id, user_id)).fetchone()
             was = row["status"] if row is not None else None
@@ -118,6 +122,8 @@ class PostsRepo(Database):
             c.execute("UPDATE posts SET status = 'cancelled', updated_at = ?, error = COALESCE(?, error) WHERE id = ?",
                       (time.time(), (notes or {}).get(was), post_id))
             insert_events(c, events)
+            if also is not None:
+                also(c)
         return was
 
     @staticmethod

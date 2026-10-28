@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 import time
 from datetime import datetime, timezone
 
@@ -189,18 +190,22 @@ class GitSync:
             if req.dry_run:
                 return SyncResult(**base, action="update", status="scheduled", post_id=post["id"], preview=prepared.preview,
                                   message="Would re-schedule with the new content.")
+            # Ours to replace now: hold it as a claim, or a concurrent sync sees the cancelled post and creates one too.
+            # The claim is written in the cancel's transaction (#224): a claim that fails rolls the cancel back, so the
+            # entry is never left on a post the author didn't cancel, which the next sync would follow and never send.
+            # The claim names no post until its own exists (on_record): stopped before that, it is taken over, never
+            # followed to the cancelled one. Through the publisher's store, as on_record: ``c`` is its connection.
+            def claim(c: sqlite3.Connection) -> None:
+                self.publisher.store.put_entry_in(c, user_id, src, path, pid, status="syncing", post_id=None)
+
             try:
-                self.publisher.cancel(user_id, post["id"])
+                self.publisher.cancel(user_id, post["id"], also=claim)
             except PlatformError:  # it went out, or another sync replaced it, a moment ago
                 return SyncResult(**base, action="skipped", status=entry["status"], post_id=post["id"],
                                   message="The scheduled post changed state during this sync; run the sync again.")
-            # Ours to replace now: hold it as a claim, or a concurrent sync sees the cancelled post and creates one too.
             # The replacement is scheduled at the time the file asks for, as written: passed or under SCHEDULE_LEAD
             # away, it is due at once, as a scheduled post the scheduler retries under its policy, never a "now" post
             # sent early and never retried (#187, ADR-0015). Only a file whose publish_at was removed sends now.
-            # The claim names no post until its own exists (on_record): stopped before that, it is taken over, never
-            # followed to the cancelled one.
-            self.store.put_entry(user_id, src, path, pid, status="syncing", post_id=None)
             # Only the content changed, and the scheduler hasn't tried the post: the replacement keeps its schedule, so
             # it keeps its creation too, and a post the scheduler is behind on stays as late as it is (ADR-0015).
             kept = post["created_at"] if not schedule_changed and not post["attempts"] else None

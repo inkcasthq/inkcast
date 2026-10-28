@@ -25,7 +25,7 @@ import sqlite3
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from .platforms import Account, Platform, PlatformError, Prepared
 from .config import RetryPolicy
@@ -438,17 +438,19 @@ class Publisher:
                 pass
         log.info("Scheduler stopped")
 
-    def cancel(self, user_id: str, post_id: str) -> str:
-        """Cancel a pending post (``cancel_pending``); the title. Git sync comes through here."""
-        return self.cancel_pending(user_id, post_id)[0]
+    def cancel(self, user_id: str, post_id: str, also: Callable[[sqlite3.Connection], None] | None = None) -> str:
+        """Cancel a pending post (``cancel_pending``); the title. Git sync comes through here, with its claim on the
+        file as ``also``."""
+        return self.cancel_pending(user_id, post_id, also=also)[0]
 
-    def cancel_pending(self, user_id: str, post_id: str) -> tuple[str, str]:
+    def cancel_pending(self, user_id: str, post_id: str,
+                       also: Callable[[sqlite3.Connection], None] | None = None) -> tuple[str, str]:
         """Cancel a 'scheduled' post, a 'recovering' one (its send was interrupted and the platform has not said whether
         it arrived; the person decides, and the cancel wins over a late answer, #216) or an 'unconfirmed' one (the
         platform may or may not have it; the person decides, #226). The title and the status it was cancelled from:
         'recovering' or 'unconfirmed' means the post may already be on the platform, and its error now says so, so the
         API's reply and the MCP tool's can tell the person honestly. The API, the MCP tool and Git sync all come
-        through here."""
+        through here. ``also`` is written in the cancel's transaction, only when it cancels (``cancel_if_pending``)."""
         row = self.store.get_post(post_id)
         if not row or row["user_id"] != user_id:
             raise PlatformError(f"No post {post_id!r}.")
@@ -461,7 +463,8 @@ class Publisher:
                             f"{name}, and remove it there if it is."),
         }
         was = self.store.cancel_if_pending(
-            post_id, user_id, events=self._event("post.cancelled", post_id, user_id, row["platform"]), notes=notes)
+            post_id, user_id, events=self._event("post.cancelled", post_id, user_id, row["platform"]), notes=notes,
+            also=also)
         if not was:
             status = (self.store.get_post(post_id) or row)["status"]
             raise PlatformError(
