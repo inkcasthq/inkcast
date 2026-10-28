@@ -89,15 +89,20 @@ def removed_since(rev: str, patterns: list[str]) -> list[str]:
     or ``rev`` unknown: a shallow clone that never fetched it)."""
     try:
         diff = subprocess.run(["git", "diff", "--no-renames", "--diff-filter=D", "--name-only", "--relative", "-z",
-                               rev, "HEAD"], capture_output=True, text=True)
+                               rev, "HEAD"], capture_output=True)
     except OSError as exc:
         raise CliError(f"can't run git to list the files removed since {rev}: {exc}") from exc
     if diff.returncode != 0:
-        raise CliError(f"can't list the files removed since {rev}: {diff.stderr.strip() or 'git diff failed'}")
+        said = diff.stderr.decode(errors="replace").strip()
+        raise CliError(f"can't list the files removed since {rev}: {said or 'git diff failed'}")
     globs = [glob_pattern(str(pathlib.PurePosixPath(p))) for p in patterns]  # as ``collect`` writes paths: no ``./``
     found: list[str] = []
-    for raw in diff.stdout.split("\0"):
-        path = str(pathlib.PurePosixPath(raw)) if raw else ""
+    for raw in diff.stdout.split(b"\0"):
+        try:
+            name = raw.decode()
+        except UnicodeDecodeError:  # git names files in bytes; one that isn't UTF-8 was never synced (a request is text)
+            continue
+        path = str(pathlib.PurePosixPath(name)) if name else ""
         if path and pathlib.PurePosixPath(path).suffix.lower() in MARKDOWN and path not in found \
                 and any(g.match(path) for g in globs):
             found.append(path)

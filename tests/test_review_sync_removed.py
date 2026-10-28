@@ -3,6 +3,9 @@
 """Adversarial review of #230 (a file removed from the repository cancels its pending post): each case failed on the
 build's head and passes with its fix."""
 
+import pathlib
+import subprocess
+import tempfile
 import threading
 import unittest
 from unittest import mock
@@ -83,3 +86,26 @@ class TheCliReportsWhatItWouldHaveSynced(unittest.TestCase):
             self.assertEqual(collect(["./posts/*.md"]), ["posts/kept.md", "posts/moved.md"])
             self.assertEqual(removed_since(first, ["./posts/**/*.md"]), ["posts/a.md", "posts/renamed.md"])
             self.assertEqual(removed_since(first, ["./posts/a.md"]), ["posts/a.md"])
+
+    def test_a_removed_file_whose_name_is_not_utf8_does_not_stop_the_sync(self):
+        """Git names a file in bytes. A push that deletes any file whose name isn't UTF-8 (an image named in Latin-1,
+        outside the globs) made ``removed_since`` raise UnicodeDecodeError, and ``inkcast sync`` died with a traceback
+        before syncing anything. Such a name was never a synced path (a request carries text): it is left out."""
+        repo = pathlib.Path(tempfile.mkdtemp())
+
+        def git(*args: str | bytes, data: bytes | None = None) -> str:
+            return subprocess.run(["git", "-c", "user.name=on-call", "-c", "user.email=on-call@example.com", *args],
+                                  cwd=repo, input=data, capture_output=True, check=True).stdout.decode().strip()
+
+        git("init", "-q", "-b", "main")
+        (repo / "posts").mkdir()
+        (repo / "posts" / "a.md").write_text("# a\n")
+        git("add", ".")
+        blob = git("hash-object", "-w", "--stdin", data=b"image")
+        git("update-index", "--add", "--cacheinfo", b"100644," + blob.encode() + b",img/caf\xe9.png")  # through the index:
+        git("commit", "-q", "-m", "first")                                                            # no such file on disk
+        first = git("rev-parse", "HEAD")
+        git("rm", "-q", "--cached", b"img/caf\xe9.png", "posts/a.md")
+        git("commit", "-q", "-m", "second")
+        with inside(repo):
+            self.assertEqual(removed_since(first, ["**/*.md"]), ["posts/a.md"])
