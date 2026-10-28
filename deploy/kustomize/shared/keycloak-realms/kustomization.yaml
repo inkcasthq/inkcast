@@ -9,8 +9,10 @@
 # writes `inkcast-<side>-realm` here (keys identity-client-secret and sync-client-secret) and the same values into
 # `inkcast-secrets` in the environment's namespace (oidc-client-secret and keycloak-sync-secret). The import Job
 # reads the Secret through spec.placeholders; no secret value is in Git. An import creates its realm once and never
-# changes it (`kc.sh import --override=false`): to re-import a changed realm, delete the realm in Keycloak and the
-# KeycloakRealmImport, then apply again. The imports stay: their Jobs are the import's log, and a re-apply changes nothing.
+# changes it (`kc.sh import --override=false`). Change a realm that has people through the admin console or API, and
+# the realm file in the same pull request. Deleting a realm deletes its accounts, and the user sync then treats each
+# person as deleted, so delete and re-import only a realm with no accounts to keep. The imports stay: their Jobs are the
+# import's log, and a re-apply changes nothing.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: keycloak
