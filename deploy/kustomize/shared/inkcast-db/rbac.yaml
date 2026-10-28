@@ -1,0 +1,52 @@
+# What each environment's `inkcast env-secrets` (components/env-secrets: the init container of OpenFGA's pod, as the
+# ServiceAccount inkcast-env-secrets of inkcast-staging or inkcast-prod) may do here, issue #323: read its own role's
+# password Secret by name, and create it when it is absent. Never `patch` or `update`: a role Secret is only ever
+# created whole, and a value is never replaced. One Role per side, so staging's run cannot read prod's password.
+# `create` cannot be limited by name (the Kubernetes documentation, "Using RBAC Authorization", Referring to
+# resources: "the name of the new object may not be known at authorization time"), so each side may create a Secret
+# of any name in this namespace; it cannot read or change one it did not name.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: inkcast-env-secrets-staging
+  labels: {app.kubernetes.io/name: inkcast-env-secrets, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: env-secrets}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [inkcast-pg-openfga-staging]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: inkcast-env-secrets-staging
+  labels: {app.kubernetes.io/name: inkcast-env-secrets, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: env-secrets}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: inkcast-env-secrets-staging}
+subjects:
+  - {kind: ServiceAccount, name: inkcast-env-secrets, namespace: inkcast-staging}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: inkcast-env-secrets-prod
+  labels: {app.kubernetes.io/name: inkcast-env-secrets, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: env-secrets}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [inkcast-pg-openfga-prod]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: inkcast-env-secrets-prod
+  labels: {app.kubernetes.io/name: inkcast-env-secrets, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: env-secrets}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: inkcast-env-secrets-prod}
+subjects:
+  - {kind: ServiceAccount, name: inkcast-env-secrets, namespace: inkcast-prod}

@@ -4,10 +4,11 @@
 # existed). Its own namespace, so deleting an app namespace never takes the other's data.
 #
 # Applied once, before either environment, with `oc apply -k deploy/kustomize/shared/inkcast-db` (README, Hosted §2:
-# the lab's bring-up order). The roles' passwords are not here: scripts/deploy/openfga-db-credentials.sh writes one
-# Secret per side (cert-manager client certificates instead: #299). The environments (environments/staging and
-# environments/production) drop the component's Cluster and point OpenFGA at this one; the kubernetes, openshift and
-# ci-openfga overlays keep the component's own Cluster, so a self-host or CI needs nothing from here.
+# the lab's bring-up order). The roles' passwords are not here: each environment's `inkcast env-secrets` (components/
+# env-secrets, #323) creates its side's Secret, under the Roles in rbac.yaml (cert-manager client certificates
+# instead: #299). The environments (environments/staging and environments/production) drop the component's Cluster
+# and point OpenFGA at this one; the kubernetes, openshift and ci-openfga overlays keep the component's own Cluster,
+# so a self-host or CI needs nothing from here.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: inkcast-db
@@ -16,3 +17,4 @@ resources:
   - cluster.yaml
   - databases.yaml
   - networkpolicy.yaml
+  - rbac.yaml                   # each environment's env-secrets: its own role's password Secret, by name (#323)

@@ -1,0 +1,36 @@
+# OpenFGA's pod runs `inkcast env-secrets` first (kustomization.yaml says why here). The image is the release's: the
+# name below is the one the environment's `images` entry pins by digest, as it pins Inkcast's own Deployment. The pod
+# keeps automountServiceAccountToken false: the token is projected into the init container alone, at the path
+# in-cluster clients read (token, the cluster's CA, the namespace), valid ten minutes (the shortest the API allows);
+# OpenFGA's own container never sees it. restricted-v2 and Pod Security "restricted" as the rest of the pod: no uid
+# (the image's numeric USER; the SCC assigns one on OpenShift), every capability dropped, a read-only root filesystem.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openfga
+spec:
+  template:
+    spec:
+      serviceAccountName: inkcast-env-secrets
+      imagePullSecrets:
+        - name: ghcr-pull
+      initContainers:
+        - name: env-secrets
+          image: ghcr.io/inkcasthq/inkcast
+          args: ["env-secrets"]
+          resources:
+            requests: {cpu: 10m, memory: 96Mi}
+            limits: {memory: 192Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: api-token, mountPath: /var/run/secrets/kubernetes.io/serviceaccount, readOnly: true}
+      volumes:
+        - name: api-token
+          projected:
+            sources:
+              - serviceAccountToken: {path: token, expirationSeconds: 600}
+              - configMap: {name: kube-root-ca.crt, items: [{key: ca.crt, path: ca.crt}]}
+              - downwardAPI: {items: [{path: namespace, fieldRef: {fieldPath: metadata.namespace}}]}

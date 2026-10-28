@@ -1,0 +1,37 @@
+# In the environment's own namespace: the two Secrets `inkcast env-secrets` reads and writes here, by name, and the
+# one verb RBAC cannot narrow. `create` is never limited by resourceNames: the Kubernetes documentation, "Using RBAC
+# Authorization", Referring to resources: "You cannot restrict create or deletecollection requests by their resource
+# name. For create, this limitation is because the name of the new object may not be known at authorization time."
+# So this ServiceAccount can create a Secret of any name in this namespace; it can read or change only these two.
+# inkcast-secrets gets `patch` to add a key it lacks (never to replace one: the code sends only absent keys, on the
+# resourceVersion it read); openfga-db-app is only ever created whole, so it is read and nothing more.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: inkcast-env-secrets
+  labels: {app.kubernetes.io/name: inkcast-env-secrets, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: env-secrets}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [inkcast-secrets]
+    verbs: [get, patch]
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [openfga-db-app]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: inkcast-env-secrets
+  labels: {app.kubernetes.io/name: inkcast-env-secrets, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: env-secrets}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: inkcast-env-secrets
+subjects:
+  - kind: ServiceAccount
+    name: inkcast-env-secrets
