@@ -1,0 +1,17 @@
+# Used only by CI (kind): the lab's shared database (deploy/kustomize/shared/inkcast-db, with its Roles for each
+# environment's env-secrets) exactly as the lab applies it, but for the one thing kind runs elsewhere: the
+# CloudNativePG operator is in cnpg-system (its release manifest, scripts/dev/openfga-e2e.sh), not
+# openshift-operators, so the policy's operator rule names that namespace. scripts/dev/env-secrets-e2e.sh applies it.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../shared/inkcast-db
+patches:
+  - target: {kind: NetworkPolicy, name: inkcast-pg}
+    patch: |-
+      - op: test
+        path: /spec/ingress/1/from/0/namespaceSelector/matchLabels
+        value: {kubernetes.io/metadata.name: openshift-operators}
+      - op: replace
+        path: /spec/ingress/1/from/0/namespaceSelector/matchLabels
+        value: {kubernetes.io/metadata.name: cnpg-system}

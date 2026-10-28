@@ -1,0 +1,36 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: inkcast-env-secrets-creates-its-own
+  labels: {app.kubernetes.io/name: inkcast-env-secrets, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: env-secrets}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - {apiGroups: [""], apiVersions: [v1], operations: [CREATE], resources: [secrets]}
+  matchConditions:   # only the two env-secrets accounts; every other client is untouched
+    - name: an-env-secrets-account
+      expression: >-
+        request.userInfo.username in ['system:serviceaccount:inkcast-staging:inkcast-env-secrets',
+        'system:serviceaccount:inkcast-prod:inkcast-env-secrets']
+  variables:
+    - name: side
+      expression: "request.userInfo.username.split(':')[2].substring(8)"   # inkcast-staging -> staging
+  validations:
+    - expression: >-
+        (request.namespace == 'inkcast-' + variables.side && object.metadata.name in ['inkcast-secrets', 'openfga-db-app'])
+        || (request.namespace == 'inkcast-db' && object.metadata.name == 'inkcast-pg-openfga-' + variables.side)
+        || (request.namespace == 'keycloak' && object.metadata.name == 'inkcast-' + variables.side + '-realm')
+      messageExpression: >-
+        'inkcast env-secrets of ' + variables.side + ' creates only its own Secrets, not ' + request.namespace + '/'
+        + object.metadata.name
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: inkcast-env-secrets-creates-its-own
+  labels: {app.kubernetes.io/name: inkcast-env-secrets, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: env-secrets}
+spec:
+  policyName: inkcast-env-secrets-creates-its-own
+  validationActions: [Deny]

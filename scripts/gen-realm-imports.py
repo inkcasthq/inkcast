@@ -11,7 +11,7 @@ realm of deploy/keycloak/realm-inkcast.json, unchanged but for its name (inkcast
 in place of ${INKCAST_PUBLIC_URL} (the client's redirect, read from environments/<env>/kustomization.yaml, so the
 redirect and the Route host move together), and SMTP pointing at the Mailpit of the same kustomization. The two
 client secrets stay ${...} placeholders, declared under spec.placeholders from Secret inkcast-<side>-realm in the
-keycloak namespace, the one the secrets Job writes (#323); no secret value is ever rendered.
+keycloak namespace, the one env-secrets writes (#323); no secret value is ever rendered.
 
 The contract is the operator's at Keycloak 26.6.7 (operator/src/main/java/org/keycloak/operator at that tag):
 k8s.keycloak.org/v2beta1 (Constants.CRDS_VERSION; v2alpha1 is still served, deprecated), spec.keycloakCRName and

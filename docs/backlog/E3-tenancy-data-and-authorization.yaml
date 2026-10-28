@@ -406,6 +406,26 @@ features:
       whose answer is lost'
     - 'Proven on kind in CI and on OpenShift Local: a fresh inkcast-staging reaches Ready with no manual step, and a
       restarted pod finds the model unchanged with the same ids and one store'
+  - id: F3.9.S7
+    title: 'The cluster generates every environment Secret: no secret scripts, no copied values (inkcast env-secrets,
+      the init container of OpenFGA''s pod in each lab environment, components/env-secrets)'
+    status: in-progress
+    change: 'new; issue #323'
+    acceptance:
+    - applied with each environment, every Secret is created when absent (inkcast-<side>/inkcast-secrets,
+      inkcast-db/inkcast-pg-openfga-<side>, inkcast-<side>/openfga-db-app, keycloak/inkcast-<side>-realm), the agreeing
+      copies written in keycloak, inkcast-db and inkcast-<side>, and an existing value never rotated or overwritten (an
+      init container rather than a Job, since a Job's immutable template and a failed Job deleted by its TTL each need a
+      manual step)
+    - when one side of a pair exists, its value is copied to the other side; two existing sides that disagree fail
+      the run with an error that names the pair and never prints a value
+    - RBAC is least privilege, the ServiceAccount reaching only those Secrets by name where Kubernetes allows it;
+      creation cannot be limited by name, and the docs say so
+    - values come from a CSPRNG at the length and alphabet each consumer needs (CNPG role password, OpenFGA preshared
+      key, Keycloak client secret); no value appears in a log, an event or the run's output
+    - the secret scripts are replaced and the README's bring-up has no secret step; proven on kind in CI and on
+      OpenShift Local (delete a namespace's generated Secrets in a fresh environment, apply, and everything comes back
+      in agreement)
 - id: F3.10
   title: 'Backing services: Valkey and PostgreSQL in the cluster'
   stories:

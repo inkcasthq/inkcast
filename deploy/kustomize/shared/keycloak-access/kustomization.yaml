@@ -1,0 +1,14 @@
+# What the lab's environments may do in Keycloak's namespace (E3.F3.9.S7, issue #323): the Roles that let each
+# environment's `inkcast env-secrets` (components/env-secrets) write its realm's client secrets, the Secret
+# inkcast-<side>-realm that the realm import reads (deploy/kustomize/shared/keycloak-realms). A shared kustomization,
+# because a Role belongs to its namespace and an environment's `namespace:` would move it into inkcast-<side>.
+#
+# Applied once, before the environments, with `oc apply -k deploy/kustomize/shared/keycloak-access` (README, Hosted
+# §2). It does not create the namespace: Keycloak's installation owns it, and applying this without Keycloak fails
+# naming it. Until it is applied, the init container stops on the refusal (HTTP 403, naming this kustomization) and
+# the kubelet retries it.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: keycloak
+resources:
+  - rbac.yaml
