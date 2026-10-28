@@ -4,7 +4,7 @@ Keycloak answers "who are you?" for Inkcast. That covers sign-up, social and ent
 
 | File | What |
 |---|---|
-| `realm-inkcast.json` | **The realm as code.** No secret and no person is in it: the client secret and Inkcast's URL come from `${KC_INKCAST_CLIENT_SECRET}` and `${INKCAST_PUBLIC_URL}`, filled from the environment when Keycloak imports the realm at startup. `tests/test_keycloak_realm.py` keeps it that way |
+| `realm-inkcast.json` | **The realm as code.** No secret and no person is in it: the client secret and Inkcast's URL come from `${KC_INKCAST_CLIENT_SECRET}` and `${INKCAST_PUBLIC_URL}`, filled from the environment when Keycloak imports the realm at startup. `tests/test_keycloak_realm.py` keeps it that way. On the lab, `scripts/gen-realm-imports.py` renders it into one `KeycloakRealmImport` per environment, `inkcast-staging` and `inkcast-prod` (`deploy/kustomize/shared/keycloak-realms`, #305) |
 | `keycloak.yaml`, `kustomization.yaml` | Development and CI only: one Keycloak in `start-dev` mode (in-memory, HTTP), the realm imported at startup, and Mailpit catching its emails (verification, password reset) |
 
 ## The realm in short
@@ -44,7 +44,7 @@ The script:
 Don't use `keycloak.yaml` in production. Instead:
 
 - **Run Keycloak in production mode.** Use `start --optimized` on PostgreSQL, preferably a CloudNativePG `Cluster` ([ADR-0014](../../docs/adr/0014-postgresql-on-cloudnativepg.md)). Run two or more replicas behind TLS, with `KC_HOSTNAME` set to the public URL. On OpenShift, the Red Hat build of Keycloak Operator manages all of this.
-- **Import the realm once,** with the same file and placeholders, then manage changes as code: export, review, re-import. A realm that already exists is skipped at startup, so later changes need the `import` command or the admin API.
+- **Import the realm once,** with the same file and placeholders, then manage changes as code: export, review, re-import. A realm that already exists is skipped at startup, so later changes need the `import` command or the admin API. On the lab the operator imports the generated `KeycloakRealmImport`s, the secrets as `spec.placeholders` from a Secret (README, Hosted §2, "The realms as code").
 - **Keep the secrets out of Git.**
   - `KC_INKCAST_CLIENT_SECRET` and the identity-provider secrets come from Kubernetes Secrets, through the secrets design.
   - Inkcast reads the same client secret as `OIDC_CLIENT_SECRET_FILE`.

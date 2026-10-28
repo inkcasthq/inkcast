@@ -27,6 +27,7 @@ Every contributor signs the [Inkcast Contributor License Agreement](legal/CLA-IN
    .venv/bin/python scripts/gen-manifests.py --check   # split-service manifests match the code
    .venv/bin/python scripts/gen-alerts.py --check      # PrometheusRule matches the alert catalogue (libs/alerting.py)
    .venv/bin/python scripts/gen-dashboards.py --check  # the Grafana dashboard matches libs/dashboards.py
+   .venv/bin/python scripts/gen-realm-imports.py --check  # the lab's KeycloakRealmImports match the realm file and the environments
    scripts/vendor-assets.sh            # vendored API-docs bundles still match their lock
    scripts/dev/codeql.sh               # CodeQL as CI runs it, each result with its source-to-sink path
    ```

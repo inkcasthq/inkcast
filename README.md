@@ -162,12 +162,27 @@ oc -n inkcast-db get database                                    # APPLIED true 
 scripts/deploy/ghcr-pull-secret.sh staging <github-username> <token-file>   # the private image: see below
 scripts/deploy/ghcr-pull-secret.sh prod <github-username> <token-file>
 oc -n inkcast-staging create secret generic inkcast-secrets …    # as above, in each app namespace
+# the realm Secrets, inkcast-<side>-realm in keycloak with the same values in inkcast-secrets: the secrets Job (#323)
+oc apply -k deploy/kustomize/shared/keycloak-realms              # Mailpit, and both realms imported once (below)
+oc -n keycloak get keycloakrealmimports                          # Done for both before the first sign-in
 oc apply -k deploy/kustomize/environments/staging                # then environments/production the same way
 oc -n inkcast-staging wait --for=condition=complete job/openfga-migrate --timeout=10m
 # write-model and pin the ids as above, per environment (the port-forward in that environment's namespace)
 ```
 
 `oc delete -k deploy/kustomize/shared/inkcast-db` deletes the Cluster and, with it, its volume: both environments' authorization data. `databaseReclaimPolicy: retain` keeps a database when its `Database` object is deleted, not when the Cluster is.
+
+**The realms as code.** Each environment signs people in against its own realm on the lab's Keycloak (namespace `keycloak`, CR `keycloak`, run by the operator): `inkcast-staging` and `inkcast-prod`, each a `KeycloakRealmImport` in `deploy/kustomize/shared/keycloak-realms` that `scripts/gen-realm-imports.py` renders from the one realm file, `deploy/keycloak/realm-inkcast.json`, unchanged but for its name, the environment's public URL and the mail; `--check` fails the tests when the realm file, an environment or the Mailpit Service moved without regenerating. The import Job reads the client secrets from `Secret inkcast-<side>-realm` through `spec.placeholders`, so nothing secret is in Git. The values that must agree, per side (`tests/test_realm_imports.py` checks each row):
+
+| Value | Set in | Must agree with |
+|---|---|---|
+| `INKCAST_PUBLIC_URL=https://inkcast-<side>.apps-crc.testing` | `environments/<env>` | the Route's host in the same file; the client's `redirectUris` (`…/auth/callback`), `webOrigins` and `baseUrl` in the generated import |
+| `OIDC_ISSUER=https://keycloak.apps-crc.testing/realms/inkcast-<side>` | `environments/<env>` | the import's `metadata.name` and `spec.realm.realm`, `inkcast-<side>`; the generator refuses any other realm |
+| `OIDC_CLIENT_ID=inkcast-identity`, `INKCAST_KEYCLOAK_SYNC_CLIENT_ID=inkcast-sync` | `environments/<env>` | the realm file's two clients: sign-in, and the read-only service account of the user sync, on in both environments |
+| `OIDC_CLIENT_SECRET_FILE` → `inkcast-secrets/oidc-client-secret`; `INKCAST_KEYCLOAK_SYNC_SECRET_FILE` → `inkcast-secrets/keycloak-sync-secret` | the base Deployment; `environments/<env>` | `inkcast-<side>-realm/identity-client-secret` and `…/sync-client-secret` in `keycloak`, which the import feeds into `${KC_INKCAST_CLIENT_SECRET}` and `${KC_INKCAST_SYNC_SECRET}`: one value each per side, written to both Secrets by the secrets Job (#323) |
+| `smtpServer`: `mailpit.keycloak.svc:1025`, no auth | the generated import | the Mailpit Service beside it; only Keycloak's pods may reach it |
+
+An import creates its realm once and never changes it (`kc.sh import --override=false`; the operator's guide: "The Realm Import CR only supports creation of new realms"). To re-import a changed realm, delete the realm in Keycloak and its `KeycloakRealmImport`, then apply the shared kustomization again; a re-apply with the realm in place changes nothing. The verification and password-reset mail of both realms lands in Mailpit and nowhere else: `oc -n keycloak port-forward svc/mailpit 8025:8025`, then `http://localhost:8025`.
 
 Credentials are passwords, one Secret per side, kept once written: a second run of the script reports the pair and changes nothing, and a half pair or a disagreeing pair fails naming the Secret (cert-manager client certificates instead: #299). To generate a new pair, delete both Secrets and run the script again: the role's password changes at once, so restart OpenFGA in that namespace (`oc -n inkcast-<side> rollout restart deploy/openfga`), which reads the URI only at start. The URI OpenFGA reads is `postgres://openfga_<side>:…@inkcast-pg-rw.inkcast-db.svc:5432/openfga_<side>?sslmode=require`: always TLS, with the server's certificate unverified until the cluster's CA travels with #299; the server admits each role over TLS to its own database and rejects it anywhere else (`pg_hba` in `cluster.yaml`), so a staging role cannot open `openfga_prod`.
 
