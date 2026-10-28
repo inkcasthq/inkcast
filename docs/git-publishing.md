@@ -19,6 +19,7 @@ A personal access token lets CI sync stories, and do nothing else.
 | `posts:read` | list posts, previews, dry runs, the ledger |
 | `posts:write` | publish, schedule and cancel single posts |
 | `connections:read` / `connections:write` | see connected platforms; create connect links and disconnect |
+| `insights:read` | read your publishing KPIs: counts, success and on-time rates, Git sync outcomes |
 
 Tokens can't create or revoke tokens. Revoke one with `DELETE /api/v1/tokens/{id}`, or ask Claude Code to.
 
