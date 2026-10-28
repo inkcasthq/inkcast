@@ -14,6 +14,7 @@ The locked writes are injected on the writes they are about, as in ``test_sync_e
 
 import sqlite3
 import unittest
+from datetime import datetime
 from unittest import mock
 
 from inkcast.libs.db.ledger import CLAIM_TTL
@@ -42,10 +43,10 @@ class Locked:
 
 
 class FindingADoubleFaultOnTheReplacePath(SyncCase):
-    def replaced_twice_failing(self) -> tuple[dict, dict]:
+    def replaced_twice_failing(self, when: datetime | None = None) -> tuple[dict, dict]:
         """A scheduled post, its body edited; the replacement is made, and every write of the entry after it fails.
         The claim then expires. The replaced post and the replacement."""
-        when = at(2 * 24 * 3600)
+        when = when or at(2 * 24 * 3600)
         first = self.sync(when)
         locked = Locked(self.store.put_entry, every_write_of_the_outcome)
         with mock.patch.object(self.store, "put_entry", locked), self.assertRaises(sqlite3.OperationalError):
@@ -59,8 +60,9 @@ class FindingADoubleFaultOnTheReplacePath(SyncCase):
         return replaced, replacement
 
     def test_the_unchanged_file_leaves_the_replacement_alone(self):
-        _, replacement = self.replaced_twice_failing()
-        again = self.sync(at(2 * 24 * 3600), body="Better body.")
+        when = at(2 * 24 * 3600)   # once: at() rounds to the second, so a second call can land a second later
+        _, replacement = self.replaced_twice_failing(when)
+        again = self.sync(when, body="Better body.")
         self.assertEqual((again.action, again.post_id), ("unchanged", replacement["id"]), "replaced a second time")
         self.assertEqual([p["status"] for p in self.posts()], ["cancelled", "scheduled"])
 
