@@ -194,9 +194,9 @@ class GitSync:
             # The claim is written in the cancel's transaction (#224): a claim that fails rolls the cancel back, so the
             # entry is never left on a post the author didn't cancel, which the next sync would follow and never send.
             # The claim names no post until its own exists (on_record): stopped before that, it is taken over, never
-            # followed to the cancelled one.
+            # followed to the cancelled one. Through the publisher's store, as on_record: ``c`` is its connection.
             def claim(c: sqlite3.Connection) -> None:
-                self.store.put_entry_in(c, user_id, src, path, pid, status="syncing", post_id=None)
+                self.publisher.store.put_entry_in(c, user_id, src, path, pid, status="syncing", post_id=None)
 
             try:
                 self.publisher.cancel(user_id, post["id"], also=claim)
