@@ -71,12 +71,14 @@ class SharedFiles(unittest.TestCase):
             self.assertEqual(role["passwordSecret"], {"name": f"inkcast-pg-openfga-{side}"}, side)
             self.assertFalse(role.get("superuser") or role.get("createdb") or role.get("createrole"), side)
         # pg_hba: first match wins (PostgreSQL), after the operator's fixed rules and before its default. Each role
-        # over TLS to its own database, then the role rejected for anything else: openfga_prod, or no TLS.
+        # over TLS to its own database, then the role rejected for anything else: openfga_prod, or no TLS. The bootstrap
+        # role app (unused) is refused every network connection.
         self.assertEqual(cluster["spec"]["postgresql"]["pg_hba"], [
             "hostssl openfga_staging openfga_staging all scram-sha-256",
             "hostssl openfga_prod openfga_prod all scram-sha-256",
             "host all openfga_staging all reject",
             "host all openfga_prod all reject",
+            "host all app all reject",
         ])
         self.assertEqual(cluster["spec"]["bootstrap"]["initdb"], {"database": "app", "owner": "app"},
                          "the operator's convention, unused; both OpenFGA databases are Database objects")
