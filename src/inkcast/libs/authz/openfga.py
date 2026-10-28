@@ -242,8 +242,9 @@ class OpenFgaAdmin:
             if not token:
                 break
         if len(found) > 1:
-            raise EngineError(f"OpenFGA holds {len(found)} stores named {name!r} ({', '.join(found)}): pin "
-                              "INKCAST_FGA_STORE_ID to the one Inkcast uses and delete or rename the others")
+            raise EngineError(f"OpenFGA holds {len(found)} stores named {name!r} ({', '.join(found)}): delete or "
+                              "rename all but the one Inkcast uses, or pin INKCAST_FGA_STORE_ID and "
+                              "INKCAST_FGA_MODEL_ID by hand (one id alone is refused)")
         return found[0] if found else None
 
     async def create_store(self, name: str) -> str:
