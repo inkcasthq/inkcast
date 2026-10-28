@@ -5,9 +5,10 @@ code it was written against."""
 
 from __future__ import annotations
 
+import subprocess
 import unittest
 
-from test_shared_openfga_db import CREDENTIALS, FakeOcCase, uri
+from test_shared_openfga_db import CREDENTIALS, PULL_SECRET, FakeOcCase, uri
 
 # A failing `oc` in front of the recording fake: the one call whose arguments contain $OC_FAIL_ON is refused the way
 # the API server refuses it; every other call goes to the fake.
@@ -62,6 +63,40 @@ class CredentialsScriptWhenOcFailsMidRun(FakeOcCase):
                     self.assertNotIn(misread, done.stderr + done.stdout)
                 self.assertFalse([c for c in self.calls() if "create" in c or "replace" in c or "delete" in c])
                 self.assert_never_seen(self.PW, done)
+
+
+class TracedRunsNeverPrintTheSecret(FakeOcCase):
+    """`bash -x script …` (debugging a failed run) or an exported SHELLOPTS=xtrace makes bash print every command
+    after expansion (GNU Bash manual, "The Set Builtin" -x; "Bash Variables" SHELLOPTS): the generated password and the
+    token would be on stderr, in the terminal's scrollback or a CI log. Both scripts turn the trace off first."""
+
+    TRACES = {"bash -x": (["bash", "-x"], {}), "SHELLOPTS=xtrace": (["bash"], {"SHELLOPTS": "xtrace"})}
+
+    def traced(self, how: str, script, *args: str) -> subprocess.CompletedProcess:
+        shell, extra = self.TRACES[how]
+        self.calls_file.write_text("")
+        return subprocess.run([*shell, str(script), *args], env={**self.env, **extra}, capture_output=True, text=True,
+                              timeout=60)
+
+    def test_the_credentials_script_traced_never_prints_the_password(self):
+        for how in self.TRACES:
+            with self.subTest(trace=how):
+                for name in ("inkcast-db/inkcast-pg-openfga-staging", "inkcast-staging/openfga-db-app"):
+                    (self.state / f"{name}.json").unlink(missing_ok=True)
+                done = self.traced(how, CREDENTIALS, "staging")
+                self.assertEqual(done.returncode, 0, done.stderr[-500:])
+                pw = self.stored("inkcast-db", "inkcast-pg-openfga-staging")["decoded"]["password"]
+                self.assert_never_seen(pw, done)
+
+    def test_the_pull_secret_script_traced_never_prints_the_token(self):
+        token = "ghp_" + "T9" * 18
+        path = self.dir / "pat"
+        path.write_text(token + "\n")
+        for how in self.TRACES:
+            with self.subTest(trace=how):
+                done = self.traced(how, PULL_SECRET, "staging", "octocat", str(path))
+                self.assertEqual(done.returncode, 0, done.stderr[-500:])
+                self.assert_never_seen(token, done)
 
 
 if __name__ == "__main__":

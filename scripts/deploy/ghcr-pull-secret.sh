@@ -12,6 +12,7 @@
 # more run. The environments' manifests name it on the ServiceAccount and on every pod spec that runs the image
 # (environments/staging, environments/production); removing it once the package is public is in the README, Hosted §2.
 set -euo pipefail
+set +x  # never traced (bash -x, SHELLOPTS=xtrace): the trace would print the token
 usage() { echo "usage: ghcr-pull-secret.sh <staging|prod> <github-username> <token-file>" >&2; exit 2; }
 side="${1:-}"; user="${2:-}"; file="${3:-}"
 case "$side" in

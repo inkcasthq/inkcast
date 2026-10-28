@@ -28,6 +28,7 @@
 # inkcast-db) copied into the app namespace and mounted on OpenFGA's pods, a change to the component that belongs
 # with #299. The operator's own `uri` carries no sslmode at all, so `require` is the stricter of the two.
 set -euo pipefail
+set +x  # never traced (bash -x, SHELLOPTS=xtrace): the trace would print the password
 side="${1:-}"
 case "$side" in
   staging|prod) ;;
