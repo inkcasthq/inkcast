@@ -1,9 +1,9 @@
 {
-  "started": "2026-10-28T17:08:09Z",
+  "started": "2026-10-28T17:59:52Z",
   "base": "http://localhost:8787",
   "fakes": "http://127.0.0.1:8999",
   "client_name": "Walkthrough MCP client",
-  "callback": "http://localhost:39527/callback",
+  "callback": "http://localhost:33655/callback",
   "viewport": {
     "width": 820,
     "height": 560,
@@ -16,7 +16,7 @@
   "steps": [
     {
       "n": 1,
-      "t": "2026-10-28T17:08:11Z",
+      "t": "2026-10-28T17:59:53Z",
       "phase": "1. Add Inkcast to an MCP client",
       "step": "REST \u2014 GET /.well-known/oauth-protected-resource/mcp",
       "kind": "rest",
@@ -49,7 +49,7 @@
     },
     {
       "n": 2,
-      "t": "2026-10-28T17:08:11Z",
+      "t": "2026-10-28T17:59:53Z",
       "phase": "1. Add Inkcast to an MCP client",
       "step": "REST \u2014 GET /.well-known/oauth-authorization-server",
       "kind": "rest",
@@ -98,12 +98,12 @@
     },
     {
       "n": 3,
-      "t": "2026-10-28T17:08:11Z",
+      "t": "2026-10-28T17:59:54Z",
       "phase": "1. Add Inkcast to an MCP client",
       "step": "dynamic client registration",
       "kind": "mcp",
       "ok": true,
-      "detail": "registered as \u201cWalkthrough MCP client\u201d (client_id aeb9cb4f-1d60-4a9c-8f7e-73608eef3ed6), redirect http://localhost:39527/callback",
+      "detail": "registered as \u201cWalkthrough MCP client\u201d (client_id a7018111-5f7e-458d-8b89-82f4fe341c3e), redirect http://localhost:33655/callback",
       "narration": "The client registered itself (RFC 7591); no secret, PKCE instead.",
       "screenshot": "03-dynamic-client-registration.png",
       "reply": {
@@ -113,7 +113,7 @@
         "scope": "inkcast",
         "client_name": "Walkthrough MCP client",
         "redirect_uris": [
-          "http://localhost:39527/callback"
+          "http://localhost:33655/callback"
         ],
         "token_endpoint_auth_method": "none",
         "grant_types": [
@@ -121,55 +121,55 @@
           "refresh_token"
         ],
         "application_type": "native",
-        "client_id": "aeb9cb4f-1d60-4a9c-8f7e-73608eef3ed6",
-        "client_id_issued_at": 1793207291,
+        "client_id": "a7018111-5f7e-458d-8b89-82f4fe341c3e",
+        "client_id_issued_at": 1793210393,
         "issuer": "http://localhost:8787"
       }
     },
     {
       "n": 4,
-      "t": "2026-10-28T17:08:12Z",
+      "t": "2026-10-28T17:59:54Z",
       "phase": "1. Add Inkcast to an MCP client",
       "step": "sign-in page",
       "kind": "browser",
       "ok": true,
-      "detail": "http://127.0.0.1:8999/kc/realms/inkcast/protocol/openid-connect/auth?response_type=code&client_id=inkcast&redirect_uri=http%3A%2F%2Flocalhost%3A8787%2Fauth%2Fcallback&scope=openid+email+profile&state=3kd7obxYr9KQNR4VoIYVuCwPSxHZ2w3S&nonce=4sW7qO0EB5HyLejRKKTvpO46eZKjc8sPiU9yIbMeE2w&code_challenge=e_oN_TlpLt1iG_9lM6js8u4ndz5VDDrRCZpuvXehjzs&code_challenge_method=S256 \u2014 Sign in to your account; the identity provider's sign-in form",
+      "detail": "http://127.0.0.1:8999/kc/realms/inkcast/protocol/openid-connect/auth?response_type=code&client_id=inkcast&redirect_uri=http%3A%2F%2Flocalhost%3A8787%2Fauth%2Fcallback&scope=openid+email+profile&state=gWXcLkXCEyUbRL2boU2HL6Ee8FS0UHbs&nonce=lw2vRbZqXRDO7yOX2FL51VxWvGNqzl9-EA_wPH87OfE&code_challenge=TWQyyiSSPXFLpZAfu6JJggWtmCxtFsF5GE79UvmUtZw&code_challenge_method=S256 \u2014 Sign in to your account; the identity provider's sign-in form",
       "narration": "The client opened the authorization URL in the browser; Inkcast sent it to the identity provider (the stand-in for Keycloak), which asks the person to sign in.",
       "screenshot": "04-sign-in-page.png",
-      "url": "http://127.0.0.1:8999/kc/realms/inkcast/protocol/openid-connect/auth?response_type=code&client_id=inkcast&redirect_uri=http%3A%2F%2Flocalhost%3A8787%2Fauth%2Fcallback&scope=openid+email+profile&state=3kd7obxYr9KQNR4VoIYVuCwPSxHZ2w3S&nonce=4sW7qO0EB5HyLejRKKTvpO46eZKjc8sPiU9yIbMeE2w&code_challenge=e_oN_TlpLt1iG_9lM6js8u4ndz5VDDrRCZpuvXehjzs&code_challenge_method=S256",
+      "url": "http://127.0.0.1:8999/kc/realms/inkcast/protocol/openid-connect/auth?response_type=code&client_id=inkcast&redirect_uri=http%3A%2F%2Flocalhost%3A8787%2Fauth%2Fcallback&scope=openid+email+profile&state=gWXcLkXCEyUbRL2boU2HL6Ee8FS0UHbs&nonce=lw2vRbZqXRDO7yOX2FL51VxWvGNqzl9-EA_wPH87OfE&code_challenge=TWQyyiSSPXFLpZAfu6JJggWtmCxtFsF5GE79UvmUtZw&code_challenge_method=S256",
       "checked": "the identity provider's sign-in form"
     },
     {
       "n": 5,
-      "t": "2026-10-28T17:08:13Z",
+      "t": "2026-10-28T17:59:55Z",
       "phase": "1. Add Inkcast to an MCP client",
       "step": "consent page",
       "kind": "browser",
       "ok": true,
-      "detail": "http://localhost:8787/auth/consent?pending=3kd7obxYr9KQNR4VoIYVuCwPSxHZ2w3S \u2014 Allow Walkthrough MCP client to use Inkcast?; consent names the client",
+      "detail": "http://localhost:8787/auth/consent?pending=gWXcLkXCEyUbRL2boU2HL6Ee8FS0UHbs \u2014 Allow Walkthrough MCP client to use Inkcast?; consent names the client",
       "narration": "Signed in: Inkcast asks whether this client may use the account, naming the client.",
       "screenshot": "05-consent-page.png",
-      "url": "http://localhost:8787/auth/consent?pending=3kd7obxYr9KQNR4VoIYVuCwPSxHZ2w3S",
+      "url": "http://localhost:8787/auth/consent?pending=gWXcLkXCEyUbRL2boU2HL6Ee8FS0UHbs",
       "checked": "consent names the client"
     },
     {
       "n": 6,
-      "t": "2026-10-28T17:08:13Z",
+      "t": "2026-10-28T17:59:55Z",
       "phase": "1. Add Inkcast to an MCP client",
       "step": "authorization code at the local callback",
       "kind": "check",
       "ok": true,
-      "detail": "the redirect reached http://localhost:39527/callback with a code and state",
+      "detail": "the redirect reached http://localhost:33655/callback with a code and state",
       "narration": "The browser was sent back to the client's local listener with a one-time code; the client exchanges it with its PKCE verifier.",
       "screenshot": null,
       "reply": {
-        "code": "ic_code_HAhuzC\u2026",
-        "state": "fpT-gJcKWLYhsvaRzrIZV5HB8BJ1KGLjiJruKXbYqFc"
+        "code": "ic_code_P47sjY\u2026",
+        "state": "nvVOc8mkEamGbgEdd57tpcg-Nvm1q5DM5fm1RjAfB5I"
       }
     },
     {
       "n": 7,
-      "t": "2026-10-28T17:08:13Z",
+      "t": "2026-10-28T17:59:55Z",
       "phase": "1. Add Inkcast to an MCP client",
       "step": "token exchange",
       "kind": "mcp",
@@ -178,16 +178,16 @@
       "narration": "The code and verifier became an access token and a refresh token; the client stores them.",
       "screenshot": "06-token-exchange.png",
       "reply": {
-        "access_token": "ic_at_ZrJHEE\u2026",
+        "access_token": "ic_at_clfA6T\u2026",
         "token_type": "Bearer",
         "expires_in": 3600,
         "scope": "inkcast",
-        "refresh_token": "ic_rt_Xp23P1\u2026"
+        "refresh_token": "ic_rt_pP8pit\u2026"
       }
     },
     {
       "n": 8,
-      "t": "2026-10-28T17:08:13Z",
+      "t": "2026-10-28T17:59:56Z",
       "phase": "1. Add Inkcast to an MCP client",
       "step": "MCP initialize",
       "kind": "mcp",
@@ -215,7 +215,7 @@
     },
     {
       "n": 9,
-      "t": "2026-10-28T17:08:13Z",
+      "t": "2026-10-28T17:59:56Z",
       "phase": "2. Platforms, connect DEV, destinations",
       "step": "MCP inkcast_platforms",
       "kind": "mcp",
@@ -233,7 +233,7 @@
     },
     {
       "n": 10,
-      "t": "2026-10-28T17:08:13Z",
+      "t": "2026-10-28T17:59:56Z",
       "phase": "2. Platforms, connect DEV, destinations",
       "step": "MCP inkcast_connect",
       "kind": "mcp",
@@ -247,39 +247,39 @@
           "platform_id": "devto"
         }
       },
-      "reply": "Open this link to connect DEV (valid 15 minutes, one use):\nhttp://localhost:8787/connect/BYws8BNM6QZlDgK0iLrTmB4t8Jh6MVle0STuyTePn54\n\nPaste a DEV API key. It lets Inkcast create articles as you.",
+      "reply": "Open this link to connect DEV (valid 15 minutes, one use):\nhttp://localhost:8787/connect/FM2rlhQ7y66Et5r73dnJeUaqtHrW_jA0YWxQYXEEToo\n\nPaste a DEV API key. It lets Inkcast create articles as you.",
       "is_error": false,
       "checked": "a one-time /connect/ link"
     },
     {
       "n": 11,
-      "t": "2026-10-28T17:08:14Z",
+      "t": "2026-10-28T17:59:57Z",
       "phase": "2. Platforms, connect DEV, destinations",
       "step": "connect page",
       "kind": "browser",
       "ok": true,
-      "detail": "http://localhost:8787/connect/BYws8BNM6QZlDgK0iLrTmB4t8Jh6MVle0STuyTePn54 \u2014 Connect DEV; the DEV connect form",
+      "detail": "http://localhost:8787/connect/FM2rlhQ7y66Et5r73dnJeUaqtHrW_jA0YWxQYXEEToo \u2014 Connect DEV; the DEV connect form",
       "narration": "The person opens the link: a form for the DEV API key, with the help text.",
       "screenshot": "10-connect-page.png",
-      "url": "http://localhost:8787/connect/BYws8BNM6QZlDgK0iLrTmB4t8Jh6MVle0STuyTePn54",
+      "url": "http://localhost:8787/connect/FM2rlhQ7y66Et5r73dnJeUaqtHrW_jA0YWxQYXEEToo",
       "checked": "the DEV connect form"
     },
     {
       "n": 12,
-      "t": "2026-10-28T17:08:15Z",
+      "t": "2026-10-28T17:59:57Z",
       "phase": "2. Platforms, connect DEV, destinations",
       "step": "dev connected",
       "kind": "browser",
       "ok": true,
-      "detail": "http://localhost:8787/connect/BYws8BNM6QZlDgK0iLrTmB4t8Jh6MVle0STuyTePn54 \u2014 DEV connected; the page says DEV connected as ada",
+      "detail": "http://localhost:8787/connect/FM2rlhQ7y66Et5r73dnJeUaqtHrW_jA0YWxQYXEEToo \u2014 DEV connected; the page says DEV connected as ada",
       "narration": "Inkcast verified the key with DEV and stored it; the link is used up.",
       "screenshot": "11-dev-connected.png",
-      "url": "http://localhost:8787/connect/BYws8BNM6QZlDgK0iLrTmB4t8Jh6MVle0STuyTePn54",
+      "url": "http://localhost:8787/connect/FM2rlhQ7y66Et5r73dnJeUaqtHrW_jA0YWxQYXEEToo",
       "checked": "the page says DEV connected as ada"
     },
     {
       "n": 13,
-      "t": "2026-10-28T17:08:15Z",
+      "t": "2026-10-28T17:59:58Z",
       "phase": "2. Platforms, connect DEV, destinations",
       "step": "MCP inkcast_platforms",
       "kind": "mcp",
@@ -297,7 +297,7 @@
     },
     {
       "n": 14,
-      "t": "2026-10-28T17:08:15Z",
+      "t": "2026-10-28T17:59:58Z",
       "phase": "2. Platforms, connect DEV, destinations",
       "step": "MCP inkcast_destinations",
       "kind": "mcp",
@@ -317,7 +317,7 @@
     },
     {
       "n": 15,
-      "t": "2026-10-28T17:08:15Z",
+      "t": "2026-10-28T17:59:58Z",
       "phase": "3. Preview, publish a draft, list posts",
       "step": "MCP inkcast_publish",
       "kind": "mcp",
@@ -338,7 +338,7 @@
     },
     {
       "n": 16,
-      "t": "2026-10-28T17:08:15Z",
+      "t": "2026-10-28T17:59:58Z",
       "phase": "3. Preview, publish a draft, list posts",
       "step": "MCP inkcast_publish",
       "kind": "mcp",
@@ -353,13 +353,13 @@
           "draft": true
         }
       },
-      "reply": "\u201cPublishing from an MCP client\u201d \u2014 One markdown file, every platform, no copy and paste\n- devto: draft \u2192 https://dev.to/ada/article-1 (post `pst_36c09a703f3f`)",
+      "reply": "\u201cPublishing from an MCP client\u201d \u2014 One markdown file, every platform, no copy and paste\n- devto: draft \u2192 https://dev.to/ada/article-1 (post `pst_5cb35c6141e6`)",
       "is_error": false,
       "checked": "a DEV draft with its URL and post id"
     },
     {
       "n": 17,
-      "t": "2026-10-28T17:08:15Z",
+      "t": "2026-10-28T17:59:58Z",
       "phase": "3. Preview, publish a draft, list posts",
       "step": "MCP inkcast_posts",
       "kind": "mcp",
@@ -371,13 +371,13 @@
         "tool": "inkcast_posts",
         "arguments": {}
       },
-      "reply": "Posts:\n- [draft] 2026-10-28T17:08 devto: Publishing from an MCP client (post `pst_36c09a703f3f`) \u2192 https://dev.to/ada/article-1",
+      "reply": "Posts:\n- [draft] 2026-10-28T17:59 devto: Publishing from an MCP client (post `pst_5cb35c6141e6`) \u2192 https://dev.to/ada/article-1",
       "is_error": false,
       "checked": "the draft is listed"
     },
     {
       "n": 18,
-      "t": "2026-10-28T17:08:15Z",
+      "t": "2026-10-28T17:59:58Z",
       "phase": "4. Schedule a post, then cancel it",
       "step": "MCP inkcast_publish",
       "kind": "mcp",
@@ -389,16 +389,16 @@
         "tool": "inkcast_publish",
         "arguments": {
           "markdown": "---\ntitle: A story for later this hour\ntags: [scheduling]\nplatforms: [devto]\n---\n\n# A story for later this hour\n\nScheduled from the MCP client, then cancelled before it went out.\n",
-          "publish_at": "2026-10-28T18:08:15+00:00"
+          "publish_at": "2026-10-28T18:59:58+00:00"
         }
       },
-      "reply": "\u201cA story for later this hour\u201d\n- devto: scheduled for 2026-10-28T18:08:15+00:00 (post `pst_d3747b8db349`)",
+      "reply": "\u201cA story for later this hour\u201d\n- devto: scheduled for 2026-10-28T18:59:58+00:00 (post `pst_5213defd61d5`)",
       "is_error": false,
       "checked": "scheduled for the requested time"
     },
     {
       "n": 19,
-      "t": "2026-10-28T17:08:15Z",
+      "t": "2026-10-28T17:59:58Z",
       "phase": "4. Schedule a post, then cancel it",
       "step": "MCP inkcast_posts",
       "kind": "mcp",
@@ -410,13 +410,13 @@
         "tool": "inkcast_posts",
         "arguments": {}
       },
-      "reply": "Posts:\n- [draft] 2026-10-28T17:08 devto: Publishing from an MCP client (post `pst_36c09a703f3f`) \u2192 https://dev.to/ada/article-1\n- [scheduled] 2026-10-28T18:08 devto: A story for later this hour (post `pst_d3747b8db349`)",
+      "reply": "Posts:\n- [draft] 2026-10-28T17:59 devto: Publishing from an MCP client (post `pst_5cb35c6141e6`) \u2192 https://dev.to/ada/article-1\n- [scheduled] 2026-10-28T18:59 devto: A story for later this hour (post `pst_5213defd61d5`)",
       "is_error": false,
       "checked": "the scheduled post is listed"
     },
     {
       "n": 20,
-      "t": "2026-10-28T17:08:16Z",
+      "t": "2026-10-28T17:59:58Z",
       "phase": "4. Schedule a post, then cancel it",
       "step": "MCP inkcast_cancel",
       "kind": "mcp",
@@ -427,16 +427,16 @@
       "call": {
         "tool": "inkcast_cancel",
         "arguments": {
-          "post_id": "pst_d3747b8db349"
+          "post_id": "pst_5213defd61d5"
         }
       },
-      "reply": "Cancelled \u201cA story for later this hour\u201d (post `pst_d3747b8db349`).",
+      "reply": "Cancelled \u201cA story for later this hour\u201d (post `pst_5213defd61d5`).",
       "is_error": false,
       "checked": "the cancellation names the post"
     },
     {
       "n": 21,
-      "t": "2026-10-28T17:08:16Z",
+      "t": "2026-10-28T17:59:58Z",
       "phase": "4. Schedule a post, then cancel it",
       "step": "MCP inkcast_posts",
       "kind": "mcp",
@@ -448,13 +448,13 @@
         "tool": "inkcast_posts",
         "arguments": {}
       },
-      "reply": "Posts:\n- [draft] 2026-10-28T17:08 devto: Publishing from an MCP client (post `pst_36c09a703f3f`) \u2192 https://dev.to/ada/article-1\n- [cancelled] 2026-10-28T18:08 devto: A story for later this hour (post `pst_d3747b8db349`)",
+      "reply": "Posts:\n- [draft] 2026-10-28T17:59 devto: Publishing from an MCP client (post `pst_5cb35c6141e6`) \u2192 https://dev.to/ada/article-1\n- [cancelled] 2026-10-28T18:59 devto: A story for later this hour (post `pst_5213defd61d5`)",
       "is_error": false,
       "checked": "the post is listed as cancelled"
     },
     {
       "n": 22,
-      "t": "2026-10-28T17:08:16Z",
+      "t": "2026-10-28T17:59:59Z",
       "phase": "5. A personal access token for CI",
       "step": "MCP inkcast_create_token",
       "kind": "mcp",
@@ -478,20 +478,20 @@
     },
     {
       "n": 23,
-      "t": "2026-10-28T17:08:17Z",
+      "t": "2026-10-28T17:59:59Z",
       "phase": "5. A personal access token for CI",
       "step": "token confirm",
       "kind": "browser",
       "ok": true,
-      "detail": "http://localhost:8787/auth/consent?pending=xFMq8rlfhZ6EVZlsN_zceorAFA6yJQTQ \u2014 Create a personal access token?; the confirmation names the token and scope",
+      "detail": "http://localhost:8787/auth/consent?pending=izqm8UQv5B9cJLOpezjnxvM5n7qSABjD \u2014 Create a personal access token?; the confirmation names the token and scope",
       "narration": "After signing in again, the person confirms the token's name, scope and expiry.",
       "screenshot": "22-token-confirm.png",
-      "url": "http://localhost:8787/auth/consent?pending=xFMq8rlfhZ6EVZlsN_zceorAFA6yJQTQ",
+      "url": "http://localhost:8787/auth/consent?pending=izqm8UQv5B9cJLOpezjnxvM5n7qSABjD",
       "checked": "the confirmation names the token and scope"
     },
     {
       "n": 24,
-      "t": "2026-10-28T17:08:17Z",
+      "t": "2026-10-28T18:00:00Z",
       "phase": "5. A personal access token for CI",
       "step": "token created",
       "kind": "browser",
@@ -504,7 +504,7 @@
     },
     {
       "n": 25,
-      "t": "2026-10-28T17:08:17Z",
+      "t": "2026-10-28T18:00:01Z",
       "phase": "6. Git sync, as the GitHub Action does it",
       "step": "REST \u2014 POST /api/v1/stories:sync",
       "kind": "rest",
@@ -516,7 +516,7 @@
         "method": "POST",
         "url": "http://localhost:8787/api/v1/stories:sync",
         "headers": {
-          "Authorization": "Bearer ink_pat_9d10bc5e6987\u2026",
+          "Authorization": "Bearer ink_pat_a14a1a1e4009\u2026",
           "Idempotency-Key": "33d478825f1bd756b98e4578747aed63171c938bf23a711fbd36ed207720b1bb",
           "User-Agent": "inkcast-sync"
         },
@@ -546,7 +546,7 @@
               "platform": "devto",
               "action": "create",
               "status": "published",
-              "post_id": "pst_8e246a80aec2",
+              "post_id": "pst_fc91d3ba37b2",
               "url": "https://dev.to/ada/article-2",
               "message": null,
               "preview": null
@@ -558,7 +558,7 @@
     },
     {
       "n": 26,
-      "t": "2026-10-28T17:08:18Z",
+      "t": "2026-10-28T18:00:01Z",
       "phase": "6. Git sync, as the GitHub Action does it",
       "step": "REST \u2014 GET /api/v1/ledger?source=github.com/acme/blog",
       "kind": "rest",
@@ -570,7 +570,7 @@
         "method": "GET",
         "url": "http://localhost:8787/api/v1/ledger?source=github.com/acme/blog",
         "headers": {
-          "Authorization": "Bearer ic_at_ZrJHEE\u2026"
+          "Authorization": "Bearer ic_at_clfA6T\u2026"
         },
         "body": null
       },
@@ -583,10 +583,10 @@
             "platform": "devto",
             "status": "published",
             "content_hash": "099cfc9951031d3571a4b049acb2d1dd3321145bd9c4efdd5c214e9ab601a894",
-            "post_id": "pst_8e246a80aec2",
+            "post_id": "pst_fc91d3ba37b2",
             "url": "https://dev.to/ada/article-2",
             "message": null,
-            "synced_at": "2026-10-28T17:08:17+00:00"
+            "synced_at": "2026-10-28T18:00:00+00:00"
           }
         ]
       },
@@ -594,19 +594,19 @@
     },
     {
       "n": 27,
-      "t": "2026-10-28T17:08:19Z",
+      "t": "2026-10-28T18:00:01Z",
       "phase": "7. Insights",
       "step": "REST \u2014 GET /api/v1/insights/summary?days=7",
       "kind": "rest",
       "ok": true,
       "detail": "HTTP 200; the draft, the cancellation and the sync are all counted",
-      "narration": "The person's own numbers, folded from domain events by the insights worker (settled after 2 poll(s)): posts by status, the ledger, the sync outcomes, publish success and on-time rates.",
+      "narration": "The person's own numbers, folded from domain events by the insights worker (settled after 1 poll(s)): posts by status, the ledger, the sync outcomes, publish success and on-time rates.",
       "screenshot": "26-rest-get-api-v1-insights-summary-days-7.png",
       "call": {
         "method": "GET",
         "url": "http://localhost:8787/api/v1/insights/summary?days=7",
         "headers": {
-          "Authorization": "Bearer ic_at_ZrJHEE\u2026"
+          "Authorization": "Bearer ic_at_clfA6T\u2026"
         },
         "body": null
       },
@@ -615,7 +615,7 @@
         "body": {
           "days": 7,
           "scope": "user",
-          "scope_id": "usr_ca248e52f99b4905",
+          "scope_id": "usr_d3ac88a69fd54438",
           "posts_by_status": {
             "cancelled": {
               "devto": 1
@@ -651,7 +651,7 @@
     },
     {
       "n": 28,
-      "t": "2026-10-28T17:08:20Z",
+      "t": "2026-10-28T18:00:02Z",
       "phase": "8. The API reference",
       "step": "api swagger",
       "kind": "browser",
@@ -664,7 +664,7 @@
     },
     {
       "n": 29,
-      "t": "2026-10-28T17:08:21Z",
+      "t": "2026-10-28T18:00:03Z",
       "phase": "8. The API reference",
       "step": "api redoc",
       "kind": "browser",
@@ -677,7 +677,7 @@
     },
     {
       "n": 30,
-      "t": "2026-10-28T17:08:21Z",
+      "t": "2026-10-28T18:00:04Z",
       "phase": "9. What the platform received",
       "step": "REST \u2014 GET /devto/api/articles/me/all (fake DEV)",
       "kind": "rest",
@@ -719,7 +719,7 @@
     },
     {
       "n": 31,
-      "t": "2026-10-28T17:08:21Z",
+      "t": "2026-10-28T18:00:04Z",
       "phase": "10. Delete my account",
       "step": "MCP inkcast_delete_account",
       "kind": "mcp",
@@ -731,13 +731,13 @@
         "tool": "inkcast_delete_account",
         "arguments": {}
       },
-      "reply": "Open this link to delete your Inkcast account (valid 15 minutes, one use):\nhttp://localhost:8787/account/delete/bEbovB9NsnVHFrtXhW0BX2XBFXX9WAQyYovAd-qReB8\n\nYou'll sign in again, see what goes and what stays, then confirm at the sign-in provider. Articles already published on the platforms stay there. Nothing has been deleted yet.",
+      "reply": "Open this link to delete your Inkcast account (valid 15 minutes, one use):\nhttp://localhost:8787/account/delete/8z424yR5GH1mQ1N4yiap9u8BqD_H84qN40MG2duXlaQ\n\nYou'll sign in again, see what goes and what stays, then confirm at the sign-in provider. Articles already published on the platforms stay there. Nothing has been deleted yet.",
       "is_error": false,
       "checked": "a one-time /account/delete/ link; nothing deleted yet"
     },
     {
       "n": 32,
-      "t": "2026-10-28T17:08:21Z",
+      "t": "2026-10-28T18:00:04Z",
       "phase": "10. Delete my account",
       "step": "REST \u2014 POST /api/v1/account/deletion-link",
       "kind": "rest",
@@ -749,7 +749,7 @@
         "method": "POST",
         "url": "http://localhost:8787/api/v1/account/deletion-link",
         "headers": {
-          "Authorization": "Bearer ink_pat_9d10bc5e6987\u2026"
+          "Authorization": "Bearer ink_pat_a14a1a1e4009\u2026"
         },
         "body": null
       },
@@ -768,72 +768,72 @@
     },
     {
       "n": 33,
-      "t": "2026-10-28T17:08:22Z",
+      "t": "2026-10-28T18:00:05Z",
       "phase": "10. Delete my account",
       "step": "deletion sign-in",
       "kind": "browser",
       "ok": true,
-      "detail": "http://127.0.0.1:8999/kc/realms/inkcast/protocol/openid-connect/auth?response_type=code&client_id=inkcast&redirect_uri=http%3A%2F%2Flocalhost%3A8787%2Fauth%2Fcallback&scope=openid+email+profile&state=t8lVVZroMoetB4Qlissxsao2tlPJ3qa-&nonce=Q3VJMt1psGLHi00zvCzc_aQfaOv8ybVg7VA1hqmhMnY&code_challenge=xbd8JRjofFqa-o8_JVijidCWQaAP0VVb83TrhLbsyrA&code_challenge_method=S256 \u2014 Sign in to your account; the identity provider's sign-in form",
+      "detail": "http://127.0.0.1:8999/kc/realms/inkcast/protocol/openid-connect/auth?response_type=code&client_id=inkcast&redirect_uri=http%3A%2F%2Flocalhost%3A8787%2Fauth%2Fcallback&scope=openid+email+profile&state=he6Y6cp-WbmVF96AXpsS7SqSD-zO1C44&nonce=VK_v7xkvYtGySS5xsIt-EmwNoGuujldvhjpnGqBmHiY&code_challenge=0QFlykoHPb8WKsB4Y25--pzqslOoP5YuCl7tojR7Mgc&code_challenge_method=S256 \u2014 Sign in to your account; the identity provider's sign-in form",
       "narration": "The link asks for a fresh sign-in at the identity provider first.",
       "screenshot": "32-deletion-sign-in.png",
-      "url": "http://127.0.0.1:8999/kc/realms/inkcast/protocol/openid-connect/auth?response_type=code&client_id=inkcast&redirect_uri=http%3A%2F%2Flocalhost%3A8787%2Fauth%2Fcallback&scope=openid+email+profile&state=t8lVVZroMoetB4Qlissxsao2tlPJ3qa-&nonce=Q3VJMt1psGLHi00zvCzc_aQfaOv8ybVg7VA1hqmhMnY&code_challenge=xbd8JRjofFqa-o8_JVijidCWQaAP0VVb83TrhLbsyrA&code_challenge_method=S256",
+      "url": "http://127.0.0.1:8999/kc/realms/inkcast/protocol/openid-connect/auth?response_type=code&client_id=inkcast&redirect_uri=http%3A%2F%2Flocalhost%3A8787%2Fauth%2Fcallback&scope=openid+email+profile&state=he6Y6cp-WbmVF96AXpsS7SqSD-zO1C44&nonce=VK_v7xkvYtGySS5xsIt-EmwNoGuujldvhjpnGqBmHiY&code_challenge=0QFlykoHPb8WKsB4Y25--pzqslOoP5YuCl7tojR7Mgc&code_challenge_method=S256",
       "checked": "the identity provider's sign-in form"
     },
     {
       "n": 34,
-      "t": "2026-10-28T17:08:23Z",
+      "t": "2026-10-28T18:00:06Z",
       "phase": "10. Delete my account",
       "step": "deletion page",
       "kind": "browser",
       "ok": true,
-      "detail": "http://localhost:8787/auth/consent?pending=t8lVVZroMoetB4Qlissxsao2tlPJ3qa- \u2014 Delete your Inkcast account?; what goes, what stays, the export",
+      "detail": "http://localhost:8787/auth/consent?pending=he6Y6cp-WbmVF96AXpsS7SqSD-zO1C44 \u2014 Delete your Inkcast account?; what goes, what stays, the export",
       "narration": "Inkcast's page: what goes (posts, schedules, the ledger, connections and credentials, tokens, usage numbers), what stays (articles already on the platforms), the export coming soon, and Continue.",
       "screenshot": "33-deletion-page.png",
-      "url": "http://localhost:8787/auth/consent?pending=t8lVVZroMoetB4Qlissxsao2tlPJ3qa-",
+      "url": "http://localhost:8787/auth/consent?pending=he6Y6cp-WbmVF96AXpsS7SqSD-zO1C44",
       "checked": "what goes, what stays, the export"
     },
     {
       "n": 35,
-      "t": "2026-10-28T17:08:24Z",
+      "t": "2026-10-28T18:00:06Z",
       "phase": "10. Delete my account",
       "step": "provider re-authentication",
       "kind": "browser",
       "ok": true,
-      "detail": "http://127.0.0.1:8999/kc/realms/inkcast/protocol/openid-connect/auth?response_type=code&client_id=inkcast&redirect_uri=http%3A%2F%2Flocalhost%3A8787%2Fauth%2Fcallback&scope=openid+email+profile&state=hl9MLsfslmH1jKGyhMG-pJqGfgWZEIax&nonce=C_cDq0_-PuR9VP40nN4EhkdynitfE9WM4Awo0aiD-1c&code_challenge=eQ4zXhNNCXiRqcfsu8VptE1aUuGPFxvo4iEEgkV7x0g&code_challenge_method=S256&kc_action=delete_account \u2014 Sign in to your account; the sign-in form once more",
+      "detail": "http://127.0.0.1:8999/kc/realms/inkcast/protocol/openid-connect/auth?response_type=code&client_id=inkcast&redirect_uri=http%3A%2F%2Flocalhost%3A8787%2Fauth%2Fcallback&scope=openid+email+profile&state=-snzNrIV0BNiq9mYPAvRXr4D7ba7SZGZ&nonce=vNOYQl5K1g8nWFImu3uVCb-POlbPVSkCSEhtR6HT4Gw&code_challenge=zNO8l2V_vxbl4eOIGxAcCM7oXSCSLw8-tnBrJsI_fIk&code_challenge_method=S256&kc_action=delete_account \u2014 Sign in to your account; the sign-in form once more",
       "narration": "The identity provider's delete_account action always asks for the password again.",
       "screenshot": "34-provider-re-authentication.png",
-      "url": "http://127.0.0.1:8999/kc/realms/inkcast/protocol/openid-connect/auth?response_type=code&client_id=inkcast&redirect_uri=http%3A%2F%2Flocalhost%3A8787%2Fauth%2Fcallback&scope=openid+email+profile&state=hl9MLsfslmH1jKGyhMG-pJqGfgWZEIax&nonce=C_cDq0_-PuR9VP40nN4EhkdynitfE9WM4Awo0aiD-1c&code_challenge=eQ4zXhNNCXiRqcfsu8VptE1aUuGPFxvo4iEEgkV7x0g&code_challenge_method=S256&kc_action=delete_account",
+      "url": "http://127.0.0.1:8999/kc/realms/inkcast/protocol/openid-connect/auth?response_type=code&client_id=inkcast&redirect_uri=http%3A%2F%2Flocalhost%3A8787%2Fauth%2Fcallback&scope=openid+email+profile&state=-snzNrIV0BNiq9mYPAvRXr4D7ba7SZGZ&nonce=vNOYQl5K1g8nWFImu3uVCb-POlbPVSkCSEhtR6HT4Gw&code_challenge=zNO8l2V_vxbl4eOIGxAcCM7oXSCSLw8-tnBrJsI_fIk&code_challenge_method=S256&kc_action=delete_account",
       "checked": "the sign-in form once more"
     },
     {
       "n": 36,
-      "t": "2026-10-28T17:08:25Z",
+      "t": "2026-10-28T18:00:07Z",
       "phase": "10. Delete my account",
       "step": "provider confirmation",
       "kind": "browser",
       "ok": true,
-      "detail": "http://127.0.0.1:8999/kc/realms/inkcast/login-actions/authenticate?session_code=c4e709e79a74d37b&execution=e1&tab_id=t1 \u2014 Delete account confirmation; the delete-account confirmation",
+      "detail": "http://127.0.0.1:8999/kc/realms/inkcast/login-actions/authenticate?session_code=c23ad2036ae1a743&execution=e1&tab_id=t1 \u2014 Delete account confirmation; the delete-account confirmation",
       "narration": "The identity provider asks the person to confirm; Cancel would come back to Inkcast with nothing deleted.",
       "screenshot": "35-provider-confirmation.png",
-      "url": "http://127.0.0.1:8999/kc/realms/inkcast/login-actions/authenticate?session_code=c4e709e79a74d37b&execution=e1&tab_id=t1",
+      "url": "http://127.0.0.1:8999/kc/realms/inkcast/login-actions/authenticate?session_code=c23ad2036ae1a743&execution=e1&tab_id=t1",
       "checked": "the delete-account confirmation"
     },
     {
       "n": 37,
-      "t": "2026-10-28T17:08:25Z",
+      "t": "2026-10-28T18:00:08Z",
       "phase": "10. Delete my account",
       "step": "provider deleted page",
       "kind": "browser",
       "ok": true,
-      "detail": "http://127.0.0.1:8999/kc/realms/inkcast/login-actions/required-action?execution=delete_account&session_code=c4e709e79a74d37b \u2014 rendered; deleted, with a link back",
+      "detail": "http://127.0.0.1:8999/kc/realms/inkcast/login-actions/required-action?execution=delete_account&session_code=c23ad2036ae1a743 \u2014 rendered; deleted, with a link back",
       "narration": "The provider deleted the account on the person's own authority and shows its own page; its Back to Application link is Inkcast's /account/return, which finishes the deletion.",
       "screenshot": "36-provider-deleted-page.png",
-      "url": "http://127.0.0.1:8999/kc/realms/inkcast/login-actions/required-action?execution=delete_account&session_code=c4e709e79a74d37b",
+      "url": "http://127.0.0.1:8999/kc/realms/inkcast/login-actions/required-action?execution=delete_account&session_code=c23ad2036ae1a743",
       "checked": "deleted, with a link back"
     },
     {
       "n": 38,
-      "t": "2026-10-28T17:08:26Z",
+      "t": "2026-10-28T18:00:09Z",
       "phase": "10. Delete my account",
       "step": "account deleted",
       "kind": "browser",
@@ -846,7 +846,7 @@
     },
     {
       "n": 39,
-      "t": "2026-10-28T17:08:26Z",
+      "t": "2026-10-28T18:00:09Z",
       "phase": "10. Delete my account",
       "step": "REST \u2014 GET /api/v1/me",
       "kind": "rest",
@@ -858,7 +858,7 @@
         "method": "GET",
         "url": "http://localhost:8787/api/v1/me",
         "headers": {
-          "Authorization": "Bearer ic_at_ZrJHEE\u2026"
+          "Authorization": "Bearer ic_at_clfA6T\u2026"
         },
         "body": null
       },
@@ -877,7 +877,7 @@
     },
     {
       "n": 40,
-      "t": "2026-10-28T17:08:26Z",
+      "t": "2026-10-28T18:00:09Z",
       "phase": "10. Delete my account",
       "step": "REST \u2014 GET /api/v1/me",
       "kind": "rest",
@@ -889,7 +889,7 @@
         "method": "GET",
         "url": "http://localhost:8787/api/v1/me",
         "headers": {
-          "Authorization": "Bearer ink_pat_9d10bc5e6987\u2026"
+          "Authorization": "Bearer ink_pat_a14a1a1e4009\u2026"
         },
         "body": null
       },
@@ -908,7 +908,7 @@
     },
     {
       "n": 41,
-      "t": "2026-10-28T17:08:27Z",
+      "t": "2026-10-28T18:00:09Z",
       "phase": "10. Delete my account",
       "step": "metric inkcast_identity_users_deleted_total",
       "kind": "rest",
@@ -934,7 +934,7 @@
     },
     {
       "n": 42,
-      "t": "2026-10-28T17:08:27Z",
+      "t": "2026-10-28T18:00:10Z",
       "phase": "10. Delete my account",
       "step": "REST \u2014 GET /devto/api/articles/me/all (fake DEV)",
       "kind": "rest",
@@ -999,15 +999,15 @@
   "draft": {
     "title": "Publishing from an MCP client",
     "markdown": "---\ntitle: Publishing from an MCP client\nsubtitle: One markdown file, every platform, no copy and paste\ntags: [writing, publishing, markdown, mcp]\ncanonical_url: https://blog.example.com/publishing-from-an-mcp-client\nplatforms: [devto]\n---\n\n# Publishing from an MCP client\n\nYou write the story once, in markdown, and your assistant publishes it where you asked.\nInkcast keeps the credentials; the assistant only ever sees the link.\n\n## What happens\n\n1. A dry run shows you each platform's version.\n2. A draft lets you check it on the platform before it goes live.\n",
-    "post_id": "pst_36c09a703f3f",
+    "post_id": "pst_5cb35c6141e6",
     "url": "https://dev.to/ada/article-1"
   },
   "scheduled": {
     "title": "A story for later this hour",
-    "publish_at": "2026-10-28T18:08:15+00:00",
-    "post_id": "pst_d3747b8db349"
+    "publish_at": "2026-10-28T18:59:58+00:00",
+    "post_id": "pst_5213defd61d5"
   },
-  "pat_prefix": "ink_pat_9d10bc5e6987\u2026",
+  "pat_prefix": "ink_pat_a14a1a1e4009\u2026",
   "sync": {
     "source": "github.com/acme/blog",
     "path": "posts/hello-from-a-repository.md",
@@ -1018,7 +1018,7 @@
       "platform": "devto",
       "action": "create",
       "status": "published",
-      "post_id": "pst_8e246a80aec2",
+      "post_id": "pst_fc91d3ba37b2",
       "url": "https://dev.to/ada/article-2",
       "message": null,
       "preview": null
@@ -1031,10 +1031,10 @@
       "platform": "devto",
       "status": "published",
       "content_hash": "099cfc9951031d3571a4b049acb2d1dd3321145bd9c4efdd5c214e9ab601a894",
-      "post_id": "pst_8e246a80aec2",
+      "post_id": "pst_fc91d3ba37b2",
       "url": "https://dev.to/ada/article-2",
       "message": null,
-      "synced_at": "2026-10-28T17:08:17+00:00"
+      "synced_at": "2026-10-28T18:00:00+00:00"
     }
   ],
   "dev_articles": [
@@ -1083,7 +1083,7 @@
       "body_markdown": "This file lives in a git repository. The GitHub Action sends it to Inkcast on every push; the ledger\nremembers what it became, so the next push updates the post instead of duplicating it.\n"
     }
   ],
-  "finished": "2026-10-28T17:08:27Z",
+  "finished": "2026-10-28T18:00:10Z",
   "total": 42,
   "passed": 42,
   "failed": 0,
