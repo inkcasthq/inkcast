@@ -51,11 +51,13 @@ Where the work stands and how to pick it up on another machine or in a fresh ses
 2. **Roles.** Builders work at high effort, extra-high for shared or central services. Every central-service PR gets an adversarial review that *proves* each finding: a failing test plus a minimal fix, one commit per finding. Each finding is checked (fails before, passes after) before it's merged.
 3. **Gates**, all before pushing:
    ```bash
-   PYTHONPATH=src:tests python3 -m unittest discover -s tests
-   ruff check .
-   python3 scripts/gen-manifests.py --check && python3 scripts/gen-alerts.py --check && python3 scripts/gen-dashboards.py --check
+   PYTHONPATH=src:tests .venv/bin/python -m unittest discover -s tests
+   .venv/bin/ruff check .
+   .venv/bin/python scripts/gen-manifests.py --check && .venv/bin/python scripts/gen-alerts.py --check && .venv/bin/python scripts/gen-dashboards.py --check
    scripts/dev/codeql.sh     # must end "nothing at CI's failure threshold"
    ```
+   Always from the checkout's `.venv` (CONTRIBUTING.md, "Run the checks locally"); a worktree without one uses the main
+   checkout's. The system `python3` lacks the dependencies, and every test then fails at import.
    Mockups: `scripts/mockups/check.py <Main.dc.html> --out <dir>` must report 0 problems.
 4. **Commits** are authored as `ephico2real2` with the GitHub noreply address, and carry no tool trailers.
 5. **Commit and push often.** An unpushed branch is lost work.

@@ -94,10 +94,11 @@ Both doc pages render from **vendored, hash-locked bundles** in `src/inkcast/sta
 ## Quick start (local, single user)
 
 ```bash
-pip install .            # Python ≥ 3.12 (the image runs 3.14)
+python3 -m venv .venv    # Python ≥ 3.12 (the image runs 3.14); everything below runs from it
+.venv/bin/pip install .
 export INKCAST_LOGIN=password INKCAST_PASSWORD='a long passphrase here' \
-       INKCAST_SECRET_KEY=$(python -c 'import secrets;print(secrets.token_urlsafe(48))')
-inkcast                  # serves http://localhost:8787/mcp
+       INKCAST_SECRET_KEY=$(.venv/bin/python -c 'import secrets;print(secrets.token_urlsafe(48))')
+.venv/bin/inkcast        # serves http://localhost:8787/mcp
 ```
 
 Then set it up in Claude Code:
@@ -248,8 +249,9 @@ All settings are environment variables; see [.env.example](.env.example). Each s
 ## Development
 
 ```bash
-pip install -e . 'playwright==1.56.0' && python -m playwright install chromium
-PYTHONPATH=src:tests python -m unittest discover -s tests -v
+python3 -m venv .venv    # every Python command runs from it: CONTRIBUTING.md, "Run the checks locally"
+.venv/bin/pip install -e . 'ruff==0.12.0' 'playwright==1.56.0' && .venv/bin/python -m playwright install chromium
+PYTHONPATH=src:tests .venv/bin/python -m unittest discover -s tests -v
 ```
 
 CI runs on every pull request ([docs/cicd.md](docs/cicd.md)):
