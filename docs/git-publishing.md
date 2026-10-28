@@ -69,6 +69,7 @@ A file with a `publish_at` is always a scheduled post, at the time as written ([
 - **In the future:** the post waits for that time, even if it is only seconds away when you push. It is never sent before it.
 - **Already passed** (files are often re-read long after their date): the post is due at once, and the scheduler sends it at its next tick, with the usual retries if the platform is rate-limited or down.
 - **Changed:** a time moved earlier or later re-schedules the post at the new time; a time removed makes it a "now" post, published on the next sync.
+- **Changed while the platform makes it wait** (it was rate-limited, and its `Retry-After` has not passed): the same post takes the change and keeps the wait. It goes out at the new time or when the wait ends, whichever is later; with the time removed or moved into the past, when the wait ends ([ADR-0017](adr/0017-a-post-waiting-for-its-retry-is-changed-in-place.md)).
 - **No `publish_at`:** the file is published on the sync itself.
 
 Publishing by hand (`inkcast_publish`, `POST /api/v1/posts`) is different: there a past time, or one under two minutes away, is refused; omit it to publish now.

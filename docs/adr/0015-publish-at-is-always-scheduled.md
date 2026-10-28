@@ -1,6 +1,6 @@
 # ADR-0015: A `publish_at` is always a scheduled post
 
-**Status:** accepted, 2026-10-26 (owner) · **Epic:** E2 (Git publishing) · **Issue:** #205
+**Status:** accepted, 2026-10-26 (owner); its rule for a post waiting for a retry, and the first half of its "Open" bullet, superseded by [ADR-0017](0017-a-post-waiting-for-its-retry-is-changed-in-place.md) · **Epic:** E2 (Git publishing) · **Issue:** #205
 
 ## Context
 
