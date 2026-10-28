@@ -213,3 +213,66 @@ features:
     - realm-inkcast.json sets both; tests/test_keycloak_realm.py keeps them set and at least 1 day (the sync reads from
       the day before its cursor)
     - The kind e2e reads the imported realm and checks both values
+- id: F9.8
+  title: Directory federation (LDAP) for the inkcast realms
+  stories:
+  - id: F9.8.S1
+    title: 'LDAP user federation in the inkcast-staging and inkcast-prod realms, as code (read-only, LDAPS, bind password
+      from a Secret)'
+    status: planned
+    change: 'new; issue #318; the lab''s corp realm (OpenLDAP in ldap-testing) is the measured pattern'
+    acceptance:
+    - 'The generated KeycloakRealmImport of each environment carries one org.keycloak.storage.UserStorageProvider
+      component (providerId ldap): editMode READ_ONLY, importEnabled true, syncRegistrations false, vendor other,
+      connectionUrl ldaps:// with useTruststoreSpi always, authType simple, usersDn ou=People under the base DN,
+      userObjectClasses inetOrgPerson, username and RDN attribute uid, uuidLDAPAttribute entryUUID'
+    - 'The bind DN is a dedicated read-only account per environment (not the corp realm''s), and its password reaches
+      the realm only as a KeycloakRealmImport placeholder from a Secret in keycloak: never in the repository, a log or
+      the rendered output'
+    - 'Mappers: username from uid, email from mail, firstName from cn, lastName from sn, group-ldap-mapper (groupOfNames,
+      ou=Groups, member, READ_ONLY)'
+    - 'The LDAP URL, base DN and bind DN are per-environment settings of the realm generator; generic names in the
+      repository'
+    - 'tests/test_keycloak_realm.py (or the generator''s tests) check every value above in both rendered realms, and that
+      no secret value is rendered'
+  - id: F9.8.S2
+    title: 'Only members of the environment''s LDAP group sign in to Inkcast: the group grants the realm role
+      inkcast-user'
+    status: planned
+    change: 'new; issue #319; the owner creates the LDAP groups (for example inkcast-staging-users and
+      inkcast-prod-users in ou=Groups)'
+    acceptance:
+    - 'customUserSearchFilter limits each realm to its group: (memberOf=cn=inkcast-<side>-users,ou=Groups,<base DN>)'
+    - 'The realm file defines a top-level group of the same name holding the realm role inkcast-user; the group mapper
+      reuses it (GroupLDAPStorageMapper looks a group up by name under the groups path, Keycloak 26.6.7 line 378), so
+      the role comes from the directory, not from a manual assignment'
+    - 'Measured on OpenShift Local: a member of the group has inkcast-user in realm_access.roles; a person outside it is
+      not found by the realm and Inkcast''s _check_allowed never sees them; a staging-only member cannot sign in to
+      production'
+  - id: F9.8.S3
+    title: 'Leaving the group, deletion in LDAP and an LDAP outage: what the user sync does to a federated person'
+    status: planned
+    change: 'new; issue #320; decide removeInvalidUsersEnabled with the owner before building'
+    acceptance:
+    - 'Recorded from Keycloak 26.6.7 source: a person no longer matched by the user filter (left the group or deleted in
+      LDAP) fails validation; with removeInvalidUsersEnabled (default true, UserStorageProviderModel line 126) Keycloak
+      deletes the local copy, so the admin API answers 404 and the sync cuts them off and erases them after
+      INKCAST_KEYCLOAK_ERASE_AFTER_DAYS; with it false they read enabled false and are cut off but never erased'
+    - 'Recorded: a re-imported person gets a new Keycloak id (LDAPStorageProvider line 746 adds a local user), so rejoining
+      after the local copy was deleted is a new Inkcast account; the decision (true or false) is the owner''s and is
+      written in the realm file with this reason'
+    - 'Recorded: an unreachable LDAP makes every federated person read enabled false (StorageUnavailableUserModelDelegate);
+      with INKCAST_KEYCLOAK_BREAKER_MIN=5, a realm of fewer than 5 federated people is below the breaker and they are
+      cut off (PATs revoked). Either the breaker covers small realms or the runbook says so'
+    - 'Each case measured on OpenShift Local (remove from the group, delete in LDAP, scale OpenLDAP to 0) with the
+      admin API answer and the sync''s action, before and after'
+  - id: F9.8.S4
+    title: 'An LDAP person signs in to Inkcast staging and production end to end (browser, MCP client, personal access
+      token)'
+    status: planned
+    change: 'new; issue #321'
+    acceptance:
+    - 'Proven on OpenShift Local: authorization-code sign-in with PKCE for a
+      member of each environment''s group, the Inkcast identity is oidc:<issuer>#<sub>, an MCP OAuth grant and a
+      personal access token work, and /api/redoc, /api/docs and /api/openapi.json answer 200'
+    - 'A non-member is refused by Keycloak, and Inkcast logs no account for them'
