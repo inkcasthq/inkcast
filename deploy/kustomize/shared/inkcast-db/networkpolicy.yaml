@@ -1,0 +1,63 @@
+# Who may reach the shared PostgreSQL's pods (selected by cnpg.io/cluster, the label the operator puts on every
+# instance pod: docs/src/labels_annotations.md at v1.30.1), and on which ports:
+#
+#   - OpenFGA's pods in inkcast-staging and inkcast-prod, on 5432. The server and the migrate Job both carry
+#     app.kubernetes.io/name=openfga and part-of=inkcast (components/openfga/deployment.yaml, job.yaml). Which
+#     database each may open is pg_hba's job (cluster.yaml).
+#   - The CloudNativePG operator, on 8000 and 5432. "The operator needs to communicate to each instance on TCP port
+#     8000 to get information about the status of the PostgreSQL server" (security.md, "Network Policies";
+#     https://cloudnative-pg.io/documentation/current/security/#network-policies), and "please ensure the operator
+#     can reach every cluster pod on ports 8000 and 5432, and that pods can connect to each other" (networking.md;
+#     https://cloudnative-pg.io/documentation/current/networking/). The operator's own sample, docs/src/samples/
+#     networkpolicy-example.yaml, admits exactly those two ports from the operator's namespace and pod label. On the
+#     lab the operator runs in openshift-operators; its pods carry app.kubernetes.io/name=cloudnative-pg (the
+#     Deployment's labels in releases/cnpg-1.30.1.yaml, the manifest scripts/versions.env pins by SHA-256).
+#   - The cluster's own pods, on 5432 and 8000: streaming replication and the instance managers' status calls,
+#     should `instances` ever grow.
+#
+# Nothing else: a pod in a third namespace cannot open 5432. Metrics (9187) stay closed, since no PodMonitor is
+# enabled. The kubelet's probes on 8000 come from the node, outside NetworkPolicy on OVN-Kubernetes (the base
+# policy already relies on that for Inkcast's own probes on 8787). Egress is not restricted here: the instance
+# manager reports to the Kubernetes API. The site serves one documentation version, so the texts quoted are
+# docs/src at tag v1.30.1, the release the lab runs.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: inkcast-pg
+  labels: {app.kubernetes.io/name: inkcast-pg, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: authz-db}
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: inkcast-pg
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: inkcast-staging
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: openfga
+              app.kubernetes.io/part-of: inkcast
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: inkcast-prod
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: openfga
+              app.kubernetes.io/part-of: inkcast
+      ports:
+        - {port: 5432, protocol: TCP}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openshift-operators
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: cloudnative-pg
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: inkcast-pg
+      ports:
+        - {port: 8000, protocol: TCP}
+        - {port: 5432, protocol: TCP}

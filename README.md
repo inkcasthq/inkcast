@@ -150,6 +150,27 @@ INKCAST_FGA_API_URL=http://localhost:8080 INKCAST_FGA_API_TOKEN_FILE=<the key's 
 
 A second `write-model` run finds the store and the model and changes nothing; a model change is a pull request that moves `INKCAST_FGA_MODEL_ID`, a rollback a revert. To keep the in-process engine instead (a small self-host), leave `components/openfga` out of your overlay and set `INKCAST_AUTHZ_ENGINE=local` with `INKCAST_AUTHZ_ALLOW_LOCAL=true`.
 
+**The lab: staging and prod side by side (OpenShift Local).** Both environments run on one CloudNativePG cluster in its own namespace, `inkcast-db` (`deploy/kustomize/shared/inkcast-db`: one Postgres pod for both, a staging and a prod database each owned by its own login role, a NetworkPolicy that admits 5432 from OpenFGA's pods in `inkcast-staging` and `inkcast-prod` and nothing else), so the lab's memory holds both. `environments/staging` and `environments/production` set those namespaces and drop the component's per-namespace `Cluster`; a self-host using the overlays alone keeps it. In order:
+
+```bash
+oc apply -k deploy/kustomize/shared/inkcast-db                   # the namespace, the Cluster, both databases, the policy
+oc -n inkcast-db wait --for=condition=Ready cluster/inkcast-pg --timeout=10m
+oc new-project inkcast-staging && oc new-project inkcast-prod
+scripts/deploy/openfga-db-credentials.sh staging                 # one password per side, generated once: the role's basic-auth
+scripts/deploy/openfga-db-credentials.sh prod                    # Secret in inkcast-db, and openfga-db-app in the app namespace
+oc -n inkcast-db get database                                    # APPLIED true for both, once their roles have their Secrets
+scripts/deploy/ghcr-pull-secret.sh staging <github-username> <token-file>   # the private image: see below
+scripts/deploy/ghcr-pull-secret.sh prod <github-username> <token-file>
+oc -n inkcast-staging create secret generic inkcast-secrets …    # as above, in each app namespace
+oc apply -k deploy/kustomize/environments/staging                # then environments/production the same way
+oc -n inkcast-staging wait --for=condition=complete job/openfga-migrate --timeout=10m
+# write-model and pin the ids as above, per environment (the port-forward in that environment's namespace)
+```
+
+Credentials are passwords, one Secret per side, kept once written: a second run of the script reports the pair and changes nothing, and a half pair or a disagreeing pair fails naming the Secret (cert-manager client certificates instead: #299). The URI OpenFGA reads is `postgres://openfga_<side>:…@inkcast-pg-rw.inkcast-db.svc:5432/openfga_<side>?sslmode=require`: always TLS, with the server's certificate unverified until the cluster's CA travels with #299; the server admits each role over TLS to its own database and rejects it anywhere else (`pg_hba` in `cluster.yaml`), so a staging role cannot open `openfga_prod`.
+
+**The image pull Secret.** `ghcr.io/inkcasthq/inkcast` is a private package, so each app namespace needs the Secret `ghcr-pull` (`kubernetes.io/dockerconfigjson`, for ghcr.io) until it is public. Make a classic personal access token with `read:packages` only (not the command-line tool's own token, which carries far more), save it to a file, and run the script: the token goes from the file to `oc` on stdin, never in an argument or on the screen; a run with a new file rotates it. The environments' manifests name the Secret both ways, and either alone pulls: on the ServiceAccount `inkcast` that every pod running the image uses (the field `oc secrets link --for=pull` would write; it also covers a pod added later, such as the restore Job of `scripts/ops/restore.sh`), and on each workload's pod spec (the Deployment and the backup CronJob), which covers a pod whose ServiceAccount is not wired. The overlays carry neither: a self-host pulls its own image. When the package goes public: remove the three `ghcr-pull` patches from `deploy/kustomize/environments/staging` and `production` in a pull request, apply both environments, then `oc -n inkcast-staging delete secret ghcr-pull` and the same in `inkcast-prod`. A Secret that is still named but missing only makes the kubelet warn, so the order is not critical.
+
 **What the manifests set up:**
 
 - **Pod security:** restricted, i.e. arbitrary non-root UID, read-only root filesystem, no capabilities. OpenFGA and its database run the same way.

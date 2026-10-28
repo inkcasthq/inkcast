@@ -312,6 +312,24 @@ features:
     title: 'Runbooks: model rollout and rollback, store backup and restore, drift'
     status: planned
     change: new
+  - id: F3.9.S5
+    title: 'OpenShift Local: staging and prod in inkcast-staging and inkcast-prod, OpenFGA on one shared CloudNativePG
+      cluster in inkcast-db (a database and a login role per side, pg_hba gating each role to its own database over
+      TLS, a NetworkPolicy admitting 5432 from OpenFGA''s pods only); passwords one Secret per side, written once by
+      scripts/deploy/openfga-db-credentials.sh; the private image''s pull Secret named on the ServiceAccount and on
+      every Inkcast-image pod spec, in the environments only (scripts/deploy/ghcr-pull-secret.sh)'
+    status: in-progress
+    change: new
+    acceptance:
+    - environments/staging and environments/production render no Cluster, set their namespaces and keep OpenFGA on
+      Secret openfga-db-app key uri; the kubernetes, openshift and ci-openfga overlays keep the per-namespace Cluster
+    - deploy/kustomize/shared/inkcast-db renders the Namespace, one Cluster with both managed roles, two Database
+      objects and the NetworkPolicy
+    - the credentials script never prints or passes a password in argv, keeps an existing pair, and fails naming the
+      Secret on a half-present or mismatched pair; the pull-secret script passes the token on stdin only
+    - on OpenShift Local (the integrator) the cluster is Ready, both databases exist owned by their roles, each
+      migrate Job completes against its own database, a staging role cannot connect to openfga_prod, a pod in a
+      third namespace cannot reach 5432, and a pod in each app namespace pulls the image with ghcr-pull
 - id: F3.10
   title: 'Backing services: Valkey and PostgreSQL in the cluster'
   stories:

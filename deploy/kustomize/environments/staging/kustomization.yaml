@@ -1,8 +1,11 @@
-# GitOps entry point for staging (Argo CD / Flux watch this directory).
+# GitOps entry point for staging (Argo CD / Flux watch this directory; the lab applies it with `oc apply -k`).
 # The image is pinned BY DIGEST; .github/workflows/promote.yml updates it in a pull request
 # only after verifying the image's cosign signature and SLSA provenance.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+# Its own namespace beside production's (#296): the overlay's `inkcast` is overridden here. The lab's bring-up order
+# (the shared database, the credentials, the pull Secret, then this) is in the README, Hosted §2.
+namespace: inkcast-staging
 resources:
   - ../../overlays/openshift      # or ../../overlays/kubernetes
 configMapGenerator:
@@ -50,3 +53,35 @@ configMapGenerator:
 images:
   - name: ghcr.io/inkcasthq/inkcast
     digest: sha256:31a19c863e5d36871ae359f7dbbf3a81eddc7f17867aa63c300688248f3911d3
+patches:
+  # The lab's two environments share one PostgreSQL (deploy/kustomize/shared/inkcast-db, #296): the component's
+  # per-namespace Cluster is dropped here, and OpenFGA's Deployment and migrate Job read the Secret openfga-db-app
+  # that scripts/deploy/openfga-db-credentials.sh writes, pointing at the shared cluster. The kubernetes, openshift
+  # and ci-openfga overlays keep the Cluster: a self-host or CI gets its own database from the component alone.
+  - target: {kind: Cluster, name: openfga-db}
+    patch: |-
+      $patch: delete
+      apiVersion: postgresql.cnpg.io/v1
+      kind: Cluster
+      metadata:
+        name: openfga-db
+  # ghcr.io/inkcasthq/inkcast is private: the pull Secret ghcr-pull (scripts/deploy/ghcr-pull-secret.sh) is named
+  # both ways, and either alone pulls. On the ServiceAccount every Inkcast-image pod runs as (the field that
+  # `oc secrets link --for=pull` would write), which covers pods added later; and on each workload's pod spec, which
+  # covers a pod whose ServiceAccount is not wired. Only here, never in the overlays: a self-host pulls its own image.
+  # When the package goes public, these three patches and the Secret go (README, Hosted §2).
+  - target: {kind: ServiceAccount, name: inkcast}
+    patch: |-
+      - op: add
+        path: /imagePullSecrets
+        value: [{name: ghcr-pull}]
+  - target: {kind: Deployment, name: inkcast}
+    patch: |-
+      - op: add
+        path: /spec/template/spec/imagePullSecrets
+        value: [{name: ghcr-pull}]
+  - target: {kind: CronJob, name: inkcast-backup}
+    patch: |-
+      - op: add
+        path: /spec/jobTemplate/spec/template/spec/imagePullSecrets
+        value: [{name: ghcr-pull}]
