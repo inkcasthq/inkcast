@@ -1,0 +1,787 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Inkcast web app</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.ik-cols{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}
+@media (max-width:640px){.ik-user{display:none!important}.ik-actions button,.ik-actions a{flex:1 1 auto}}
+</style>
+</helmet>
+<div style="font-family: 'IBM Plex Sans', system-ui, sans-serif; color: {{c.text}}; background: {{c.bg}}; min-height: 100vh; width: 100%">
+  <header data-component="app-header" data-dataset="me" style="background: {{c.surface}}; border-bottom: 1px solid {{c.border}}">
+    <div style="max-width: 1440px; margin: 0 auto; padding: 14px 24px 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; justify-content: space-between">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">
+          <div style="width: 32px; height: 32px; border-radius: 8px; background: {{c.logoBg}}; display: flex; align-items: center; justify-content: center">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{{c.logoFg}}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
+          </div>
+          <div style="display: flex; flex-direction: column">
+            <span style="font-size: 18px; font-weight: 600">Inkcast</span>
+            <span style="font-size: 12px; color: {{c.muted}}">Write once, publish everywhere</span>
+          </div>
+          <span style="font-size: 12px; font-weight: 500; color: {{c.sampleFg}}; background: {{c.sampleBg}}; border: 1px solid {{c.sampleBorder}}; border-radius: 999px; padding: 3px 10px">Sample data · mockup</span>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+          <div data-component="segmented" data-dataset="themes" role="group" aria-label="Theme" style="display: flex; border: 1px solid {{c.control}}; border-radius: 8px; overflow: hidden">
+            <sc-for list="{{themes}}" as="t" hint-placeholder-count="3">
+              <button aria-pressed="{{t.pressed}}" onClick="{{t.pick}}" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; background: {{t.bg}}; color: {{t.fg}}; min-height: 36px; cursor: pointer">{{t.label}}</button>
+            </sc-for>
+          </div>
+          <div class="ik-user" style="display: flex; align-items: center; gap: 8px">
+            <span aria-hidden="true" style="width: 32px; height: 32px; border-radius: 50%; background: {{c.infoBg}}; color: {{c.infoFg}}; font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: center">{{user.initials}}</span>
+            <span style="display: flex; flex-direction: column; font-size: 13px"><span style="font-weight: 500">{{user.display}}</span><span style="font-size: 12px; color: {{c.muted}}">{{user.email}}</span></span>
+          </div>
+          <a href="/logout" style="font-size: 13px; color: {{c.accent}}; min-height: 36px; display: flex; align-items: center">Sign out</a>
+        </div>
+      </div>
+      <sc-if value="{{showRange}}" hint-placeholder-val="{{true}}">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+          <span style="font-size: 12px; color: {{c.muted}}">Period</span>
+          <div role="group" aria-label="Period" data-component="segmented" data-dataset="ranges" style="display: flex; border: 1px solid {{c.control}}; border-radius: 8px; overflow-x: auto; max-width: 100%">
+            <sc-for list="{{ranges}}" as="r" hint-placeholder-count="5">
+              <button aria-pressed="{{r.pressed}}" onClick="{{r.pick}}" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; border-left: {{r.sep}}; background: {{r.bg}}; color: {{r.fg}}; min-height: 36px; white-space: nowrap; cursor: pointer">{{r.label}}</button>
+            </sc-for>
+          </div>
+          <span style="font-size: 12px; color: {{c.muted}}">{{rangeText}}</span>
+        </div>
+      </sc-if>
+      <nav aria-label="Sections" style="display: flex; gap: 2px; overflow-x: auto">
+        <sc-for list="{{tabs}}" as="t" hint-placeholder-count="6">
+          <button aria-current="{{t.current}}" onClick="{{t.go}}" style="font: inherit; font-size: 14px; font-weight: {{t.weight}}; color: {{t.fg}}; background: transparent; border: 0; border-bottom: 2px solid {{t.line}}; padding: 10px 14px; white-space: nowrap; cursor: pointer; min-height: 44px; display: flex; align-items: center; gap: 6px">{{t.label}}<sc-if value="{{t.hasCount}}" hint-placeholder-val="{{false}}"><span style="font-size: 12px; font-weight: 600; border-radius: 999px; padding: 1px 7px; background: {{c.warnBg}}; color: {{c.warnFg}}">{{t.count}}</span></sc-if></button>
+        </sc-for>
+      </nav>
+    </div>
+  </header>
+
+  <main style="max-width: 1440px; margin: 0 auto; padding: 20px 24px 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px">
+
+    <sc-if value="{{is.posts}}" hint-placeholder-val="{{true}}">
+      <section aria-label="Posts at a glance" data-component="kpi-tiles" data-dataset="posts" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px">
+        <sc-for list="{{postTiles}}" as="t" hint-placeholder-count="4">
+          <div style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; min-width: 0">
+            <span style="font-size: 13px; color: {{c.muted}}">{{t.label}}</span>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: clamp(22px, 2.4vw, 28px); font-weight: 500; color: {{t.color}}">{{t.value}}</span>
+            <span style="font-size: 12px; color: {{c.muted}}">{{t.note}}</span>
+          </div>
+        </sc-for>
+      </section>
+      <sc-if value="{{hasDecisions}}" hint-placeholder-val="{{true}}">
+        <section aria-label="Posts that need you" data-component="callout" style="background: {{c.warnBg}}; border: 1px solid {{c.warnBorder}}; border-radius: 10px; padding: 14px 18px; display: flex; flex-direction: column; gap: 6px; color: {{c.warnFg}}">
+          <strong style="font-size: 14px">{{decisionCallout.title}}</strong>
+          <span style="font-size: 13px; line-height: 1.5">{{decisionCallout.body}}</span>
+        </section>
+      </sc-if>
+      <div role="group" aria-label="Show posts" data-component="segmented" data-dataset="postFilters" style="display: flex; align-self: flex-start; border: 1px solid {{c.control}}; border-radius: 8px; overflow-x: auto; max-width: 100%; background: {{c.surface}}">
+        <sc-for list="{{postFilters}}" as="f" hint-placeholder-count="4">
+          <button aria-pressed="{{f.pressed}}" onClick="{{f.pick}}" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; border-left: {{f.sep}}; background: {{f.bg}}; color: {{f.fg}}; min-height: 40px; white-space: nowrap; cursor: pointer">{{f.label}}</button>
+        </sc-for>
+      </div>
+      <sc-for list="{{postLists}}" as="pl" hint-placeholder-count="2">
+        <section aria-label="{{pl.title}}" data-component="row-list" data-dataset="posts" style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+          <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">{{pl.eyebrow}}</span>
+          <h2 style="margin: 0; font-size: 16px; font-weight: 600">{{pl.title}}</h2>
+          <sc-if value="{{pl.empty}}" hint-placeholder-val="{{false}}">
+            <span style="font-size: 13px; color: {{c.muted}}; padding: 8px 0">{{pl.emptyText}}</span>
+          </sc-if>
+          <div style="display: flex; flex-direction: column">
+            <sc-for list="{{pl.rows}}" as="r" hint-placeholder-count="5">
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 0; border-top: 1px solid {{c.border}}; font-size: 13px">
+                <span style="flex: 3 1 260px; min-width: 0; display: flex; align-items: flex-start; gap: 10px">
+                  <span style="width: 28px; height: 28px; border-radius: 7px; background: {{r.tile}}; display: flex; align-items: center; justify-content: center; flex: none"><span style="width: 10px; height: 10px; border-radius: 50%; background: {{r.color}}"></span></span>
+                  <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+                    <span style="font-weight: 500">{{r.title}}</span>
+                    <span style="font-size: 12px; color: {{c.muted}}">{{r.platform}} · {{r.when}} · {{r.rel}}</span>
+                    <sc-if value="{{r.hasNote}}" hint-placeholder-val="{{false}}"><span style="font-size: 12px; color: {{r.noteFg}}; line-height: 1.45">{{r.note}}</span></sc-if>
+                  </span>
+                </span>
+                <span style="flex: 1 1 280px; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px">
+                  <span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: {{r.stBg}}; color: {{r.stFg}}">{{r.status}}</span>
+                  <span class="ik-actions" style="display: flex; flex-wrap: wrap; gap: 8px">
+                    <sc-for list="{{r.actions}}" as="a" hint-placeholder-count="2">
+                      <button onClick="{{a.go}}" style="font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px; border: 1px solid {{a.border}}; background: {{a.bg}}; color: {{a.fg}}; min-height: 36px; cursor: pointer">{{a.label}}</button>
+                    </sc-for>
+                    <sc-if value="{{r.hasUrl}}" hint-placeholder-val="{{false}}"><a href="{{r.url}}" style="font-size: 13px; color: {{c.accent}}; min-height: 36px; display: flex; align-items: center; padding: 0 4px">Open on {{r.platform}}</a></sc-if>
+                  </span>
+                </span>
+              </div>
+            </sc-for>
+          </div>
+        </section>
+      </sc-for>
+    </sc-if>
+
+    <sc-if value="{{is.compose}}" hint-placeholder-val="{{false}}">
+      <div class="ik-cols">
+        <section aria-label="Write a story" data-component="form" data-dataset="draft" style="flex: 3 1 520px; min-width: 0; background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 14px">
+          <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">Compose</span>
+          <h2 style="margin: 0; font-size: 16px; font-weight: 600">Write once, then check what each platform gets</h2>
+          <sc-for list="{{draftFields}}" as="f" hint-placeholder-count="4">
+            <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 500">{{f.label}}
+              <input type="{{f.type}}" value="{{f.value}}" placeholder="{{f.placeholder}}" style="font: inherit; font-size: 14px; font-weight: 400; color: {{c.text}}; background: {{c.bg}}; border: 1px solid {{c.control}}; border-radius: 6px; padding: 8px 10px; min-height: 40px; box-sizing: border-box; width: 100%">
+              <span style="font-size: 12px; font-weight: 400; color: {{c.muted}}">{{f.hint}}</span>
+            </label>
+          </sc-for>
+          <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 500">Story (Markdown)
+            <textarea rows="12" style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; line-height: 1.55; color: {{c.text}}; background: {{c.bg}}; border: 1px solid {{c.control}}; border-radius: 6px; padding: 10px; box-sizing: border-box; width: 100%; resize: vertical">{{draft.markdown}}</textarea>
+            <span style="font-size: 12px; font-weight: 400; color: {{c.muted}}">{{draftCount}}</span>
+          </label>
+          <fieldset style="border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px">
+            <legend style="font-size: 13px; font-weight: 500; padding: 0 0 6px">Platforms</legend>
+            <sc-for list="{{draftPlatforms}}" as="p" hint-placeholder-count="2">
+              <label style="display: flex; align-items: center; gap: 10px; font-size: 13px; min-height: 40px; border: 1px solid {{c.border}}; border-radius: 8px; padding: 6px 12px">
+                <input type="checkbox" checked="{{p.checked}}" style="width: 18px; height: 18px; accent-color: {{c.accent}}">
+                <span style="width: 10px; height: 10px; border-radius: 50%; background: {{p.color}}"></span>
+                <span style="font-weight: 500">{{p.name}}</span>
+                <span style="font-size: 12px; color: {{c.muted}}">{{p.note}}</span>
+              </label>
+            </sc-for>
+          </fieldset>
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <span style="font-size: 13px; font-weight: 500">When</span>
+            <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+              <div role="group" aria-label="When to publish" data-component="segmented" data-dataset="whenOptions" style="display: flex; border: 1px solid {{c.control}}; border-radius: 8px; overflow: hidden">
+                <sc-for list="{{whenOptions}}" as="w" hint-placeholder-count="2">
+                  <button aria-pressed="{{w.pressed}}" onClick="{{w.pick}}" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; border-left: {{w.sep}}; background: {{w.bg}}; color: {{w.fg}}; min-height: 40px; cursor: pointer">{{w.label}}</button>
+                </sc-for>
+              </div>
+              <sc-if value="{{isLater}}" hint-placeholder-val="{{true}}">
+                <label style="font-size: 12px; color: {{c.muted}}; display: flex; align-items: center; gap: 6px">At <input type="datetime-local" value="{{draft.local}}" style="font: inherit; font-size: 13px; color: {{c.text}}; background: {{c.bg}}; border: 1px solid {{c.control}}; border-radius: 6px; padding: 5px 8px; min-height: 40px; color-scheme: {{scheme}}"></label>
+                <label style="font-size: 12px; color: {{c.muted}}; display: flex; align-items: center; gap: 6px">Time zone <select style="font: inherit; font-size: 13px; color: {{c.text}}; background: {{c.bg}}; border: 1px solid {{c.control}}; border-radius: 6px; padding: 5px 8px; min-height: 40px"><option>{{draft.zone}}</option></select></label>
+              </sc-if>
+            </div>
+            <span style="font-size: 12px; color: {{c.muted}}">{{whenNote}}</span>
+          </div>
+          <label style="display: flex; align-items: center; gap: 10px; font-size: 13px; min-height: 40px">
+            <input type="checkbox" checked="{{draft.draft}}" style="width: 18px; height: 18px; accent-color: {{c.accent}}">Save it as a draft on each platform, unpublished
+          </label>
+          <div style="display: flex; flex-wrap: wrap; gap: 10px">
+            <button onClick="{{previewDraft}}" style="font: inherit; font-size: 14px; padding: 8px 16px; border-radius: 8px; border: 1px solid {{c.control}}; background: {{c.surface}}; color: {{c.text}}; min-height: 44px; cursor: pointer">Preview</button>
+            <button onClick="{{sendDraft}}" style="font: inherit; font-size: 14px; font-weight: 500; padding: 8px 16px; border-radius: 8px; border: 1px solid {{c.accent}}; background: {{c.accent}}; color: {{c.accentFg}}; min-height: 44px; cursor: pointer">{{sendLabel}}</button>
+          </div>
+        </section>
+        <section aria-label="What each platform will receive" data-component="card-grid" data-dataset="preview" style="flex: 2 1 380px; min-width: 0; display: flex; flex-direction: column; gap: 12px">
+          <div style="display: flex; flex-direction: column; gap: 4px">
+            <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">Preview</span>
+            <h2 style="margin: 0; font-size: 16px; font-weight: 600">What each platform will receive</h2>
+            <span style="font-size: 12px; color: {{c.muted}}">From the server's dry run: the same preparation as a real send, so it can't differ from what goes out.</span>
+          </div>
+          <sc-for list="{{previewCards}}" as="p" hint-placeholder-count="2">
+            <div style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px">
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px">
+                <span style="display: flex; align-items: center; gap: 10px"><span style="width: 28px; height: 28px; border-radius: 7px; background: {{p.tile}}; display: flex; align-items: center; justify-content: center"><span style="width: 10px; height: 10px; border-radius: 50%; background: {{p.color}}"></span></span><span style="font-weight: 600; font-size: 14px">{{p.name}}</span></span>
+                <span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: {{p.stBg}}; color: {{p.stFg}}">{{p.badge}}</span>
+              </div>
+              <dl style="margin: 0; display: grid; grid-template-columns: minmax(96px, auto) minmax(0, 1fr); gap: 6px 12px; font-size: 13px">
+                <sc-for list="{{p.fields}}" as="f" hint-placeholder-count="6">
+                  <dt style="color: {{c.muted}}">{{f.k}}</dt><dd style="margin: 0; overflow-wrap: anywhere">{{f.v}}</dd>
+                </sc-for>
+              </dl>
+              <sc-for list="{{p.warnings}}" as="w" hint-placeholder-count="1">
+                <span style="font-size: 12px; color: {{c.warnFg}}; background: {{c.warnBg}}; border-radius: 6px; padding: 6px 10px; line-height: 1.45">{{w}}</span>
+              </sc-for>
+              <sc-if value="{{p.hasMessage}}" hint-placeholder-val="{{false}}">
+                <span style="font-size: 12px; color: {{c.infoFg}}; background: {{c.infoBg}}; border-radius: 6px; padding: 6px 10px; line-height: 1.45">{{p.message}}</span>
+              </sc-if>
+            </div>
+          </sc-for>
+        </section>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{is.connections}}" hint-placeholder-val="{{false}}">
+      <section aria-label="Platforms" data-component="card-grid" data-dataset="platforms" style="display: flex; flex-direction: column; gap: 12px">
+        <div style="display: flex; flex-direction: column; gap: 4px">
+          <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">Connections</span>
+          <h2 style="margin: 0; font-size: 16px; font-weight: 600">Where your stories go</h2>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px">
+          <sc-for list="{{platformCards}}" as="p" hint-placeholder-count="2">
+            <div style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; min-width: 0">
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px">
+                <span style="display: flex; align-items: center; gap: 12px"><span style="width: 36px; height: 36px; border-radius: 9px; background: {{p.tile}}; display: flex; align-items: center; justify-content: center"><span style="width: 12px; height: 12px; border-radius: 50%; background: {{p.color}}"></span></span><span style="display: flex; flex-direction: column"><span style="font-weight: 600; font-size: 15px">{{p.name}}</span><span style="font-size: 12px; color: {{c.muted}}; font-family: 'IBM Plex Mono', monospace">{{p.id}}</span></span></span>
+                <span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: {{p.stBg}}; color: {{p.stFg}}">{{p.badge}}</span>
+              </div>
+              <dl style="margin: 0; display: grid; grid-template-columns: minmax(110px, auto) minmax(0, 1fr); gap: 6px 12px; font-size: 13px">
+                <sc-for list="{{p.facts}}" as="f" hint-placeholder-count="3">
+                  <dt style="color: {{c.muted}}">{{f.k}}</dt><dd style="margin: 0; overflow-wrap: anywhere">{{f.v}}</dd>
+                </sc-for>
+              </dl>
+              <sc-if value="{{p.atRisk}}" hint-placeholder-val="{{false}}">
+                <span style="font-size: 12px; color: {{c.warnFg}}; background: {{c.warnBg}}; border-radius: 6px; padding: 6px 10px; line-height: 1.45">{{p.riskText}}</span>
+              </sc-if>
+              <sc-if value="{{p.hasHelp}}" hint-placeholder-val="{{false}}">
+                <span style="font-size: 12px; color: {{c.infoFg}}; background: {{c.infoBg}}; border-radius: 6px; padding: 6px 10px; line-height: 1.45">{{p.help}}</span>
+              </sc-if>
+              <div class="ik-actions" style="display: flex; flex-wrap: wrap; gap: 8px">
+                <sc-for list="{{p.actions}}" as="a" hint-placeholder-count="2">
+                  <button onClick="{{a.go}}" style="font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px; border: 1px solid {{a.border}}; background: {{a.bg}}; color: {{a.fg}}; min-height: 40px; cursor: pointer">{{a.label}}</button>
+                </sc-for>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </section>
+      <section aria-label="How connecting works" data-component="callout" style="background: {{c.infoBg}}; border-radius: 10px; padding: 14px 18px; display: flex; flex-direction: column; gap: 6px; color: {{c.infoFg}}">
+        <strong style="font-size: 14px">Your platform keys never pass through chat or this page's code</strong>
+        <span style="font-size: 13px; line-height: 1.5">Connect opens a one-time page from Inkcast (it expires in {{connectMinutes}} minutes, INKCAST_ONE_TIME_LINK_MINUTES). You paste the platform's API key there; Inkcast seals it and shows only the account it belongs to.</span>
+      </section>
+    </sc-if>
+
+    <sc-if value="{{is.sync}}" hint-placeholder-val="{{false}}">
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+        <label style="font-size: 12px; color: {{c.muted}}; display: flex; align-items: center; gap: 6px">Repository
+          <select style="font: inherit; font-size: 13px; color: {{c.text}}; padding: 6px 8px; border: 1px solid {{c.control}}; border-radius: 6px; background: {{c.surface}}; min-height: 40px"><sc-for list="{{sourceOptions}}" as="s" hint-placeholder-count="2"><option selected="{{s.selected}}">{{s.name}}</option></sc-for></select>
+        </label>
+      </div>
+      <section aria-label="Repository summary" data-component="stat-strip" data-dataset="ledger" style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-wrap: wrap; align-items: center; gap: 16px 32px">
+        <div style="display: flex; flex-direction: column; gap: 4px; flex: 1 1 260px; min-width: 0">
+          <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">Git publishing</span>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 16px; font-weight: 500; overflow-wrap: anywhere">{{syncStrip.title}}</span>
+          <span style="font-size: 12px; color: {{c.muted}}">{{syncStrip.note}}</span>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 24px">
+          <sc-for list="{{syncStrip.stats}}" as="s" hint-placeholder-count="5">
+            <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12px; color: {{c.muted}}">{{s.label}}</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 22px; font-weight: 500; color: {{s.color}}">{{s.value}}</span></div>
+          </sc-for>
+        </div>
+      </section>
+      <sc-if value="{{hasStale}}" hint-placeholder-val="{{true}}">
+        <section aria-label="Changed after publishing" data-component="callout" style="background: {{c.warnBg}}; border: 1px solid {{c.warnBorder}}; border-radius: 10px; padding: 14px 18px; display: flex; flex-direction: column; gap: 6px; color: {{c.warnFg}}">
+          <strong style="font-size: 14px">{{staleCallout.title}}</strong>
+          <span style="font-size: 13px; line-height: 1.5">{{staleCallout.body}}</span>
+        </section>
+      </sc-if>
+      <section aria-label="What each file became" data-component="row-list" data-dataset="ledger" style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+        <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">Ledger</span>
+        <h2 style="margin: 0; font-size: 16px; font-weight: 600">What each file became, per platform</h2>
+        <div style="display: flex; flex-direction: column">
+          <sc-for list="{{ledgerRows}}" as="r" hint-placeholder-count="6">
+            <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 0; border-top: 1px solid {{c.border}}; font-size: 13px">
+              <span style="flex: 3 1 280px; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+                <span style="font-family: 'IBM Plex Mono', monospace; overflow-wrap: anywhere">{{r.path}}</span>
+                <span style="font-size: 12px; color: {{c.muted}}; display: flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; border-radius: 50%; background: {{r.color}}"></span>{{r.platform}} · synced {{r.synced}} · <span style="font-family: 'IBM Plex Mono', monospace">{{r.hash}}</span></span>
+                <sc-if value="{{r.hasMessage}}" hint-placeholder-val="{{false}}"><span style="font-size: 12px; color: {{r.noteFg}}; line-height: 1.45">{{r.message}}</span></sc-if>
+              </span>
+              <span style="flex: 1 1 200px; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 10px">
+                <span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: {{r.stBg}}; color: {{r.stFg}}">{{r.status}}</span>
+                <sc-if value="{{r.hasUrl}}" hint-placeholder-val="{{false}}"><a href="{{r.url}}" style="font-size: 13px; color: {{c.accent}}; min-height: 36px; display: flex; align-items: center">Open</a></sc-if>
+              </span>
+            </div>
+          </sc-for>
+        </div>
+      </section>
+      <section aria-label="Run a sync yourself" data-component="callout" style="background: {{c.infoBg}}; border-radius: 10px; padding: 14px 18px; display: flex; flex-direction: column; gap: 8px; color: {{c.infoFg}}">
+        <strong style="font-size: 14px">Syncs run from your repository's CI, or from your laptop</strong>
+        <span style="font-size: 13px; line-height: 1.5">A dry run shows what would happen without sending anything. The token comes from the environment, never an argument.</span>
+        <code style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; background: {{c.surface}}; color: {{c.text}}; border: 1px solid {{c.border}}; border-radius: 6px; padding: 8px 10px; overflow-x: auto; white-space: nowrap">{{syncCommand}}</code>
+      </section>
+    </sc-if>
+
+    <sc-if value="{{is.tokens}}" hint-placeholder-val="{{false}}">
+      <sc-if value="{{hasCreated}}" hint-placeholder-val="{{true}}">
+        <section aria-label="New token" data-component="callout" style="background: {{c.okBg}}; border-radius: 10px; padding: 14px 18px; display: flex; flex-direction: column; gap: 8px; color: {{c.okFg}}">
+          <strong style="font-size: 14px">{{createdCallout.title}}</strong>
+          <span style="font-size: 13px; line-height: 1.5">{{createdCallout.body}}</span>
+          <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+            <code style="flex: 1 1 260px; min-width: 0; font-family: 'IBM Plex Mono', monospace; font-size: 13px; background: {{c.surface}}; color: {{c.text}}; border: 1px solid {{c.border}}; border-radius: 6px; padding: 8px 10px; overflow-x: auto; white-space: nowrap">{{createdCallout.command}}</code>
+            <button onClick="{{copyToken}}" style="font: inherit; font-size: 13px; padding: 6px 14px; border-radius: 6px; border: 1px solid {{c.control}}; background: {{c.surface}}; color: {{c.text}}; min-height: 40px; cursor: pointer">Copy</button>
+          </div>
+        </section>
+      </sc-if>
+      <div class="ik-cols">
+        <section aria-label="Create a token" data-component="form" data-dataset="tokenDraft" style="flex: 1 1 320px; min-width: 0; background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 14px">
+          <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">New token</span>
+          <h2 style="margin: 0; font-size: 16px; font-weight: 600">A token for CI or a script</h2>
+          <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 500">Name
+            <input type="text" value="{{tokenDraft.name}}" maxlength="80" style="font: inherit; font-size: 14px; font-weight: 400; color: {{c.text}}; background: {{c.bg}}; border: 1px solid {{c.control}}; border-radius: 6px; padding: 8px 10px; min-height: 40px; box-sizing: border-box; width: 100%">
+            <span style="font-size: 12px; font-weight: 400; color: {{c.muted}}">What it is for, so you know which to revoke.</span>
+          </label>
+          <fieldset style="border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px">
+            <legend style="font-size: 13px; font-weight: 500; padding: 0 0 6px">Scopes</legend>
+            <sc-for list="{{scopeOptions}}" as="s" hint-placeholder-count="6">
+              <label style="display: flex; align-items: flex-start; gap: 10px; font-size: 13px; min-height: 36px">
+                <input type="checkbox" checked="{{s.checked}}" style="width: 18px; height: 18px; margin-top: 1px; accent-color: {{c.accent}}">
+                <span style="display: flex; flex-direction: column"><span style="font-family: 'IBM Plex Mono', monospace">{{s.scope}}</span><span style="font-size: 12px; color: {{c.muted}}">{{s.allows}}</span></span>
+              </label>
+            </sc-for>
+          </fieldset>
+          <label style="font-size: 13px; font-weight: 500; display: flex; flex-direction: column; gap: 6px">Expires
+            <select style="font: inherit; font-size: 14px; font-weight: 400; color: {{c.text}}; background: {{c.bg}}; border: 1px solid {{c.control}}; border-radius: 6px; padding: 6px 8px; min-height: 40px"><sc-for list="{{expiryOptions}}" as="e" hint-placeholder-count="4"><option selected="{{e.selected}}">{{e.label}}</option></sc-for></select>
+          </label>
+          <button onClick="{{createToken}}" style="font: inherit; font-size: 14px; font-weight: 500; padding: 8px 16px; border-radius: 8px; border: 1px solid {{c.accent}}; background: {{c.accent}}; color: {{c.accentFg}}; min-height: 44px; cursor: pointer; align-self: flex-start">Create token</button>
+        </section>
+        <section aria-label="Your tokens" data-component="row-list" data-dataset="tokens" style="flex: 2 1 520px; min-width: 0; background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+          <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">Personal access tokens</span>
+          <h2 style="margin: 0; font-size: 16px; font-weight: 600">Your tokens</h2>
+          <span style="font-size: 12px; color: {{c.muted}}">A token can't create or revoke tokens. Each is shown once, when it is made.</span>
+          <div style="display: flex; flex-direction: column">
+            <sc-for list="{{tokenRows}}" as="t" hint-placeholder-count="4">
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 0; border-top: 1px solid {{c.border}}; font-size: 13px">
+                <span style="flex: 2 1 240px; min-width: 0; display: flex; flex-direction: column; gap: 4px">
+                  <span style="font-weight: 500">{{t.name}}</span>
+                  <span style="display: flex; flex-wrap: wrap; gap: 6px"><sc-for list="{{t.scopes}}" as="s" hint-placeholder-count="2"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; background: {{c.raised}}; border: 1px solid {{c.border}}; border-radius: 4px; padding: 1px 6px">{{s}}</span></sc-for></span>
+                  <span style="font-size: 12px; color: {{c.muted}}">{{t.dates}}</span>
+                </span>
+                <span style="flex: 1 1 200px; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 10px">
+                  <span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: {{t.stBg}}; color: {{t.stFg}}">{{t.state}}</span>
+                  <button onClick="{{t.revoke}}" aria-label="Revoke {{t.name}}" style="font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px; border: 1px solid {{c.stopFg}}; background: transparent; color: {{c.stopFg}}; min-height: 36px; cursor: pointer">Revoke</button>
+                </span>
+              </div>
+            </sc-for>
+          </div>
+        </section>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{is.insights}}" hint-placeholder-val="{{false}}">
+      <section aria-label="Totals" data-component="kpi-tiles" data-dataset="insights" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px">
+        <sc-for list="{{insightTiles}}" as="t" hint-placeholder-count="4">
+          <div style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; min-width: 0">
+            <span style="font-size: 13px; color: {{c.muted}}">{{t.label}}</span>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: clamp(22px, 2.4vw, 28px); font-weight: 500; color: {{t.color}}">{{t.value}}</span>
+            <span style="font-size: 12px; color: {{c.muted}}">{{t.note}}</span>
+          </div>
+        </sc-for>
+      </section>
+      <section aria-label="Posts published per day" data-component="time-series" data-dataset="kpis" style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px">
+        <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px">
+          <div style="display: flex; flex-direction: column; gap: 4px">
+            <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">Output</span>
+            <h2 style="margin: 0; font-size: 16px; font-weight: 600">Posts published per day</h2>
+          </div>
+          <div style="display: flex; gap: 16px; font-size: 13px; color: {{c.muted}}">
+            <sc-for list="{{seriesLegend}}" as="s" hint-placeholder-count="2"><span style="display: flex; align-items: center; gap: 6px"><span style="width: 12px; height: 12px; border-radius: 3px; background: {{s.color}}"></span>{{s.name}}</span></sc-for>
+          </div>
+        </div>
+        <div style="overflow-x: auto">
+          <div style="display: flex; align-items: flex-end; gap: 3px; height: 180px; min-width: {{chartMin}}; border-bottom: 1px solid {{c.border}}; padding-top: 8px">
+            <sc-for list="{{days}}" as="d" hint-placeholder-count="30">
+              <div title="{{d.label}}" style="flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%">
+                <div style="flex: 1 1 0; background: {{d.c1}}; border-radius: 3px 3px 0 0; height: {{d.h1}}"></div>
+                <div style="flex: 1 1 0; background: {{d.c2}}; border-radius: 3px 3px 0 0; height: {{d.h2}}"></div>
+              </div>
+            </sc-for>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 12px; color: {{c.muted}}; padding-top: 6px; min-width: {{chartMin}}">
+            <sc-for list="{{ticks}}" as="t" hint-placeholder-count="5"><span>{{t}}</span></sc-for>
+          </div>
+        </div>
+      </section>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px">
+        <sc-for list="{{rateLists}}" as="mx" hint-placeholder-count="3">
+          <section data-component="bar-list" data-dataset="insights" style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0">
+            <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">{{mx.eyebrow}}</span>
+            <h2 style="margin: 0; font-size: 16px; font-weight: 600">{{mx.title}}</h2>
+            <sc-for list="{{mx.rows}}" as="m" hint-placeholder-count="3">
+              <div style="display: flex; flex-direction: column; gap: 4px">
+                <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 13px"><span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 50%; background: {{m.color}}; flex: none"></span>{{m.name}}</span><span style="font-family: 'IBM Plex Mono', monospace; color: {{c.muted}}; white-space: nowrap">{{m.value}}</span></div>
+                <div style="height: 8px; background: {{c.track}}; border-radius: 4px"><div style="height: 8px; border-radius: 4px; background: {{m.color}}; width: {{m.pct}}"></div></div>
+              </div>
+            </sc-for>
+            <span style="font-size: 12px; color: {{c.muted}}">{{mx.note}}</span>
+          </section>
+        </sc-for>
+      </div>
+      <section aria-label="Posts by status and platform" data-component="heat-grid" data-dataset="insights" style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+        <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: {{c.accent}}">Where they ended up</span>
+        <h2 style="margin: 0; font-size: 16px; font-weight: 600">Posts by status and platform</h2>
+        <span style="font-size: 12px; color: {{c.muted}}">Posts that changed in the period; a post scheduled for later counts as scheduled now.</span>
+        <div style="overflow-x: auto">
+          <div style="display: grid; grid-template-columns: 140px repeat({{heatCols}}, minmax(96px, 1fr)); gap: 4px; min-width: 360px; font-size: 13px">
+            <span style="position: sticky; left: 0; background: {{c.surface}}"></span>
+            <sc-for list="{{heatHead}}" as="h" hint-placeholder-count="2"><span style="color: {{c.muted}}; padding: 4px 8px; display: flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; border-radius: 50%; background: {{h.color}}"></span>{{h.name}}</span></sc-for>
+            <sc-for list="{{heatRows}}" as="r" hint-placeholder-count="6">
+              <span style="position: sticky; left: 0; background: {{c.surface}}; padding: 8px; color: {{c.text}}">{{r.status}}</span>
+              <sc-for list="{{r.cells}}" as="x" hint-placeholder-count="2"><span style="background: {{x.bg}}; color: {{x.fg}}; border-radius: 6px; padding: 8px; font-family: 'IBM Plex Mono', monospace; text-align: center">{{x.v}}</span></sc-for>
+            </sc-for>
+          </div>
+        </div>
+      </section>
+    </sc-if>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$target":{"editor":null,"default":{"framework":"react-ts","styling":"tokens.css (CSS variables)","state":"URL params; theme and the unsent draft in storage","data":"REST under /api/v1 through the BFF session (ADR-0004)"}},"theme":{"editor":"enum","options":["light","dark","auto"],"default":"light"},"tab":{"editor":"enum","options":["posts","compose","connections","sync","tokens","insights"],"default":"posts"},"range":{"editor":"enum","options":["7","30","45","60","90"],"default":"30"},"$preview":{"width":1440,"height":1240}}'>
+// state theme: owner=App type='light'|'dark'|'auto' default='light' storage=theme
+// state tab: owner=App type='posts'|'compose'|'connections'|'sync'|'tokens'|'insights' default='posts' url=?tab=
+// state range: owner=App type='7'|'30'|'45'|'60'|'90' default='30' url=?range= (posts: days_back; insights: days. No custom From/To: both endpoints take a day count only)
+// state postFilter: owner=PostList type='all'|'needs'|'coming'|'sent' default='all' url=?show=
+// state when: owner=Composer type='now'|'later' default='now' (part of the draft)
+// state draft: owner=Composer type=Draft default=empty storage=draft (the unsent draft, this browser only; cleared once sent)
+// state source: owner=SyncPage type=string (a ledger source) default=the first source url=?source=
+// state created: owner=TokensPage type=TokenCreated | null default=null (memory only: shown once, never stored; the mockup shows it set)
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { theme: null, tab: null, range: null, postFilter: 'all', when: 'later', source: null };
+  }
+  renderVals() {
+    const mode = this.state.theme || this.props.theme || 'light';
+    let dark = mode === 'dark';
+    if (mode === 'auto') {
+      try { dark = window.matchMedia('(prefers-color-scheme: dark)').matches; } catch (e) { dark = false; }
+    }
+    const tab = this.state.tab || this.props.tab || 'posts';
+    const range = this.state.range || this.props.range || '30';
+    const days = Number(range);
+    const T = dark ? {
+      bg: '#0F1216', surface: '#171B21', raised: '#1D2229', border: '#2A3038', track: '#232831', control: '#3A414B',
+      text: '#E6E8EB', muted: '#A1A9B4', accent: '#93C5FD', accentFg: '#0F1216', logoBg: '#2563EB', logoFg: '#FFFFFF',
+      okFg: '#86EFAC', okBg: '#12321F', warnFg: '#FDBA74', warnBg: '#3A2414', warnBorder: '#6B3F1D',
+      infoFg: '#BFDBFE', infoBg: '#1B2A4A', stopFg: '#FCA5A5', stopBg: '#3A1717',
+      sampleFg: '#FDBA74', sampleBg: '#3A2414', sampleBorder: '#6B3F1D', tint: 0.16,
+      heat: [['#1B2A4A', '#E6E8EB'], ['#24407A', '#E6E8EB'], ['#3B66D6', '#FFFFFF'], ['#93C5FD', '#0F1216']], none: ['#1D2229', '#A1A9B4'],
+      cat: { emerald: '#10D49A', sky: '#38BDF8', amber: '#E2A717', violet: '#A5ADF8', coral: '#F08A6C', pink: '#F472B6', teal: '#2DD4BF', slate: '#94A3B8' }
+    } : {
+      bg: '#F6F7F9', surface: '#FFFFFF', raised: '#FAFBFC', border: '#E3E5E8', track: '#EEF0F3', control: '#CDD1D6',
+      text: '#1A1D21', muted: '#555E6B', accent: '#1D4ED8', accentFg: '#FFFFFF', logoBg: '#1D4ED8', logoFg: '#FFFFFF',
+      okFg: '#14532D', okBg: '#E7F6EC', warnFg: '#7C2D12', warnBg: '#FDEFE3', warnBorder: '#F5C98B',
+      infoFg: '#1E3A8A', infoBg: '#EEF2FF', stopFg: '#7F1D1D', stopBg: '#FDECEC',
+      sampleFg: '#8A4B00', sampleBg: '#FFF4E5', sampleBorder: '#F5C98B', tint: 0.12,
+      heat: [['#E8EEFC', '#1A1D21'], ['#BFD0F5', '#1A1D21'], ['#3B66D6', '#FFFFFF'], ['#1E3A8A', '#FFFFFF']], none: ['#F6F7F9', '#555E6B'],
+      cat: { emerald: '#059669', sky: '#0284C7', amber: '#A16207', violet: '#6D5DF0', coral: '#C2410C', pink: '#DB2777', teal: '#0F766E', slate: '#475569' }
+    };
+    const tileOf = (fg, a) => {
+      const p = (h, i) => parseInt(h.slice(i, i + 2), 16);
+      return '#' + [1, 3, 5].map((i) => Math.round(a * p(fg, i) + (1 - a) * p(T.surface, i)).toString(16).padStart(2, '0')).join('');
+    };
+    const C = T.cat;
+    // Category colours: a platform and a sync action keep their colour on every tab.
+    const PLATFORM = { devto: C.violet, medium: C.emerald };
+    const ACTION = { create: C.teal, update: C.sky, unchanged: C.slate, stale: C.amber, skipped: C.pink, failed: C.coral };
+    const st = { none: { stBg: T.raised, stFg: T.muted }, ok: { stBg: T.okBg, stFg: T.okFg }, warn: { stBg: T.warnBg, stFg: T.warnFg }, info: { stBg: T.infoBg, stFg: T.infoFg }, stop: { stBg: T.stopBg, stFg: T.stopFg } };
+    // The tone of every post and ledger status (PostInfo.status, LedgerEntry.status); the badge always carries the word.
+    const TONE = { published: 'ok', draft: 'ok', unlisted: 'ok', scheduled: 'info', publishing: 'info', syncing: 'info', recovering: 'warn', unconfirmed: 'warn', stale: 'warn', missing: 'warn', failed: 'stop', preview: 'none', skipped: 'none', cancelled: 'none' };
+    const noteFg = { none: T.muted, ok: T.muted, info: T.muted, warn: T.warnFg, stop: T.stopFg };
+    const button = (label, kind, go) => ({
+      label, go,
+      bg: kind === 'primary' ? T.accent : 'transparent', fg: kind === 'primary' ? T.accentFg : kind === 'danger' ? T.stopFg : T.text,
+      border: kind === 'primary' ? T.accent : kind === 'danger' ? T.stopFg : T.control
+    });
+    const seg = (list, value, set) => list.map(([id, label], i) => ({
+      label, pick: () => this.setState({ [set]: id }), pressed: String(value === id), sep: i ? '1px solid ' + T.control : '0',
+      bg: value === id ? T.accent : 'transparent', fg: value === id ? T.accentFg : T.text
+    }));
+
+    // Formatting: the API returns ISO times and raw numbers; these turn them into the text the page shows,
+    // in the writer's own time zone.
+    const zone = 'America/Chicago';
+    const now = Date.parse('2026-10-27T15:00:00Z'), HOUR = 3600000, DAY = 86400000;
+    const at = (h) => new Date(now + h * HOUR).toISOString();
+    const when = (iso) => new Date(iso).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: zone });
+    const day = (iso) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: zone });
+    const rel = (iso) => {
+      const m = Math.round((Date.parse(iso) - now) / 60000), a = Math.abs(m), d = Math.round(a / 1440);
+      const span = a < 60 ? a + ' min' : a < 1440 ? Math.round(a / 60) + ' h' : d === 1 ? '1 day' : d + ' days';
+      return m >= 0 ? 'in ' + span : span + ' ago';
+    };
+    const pct = (r) => (r === null ? '—' : Math.round(r * 100) + '%');
+    const int = (v) => v.toLocaleString('en-US');
+
+    // dataset me: GET /api/v1/me → Me
+    // type Me = { id: string; display: string; email: string | null; name: string | null }
+    const me = { id: 'usr_4b1e', display: 'Sam Writer', email: 'sam@example.com', name: 'Sam Writer' };
+
+    // dataset platforms: GET /api/v1/platforms → PlatformInfo[]
+    // type ConnectedAccount = { id: string; name: string; handle: string | null; url: string | null }
+    // type PlatformInfo = { id: string; name: string; connected: boolean; account: ConnectedAccount | null; destination_label: string | null }
+    const platforms = [
+      { id: 'devto', name: 'DEV', connected: true, account: { id: '1840211', name: 'Sam Writer', handle: 'samwriter', url: 'https://dev.to/samwriter' }, destination_label: 'organization' },
+      { id: 'medium', name: 'Medium', connected: false, account: null, destination_label: 'publication' }
+    ];
+    // dataset connectLink: POST /api/v1/platforms/{id}/connect-link → ConnectLink (on Connect; the page opens url)
+    // type ConnectLink = { platform: string; url: string; expires_in: number; help: string }
+    const connectLink = { platform: 'medium', url: 'https://inkcast.example.com/connect/SAMPLE', expires_in: 900, help: "Paste a Medium integration token. If your Medium settings have no Integration tokens section, your account can't use Medium's API; Inkcast will instead give you the steps to import each story by URL." };
+    const NAME = Object.fromEntries(platforms.map((p) => [p.id, p.name]));
+    const connected = Object.fromEntries(platforms.map((p) => [p.id, p.connected]));
+
+    // dataset posts: GET /api/v1/posts?days_back=<range>&days_ahead=90 → PostInfo[]
+    // type PostStatus = 'preview'|'scheduled'|'publishing'|'recovering'|'published'|'draft'|'unlisted'|'failed'|'skipped'|'unconfirmed'|'cancelled'
+    // type PostInfo = { id: string; group_id: string; platform: string; title: string; status: PostStatus; run_at: string; url: string | null; error: string | null; attempts: number }
+    const allPosts = [
+      { id: 'pst_118', group_id: 'grp_41', platform: 'devto', title: 'Retry-After, read properly', status: 'scheduled', run_at: at(0.5), url: null, error: 'DEV is rate-limiting: it asked Inkcast to wait 30 minutes.', attempts: 2 },
+      { id: 'pst_103', group_id: 'grp_37', platform: 'devto', title: 'Notes on retry budgets', status: 'scheduled', run_at: at(18), url: null, error: null, attempts: 0 },
+      { id: 'pst_104', group_id: 'grp_37', platform: 'medium', title: 'Notes on retry budgets', status: 'scheduled', run_at: at(18), url: null, error: null, attempts: 0 },
+      { id: 'pst_107', group_id: 'grp_39', platform: 'devto', title: 'Weekly links #42', status: 'scheduled', run_at: at(66), url: null, error: null, attempts: 0 },
+      { id: 'pst_109', group_id: 'grp_40', platform: 'devto', title: 'Shipping on Fridays', status: 'recovering', run_at: at(-0.2), url: null, error: 'The send was interrupted. Inkcast is asking DEV whether it arrived.', attempts: 1 },
+      { id: 'pst_105', group_id: 'grp_38', platform: 'devto', title: 'Testing time in Python', status: 'unconfirmed', run_at: at(-3), url: null, error: "DEV's answer to the send was lost. It may or may not have published it.", attempts: 1 },
+      { id: 'pst_106', group_id: 'grp_36', platform: 'medium', title: 'A small guide to SQLite WAL', status: 'failed', run_at: at(-26), url: null, error: 'Medium says: the title is too long (100 characters at most).', attempts: 1 },
+      { id: 'pst_101', group_id: 'grp_35', platform: 'devto', title: 'Why we built an agent', status: 'published', run_at: at(-50), url: 'https://dev.to/samwriter/why-we-built-an-agent-4k2p', error: null, attempts: 1 },
+      { id: 'pst_102', group_id: 'grp_35', platform: 'medium', title: 'Why we built an agent', status: 'published', run_at: at(-50), url: 'https://medium.com/@samwriter/why-we-built-an-agent-9f1c', error: null, attempts: 1 },
+      { id: 'pst_110', group_id: 'grp_33', platform: 'devto', title: 'On idempotency keys', status: 'draft', run_at: at(-120), url: 'https://dev.to/samwriter/on-idempotency-keys-temp-slug-77', error: null, attempts: 1 },
+      { id: 'pst_111', group_id: 'grp_31', platform: 'medium', title: 'An early launch note', status: 'cancelled', run_at: at(-200), url: null, error: null, attempts: 0 },
+      { id: 'pst_114', group_id: 'grp_29', platform: 'devto', title: "Measure, don't guess", status: 'published', run_at: at(-300), url: 'https://dev.to/samwriter/measure-dont-guess-2b8e', error: null, attempts: 1 },
+      { id: 'pst_115', group_id: 'grp_29', platform: 'medium', title: "Measure, don't guess", status: 'published', run_at: at(-310), url: 'https://medium.com/@samwriter/measure-dont-guess-c41a', error: null, attempts: 1 },
+      { id: 'pst_092', group_id: 'grp_22', platform: 'devto', title: 'A year of writing in Git', status: 'published', run_at: at(-1000), url: 'https://dev.to/samwriter/a-year-of-writing-in-git-1d0a', error: null, attempts: 1 }
+    ];
+    // The backlist: a weekly post on DEV, every other one on Medium too.
+    ['Small diffs, fast reviews', 'Reading a flame graph', 'Feature flags without regret', 'Logging for the next person',
+      'What a migration owes you', 'Naming tests well', 'Postmortems that change things', 'Caching, honestly',
+      'The cost of a retry', 'Writing runbooks people use', 'Rate limits from both sides'].forEach((title, k) => {
+      const slug = title.toLowerCase().replace(/[^a-z]+/g, '-'), h = -24 * (7 * (k + 1) + 2.5) - 6;
+      allPosts.push({ id: 'pst_0' + (80 - 2 * k), group_id: 'grp_1' + k, platform: 'devto', title, status: 'published', run_at: at(h), url: 'https://dev.to/samwriter/' + slug + '1a', error: null, attempts: 1 });
+      if (k % 2 === 0) allPosts.push({ id: 'pst_0' + (79 - 2 * k), group_id: 'grp_1' + k, platform: 'medium', title, status: 'published', run_at: at(h), url: 'https://medium.com/@samwriter/' + slug + '2b', error: null, attempts: 1 });
+    });
+    const posts = allPosts.filter((p) => Date.parse(p.run_at) >= now - days * DAY);
+    const NEEDS = ['failed', 'unconfirmed', 'recovering'], COMING = ['scheduled', 'publishing'];
+    const atRisk = posts.filter((p) => COMING.includes(p.status) && !connected[p.platform]);
+    const needs = posts.filter((p) => NEEDS.includes(p.status));
+    const noteOf = (p) => {
+      const name = NAME[p.platform];
+      if (p.status === 'unconfirmed') return p.error + ' Check ' + name + ' first, then resend or cancel it.';
+      if (p.status === 'recovering') return p.error + " Cancel it if you don't want it.";
+      if (p.status === 'failed') return p.error + ' Fix it and publish it again from Compose.';
+      if (COMING.includes(p.status) && !connected[p.platform]) return name + " isn't connected: at its time this post is skipped unless you connect " + name + '.';
+      if (p.status === 'scheduled' && p.attempts) return p.error + ' Attempt ' + (p.attempts + 1) + ' goes out ' + rel(p.run_at) + '.';
+      return null;
+    };
+    const postRow = (p) => {
+      const tone = TONE[p.status], note = noteOf(p), actions = [];
+      if (p.status === 'unconfirmed') actions.push(button('Resend', 'primary', () => {}));
+      if (['scheduled', 'recovering', 'unconfirmed'].includes(p.status)) actions.push(button('Cancel', 'danger', () => {}));
+      const warn = note && (tone === 'warn' || tone === 'stop' || !connected[p.platform]);
+      return { title: p.title, platform: NAME[p.platform], when: when(p.run_at), rel: rel(p.run_at), status: p.status, ...st[tone],
+        color: PLATFORM[p.platform], tile: tileOf(PLATFORM[p.platform], T.tint), note: note || '', hasNote: !!note,
+        noteFg: warn ? (tone === 'stop' ? T.stopFg : T.warnFg) : T.muted, actions, url: p.url || '', hasUrl: !!p.url };
+    };
+    const filter = this.state.postFilter;
+    const shown = posts.filter((p) => filter === 'all' || (filter === 'needs' && NEEDS.includes(p.status)) ||
+      (filter === 'coming' && COMING.includes(p.status)) || (filter === 'sent' && !NEEDS.includes(p.status) && !COMING.includes(p.status)));
+    const upcoming = shown.filter((p) => Date.parse(p.run_at) > now).sort((a, b) => Date.parse(a.run_at) - Date.parse(b.run_at));
+    const past = shown.filter((p) => Date.parse(p.run_at) <= now).sort((a, b) => Date.parse(b.run_at) - Date.parse(a.run_at));
+    const sentCount = posts.filter((p) => ['published', 'draft', 'unlisted'].includes(p.status)).length;
+
+    // dataset preview: POST /api/v1/preview (PublishRequest, dry_run forced) → PublishResponse
+    // type PlatformResult = { platform: string; status: string; post_id: string | null; url: string | null; message: string | null; notes: string[]; warnings: string[]; preview: Record<string, string> | null; connected: boolean | null }
+    // type PublishResponse = { title: string; subtitle: string | null; dry_run: boolean; publish_at: string | null; warnings: string[]; results: PlatformResult[] }
+    // type Draft = { title: string; subtitle: string; tags: string; canonical_url: string; markdown: string; platforms: string[]; when: 'now'|'later'; local: string; zone: string; draft: boolean }
+    const draft = { title: 'Clocks you can test', subtitle: 'Injecting time instead of sleeping in tests', tags: 'python, testing, time, tdd, ci',
+      canonical_url: 'https://blog.example.com/clocks-you-can-test', platforms: ['devto', 'medium'], local: '2026-10-30T09:00', zone,
+      draft: false, markdown: '## The problem\n\nA test that sleeps is slow, and a test that reads the wall clock is flaky.\n\n## Inject the clock\n\n```python\ndef due(post, clock=time.time):\n    return post.run_at <= clock()\n```\n\nNow the test passes a fixed clock, and runs in a millisecond.' };
+    const preview = {
+      title: draft.title, subtitle: draft.subtitle, dry_run: true, publish_at: '2026-10-30T14:00:00+00:00', warnings: [],
+      results: [
+        { platform: 'devto', status: 'preview', post_id: null, url: null, message: null, notes: [], connected: true,
+          warnings: ['DEV allows 4 tags; kept python, testing, time, tdd.'],
+          preview: { title: draft.title, description: draft.subtitle, tags: 'python, testing, time, tdd', canonical_url: draft.canonical_url, status: 'published', organization: '(your profile)' } },
+        { platform: 'medium', status: 'preview', post_id: null, url: null, notes: [], connected: false,
+          message: "Medium no longer issues API tokens, so Inkcast can't post to Medium for this account. Use Medium's import instead: on medium.com open Stories → Import a story, paste the URL of the published original (" + draft.canonical_url + '), then review and publish. Medium sets the canonical link back to the original automatically.',
+          warnings: ['Medium uses only the first 3 tags; kept python, testing, time.'],
+          preview: { title: draft.title, subtitle: draft.subtitle, tags: 'python, testing, time', canonical_url: draft.canonical_url, status: 'public', publication: '(your profile)' } }
+      ]
+    };
+    const words = draft.markdown.split(/\s+/).filter(Boolean).length;
+    const later = this.state.when === 'later';
+
+    // dataset ledger: GET /api/v1/ledger?source=<source> → LedgerEntry[]
+    // type LedgerEntry = { source: string; path: string; platform: string; status: string; content_hash: string; post_id: string | null; url: string | null; message: string | null; synced_at: string }
+    const ledger = [
+      { source: 'github.com/example/blog', path: 'posts/2026/why-we-built-an-agent.md', platform: 'devto', status: 'published', content_hash: '9c1f2ab04e', post_id: 'pst_101', url: 'https://dev.to/samwriter/why-we-built-an-agent-4k2p', message: null, synced_at: at(-50) },
+      { source: 'github.com/example/blog', path: 'posts/2026/why-we-built-an-agent.md', platform: 'medium', status: 'published', content_hash: '9c1f2ab04e', post_id: 'pst_102', url: 'https://medium.com/@samwriter/why-we-built-an-agent-9f1c', message: null, synced_at: at(-50) },
+      { source: 'github.com/example/blog', path: 'posts/2026/notes-on-retry-budgets.md', platform: 'devto', status: 'scheduled', content_hash: '41d07e9b3a', post_id: 'pst_103', url: null, message: null, synced_at: at(-4) },
+      { source: 'github.com/example/blog', path: 'posts/2026/testing-time-in-python.md', platform: 'devto', status: 'unconfirmed', content_hash: 'e2b9c04d17', post_id: 'pst_105', url: null, message: "The last publish to DEV may or may not have gone through, and DEV says it isn't there. Inkcast never publishes it again on its own: check DEV, then resend post pst_105 (inkcast_resend, or POST /api/v1/posts/pst_105/resend) to send it as it was, or cancel it (inkcast_cancel, or POST /api/v1/posts/pst_105/cancel) if you don't want it. After a cancel, an edited file is published as a new post, so remove the first copy on DEV if it did arrive.", synced_at: at(-3) },
+      { source: 'github.com/example/blog', path: 'posts/2026/sqlite-wal.md', platform: 'medium', status: 'failed', content_hash: '7a3e19c2f0', post_id: 'pst_106', url: null, message: 'Medium says: the title is too long (100 characters at most).', synced_at: at(-26) },
+      { source: 'github.com/example/blog', path: 'posts/2026/measure-dont-guess.md', platform: 'medium', status: 'published', content_hash: 'b84c2d6e01', post_id: 'pst_115', url: 'https://medium.com/@samwriter/measure-dont-guess-c41a', message: "Changed since it was published, but Medium doesn't let Inkcast edit posts. Update it by hand: https://medium.com/@samwriter/measure-dont-guess-c41a Inkcast won't post it again.", synced_at: at(-30) },
+      { source: 'github.com/example/blog', path: 'posts/2026/measure-dont-guess.md', platform: 'devto', status: 'published', content_hash: 'b84c2d6e01', post_id: 'pst_114', url: 'https://dev.to/samwriter/measure-dont-guess-2b8e', message: null, synced_at: at(-30) },
+      { source: 'github.com/example/notes', path: 'notes/weekly-links-42.md', platform: 'devto', status: 'scheduled', content_hash: '0f6a8e2c55', post_id: 'pst_107', url: null, message: null, synced_at: at(-2) },
+      { source: 'github.com/example/notes', path: 'notes/shipping-on-fridays.md', platform: 'devto', status: 'publishing', content_hash: '3d9b71e0aa', post_id: 'pst_109', url: null, message: null, synced_at: at(-0.2) }
+    ];
+    const sources = [...new Set(ledger.map((e) => e.source))];
+    const source = this.state.source || sources[0];
+    const entries = ledger.filter((e) => e.source === source);
+    const countOf = (s) => entries.filter((e) => e.status === s).length;
+    // "stale" is a sync action, not a ledger status: the entry stays 'published' and keeps the sync's note until the
+    // file matches what went out again (services/publishing/sync.py), so a published entry with a message is stale.
+    const isStale = (e) => e.status === 'published' && !!e.message;
+    const stale = entries.filter(isStale);
+
+    // dataset tokens: GET /api/v1/tokens → TokenInfo[]
+    // type TokenInfo = { id: string; name: string; scopes: string[]; created_at: string; expires_at: string | null; last_used_at: string | null }
+    // type TokenCreated = TokenInfo & { token: string }
+    const tokens = [
+      { id: 'tok_21', name: 'blog CI', scopes: ['stories:sync'], created_at: at(-24 * 20), expires_at: at(24 * 70), last_used_at: at(-4) },
+      { id: 'tok_19', name: 'notes repo CI', scopes: ['stories:sync', 'posts:read'], created_at: at(-24 * 80), expires_at: at(24 * 10), last_used_at: at(-2) },
+      { id: 'tok_14', name: 'laptop scripts', scopes: ['posts:read', 'posts:write'], created_at: at(-24 * 200), expires_at: null, last_used_at: null }
+    ];
+    const created = { id: 'tok_22', name: 'release notes CI', scopes: ['stories:sync'], created_at: at(0), expires_at: at(24 * 90), last_used_at: null, token: 'ink_pat_SAMPLE-not-a-real-token' };
+    // Scopes and what they allow: the table in docs/git-publishing.md.
+    const SCOPES = [['stories:sync', 'sync files (create, update, skip)'], ['posts:read', 'list posts, previews, dry runs, the ledger'],
+      ['posts:write', 'publish, schedule and cancel single posts'], ['connections:read', 'see connected platforms'],
+      ['connections:write', 'create connect links and disconnect']];
+
+    // dataset kpis: GET /api/v1/insights/kpis?names=posts_published&grain=day&days=<range> → KpiSeries[]
+    // type KpiPoint = { bucket: number; dims: Record<string, string>; value: number; n: number }
+    // type KpiSeries = { name: string; unit: string; grain: string; points: KpiPoint[] }
+    // The sample is consistent with the posts dataset: every figure on this tab counts the same posts.
+    const startDay = Math.floor(now / DAY) - (days - 1);
+    const SENT = ['published', 'draft', 'unlisted'];
+    const points = [];
+    posts.filter((p) => SENT.includes(p.status)).forEach((p) => {
+      const bucket = Math.floor(Date.parse(p.run_at) / DAY) * 86400, hit = points.find((x) => x.bucket === bucket && x.dims.platform === p.platform && x.dims.status === p.status);
+      if (hit) { hit.value += 1; hit.n += 1; } else points.push({ bucket, dims: { platform: p.platform, status: p.status }, value: 1, n: 1 });
+    });
+    const kpis = [{ name: 'posts_published', unit: 'posts', grain: 'day', points }];
+    const publishedBy = (pid) => points.filter((p) => p.dims.platform === pid).reduce((s, p) => s + p.value, 0);
+    const countBy = (status, pid) => posts.filter((p) => p.status === status && p.platform === pid).length;
+
+    // dataset insights: GET /api/v1/insights/summary?days=<range> → InsightsSummary
+    // type RateSummary = { platform: string; numerator: number; denominator: number; rate: number | null }
+    // type InsightsSummary = { days: number; scope: string; scope_id: string; posts_by_status: Record<string, Record<string, number>>; ledger_by_status: Record<string, number>; publish_success: RateSummary[]; on_time: RateSummary[]; sync_by_action: Record<string, number>; sync_by_platform: Record<string, number> }
+    const s = days / 30, r = (v) => Math.max(0, Math.round(v * s));
+    const byStatus = {};
+    ['published', 'draft', 'scheduled', 'failed', 'unconfirmed', 'recovering', 'cancelled'].forEach((k) => { byStatus[k] = { devto: countBy(k, 'devto'), medium: countBy(k, 'medium') }; });
+    // On time counts the sends that were scheduled ahead; in this sample, the backlist's Git pushes were.
+    const scheduledAhead = (pid) => Math.round(publishedBy(pid) * 0.7);
+    const rate = (pid, num, den) => ({ platform: pid, numerator: num, denominator: den, rate: den ? num / den : null });
+    const insights = {
+      days, scope: 'user', scope_id: me.id, posts_by_status: byStatus,
+      ledger_by_status: ledger.reduce((a, e) => ({ ...a, [e.status]: (a[e.status] || 0) + 1 }), {}),
+      // posts_published counts what a platform accepted: published, draft or unlisted (the KPI catalogue).
+      publish_success: ['devto', 'medium'].map((pid) => rate(pid, publishedBy(pid), publishedBy(pid) + byStatus.failed[pid] + byStatus.unconfirmed[pid])),
+      on_time: ['devto', 'medium'].map((pid) => rate(pid, Math.max(0, scheduledAhead(pid) - (pid === 'medium' && scheduledAhead(pid) ? 1 : 0)), scheduledAhead(pid))),
+      sync_by_action: { create: r(8), update: r(5), unchanged: r(41), stale: r(1), skipped: r(2), failed: r(1) },
+      sync_by_platform: { devto: r(36), medium: r(22) }
+    };
+    const sum = (o) => Object.values(o).reduce((a, b) => a + b, 0);
+    const okNum = insights.publish_success.reduce((a, x) => a + x.numerator, 0), okDen = insights.publish_success.reduce((a, x) => a + x.denominator, 0);
+    const otNum = insights.on_time.reduce((a, x) => a + x.numerator, 0), otDen = insights.on_time.reduce((a, x) => a + x.denominator, 0);
+    const daily = [];
+    for (let i = 0; i < days; i++) {
+      const b = (startDay + i) * 86400, v = (pid) => (points.find((p) => p.bucket === b && p.dims.platform === pid) || { value: 0 }).value;
+      daily.push({ iso: new Date(b * 1000).toISOString(), devto: v('devto'), medium: v('medium') });
+    }
+    const peak = Math.max(1, ...daily.map((d) => Math.max(d.devto, d.medium)));
+    const fmtDay = (iso) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+    const maxCell = Math.max(1, ...Object.values(byStatus).flatMap((o) => Object.values(o)));
+    const heat = (v) => { if (!v) return { v: '0', bg: T.none[0], fg: T.none[1] }; const [bg, fg] = T.heat[Math.min(3, Math.floor(v / maxCell * 4))]; return { v: String(v), bg, fg }; };
+
+    const tabList = [['posts', 'Posts', needs.length], ['compose', 'Compose', 0], ['connections', 'Connections', platforms.filter((p) => !p.connected).length],
+      ['sync', 'Git publishing', 0], ['tokens', 'Tokens', 0], ['insights', 'Insights', 0]];
+    const is = { posts: tab === 'posts', compose: tab === 'compose', connections: tab === 'connections', sync: tab === 'sync', tokens: tab === 'tokens', insights: tab === 'insights' };
+    return {
+      c: T, scheme: dark ? 'dark' : 'light', is,
+      themes: seg([['light', 'Light'], ['dark', 'Dark'], ['auto', 'Auto']], mode, 'theme').map((t) => ({ ...t, sep: '0' })),
+      tabs: tabList.map(([id, label, n]) => ({ label, go: () => this.setState({ tab: id }), current: tab === id ? 'page' : 'false',
+        weight: tab === id ? '600' : '400', fg: tab === id ? T.text : T.muted, line: tab === id ? T.accent : 'transparent', count: String(n), hasCount: n > 0 })),
+      showRange: is.posts || is.insights,
+      ranges: seg([['7', '7 days'], ['30', '30 days'], ['45', '45 days'], ['60', '60 days'], ['90', '90 days']], range, 'range'),
+      rangeText: is.posts ? 'Posts from the last ' + days + ' days and the next 90' : 'The last ' + days + ' days, your posts',
+      user: { display: me.display, email: me.email, initials: me.display.split(' ').map((w) => w[0]).join('') },
+
+      postTiles: [
+        { label: 'Coming up', value: String(posts.filter((p) => COMING.includes(p.status)).length), note: 'scheduled in the next 90 days', color: T.text },
+        { label: 'Published', value: String(sentCount), note: 'in the last ' + days + ' days, drafts included', color: T.okFg },
+        { label: 'Need you', value: String(needs.length), note: 'failed, unconfirmed or recovering', color: needs.length ? T.warnFg : T.text },
+        { label: 'At risk', value: String(atRisk.length), note: 'scheduled on a platform that isn\'t connected', color: atRisk.length ? T.warnFg : T.text }
+      ],
+      hasDecisions: needs.length > 0,
+      decisionCallout: { title: needs.length + (needs.length === 1 ? ' post needs' : ' posts need') + ' your decision',
+        body: 'Inkcast never sends a post twice on its own. Unconfirmed: the platform\'s answer was lost; check the platform, then resend or cancel. Recovering: Inkcast is still asking the platform. Failed: read the reason, fix it, publish again.' },
+      postFilters: seg([['all', 'All'], ['needs', 'Need you (' + needs.length + ')'], ['coming', 'Coming up'], ['sent', 'Sent or closed']], filter, 'postFilter'),
+      postLists: [
+        { eyebrow: 'Coming up', title: 'Scheduled', rows: upcoming.map(postRow), empty: !upcoming.length, emptyText: 'Nothing scheduled here. Write a story in Compose, or push one to a synced repository.' },
+        { eyebrow: 'Recent', title: 'Sent, waiting on you, or closed', rows: past.map(postRow), empty: !past.length, emptyText: 'No posts in this period.' }
+      ],
+
+      draft,
+      draftFields: [
+        { label: 'Title', type: 'text', value: draft.title, placeholder: '', hint: 'From the front matter when it comes from Git.' },
+        { label: 'Subtitle', type: 'text', value: draft.subtitle, placeholder: 'Optional', hint: 'DEV shows it as the description.' },
+        { label: 'Tags', type: 'text', value: draft.tags, placeholder: 'comma, separated', hint: 'Each platform keeps what it allows: the preview says which.' },
+        { label: 'Canonical URL', type: 'url', value: draft.canonical_url, placeholder: 'https://', hint: 'Where the original lives, so search engines credit it.' }
+      ],
+      draftCount: int(words) + ' words · about ' + Math.max(1, Math.round(words / 230)) + ' min read',
+      draftPlatforms: platforms.map((p) => ({ name: p.name, color: PLATFORM[p.id], checked: draft.platforms.includes(p.id) ? 'true' : null,
+        note: p.connected ? 'connected as @' + p.account.handle : "not connected: preview only" })),
+      whenOptions: seg([['now', 'Now'], ['later', 'At a time']], this.state.when, 'when'),
+      isLater: later,
+      whenNote: later ? 'Goes out at ' + when(preview.publish_at) + ' (' + zone + '), ' + rel(preview.publish_at) + '. Two minutes ahead at least.' : 'Goes out as soon as you press Publish.',
+      sendLabel: later ? 'Schedule' : 'Publish now',
+      previewDraft: () => {}, sendDraft: () => {},
+      previewCards: preview.results.map((x) => {
+        const tone = x.connected ? 'ok' : 'warn';
+        return { name: NAME[x.platform], color: PLATFORM[x.platform], tile: tileOf(PLATFORM[x.platform], T.tint), ...st[tone],
+          badge: x.connected ? 'ready' : 'not connected', fields: Object.entries(x.preview || {}).map(([k, v]) => ({ k: k.replace('_', ' '), v })),
+          warnings: x.warnings, message: x.message || '', hasMessage: !!x.message };
+      }),
+
+      platformCards: platforms.map((p) => {
+        const risk = atRisk.filter((x) => x.platform === p.id).length;
+        return { id: p.id, name: p.name, color: PLATFORM[p.id], tile: tileOf(PLATFORM[p.id], T.tint), ...st[p.connected ? 'ok' : 'warn'],
+          badge: p.connected ? 'connected' : 'not connected',
+          facts: p.connected
+            ? [{ k: 'Account', v: p.account.name + ' (@' + p.account.handle + ')' }, { k: 'Profile', v: p.account.url }, { k: 'Posts to', v: 'your profile, or an ' + p.destination_label + ' you name' }]
+            : [{ k: 'Account', v: 'none' }, { k: 'Posts to', v: 'your profile, or a ' + p.destination_label + ' you name' }],
+          atRisk: risk > 0, riskText: risk + (risk === 1 ? ' scheduled post' : ' scheduled posts') + ' on ' + p.name + ' will be skipped at its time unless it is connected.',
+          hasHelp: p.id === 'medium' && !p.connected,
+          // The platform's own connect help (ConnectLink.help), shown before the link is made.
+          help: connectLink.help,
+          actions: p.connected ? [button('Reconnect', 'secondary', () => {}), button('Disconnect', 'danger', () => {})] : [button('Connect ' + p.name, 'primary', () => {})] };
+      }),
+      connectMinutes: String(connectLink.expires_in / 60),
+
+      sourceOptions: sources.map((x) => ({ name: x, selected: x === source ? 'true' : null })),
+      syncStrip: { title: source, note: entries.length + ' file results · last sync ' + rel(entries.map((e) => e.synced_at).sort().slice(-1)[0]),
+        stats: [['Published', 'published', T.okFg], ['Scheduled', 'scheduled', T.text], ['Need you', 'unconfirmed', T.warnFg], ['Failed', 'failed', T.stopFg]]
+          .map(([label, k, color]) => ({ label, value: String(countOf(k)), color })).concat([{ label: 'Stale', value: String(stale.length), color: T.warnFg }]) },
+      hasStale: stale.length > 0,
+      staleCallout: { title: stale.length + (stale.length === 1 ? ' file changed' : ' files changed') + ' after it went out on a platform that can\'t edit',
+        body: 'Inkcast won\'t post it again. Edit it by hand at the URL shown. The note stays until the file matches what went out.' },
+      ledgerRows: entries.map((e) => {
+        const tone = isStale(e) ? 'warn' : TONE[e.status] || 'none';
+        return { path: e.path, platform: NAME[e.platform], color: PLATFORM[e.platform], synced: rel(e.synced_at), hash: e.content_hash.slice(0, 7),
+          status: isStale(e) ? 'published · stale' : e.status, ...st[tone], message: e.message || '', hasMessage: !!e.message, noteFg: noteFg[tone], url: e.url || '', hasUrl: !!e.url };
+      }),
+      syncCommand: "INKCAST_URL=https://inkcast.example.com inkcast sync --dry-run 'posts/**/*.md'",
+
+      hasCreated: true,
+      createdCallout: { title: 'Token "' + created.name + '" created. Copy it now: it is shown only once',
+        body: 'Store it as the INKCAST_TOKEN secret in your repository. It expires on ' + day(created.expires_at) + '.', command: created.token },
+      copyToken: () => {}, createToken: () => {},
+      tokenDraft: { name: 'release notes CI' },
+      scopeOptions: SCOPES.map(([scope, allows]) => ({ scope, allows, checked: scope === 'stories:sync' ? 'true' : null })),
+      expiryOptions: [['30 days', false], ['90 days', true], ['180 days', false], ['366 days', false]].map(([label, sel]) => ({ label, selected: sel ? 'true' : null })),
+      tokenRows: tokens.map((t) => {
+        const left = t.expires_at === null ? null : (Date.parse(t.expires_at) - now) / DAY;
+        const state = left === null ? 'never expires' : left < 14 ? 'expires soon' : 'active';
+        return { name: t.name, scopes: t.scopes, state, ...st[left === null ? 'none' : left < 14 ? 'warn' : 'ok'], revoke: () => {},
+          dates: 'Created ' + day(t.created_at) + ' · ' + (t.expires_at ? 'expires ' + day(t.expires_at) : 'no expiry') + ' · ' + (t.last_used_at ? 'used ' + rel(t.last_used_at) : 'never used') };
+      }),
+
+      insightTiles: [
+        { label: 'Published', value: String(publishedBy('devto') + publishedBy('medium')), note: 'accepted by a platform, drafts included', color: T.okFg },
+        { label: 'Publish success', value: pct(okDen ? okNum / okDen : null), note: 'published ÷ (published + failed + unconfirmed)', color: T.text },
+        { label: 'On time', value: pct(otDen ? otNum / otDen : null), note: 'scheduled sends within 2 minutes of their time', color: T.text },
+        { label: 'Files synced', value: String(sum(insights.sync_by_action)), note: 'Git publishing results, every action', color: T.text }
+      ],
+      seriesLegend: platforms.map((p) => ({ name: p.name, color: PLATFORM[p.id] })),
+      days: daily.map((d) => ({ c1: PLATFORM.devto, c2: PLATFORM.medium, h1: Math.round(d.devto / peak * 164) + 'px', h2: Math.round(d.medium / peak * 164) + 'px',
+        label: fmtDay(d.iso) + ': DEV ' + d.devto + ', Medium ' + d.medium })),
+      chartMin: Math.max(300, days * 9) + 'px',
+      ticks: [0, 0.25, 0.5, 0.75, 1].map((f) => fmtDay(daily[Math.round(f * (days - 1))].iso)),
+      rateLists: [
+        { eyebrow: 'Reliability', title: 'Publish success, per platform', note: 'Failed and unconfirmed sends count against it.',
+          rows: insights.publish_success.map((x) => ({ name: NAME[x.platform], color: PLATFORM[x.platform], pct: pct(x.rate || 0), value: pct(x.rate) + ' · ' + x.numerator + ' of ' + x.denominator })) },
+        { eyebrow: 'Timing', title: 'On time, per platform', note: 'Within two minutes of the time you set.',
+          rows: insights.on_time.map((x) => ({ name: NAME[x.platform], color: PLATFORM[x.platform], pct: pct(x.rate || 0), value: pct(x.rate) + ' · ' + x.numerator + ' of ' + x.denominator })) },
+        { eyebrow: 'Git publishing', title: 'Sync results, by action', note: '"unchanged" is a file Inkcast left alone: nothing was sent.',
+          rows: Object.entries(insights.sync_by_action).map(([k, v]) => ({ name: k, color: ACTION[k], pct: Math.round(v / Math.max(1, sum(insights.sync_by_action)) * 100) + '%', value: int(v) })) }
+      ],
+      heatCols: String(platforms.length),
+      heatHead: platforms.map((p) => ({ name: p.name, color: PLATFORM[p.id] })),
+      heatRows: Object.entries(byStatus).map(([k, o]) => ({ status: k, cells: platforms.map((p) => heat(o[p.id] || 0)) }))
+    };
+  }
+}
+</script>
+</body>
+</html>

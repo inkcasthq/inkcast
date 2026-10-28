@@ -26,6 +26,7 @@ FIXTURE = """<!doctype html>
   </sc-if>
   <sc-if value="{{is.empty}}" hint-placeholder-val="{{false}}"><p>Nothing here</p></sc-if>
   <a href="Other.dc.html">other</a>
+  <sc-for list="{{opts}}" as="o"><input type="checkbox" checked="{{o.on}}" name="{{o.name}}"></sc-for>
 </div>
 </x-dc>
 <script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"tab":{"editor":"enum","options":["list","empty"],"default":"list"},"$preview":{"width":400,"height":300}}'>
@@ -36,7 +37,8 @@ class Component extends DCLogic {
     return {
       c: { bg: dark ? '#0F1216' : '#FFFFFF' },
       is: { list: tab === 'list', empty: tab === 'empty' },
-      rows: [{ name: 'a', tags: ['x', 'y'], pick: () => 1 }, { name: 'b', tags: [] }]
+      rows: [{ name: 'a', tags: ['x', 'y'], pick: () => 1 }, { name: 'b', tags: [] }],
+      opts: [{ name: 'on', on: true }, { name: 'off', on: null }, { name: 'no', on: false }]
     };
   }
 }
@@ -78,6 +80,13 @@ class RenderExpandsTheArtboard(unittest.TestCase):
         self.assertNotIn("Nothing here", html)
         for leftover in ("{{", "<sc-", "onClick", "undefined", "fonts.googleapis"):
             self.assertNotIn(leftover, html)
+
+    def test_a_boolean_attribute_is_written_only_when_its_value_is_truthy(self):
+        # checked="" would still check the box: HTML reads a boolean attribute's presence, not its value.
+        html = self.render({"theme": "light", "tab": "list"})
+        self.assertIn('<input type="checkbox" checked name="on">', html)
+        self.assertIn('<input type="checkbox" name="off">', html)
+        self.assertIn('<input type="checkbox" name="no">', html)
 
     def test_props_pick_the_branch_and_links_are_mapped(self):
         html = self.render({"theme": "dark", "tab": "empty"}, {"Other.dc.html": "other.html"})

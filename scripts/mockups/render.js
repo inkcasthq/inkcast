@@ -43,10 +43,15 @@ const helmet = (xdc[1].match(/<helmet>([\s\S]*?)<\/helmet>/) || [, ''])[1]
 let body = xdc[1].replace(/<helmet>[\s\S]*?<\/helmet>/, '');
 
 const lookup = (scope, path) => path.trim().split('.').reduce((o, k) => (o == null ? undefined : o[k]), scope);
-const holes = (s, scope) => s.replace(/\{\{\s*([\w.$]+)\s*\}\}/g, (_, p) => {
-  const v = lookup(scope, p);
-  return v == null || typeof v === 'function' ? '' : String(v);
-});
+// A boolean attribute (checked, selected, disabled) is on when present at all, so it is written only when its
+// value is truthy, as the canvas does; checked="{{x}}" with x null would otherwise render checked.
+const BOOL_ATTR = /\s(checked|selected|disabled)="\{\{\s*([\w.$]+)\s*\}\}"/g;
+const holes = (s, scope) => s
+  .replace(BOOL_ATTR, (_, name, p) => (lookup(scope, p) ? ` ${name}` : ''))
+  .replace(/\{\{\s*([\w.$]+)\s*\}\}/g, (_, p) => {
+    const v = lookup(scope, p);
+    return v == null || typeof v === 'function' ? '' : String(v);
+  });
 
 function block(s, start, tag) {
   const tagEnd = s.indexOf('>', start);
