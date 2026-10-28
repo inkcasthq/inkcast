@@ -196,12 +196,17 @@ class GitSync:
             # entry is never left on a post the author didn't cancel, which the next sync would follow and never send.
             # The claim names no post until its own exists (on_record): stopped before that, it is taken over, never
             # followed to the cancelled one. Through the publisher's store, as on_record: ``c`` is its connection.
+            # Only while the scheduler still hasn't tried it: a claim since this sync read it (every send counts one)
+            # left it waiting for its retry, changed in place and never replaced (ADR-0017), or unconfirmed, the
+            # person's to decide (#226). Raising here rolls the cancel back.
             def claim(c: sqlite3.Connection) -> None:
+                if c.execute("SELECT attempts FROM posts WHERE id = ?", (post["id"],)).fetchone()["attempts"] != post["attempts"]:
+                    raise PlatformError("The scheduler tried the post during this sync.")
                 self.publisher.store.put_entry_in(c, user_id, src, path, pid, status="syncing", post_id=None)
 
             try:
                 self.publisher.cancel(user_id, post["id"], also=claim)
-            except PlatformError:  # it went out, or another sync replaced it, a moment ago
+            except PlatformError:  # it went out, the scheduler tried it, or another sync replaced it, a moment ago
                 return SyncResult(**base, action="skipped", status=entry["status"], post_id=post["id"],
                                   message="The scheduled post changed state during this sync; run the sync again.")
             # The replacement is scheduled at the time the file asks for, as written: passed or under SCHEDULE_LEAD
