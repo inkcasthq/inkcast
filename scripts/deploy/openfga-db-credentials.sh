@@ -79,15 +79,18 @@ secret_exists "$app_ns" "$app_secret" && app_present=true
 
 if $role_present && $app_present; then
   # Kept, once both sides agree: the same password, the role Secret's username is the role, and the app Secret's
-  # uri is exactly what this script would write (role, host, port, database, sslmode).
+  # uri is exactly what this script would write (role, host, port, database, sslmode). Each value is read in an
+  # assignment, where errexit stops the script on an oc failure; read inside a test, the failure would compare as empty.
   role_pw="$(secret_key "$db_ns" "$role_secret" password)"
-  if [ -z "$role_pw" ] || [ "$(secret_key "$db_ns" "$role_secret" username)" != "$role" ]; then
+  role_user="$(secret_key "$db_ns" "$role_secret" username)"
+  if [ -z "$role_pw" ] || [ "$role_user" != "$role" ]; then
     echo "Secret $db_ns/$role_secret is not a basic-auth Secret for role $role (username and password): nothing changed." >&2
     exit 1
   fi
-  if [ "$(secret_key "$app_ns" "$app_secret" password)" != "$role_pw" ] \
-     || [ "$(secret_key "$app_ns" "$app_secret" username)" != "$role" ] \
-     || [ "$(secret_key "$app_ns" "$app_secret" uri)" != "$(uri_for "$role_pw")" ]; then
+  app_pw="$(secret_key "$app_ns" "$app_secret" password)"
+  app_user="$(secret_key "$app_ns" "$app_secret" username)"
+  app_uri="$(secret_key "$app_ns" "$app_secret" uri)"
+  if [ "$app_pw" != "$role_pw" ] || [ "$app_user" != "$role" ] || [ "$app_uri" != "$(uri_for "$role_pw")" ]; then
     echo "Secret $app_ns/$app_secret disagrees with $db_ns/$role_secret (the password, or the uri's role, host, port," \
          "database or sslmode): nothing changed. Delete both to generate the pair again, or write $app_ns/$app_secret" \
          "by hand from $db_ns/$role_secret." >&2
