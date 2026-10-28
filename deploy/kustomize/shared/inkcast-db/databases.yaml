@@ -1,0 +1,26 @@
+# OpenFGA's databases, one per environment, each owned by its role (docs/src/declarative_database_management.md at
+# v1.30.1). The primary creates each one once its owner exists: `status.applied: true`, or `status.message` says
+# why not (an owner whose Secret is not written yet, see cluster.yaml). `retain` keeps the data when the object goes:
+# deleting a Database object here leaves the database in PostgreSQL, and deleting an app namespace never reaches
+# inkcast-db at all. Which role may open which database is pg_hba's job (cluster.yaml).
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: openfga-staging
+  labels: {app.kubernetes.io/name: inkcast-pg, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: authz-db}
+spec:
+  cluster: {name: inkcast-pg}
+  name: openfga_staging
+  owner: openfga_staging
+  databaseReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: openfga-prod
+  labels: {app.kubernetes.io/name: inkcast-pg, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: authz-db}
+spec:
+  cluster: {name: inkcast-pg}
+  name: openfga_prod
+  owner: openfga_prod
+  databaseReclaimPolicy: retain

@@ -115,10 +115,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Render every overlay and environment (kubectl's built-in kustomize)
+      - name: Render every overlay, environment and shared kustomization (kubectl's built-in kustomize)
         run: |
           set -euo pipefail
-          for d in deploy/kustomize/overlays/* deploy/kustomize/environments/*; do
+          for d in deploy/kustomize/overlays/* deploy/kustomize/environments/* deploy/kustomize/shared/*; do
             echo "::group::$d"; scripts/ci-run.sh "kustomize $d" kubectl kustomize "$d" -o "$RUNNER_TEMP/rendered.yaml"; echo "ok"; echo "::endgroup::"
           done
       - name: Alert rules pass promtool (deploy/dev/prometheus/rules.yaml, the PrometheusRule's groups)

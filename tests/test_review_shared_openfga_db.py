@@ -1,0 +1,103 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
+# Copyright 2026 ScalarOps Technologies LLC
+"""Review of PR #304 (issue #296): what tests/test_shared_openfga_db.py leaves unproved, each case failing on the
+code it was written against."""
+
+from __future__ import annotations
+
+import subprocess
+import unittest
+
+from test_shared_openfga_db import CREDENTIALS, PULL_SECRET, FakeOcCase, uri
+
+# A failing `oc` in front of the recording fake: the one call whose arguments contain $OC_FAIL_ON is refused the way
+# the API server refuses it; every other call goes to the fake.
+_FAILING_OC = r"""#!/usr/bin/env bash
+if [ -n "${OC_FAIL_ON:-}" ] && [[ "$*" == *"$OC_FAIL_ON"* ]]; then
+  echo "$*" >> "$CALLS"
+  echo 'Error from server (Forbidden): secrets is forbidden: User "developer" cannot get resource "secrets"' >&2
+  exit 1
+fi
+exec "$(dirname "$0")/oc-fake" "$@"
+"""
+
+
+class CredentialsScriptWhenOcFailsMidRun(FakeOcCase):
+    """An agreeing pair is read value by value; an oc failure on any of those reads is oc's own error, never an empty
+    value read as "disagrees" or "not a basic-auth Secret" (which would tell the operator to delete both Secrets and
+    generate a new password, cutting the running OpenFGA off for an API blip)."""
+
+    PW = "e" * 48
+
+    def setUp(self):
+        super().setUp()
+        fake = self.dir / "bin" / "oc"
+        fake.rename(fake.with_name("oc-fake"))
+        fake.write_text(_FAILING_OC)
+        fake.chmod(0o755)
+        self.seed("inkcast-db", "inkcast-pg-openfga-staging", "kubernetes.io/basic-auth",
+                  username="openfga_staging", password=self.PW)
+        self.seed("inkcast-staging", "openfga-db-app", "Opaque",
+                  username="openfga_staging", password=self.PW, uri=uri("staging", self.PW))
+
+    def test_the_agreeing_pair_is_kept_when_oc_answers(self):
+        done = self.run_script(CREDENTIALS, "staging")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("Kept", done.stdout)
+
+    def test_an_oc_failure_while_reading_the_pair_is_oc_s_own_error(self):
+        reads = [f"-n {namespace} get secret {name} --ignore-not-found -o jsonpath={{.data.{key}}}"
+                 for namespace, name, key in (("inkcast-db", "inkcast-pg-openfga-staging", "password"),
+                                              ("inkcast-db", "inkcast-pg-openfga-staging", "username"),
+                                              ("inkcast-staging", "openfga-db-app", "password"),
+                                              ("inkcast-staging", "openfga-db-app", "username"),
+                                              ("inkcast-staging", "openfga-db-app", "uri"))]
+        for failing in reads:
+            with self.subTest(failing=failing):
+                self.env["OC_FAIL_ON"] = failing
+                done = self.run_script(CREDENTIALS, "staging")
+                self.assertIn(failing, self.calls(), "the read was attempted")
+                self.assertEqual(done.returncode, 1, done.stdout)
+                self.assertIn("Error from server (Forbidden)", done.stderr)
+                for misread in ("disagrees", "is not a basic-auth Secret", "Delete both", "Kept"):
+                    self.assertNotIn(misread, done.stderr + done.stdout)
+                self.assertFalse([c for c in self.calls() if "create" in c or "replace" in c or "delete" in c])
+                self.assert_never_seen(self.PW, done)
+
+
+class TracedRunsNeverPrintTheSecret(FakeOcCase):
+    """`bash -x script …` (debugging a failed run) or an exported SHELLOPTS=xtrace makes bash print every command
+    after expansion (GNU Bash manual, "The Set Builtin" -x; "Bash Variables" SHELLOPTS): the generated password and the
+    token would be on stderr, in the terminal's scrollback or a CI log. Both scripts turn the trace off first."""
+
+    TRACES = {"bash -x": (["bash", "-x"], {}), "SHELLOPTS=xtrace": (["bash"], {"SHELLOPTS": "xtrace"})}
+
+    def traced(self, how: str, script, *args: str) -> subprocess.CompletedProcess:
+        shell, extra = self.TRACES[how]
+        self.calls_file.write_text("")
+        return subprocess.run([*shell, str(script), *args], env={**self.env, **extra}, capture_output=True, text=True,
+                              timeout=60)
+
+    def test_the_credentials_script_traced_never_prints_the_password(self):
+        for how in self.TRACES:
+            with self.subTest(trace=how):
+                for name in ("inkcast-db/inkcast-pg-openfga-staging", "inkcast-staging/openfga-db-app"):
+                    (self.state / f"{name}.json").unlink(missing_ok=True)
+                done = self.traced(how, CREDENTIALS, "staging")
+                self.assertEqual(done.returncode, 0, done.stderr[-500:])
+                pw = self.stored("inkcast-db", "inkcast-pg-openfga-staging")["decoded"]["password"]
+                self.assert_never_seen(pw, done)
+
+    def test_the_pull_secret_script_traced_never_prints_the_token(self):
+        token = "ghp_" + "T9" * 18
+        path = self.dir / "pat"
+        path.write_text(token + "\n")
+        for how in self.TRACES:
+            with self.subTest(trace=how):
+                done = self.traced(how, PULL_SECRET, "staging", "octocat", str(path))
+                self.assertEqual(done.returncode, 0, done.stderr[-500:])
+                self.assert_never_seen(token, done)
+
+
+if __name__ == "__main__":
+    unittest.main()

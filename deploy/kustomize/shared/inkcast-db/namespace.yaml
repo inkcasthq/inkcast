@@ -1,0 +1,12 @@
+# The shared database's own namespace (#296): an app namespace can be deleted without taking the other's data.
+# Pod Security "restricted", as the overlays' namespaces: the operator makes its pods fit (components/openfga/cluster.yaml).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: inkcast-db
+  labels:
+    app.kubernetes.io/part-of: inkcast
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted

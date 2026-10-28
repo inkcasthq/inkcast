@@ -1,0 +1,52 @@
+# One PostgreSQL for both environments' OpenFGA (ADR-0014; issue #296), run by CloudNativePG 1.30. The image, the
+# instance count and the resources are components/openfga/cluster.yaml's, so the lab pays for one Postgres pod, not
+# two; the volume is 2Gi where the per-namespace Cluster has 1Gi, because it holds two databases and their WAL.
+#
+# Roles and databases are declared, not bootstrapped. `managed.roles` creates `openfga_staging` and `openfga_prod` as
+# login roles whose passwords come from one kubernetes.io/basic-auth Secret each, written once by
+# scripts/deploy/openfga-db-credentials.sh (cert-manager client certificates instead: #299). Until a role's Secret
+# exists the role is not created and the Cluster's status lists it under managedRolesStatus.cannotReconcile; the
+# operator retries on every reconcile (internal/management/controller/roles/runnable.go at v1.30.1). The databases
+# are the Database objects in databases.yaml. The bootstrap database `app`, owned by `app`, is the operator's
+# convention (docs/src/bootstrap.md at v1.30.1: initdb always creates one); it stays unused, and pg_hba refuses it
+# every network connection (the operator reaches the instance over the local socket and by certificate, not as app).
+#
+# pg_hba (docs/src/postgresql_conf.md at v1.30.1, "The pg_hba section": the operator's fixed rules first, then these,
+# then its default `host all all all scram-sha-256`; PostgreSQL uses the first matching record and never falls
+# through): each role reaches its own database over TLS, and nothing else. A staging role that asks for openfga_prod,
+# or a plaintext connection, is rejected before authentication. The fixed rules (local peer for the operator,
+# replication by certificate) come first and are untouched, and nothing else changes for the operator.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: inkcast-pg
+  labels: {app.kubernetes.io/name: inkcast-pg, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: authz-db}
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.6-system-trixie@sha256:348997438269fddc0e2825e00594367ad61751adb08a7698a0a14f793b0dc2ce
+  bootstrap:
+    initdb:
+      database: app
+      owner: app
+  managed:
+    roles:
+      - name: openfga_staging
+        ensure: present
+        login: true
+        passwordSecret: {name: inkcast-pg-openfga-staging}
+      - name: openfga_prod
+        ensure: present
+        login: true
+        passwordSecret: {name: inkcast-pg-openfga-prod}
+  postgresql:
+    pg_hba:
+      - hostssl openfga_staging openfga_staging all scram-sha-256
+      - hostssl openfga_prod openfga_prod all scram-sha-256
+      - host all openfga_staging all reject
+      - host all openfga_prod all reject
+      - host all app all reject
+  storage:
+    size: 2Gi
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 512Mi}
