@@ -330,6 +330,23 @@ features:
     - on OpenShift Local (the integrator) the cluster is Ready, both databases exist owned by their roles, each
       migrate Job completes against its own database, a staging role cannot connect to openfga_prod, a pod in a
       third namespace cannot reach 5432, and a pod in each app namespace pulls the image with ghcr-pull
+  - id: F3.9.S6
+    title: 'Write and pin the OpenFGA model from the deployment, with no manual step: the Job inkcast-authz-model
+      (components/openfga) runs inkcast authz write-model with the release''s image on every apply, deleted after
+      its TTL so the next apply creates it again; INKCAST_FGA_STORE_NAME pins by name at start-up (the store and
+      the version equal to the packaged model), with a named refusal until the Job has written them'
+    status: in-progress
+    change: 'new; issue #315'
+    acceptance:
+    - A Job in each environment runs `inkcast authz write-model` with the release's image (same digest as the
+      Deployment) on every `oc apply -k` of the environment, without an immutable-field error when the image changes
+    - 'Inkcast pins the model version that equals its own packaged model: with the ids unset and the store named,
+      start-up resolves the store by name and the version equal to the packaged model. It refuses to start with a
+      named error while that version doesn''t exist yet, so pods start on their own once the Job has run'
+    - Explicit INKCAST_FGA_STORE_ID / INKCAST_FGA_MODEL_ID still win when set (existing deployments are unchanged)
+    - 'Negative tests: OpenFGA down, store missing, only an older model present, two stores of the same name (a
+      refusal that names the problem, not a silent pick)'
+    - 'Proven on kind in CI and on OpenShift Local: a fresh inkcast-staging reaches Ready with no manual step'
 - id: F3.10
   title: 'Backing services: Valkey and PostgreSQL in the cluster'
   stories:

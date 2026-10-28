@@ -192,7 +192,7 @@ Keycloak answers 404 about people who still exist when it was restored from an o
 1. The log has `authz.error` lines with the operation and the reason (ids only, never a token).
 2. "OpenFGA unreachable" or "request failed (ReadTimeout)": OpenFGA is down, or a NetworkPolicy blocks it (E3.F3.9 lets only Inkcast services reach it). Check its pods and `INKCAST_FGA_API_URL`; `INKCAST_FGA_TIMEOUT` (5 s) is per request.
 3. "refused the credentials (HTTP 401)": the preshared key in OpenFGA and `INKCAST_FGA_API_TOKEN(_FILE)` differ (a rotation done on one side only). Set both to the same value; the file is re-read without a restart.
-4. "store or model not found (HTTP 404)" or `authorization_model_not_found`: `INKCAST_FGA_STORE_ID` or `INKCAST_FGA_MODEL_ID` names something that store does not hold. Each deploy pins a model id; after a new model version is written, its id must reach the ConfigMap (docs/authorization.md §8).
+4. "store or model not found (HTTP 404)" or `authorization_model_not_found`: the pinned store or model id names something OpenFGA does not hold (a store deleted or restored from a backup taken before the version was written). Pinned by name (`INKCAST_FGA_STORE_NAME`, the default), a restart re-resolves the store and the version; the Job `inkcast-authz-model` writes the version again on the next apply when it is gone. Pinned by hand (`INKCAST_FGA_STORE_ID` with `INKCAST_FGA_MODEL_ID`), the ids in the ConfigMap must be moved to what the store holds (docs/authorization.md §8).
 5. "too deep": a relationship chain longer than OpenFGA's resolution depth (25). Look for a cycle in the tuples written for that object.
 6. With `INKCAST_AUTHZ_ENGINE=local` the engine is the Inkcast database itself: the storage probe will be failing too.
 
