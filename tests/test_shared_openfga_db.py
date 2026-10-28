@@ -49,7 +49,7 @@ def templates(docs: list[dict]) -> dict[tuple[str, str], dict]:
 
 
 def runs_inkcast(pod: dict) -> bool:
-    return any(c["image"].split("@")[0].split(":")[0] == INKCAST_IMAGE for c in pod["containers"])
+    return any(c["image"].split("@")[0].split(":")[0] == INKCAST_IMAGE for c in pod["containers"] + pod.get("initContainers", []))
 
 
 class SharedFiles(unittest.TestCase):
@@ -190,6 +190,7 @@ class Rendered(unittest.TestCase):
                 docs = self.docs[name]
                 self.assertEqual(one(docs, "ServiceAccount", "inkcast").get("imagePullSecrets"), PULL)
                 inkcast = {key: pod for key, pod in templates(docs).items() if runs_inkcast(pod)}
+                # The model writer (E3.F3.9.S6) is an init container in the Deployment's pod: the same pull secret.
                 self.assertEqual(set(inkcast), {("Deployment", "inkcast"), ("CronJob", "inkcast-backup")})
                 for key, pod in templates(docs).items():
                     if key in inkcast:

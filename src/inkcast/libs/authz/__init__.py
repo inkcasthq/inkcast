@@ -9,18 +9,52 @@ every process builds one (``Context.authz``) so configuration and readiness are 
 
 from __future__ import annotations
 
+import asyncio
+import dataclasses
+import json
+import logging
 from typing import Any
 
 from .engine import MAX_BATCH_CHECK, MAX_DEPTH, MAX_LIST_OBJECTS, Check, PolicyEngine
 from .instrumented import Instrumented
 from .local import LocalEngine
-from .model import Evaluator, Model, TupleSource
-from .openfga import OpenFgaEngine
+from .model import PACKAGED_MODEL, Evaluator, Model, TupleSource
+from .openfga import OpenFgaAdmin, OpenFgaEngine, resolve_pinned_model
 from .types import (
     HIGHER_CONSISTENCY, MINIMIZE_LATENCY, RELATIONS, Channel, Consistency, EngineError, InvalidRequest,
     Organization, Post, Ref, Role, Tuple, Workspace, parse_user, relations_of, user_ref,
 )
 
+log = logging.getLogger("inkcast.authz")
+
+
+def pin_model(config: Any) -> Any:
+    """The configuration with the OpenFGA store and model ids pinned (E3.F3.9.S6). Explicit ``INKCAST_FGA_STORE_ID``
+    and ``INKCAST_FGA_MODEL_ID`` win and nothing is asked; otherwise, with ``INKCAST_FGA_STORE_NAME``, the store
+    and its version equal to the packaged model are read from OpenFGA (``resolve_pinned_model``) and pinned on a
+    copy. Every other outcome (no store or no equal version yet, two stores of the name, OpenFGA unreachable or
+    refusing the key) is a ``ConfigError`` that names it, so the process refuses to start and, restarted, asks again.
+    In the cluster the pod's init container ``authz-model`` has written the store and the model before this runs."""
+    from ..config import AUTHZ_MODEL_WRITER, ConfigError
+    if config.authz_engine != "openfga" or (config.fga_store_id and config.fga_model_id) or not config.fga_store_name:
+        return config
+    admin = OpenFgaAdmin(config.fga_api_url, config.fga_api_token, timeout=config.fga_timeout_seconds)
+
+    async def resolve() -> tuple[str, str]:
+        try:
+            return await resolve_pinned_model(admin, config.fga_store_name, json.loads(PACKAGED_MODEL.read_text()),
+                                              writer=AUTHZ_MODEL_WRITER)
+        finally:
+            await admin.http.aclose()   # the client this call opened closes on the loop that used it
+
+    try:
+        store_id, model_id = asyncio.run(resolve())
+    except (EngineError, InvalidRequest) as exc:
+        raise ConfigError(f"INKCAST_FGA_STORE_NAME={config.fga_store_name!r}: {exc}") from exc
+    log.info("OpenFGA store %r is %s; model version %s is this release's packaged model and is pinned",
+             config.fga_store_name, store_id, model_id,
+             extra={"event": "authz.model.pinned", "store_id": store_id, "model_id": model_id})
+    return dataclasses.replace(config, fga_store_id=store_id, fga_model_id=model_id)
 
 
 def build_engine(config: Any, store: Any, http: Any, metrics: Any = None) -> PolicyEngine:
@@ -42,5 +76,5 @@ __all__ = [
     "Channel", "Check", "Consistency", "EngineError", "Evaluator", "HIGHER_CONSISTENCY", "Instrumented",
     "InvalidRequest", "LocalEngine", "MAX_BATCH_CHECK", "MAX_DEPTH", "MAX_LIST_OBJECTS", "MINIMIZE_LATENCY", "Model",
     "OpenFgaEngine", "Organization", "PolicyEngine", "Post", "RELATIONS", "Ref", "Role", "Tuple", "TupleSource",
-    "Workspace", "build_engine", "parse_user", "relations_of", "user_ref",
+    "Workspace", "build_engine", "parse_user", "pin_model", "relations_of", "user_ref",
 ]

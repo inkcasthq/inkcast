@@ -9,16 +9,11 @@ resources:
   - ../../base
   - route.yaml
   - trusted-ca.yaml                 # the cluster's CA bundle, injected (#308)
-configMapGenerator:
-  # OpenFGA's store and the pinned model version (components/openfga sets the engine and the server's URL): write
-  # them once with `inkcast authz write-model` and pin both here. Until then Inkcast refuses to start and names them.
-  # A self-host that keeps the in-process engine instead leaves the component out and sets
-  # INKCAST_AUTHZ_ENGINE=local with INKCAST_AUTHZ_ALLOW_LOCAL=true (README, Hosted §2).
-  - name: inkcast-config
-    behavior: merge
-    literals:
-      - INKCAST_FGA_STORE_ID=
-      - INKCAST_FGA_MODEL_ID=
+# OpenFGA's store and model version need no pinning here: the component's init container authz-model writes them
+# when a pod starts, and Inkcast pins the version equal to its packaged model (E3.F3.9.S6). To hold a specific
+# version instead, merge INKCAST_FGA_STORE_ID and INKCAST_FGA_MODEL_ID into inkcast-config: both set, they win. A
+# self-host that keeps the in-process engine leaves the component out and sets INKCAST_AUTHZ_ENGINE=local with
+# INKCAST_AUTHZ_ALLOW_LOCAL=true (README, Hosted §2).
 components:
   - ../../components/openfga            # permission checks: OpenFGA on CloudNativePG (E3.F3.9.S1)
   - ../../components/servicemonitor     # needs user-workload monitoring enabled
@@ -44,6 +39,17 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/env/-
         value: {name: SSL_CERT_FILE, value: /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem}
+  # The init container authz-model (components/openfga) reads the server's configuration, so it trusts the same CAs:
+  # an OpenFGA or a secrets back-end reached over HTTPS works for both or for neither. By the label the component sets
+  # on the Deployments that carry it, so a Deployment without it (the Gateway, or no component) is left alone.
+  - target: {kind: Deployment, labelSelector: inkcast.io/authz-model=init-container}
+    patch: |-
+      - op: add
+        path: /spec/template/spec/initContainers/0/volumeMounts/-
+        value: {name: trusted-ca, mountPath: /etc/pki/ca-trust/extracted/pem, readOnly: true}
+      - op: add
+        path: /spec/template/spec/initContainers/0/env
+        value: [{name: SSL_CERT_FILE, value: /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem}]
   # No runAsUser/fsGroup, on Inkcast's pod or OpenFGA's: the restricted-v2 SCC assigns them per namespace.
   - target: {kind: NetworkPolicy, name: inkcast}
     patch: |-

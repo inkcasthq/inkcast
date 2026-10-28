@@ -13,15 +13,18 @@ a write is never retried blindly, because a duplicate write is itself a 400 and 
 landed. The preshared key (``INKCAST_FGA_API_TOKEN``) travels as a bearer header and nowhere else: not in logs,
 not in error messages.
 
-``OpenFgaAdmin`` (E3.F3.9.S1) is the operator's side of the same API, for ``inkcast authz write-model``: the store
-by name (``GET /stores?name=``, ``POST /stores``) and the model versions of a store (``GET`` and ``POST``
-``/stores/{id}/authorization-models``), over the same transport and the same key.
+``OpenFgaAdmin`` (E3.F3.9.S1) is the operator's side of the same API, for ``inkcast authz write-model``: the stores
+of a name (``GET /stores?name=``, ``POST /stores``, and ``DELETE /stores/{id}`` for a writer's own duplicate) and the
+model versions of a store (``GET`` and ``POST`` ``/stores/{id}/authorization-models``), over the same transport and
+the same key. ``resolve_pinned_model`` (E3.F3.9.S6) is a pod's read-only side of it at start-up: the store by name
+and the version equal to the packaged model, or a named refusal until the init container ``authz-model`` has
+written them.
 """
 
 from __future__ import annotations
 
 import time
-from typing import Any, Iterable, Sequence
+from typing import Any, AsyncIterator, Iterable, Sequence
 from urllib.parse import urlencode
 
 import httpx2
@@ -35,6 +38,7 @@ MAX_TUPLES_PER_WRITE = 100   # OPENFGA_MAX_TUPLES_PER_WRITE
 READ_PAGE = 100              # the largest page Read allows
 READY_TTL = 30.0             # how long a readiness answer is reused, so /readyz never hammers OpenFGA
 STORES_PAGE = 100            # the largest page ListStores allows (openfga/api: ListStoresRequest.page_size <= 100)
+MODELS_PAGE = 100            # likewise ReadAuthorizationModels (ReadAuthorizationModelsRequest.page_size <= 100)
 
 
 def _headers(token: SecretValue) -> dict[str, str]:
@@ -205,8 +209,8 @@ class OpenFgaEngine:
 
 class OpenFgaAdmin:
     """The store and its model versions, for ``inkcast authz write-model`` (E3.F3.9.S1). Reads are retried once on a
-    connection error like the engine's; the two writes (a store, a model version) never are, because each one that
-    lands is a new object."""
+    connection error like the engine's, and so is a delete, which is idempotent; the two creates (a store, a model
+    version) never are, because each one that lands is a new object."""
 
     def __init__(self, api_url: str, token: "SecretValue | str" = "", http: httpx2.AsyncClient | None = None,
                  timeout: float = 5.0):
@@ -221,9 +225,11 @@ class OpenFgaAdmin:
         return await _call(self.http, method, f"{self.base}/{path}", body, label=path.split("?")[0],
                            headers=_headers(self.token), timeout=self.timeout, retry=retry)
 
-    async def find_store(self, name: str) -> str | None:
-        """The id of the store called ``name``, or None. ListStores filters on the exact name; several stores may
-        share one (OpenFGA does not forbid it), and that is refused rather than guessed at."""
+    async def stores(self, name: str) -> list[str]:
+        """The ids of every store called ``name``, oldest first. ListStores filters on the exact name, and several
+        stores may share one (OpenFGA does not forbid it). A store id is a ULID the server makes when it handles the
+        create (v1.22.0 commands/create_store.go, ``ulid.Make()``: time first, monotonic within a millisecond in one
+        process), so the ids sort by creation; they are sorted here rather than trusting the server's order."""
         found: list[str] = []
         token = ""
         while True:
@@ -231,16 +237,21 @@ class OpenFgaAdmin:
             if token:
                 params["continuation_token"] = token
             answer = await self._request("GET", f"stores?{urlencode(params)}", retry=True)
-            stores = answer.get("stores")
-            if not isinstance(stores, list):
+            page = answer.get("stores")
+            if not isinstance(page, list):
                 raise EngineError("OpenFGA list-stores answered without stores")
-            found += [str(s.get("id", "")) for s in stores if isinstance(s, dict) and s.get("name") == name]
+            found += [str(s.get("id", "")) for s in page if isinstance(s, dict) and s.get("name") == name]
             token = str(answer.get("continuation_token") or "")
             if not token:
-                break
+                return sorted(found)
+
+    async def find_store(self, name: str) -> str | None:
+        """The id of the one store called ``name``, or None; several are refused rather than guessed at."""
+        found = await self.stores(name)
         if len(found) > 1:
-            raise EngineError(f"OpenFGA holds {len(found)} stores named {name!r} ({', '.join(found)}): pin "
-                              "INKCAST_FGA_STORE_ID to the one Inkcast uses and delete or rename the others")
+            raise EngineError(f"OpenFGA holds {len(found)} stores named {name!r} ({', '.join(found)}): delete or "
+                              "rename all but the one Inkcast uses, or pin INKCAST_FGA_STORE_ID and "
+                              "INKCAST_FGA_MODEL_ID by hand (one id alone is refused)")
         return found[0] if found else None
 
     async def create_store(self, name: str) -> str:
@@ -249,6 +260,11 @@ class OpenFgaAdmin:
         if not store_id:
             raise EngineError("OpenFGA create-store answered without an id")
         return store_id
+
+    async def delete_store(self, store_id: str) -> None:
+        """Delete a store. Idempotent, so retried like a read: v1.22.0 answers 204 for an id it does not hold too
+        (commands/delete_store.go), and the store is gone from ListStores (a soft delete, postgres.go)."""
+        await self._request("DELETE", f"stores/{store_id}", retry=True)
 
     async def newest_model(self, store_id: str) -> dict[str, Any] | None:
         """The store's newest model version (OpenFGA lists them newest first), or None when it holds none."""
@@ -270,6 +286,49 @@ class OpenFgaAdmin:
         if not model_id:
             raise EngineError("OpenFGA write-authorization-model answered without an authorization_model_id")
         return model_id
+
+    async def models(self, store_id: str) -> AsyncIterator[dict[str, Any]]:
+        """Every model version of the store, newest first (OpenFGA v1.22.0 orders by id, descending:
+        pkg/storage/postgres/postgres.go, ReadAuthorizationModels), a page at a time."""
+        token = ""
+        while True:
+            params: dict[str, Any] = {"page_size": MODELS_PAGE}
+            if token:
+                params["continuation_token"] = token
+            answer = await self._request("GET", f"stores/{store_id}/authorization-models?{urlencode(params)}", retry=True)
+            models = answer.get("authorization_models")
+            if not isinstance(models, list):
+                raise EngineError("OpenFGA read-authorization-models answered without authorization_models")
+            for model in models:
+                if not isinstance(model, dict) or not model.get("id"):
+                    raise EngineError("OpenFGA read-authorization-models answered a model without an id")
+                yield model
+            token = str(answer.get("continuation_token") or "")
+            if not token:
+                return
+
+
+async def resolve_pinned_model(admin: OpenFgaAdmin, store_name: str, model: dict[str, Any], *,
+                               writer: str) -> tuple[str, str]:
+    """(store id, model id) for a process that pins by store name (E3.F3.9.S6): the one store called ``store_name``
+    and its newest version equal to ``model`` (``same_model``), which may sit under a newer release's version
+    after a rollback. Reads only: creating the store and writing the version is the ``writer``'s, which runs
+    before the server in the same pod and converges with the writers of pods starting at the same time.
+    ``EngineError`` names what is missing and the writer, so the process refuses to start; two stores of the name
+    are refused by ``find_store``, never picked from."""
+    store_id = await admin.find_store(store_name)
+    if store_id is None:
+        raise EngineError(f"OpenFGA holds no store named {store_name!r}: {writer} creates it and writes the "
+                          "packaged model; refusing to start until it has")
+    newest, seen = "", 0
+    async for version in admin.models(store_id):
+        seen += 1
+        newest = newest or str(version["id"])
+        if same_model(version, model):
+            return store_id, str(version["id"])
+    held = f"{seen} version{'s' if seen != 1 else ''}, the newest {newest}" if seen else "no version at all"
+    raise EngineError(f"store {store_name!r} ({store_id}) holds no version equal to this release's packaged model "
+                      f"({held}): {writer} writes it when the pod starts; refusing to start until it has")
 
 
 def same_model(stored: dict[str, Any], model: dict[str, Any]) -> bool:

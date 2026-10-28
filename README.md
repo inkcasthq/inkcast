@@ -140,15 +140,10 @@ oc create secret generic inkcast-secrets \
   --from-literal=fga-api-token="$(openssl rand -base64 48)"    # OpenFGA's preshared key; Inkcast reads the same entry
 # edit deploy/kustomize/base/kustomization.yaml (public URL, OIDC issuer, image) and the Route host, then:
 oc apply -k deploy/kustomize/overlays/openshift          # or: kubectl apply -k deploy/kustomize/overlays/kubernetes
-oc -n inkcast wait --for=condition=complete job/openfga-migrate --timeout=10m
-# Inkcast now refuses to start, naming INKCAST_FGA_STORE_ID and INKCAST_FGA_MODEL_ID. Write the store and the model once:
-oc -n inkcast port-forward svc/openfga 8080:8080 &
-INKCAST_FGA_API_URL=http://localhost:8080 INKCAST_FGA_API_TOKEN_FILE=<the key's file> inkcast authz write-model
-# It prints INKCAST_FGA_STORE_ID=… and INKCAST_FGA_MODEL_ID=…: pin both in the overlay's inkcast-config literals
-# (deploy/kustomize/overlays/openshift/kustomization.yaml, or your environment's), then apply again.
+oc -n inkcast rollout status deploy/inkcast --timeout=15m   # Ready on its own: no id to write or pin by hand
 ```
 
-A second `write-model` run finds the store and the model and changes nothing; a model change is a pull request that moves `INKCAST_FGA_MODEL_ID`, a rollback a revert. To keep the in-process engine instead (a small self-host), leave `components/openfga` out of your overlay and set `INKCAST_AUTHZ_ENGINE=local` with `INKCAST_AUTHZ_ALLOW_LOCAL=true`.
+The store and the model are written by the pods themselves: the init container `authz-model` of Inkcast's pod runs `inkcast authz write-model` with the pod's own image before the server starts, and the server then pins the store `INKCAST_FGA_STORE_NAME` names and its version equal to the packaged model. Every pod start runs it, so a release, a rollback or a restart writes what its own image packages, and a run that finds the version writes nothing; pods starting together converge on one store. On a fresh install the init container fails and is restarted by the kubelet until the migrate Job has run and OpenFGA serves (`oc -n inkcast logs deploy/inkcast -c authz-model` says why), so the pod is Ready up to five minutes after that (the kubelet's back-off): the Deployment's progress deadline is 15 minutes, as is the wait above. A model change travels with the image; a rollback is the image's revert. To hold one version by hand instead, merge `INKCAST_FGA_STORE_ID` and `INKCAST_FGA_MODEL_ID` into `inkcast-config`: both set, they win, nothing is resolved and the init container writes nothing. To keep the in-process engine instead (a small self-host), leave `components/openfga` out of your overlay and set `INKCAST_AUTHZ_ENGINE=local` with `INKCAST_AUTHZ_ALLOW_LOCAL=true`.
 
 **The lab: staging and prod side by side (OpenShift Local).** Both environments run on one CloudNativePG cluster in its own namespace, `inkcast-db` (`deploy/kustomize/shared/inkcast-db`: one Postgres pod for both, a staging and a prod database each owned by its own login role, a NetworkPolicy that admits 5432 from OpenFGA's pods in `inkcast-staging` and `inkcast-prod` and nothing else), so the lab's memory holds both. `environments/staging` and `environments/production` set those namespaces and drop the component's per-namespace `Cluster`; a self-host using the overlays alone keeps it. In order:
 
@@ -166,8 +161,7 @@ oc -n inkcast-staging create secret generic inkcast-secrets …    # as above, i
 oc apply -k deploy/kustomize/shared/keycloak-realms              # Mailpit, and both realms imported once (below)
 oc -n keycloak get keycloakrealmimports                          # Done for both before the first sign-in
 oc apply -k deploy/kustomize/environments/staging                # then environments/production the same way
-oc -n inkcast-staging wait --for=condition=complete job/openfga-migrate --timeout=10m
-# write-model and pin the ids as above, per environment (the port-forward in that environment's namespace)
+oc -n inkcast-staging rollout status deploy/inkcast --timeout=15m   # the migrate Job, then the authz-model init container, then Ready
 ```
 
 `oc delete -k deploy/kustomize/shared/inkcast-db` deletes the Cluster and, with it, its volume: both environments' authorization data. `databaseReclaimPolicy: retain` keeps a database when its `Database` object is deleted, not when the Cluster is.
@@ -273,6 +267,7 @@ All settings are environment variables; see [.env.example](.env.example). Each s
 | `INKCAST_KEYCLOAK_BREAKER_MIN` | `5` | the least number of people newly gone or disabled (1 or more) for the breaker to trip: both thresholds must be met, so one or two deletions or disables in a small realm are acted on as usual |
 | `INKCAST_AUTHZ_ENGINE` | `local` | the permission engine ([design](docs/authorization.md)): `local` evaluates the model in-process over tuples in the Inkcast database; `openfga` asks an OpenFGA server. Production refuses `local` unless `INKCAST_AUTHZ_ALLOW_LOCAL=true` (a self-host that accepts it) |
 | `INKCAST_FGA_API_URL`, `INKCAST_FGA_STORE_ID`, `INKCAST_FGA_MODEL_ID` | | with `openfga`: the server, the store and the pinned model version. The preshared key: `INKCAST_FGA_API_TOKEN(_FILE)`; `INKCAST_FGA_TIMEOUT` (`5`) seconds per request |
+| `INKCAST_FGA_STORE_NAME` | | with `openfga` and both ids unset: the store to pin by name (3 to 64 characters, OpenFGA's rule). Start-up resolves that store and its model version equal to the packaged model, and refuses to start, naming the init container `authz-model` that writes them, until one exists. Both ids set win; the name never stands in for half of the pair. The Kustomize component sets `inkcast`, and `inkcast authz write-model` writes to the same name |
 | `INKCAST_AUTHZ_MODEL` | the packaged model | with `local`: a `model.json` to evaluate instead of the one shipped in the package |
 | `INKCAST_ENV` | `production` in the image | `production`/`staging` make the startup security checks strict; `ci`/`development` relax them. `inkcast checks` prints the table |
 | `INKCAST_SECRETS_SOURCE` | `env` | where secrets come from: `env` (`NAME` or `NAME_FILE`), `dir` (a mounted Secret directory, `INKCAST_SECRETS_DIR`), `agent` (the AWS Secrets Manager agent), `aws`, `chain`. See [docs/reference/secrets.md](docs/reference/secrets.md) |

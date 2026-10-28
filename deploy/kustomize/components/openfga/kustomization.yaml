@@ -5,11 +5,17 @@
 # the OpenFGA Deployment and Services, and the egress rule that lets Inkcast's pods reach it. Every image is pinned
 # by digest (scripts/images.py), so an air-gapped registry mirrors exactly these.
 #
-# What it sets on Inkcast: the engine, the server's URL and where the preshared key is read from. The key is one
-# more entry in the `inkcast-secrets` Secret (`fga-api-token`): Inkcast reads it as INKCAST_FGA_API_TOKEN_FILE and
-# OpenFGA as OPENFGA_AUTHN_PRESHARED_KEYS, so both sides hold the same value. The store and model ids are pinned per
-# deployment (overlays/kubernetes, overlays/openshift and the environments carry the literals), written once by
-# `inkcast authz write-model` (README, Hosted §2); until they are pinned Inkcast refuses to start and names them.
+# What it sets on Inkcast: the engine, the server's URL, where the preshared key is read from, and the store's name.
+# The key is one more entry in the `inkcast-secrets` Secret (`fga-api-token`): Inkcast reads it as
+# INKCAST_FGA_API_TOKEN_FILE and OpenFGA as OPENFGA_AUTHN_PRESHARED_KEYS, so both sides hold the same value. The store
+# and the model version are written by the pods themselves (E3.F3.9.S6, issue #315): the init container authz-model
+# (authz-model.yaml) runs `inkcast authz write-model` with the pod's own image before the server, which then pins the
+# store INKCAST_FGA_STORE_NAME names and its version equal to the packaged model. One OpenFGA per namespace, so the
+# name is the default, `inkcast`. Explicit INKCAST_FGA_STORE_ID and INKCAST_FGA_MODEL_ID in an overlay or environment
+# still win when both are set, and the init container then does nothing.
+#
+# With components/split-services, list it before this component: the init container goes to the Deployments that exist
+# when this component runs, and split-services replaces the one named inkcast with one per service.
 #
 # The ingress side (only Inkcast's pods may reach OpenFGA) and credentials from the secrets store are E3.F3.9.S2.
 apiVersion: kustomize.config.k8s.io/v1alpha1
@@ -27,3 +33,9 @@ configMapGenerator:
       - INKCAST_AUTHZ_ENGINE=openfga
       - INKCAST_FGA_API_URL=http://openfga:8080
       - INKCAST_FGA_API_TOKEN_FILE=/var/run/secrets/inkcast/fga-api-token
+      - INKCAST_FGA_STORE_NAME=inkcast
+patches:
+  # Every Inkcast Deployment whose processes check permissions: the all-in-one `inkcast`, or each service of
+  # components/split-services but its Gateway (launcher.BUILTIN: the Gateway alone does not need authz).
+  - path: authz-model.yaml
+    target: {kind: Deployment, labelSelector: "app.kubernetes.io/name=inkcast,inkcast.io/service!=gateway"}

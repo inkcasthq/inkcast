@@ -1,0 +1,44 @@
+# The store and the model version Inkcast pins, written by the pod itself (E3.F3.9.S6, issue #315): the init container
+# authz-model runs `inkcast authz write-model` with the pod's own image (the `images` entry that rewrites the server's
+# image rewrites initContainers too) before the server starts, which then pins the store INKCAST_FGA_STORE_NAME names
+# and its version equal to the packaged model (libs/authz pin_model). Patched by kustomization.yaml into every Inkcast
+# Deployment whose processes check permissions: all but the Gateway of components/split-services.
+#
+# Every pod start runs it, so there is nothing to re-run by hand and nothing immutable to apply over: a release, a
+# rollback or a restart writes what its own image packages. Idempotent: a version equal to the packaged model is not
+# written again. While OpenFGA does not answer (a fresh install: the database, then the migrate Job, then OpenFGA),
+# it fails and the kubelet starts it again, backing off from 10 s to 300 s. Pods starting together converge on one
+# store (authz_cli._write_model). With INKCAST_FGA_STORE_ID and INKCAST_FGA_MODEL_ID both pinned it does nothing.
+#
+# It runs in the server's pod: the same ServiceAccount and pull secrets, the same restricted-v2 security context, the
+# same NetworkPolicies (DNS, and OpenFGA's 8080 through inkcast-to-openfga), and the pod's `secrets` volume (0440) for
+# the preshared key. It reads inkcast-config and nothing else of the server's: no INKCAST_SECRET_KEY_FILE.
+#
+# progressDeadlineSeconds: on a fresh install the pod waits for OpenFGA and then for the kubelet's back-off, which can
+# outlast the default 600 s; 900 s matches the README's `rollout status --timeout=15m`.
+#
+# The label marks the Deployments that carry it, for overlays that patch the init container (overlays/openshift: the
+# cluster's CA bundle, as for the server).
+- op: add
+  path: /metadata/labels/inkcast.io~1authz-model
+  value: init-container
+- op: add
+  path: /spec/progressDeadlineSeconds
+  value: 900
+- op: add
+  path: /spec/template/spec/initContainers
+  value:
+    - name: authz-model
+      image: ghcr.io/inkcasthq/inkcast:0.1.0   # the server's image: overlays and environments pin both by digest
+      args: ["authz", "write-model"]
+      envFrom:
+        - configMapRef: {name: inkcast-config}   # INKCAST_FGA_API_URL, INKCAST_FGA_API_TOKEN_FILE, INKCAST_FGA_STORE_NAME
+      resources:
+        requests: {cpu: 20m, memory: 64Mi}
+        limits: {memory: 256Mi}
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: {drop: [ALL]}
+      volumeMounts:
+        - {name: secrets, mountPath: /var/run/secrets/inkcast, readOnly: true}

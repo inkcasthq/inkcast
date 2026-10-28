@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 # Copyright 2026 ScalarOps Technologies LLC
 """OpenFGA deployed with Inkcast (E3.F3.9.S1, issue #279): the Kustomize component and the overlays that use it,
-the pod spec under Pod Security "restricted" and the restricted-v2 SCC, the images pinned by digest, the store and
-model ids pinned per environment (and the refusal, naming them, until they are), and ``inkcast authz write-model``
-against the fake OpenFGA. The kind job (scripts/dev/openfga-e2e.sh) proves the same on a cluster."""
+the pod spec under Pod Security "restricted" and the restricted-v2 SCC, the images pinned by digest, the store
+named per environment (the ids come from the Job and the start-up resolution of E3.F3.9.S6, tests/test_authz_bootstrap.py;
+explicit ids still win), and ``inkcast authz write-model`` against the fake OpenFGA. The kind job
+(scripts/dev/openfga-e2e.sh) proves the same on a cluster."""
 
 from __future__ import annotations
 
@@ -121,7 +122,8 @@ class ComponentFiles(unittest.TestCase):
         (gen,) = k["configMapGenerator"]
         self.assertEqual((gen["name"], gen["behavior"]), ("inkcast-config", "merge"))
         self.assertEqual(set(gen["literals"]), {"INKCAST_AUTHZ_ENGINE=openfga", "INKCAST_FGA_API_URL=http://openfga:8080",
-                                                "INKCAST_FGA_API_TOKEN_FILE=/var/run/secrets/inkcast/fga-api-token"})
+                                                "INKCAST_FGA_API_TOKEN_FILE=/var/run/secrets/inkcast/fga-api-token",
+                                                "INKCAST_FGA_STORE_NAME=inkcast"})   # the Job's and the pods' store (E3.F3.9.S6)
         base = yaml.safe_load((KUSTOMIZE / "base" / "deployment.yaml").read_text())
         mounts = {m["name"]: m["mountPath"] for m in pod_spec(base)["containers"][0]["volumeMounts"]}
         volumes = {v["name"]: v for v in pod_spec(base)["volumes"]}
@@ -179,9 +181,10 @@ class Rendered(unittest.TestCase):
                 assert_restricted_v2(self, pod_spec(one(self.docs[name], "Deployment", "openfga")), f"{name}: Deployment")
                 assert_restricted_v2(self, pod_spec(one(self.docs[name], "Job", "openfga-migrate")), f"{name}: Job")
 
-    def test_the_hosted_environments_pin_the_ids_and_refuse_to_start_until_they_are_real(self):
+    def test_the_hosted_environments_name_the_store_and_pin_no_id(self):
         """The rendered ConfigMap, loaded as the pod would load it (the key as the mounted file the ConfigMap names):
-        the error names the unpinned variables, and once both are set the authorization settings pass."""
+        the store name stands in for the ids (E3.F3.9.S6, resolved at start-up: tests/test_authz_bootstrap.py), so
+        the authorization settings pass with no id, and still pass when both ids are pinned by hand."""
         with tempfile.NamedTemporaryFile("w", suffix=".key", delete=False) as f:
             f.write("t" * 32)
         self.addCleanup(pathlib.Path(f.name).unlink)
@@ -189,20 +192,22 @@ class Rendered(unittest.TestCase):
             with self.subTest(environment=name):
                 data = self.config(name)
                 self.assertEqual((data["INKCAST_AUTHZ_ENGINE"], data["INKCAST_AUTHZ_ALLOW_LOCAL"]), ("openfga", "false"))
-                self.assertIn("INKCAST_FGA_STORE_ID", data)
-                self.assertIn("INKCAST_FGA_MODEL_ID", data)
+                self.assertEqual(data["INKCAST_FGA_STORE_NAME"], "inkcast")
+                self.assertNotIn("INKCAST_FGA_STORE_ID", data)
+                self.assertNotIn("INKCAST_FGA_MODEL_ID", data)
                 self.assertEqual(data["INKCAST_FGA_API_TOKEN_FILE"], "/var/run/secrets/inkcast/fga-api-token")
                 env = {**data, "INKCAST_SECRET_KEY": "k" * 48, "OIDC_CLIENT_SECRET": "s" * 32, "INKCAST_FGA_API_TOKEN_FILE": f.name}
-                if not (data["INKCAST_FGA_STORE_ID"] and data["INKCAST_FGA_MODEL_ID"]):
-                    with self.assertRaises(ConfigError) as caught:
-                        load_config(env).validate(("secret_key", "login", "authz"))
-                    self.assertRegex(str(caught.exception), r"INKCAST_AUTHZ_ENGINE=openfga needs INKCAST_FGA_STORE_ID and INKCAST_FGA_MODEL_ID")
-                    self.assertNotIn("INKCAST_FGA_API_URL", str(caught.exception), "the component sets the URL")
                 pinned = {**env, "INKCAST_FGA_STORE_ID": "01JSTORE0000000000000000AA", "INKCAST_FGA_MODEL_ID": "01JMODEL0000000000000000AA"}
-                try:
-                    load_config(pinned).validate(("secret_key", "login", "authz"))
-                except ConfigError as exc:
-                    self.assertNotRegex(str(exc), r"AUTHZ|FGA", f"{name}: {exc}")
+                for variant in (env, pinned):
+                    try:
+                        load_config(variant).validate(("secret_key", "login", "authz"))
+                    except ConfigError as exc:
+                        self.assertNotRegex(str(exc), r"AUTHZ|FGA", f"{name}: {exc}")
+                without_name = {k: v for k, v in env.items() if k != "INKCAST_FGA_STORE_NAME"}
+                with self.assertRaises(ConfigError) as caught:
+                    load_config(without_name).validate(("secret_key", "login", "authz"))
+                self.assertRegex(str(caught.exception), r"INKCAST_AUTHZ_ENGINE=openfga needs INKCAST_FGA_STORE_ID and INKCAST_FGA_MODEL_ID")
+                self.assertNotIn("INKCAST_FGA_API_URL", str(caught.exception), "the component sets the URL")
 
 
 class Settings(unittest.TestCase):
@@ -320,7 +325,9 @@ class WriteModel(unittest.TestCase):
         self.assertIn("created", err)
         self.assertIn("model written", err)
         calls = [(m, p.removeprefix("/fga/")) for m, p, _ in self.fakes.fga_calls]
-        self.assertEqual(calls, [("GET", "stores"), ("POST", "stores"), ("GET", f"stores/{store_id}/authorization-models"),
+        self.assertEqual(calls, [("GET", "stores"), ("POST", "stores"),
+                                 ("GET", "stores"),   # after creating: racers that created theirs at once (E3.F3.9.S6)
+                                 ("GET", f"stores/{store_id}/authorization-models"),
                                  ("POST", f"stores/{store_id}/authorization-models")])
         # Second run: the store is found and the newest version is this model, so nothing is written.
         code, out2, err2 = self.run_cli()
@@ -381,12 +388,16 @@ class WriteModel(unittest.TestCase):
         code, out, err = self.run_cli("--model", "/nonexistent/model.json")
         self.assertEqual((code, out), (1, ""))
         self.assertIn("can't be loaded", err)
+        # Two stores of the name it did not create, the younger holding a version (E3.F3.9.S6): every writer uses the
+        # oldest and deletes neither (tests/test_authz_bootstrap.py Convergence has the races); the server still
+        # refuses two, naming both.
         self.fakes.fga_stores = {"01JFAKE0000000000000000001": "inkcast", "01JFAKE0000000000000000002": "inkcast"}
-        self.fakes.fga_models = {k: [] for k in self.fakes.fga_stores}
+        version = {"id": "01JHANDMADE000000000000001", **json.loads(PACKAGED_MODEL.read_text())}
+        self.fakes.fga_models = {"01JFAKE0000000000000000001": [], "01JFAKE0000000000000000002": [version]}
         code, out, err = self.run_cli()
-        self.assertEqual((code, out), (1, ""))
-        self.assertIn("2 stores named 'inkcast'", err)
-        self.assertEqual(len(self.fakes.fga_stores), 2, "neither chosen, none created")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.ids(out)[0], "01JFAKE0000000000000000001", "the oldest")
+        self.assertEqual(len(self.fakes.fga_stores), 2, "neither deleted: the younger holds a version")
 
     def test_an_unreachable_server_fails_closed(self):
         code, out, err = self.run_cli(INKCAST_FGA_API_URL="http://127.0.0.1:9/fga", INKCAST_FGA_TIMEOUT="1")
@@ -414,12 +425,11 @@ class KindJob(unittest.TestCase):
         self.assertRegex(versions["CNPG_MANIFEST_SHA256"], r"^[0-9a-f]{64}$")
         script = (ROOT / "scripts" / "dev" / "openfga-e2e.sh").read_text()
         for needed in ("CNPG_MANIFEST_SHA256", "apply --server-side", "overlays/ci-openfga", "job/openfga-migrate",
-                       "inkcast authz write-model", "/readyz", "INKCAST_FGA_STORE_ID and INKCAST_FGA_MODEL_ID"):
+                       "-c authz-model", "rollout restart deploy/inkcast", "/readyz", "model written", "model unchanged"):
             self.assertIn(needed, script)
         self.assertNotIn("sha256sum -c", script, "not on macOS: compare the digest as scripts/kind-tools.sh does")
         ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
         self.assertIn("scripts/dev/openfga-e2e.sh", ci)
-        self.assertLess(ci.index("pip install -e ."), ci.index("scripts/dev/openfga-e2e.sh"), "the script runs `inkcast`")
         self.assertIn("inkcast-openfga", ci.split("name: Diagnostics")[1])
 
 

@@ -108,6 +108,8 @@ EVENTS: dict[str, tuple[str, str]] = {
                                                  "resolved already (pass id only)."),
     "authz.denied": ("warning", "A permission check said no (user, relation and object ids; never a token or a name)."),
     "authz.error": ("critical", "The policy engine could not answer (OpenFGA down, bad model id); the caller failed closed (503)."),
+    "authz.model.pinned": ("info", "Start-up resolved the OpenFGA store by INKCAST_FGA_STORE_NAME and pinned the model version "
+                                   "equal to the packaged model (store and model ids); a refusal before it is config.unsafe."),
     "backup.done": ("info", "A database backup was taken, checked and kept (name, size, rows)."),
     "backup.failed": ("critical", "A database backup failed; nothing was removed. The alert fires when none succeeds for 26 h."),
     "restore.done": ("warning", "The database was replaced by a backup; the previous one was kept beside it."),
