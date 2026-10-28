@@ -1,6 +1,6 @@
 # ADR-0018: A cut-off account is told, can export, and is erased after N days
 
-**Status:** proposed, 2026-10-28 (the owner's decisions are in "For the owner") · **Epic:** E9 (Identity on Keycloak), with E3 and E7 · **Issue:** #324 · **Changes:** F9.5.S6's rule that a disabled-but-present person is never erased, and F9.8.S3's "cut off but never erased"
+**Status:** accepted, 2026-10-28 (the owner accepted every recommendation in "For the owner") · **Epic:** E9 (Identity on Keycloak), with E3 and E7 · **Issue:** #324 · **Changes:** F9.5.S6's rule that a disabled-but-present person is never erased, and F9.8.S3's "cut off but never erased"
 
 ## Context
 
@@ -247,7 +247,7 @@ Without the grant:
 
 ## For the owner
 
-Each decision has a recommendation. The ADR is accepted once these are answered.
+Each decision has a recommendation. **Answered 2026-10-28: the owner accepted all seven recommendations as written.**
 
 1. **May the cleanup job hold `manage-users`?**
    - **Recommended: yes**, through the separate `inkcast-cleanup` client of §9. Its secret lives only in the CronJob, and every use is an admin event the sync checks.
