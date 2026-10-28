@@ -8,6 +8,7 @@ namespace: inkcast
 resources:
   - ../../base
   - route.yaml
+  - trusted-ca.yaml                 # the cluster's CA bundle, injected (#308)
 configMapGenerator:
   # OpenFGA's store and the pinned model version (components/openfga sets the engine and the server's URL): write
   # them once with `inkcast authz write-model` and pin both here. Until then Inkcast refuses to start and names them.
@@ -28,6 +29,20 @@ components:
   # - ../../components/egress-openshift # allow-list outbound hosts (OVN-Kubernetes EgressFirewall)
   # - ../../components/external-secrets # if secrets come from Vault / a cloud secret manager
 patches:
+  # Outbound HTTPS (Keycloak, the platforms) trusts the injected bundle, not only the image's own CAs (#308). The
+  # HTTP client reads SSL_CERT_FILE. The mount is not optional: until the operator fills the ConfigMap, the pod waits
+  # in ContainerCreating rather than starting without the file.
+  - target: {kind: Deployment, name: inkcast}
+    patch: |-
+      - op: add
+        path: /spec/template/spec/volumes/-
+        value: {name: trusted-ca, configMap: {name: inkcast-trusted-ca, items: [{key: ca-bundle.crt, path: tls-ca-bundle.pem}]}}
+      - op: add
+        path: /spec/template/spec/containers/0/volumeMounts/-
+        value: {name: trusted-ca, mountPath: /etc/pki/ca-trust/extracted/pem, readOnly: true}
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value: {name: SSL_CERT_FILE, value: /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem}
   # No runAsUser/fsGroup, on Inkcast's pod or OpenFGA's: the restricted-v2 SCC assigns them per namespace.
   - target: {kind: NetworkPolicy, name: inkcast}
     patch: |-
