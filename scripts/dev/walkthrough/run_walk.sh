@@ -8,8 +8,9 @@
 # The password comes from the environment only (WALK_PASSWORD), never an argument: argv is visible to every
 # process on the host. Unset, one is generated for this run and forgotten with it. Ports are overridable:
 # WALK_INKCAST_PORT (8787), WALK_FAKES_PORT (8999), WALK_METRICS_PORT (9090), WALK_CALLBACK_PORT (0: a free port).
-# WALK_PYTHON names the interpreter (default python3; it needs inkcast importable, or PYTHONPATH=src as the
-# tests use). Nothing is installed.
+# WALK_PYTHON names the interpreter. The default is the checkout's .venv/bin/python (the setup guide's environment,
+# CONTRIBUTING.md), else python3 (CI, which installs into the runner's own); it needs inkcast's dependencies.
+# Nothing is installed.
 #
 # Exit 0 only if every step and every integrity check passed. The document is built either way, so a failing
 # walk still leaves the evidence of what failed; when the walk itself exits non-zero, the last lines of the
@@ -19,7 +20,10 @@
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo="$(cd "${here}/../../.." && pwd)"
-py="${WALK_PYTHON:-python3}"
+py="${WALK_PYTHON:-}"
+if [ -z "${py}" ]; then
+  if [ -x "${repo}/.venv/bin/python" ]; then py="${repo}/.venv/bin/python"; else py=python3; fi
+fi
 out=""
 while [ $# -gt 0 ]; do
   case "$1" in
