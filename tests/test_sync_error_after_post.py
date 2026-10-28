@@ -141,7 +141,7 @@ def after_the_send(*args, **kwargs) -> bool:
 
 def the_post_pointer(*args, **kwargs) -> bool:
     """The ledger write that names the post just made, before anything is sent (``on_created``)."""
-    return set(kwargs) == {"post_id"}
+    return set(kwargs) == {"post_id", "content_hash"}
 
 
 def the_entry_itself(*args, **kwargs) -> bool:

@@ -294,6 +294,7 @@ class GitSync:
             return SyncResult(**base, action="skipped", message="Another sync of this file is in progress.")
 
         made: dict[str, str] = {}  # the post row this sync made, known before the write that names it (below)
+        said: str | None = None  # why the platform refused the post, kept if the write of that outcome fails (#229)
 
         # Before the send, so a crash mid-send can't orphan the post; in the row's own transaction, so a failed write
         # leaves no row that nothing names, for recovery to send while the next sync makes another.
@@ -301,7 +302,10 @@ class GitSync:
             made["post_id"] = post_id
             # Through the publisher's store: the write runs inside create_post's transaction, on that connection
             # (a second connection would wait on the lock the first holds). In production the two are one store.
-            self.publisher.store.put_entry(user_id, src, path, pid, post_id=post_id)
+            # With the content it carries: if every later write of the entry fails, or the process stops, the entry
+            # that names the replacement must not keep the replaced post's hash, or the next sync takes the unchanged
+            # file for an edit and replaces the replacement, or makes again one a person cancelled (#229).
+            self.publisher.store.put_entry(user_id, src, path, pid, post_id=post_id, content_hash=digest)
 
         try:
             # retry: a "now" post the platform rate-limits waits for the scheduler's retry (and the 429's
@@ -309,6 +313,7 @@ class GitSync:
             [o] = await self.publisher.publish(user_id, story, [pid], on_created=on_record, created_at=created_at,
                                                retry=True)
             if o.status in ("failed", "skipped"):
+                said = o.message
                 if replace:
                     self.store.put_entry(user_id, src, path, pid, status="failed", message=o.message)
                 else:
@@ -318,7 +323,7 @@ class GitSync:
                                  url=o.url, remote_id=o.remote_id,
                                  message=o.message if o.status in ("unconfirmed", "scheduled") else None)
         except Exception:
-            self._after_error(user_id, src, path, pid, digest, made.get("post_id"))
+            self._after_error(user_id, src, path, pid, digest, made.get("post_id"), said)
             raise
         return SyncResult(**base, action=action, status=o.status, post_id=o.post_id, url=o.url,
                           message=o.message or ("; ".join(o.notes) or None))
@@ -336,19 +341,22 @@ class GitSync:
                 f"/api/v1/posts/{post_id}/cancel) if you don't want it. After a cancel, an edited file is published as a "
                 f"new post, so remove the first copy on {platform.name} if it did arrive.")
 
-    def _after_error(self, user_id: str, src: str, path: str, pid: str, digest: str, post_id: str | None) -> None:
+    def _after_error(self, user_id: str, src: str, path: str, pid: str, digest: str, post_id: str | None,
+                     said: str | None = None) -> None:
         """The publish, or the ledger write of its outcome, raised (a locked database, say). Once the post row exists
         the entry points at it, with the post's own status, so the next sync follows the post and never creates it
         again: 'publishing' is the scheduler's to recover (asked, never re-sent), 'scheduled' waits for its time,
         'unconfirmed' is checked (#213). Only an error before any post row exists marks the entry 'failed', which
-        the next sync creates afresh; so too on the replace path, whose claim names no post until its own exists."""
+        the next sync creates afresh; so too on the replace path, whose claim names no post until its own exists.
+        ``said``: the platform's reason for refusing the post, when the error came in the write of that outcome: the
+        entry keeps it, not "internal error" (#229)."""
         post = self.store.get_post(post_id) if post_id else None
         if post is None:
-            self.store.put_entry(user_id, src, path, pid, status="failed", message="internal error")
+            self.store.put_entry(user_id, src, path, pid, status="failed", message=said or "internal error")
             return
         self.store.put_entry(user_id, src, path, pid, content_hash=digest, post_id=post["id"], status=post["status"],
                              url=post["result_url"], remote_id=post["remote_id"],
-                             message="Internal error after the post was made; its status says what became of it.")
+                             message=said or "Internal error after the post was made; its status says what became of it.")
 
     def _resolve(self, user_id: str, src: str, path: str, platform: Platform, entry: dict, o: Outcome | None) -> dict | None:
         """Resolve an unconfirmed entry from what the platform said (``Publisher.confirm``): published → record it;

@@ -87,7 +87,11 @@ Publishing by hand (`inkcast_publish`, `POST /api/v1/posts`) is different: there
 
 Files are matched to earlier posts by repository, path and platform. If you rename a file, it counts as a new story; to keep it linked, keep the path.
 
-If a sync fails part-way (the request errors because Inkcast's database was busy, say), run it again: a post it had already made is picked up where it stands, never made a second time, and only a file that had no post yet is created afresh.
+If a sync fails part-way (the request errors because Inkcast's database was busy, say), run it again:
+
+- A post the failed run had already made is followed, never made a second time: the re-run reports its status. If that post is `unconfirmed` (the platform's answer to its send was lost), it waits for your decision, as above. Only a post the platform refused (`failed`) is made again, as after any `failed` result.
+- A post the failed run had not made yet is made by the re-run. That is a new file's post, or the replacement of a scheduled post whose file you edited.
+- If the failed run couldn't even record its error, the file stays held for up to 10 minutes. A re-run in that time reports `skipped` (another sync of the file is running); run it again after that.
 
 ## Any other CI, or your laptop
 
