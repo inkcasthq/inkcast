@@ -12,6 +12,7 @@
 - [Video platforms, batch review and the engagement inbox](design/video-platforms-and-review.md): YouTube and Facebook Pages plug-ins, the batch review queue, inbox constraints, and the current build order.
 - [Research: publishing to TikTok, X and Instagram](research/social-platforms-2026-10.md): official-docs findings, as of 2026-10-18.
 - [Research: OpenFGA behaviour for our model and engines](research/openfga-2026-10.md): self-referential usersets, the new check engine, limits; pinned v1.22.0, as of 2026-10-22.
+- [Research: a realm import applied before its client-secret Secret exists](research/realm-import-before-secret-2026-10.md): the Keycloak operator's import Job waits in `CreateContainerConfigError` and completes on its own once the Secret appears (40 s), with no server restart; measured on OpenShift Local with a throwaway realm, 2026-10-29, for #343.
 - [Research: disabled accounts, export and deletion](research/account-lifecycle-2026-10.md): what comparable systems and the GDPR say about deactivation windows, export, coming back and email changes, and Keycloak 26.6.7's side; as of 2026-10-28. The design is [ADR-0018](adr/0018-disabled-accounts-notice-export-and-erasure.md).
 
 ## Product strategy

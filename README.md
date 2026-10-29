@@ -158,14 +158,14 @@ scripts/deploy/ghcr-pull-secret.sh prod <github-username> <token-file>
 oc apply -k deploy/kustomize/environments/staging                # then environments/production the same way
 oc -n inkcast-staging wait --for=condition=complete job/openfga-migrate --timeout=10m
 oc -n inkcast-db get database                                    # APPLIED true for both, once their roles have their Secrets
-oc apply -k deploy/kustomize/shared/keycloak-realms              # Mailpit, and both realms imported once (below), once both
-oc -n keycloak get keycloakrealmimports                          # environments made their realm Secrets; Done for both first
+oc apply -k deploy/kustomize/shared/keycloak-realms              # Mailpit, and both realms imported once (below), in any order:
+oc -n keycloak get keycloakrealmimports                          # each import waits for its realm Secret, then runs; Done for both
 oc -n inkcast-staging rollout status deploy/inkcast --timeout=15m   # the authz-model init container, then Ready
 ```
 
 `oc delete -k deploy/kustomize/shared/inkcast-db` deletes the Cluster and, with it, its volume: both environments' authorization data. `databaseReclaimPolicy: retain` keeps a database when its `Database` object is deleted, not when the Cluster is.
 
-**The realms as code.** Each environment signs people in against its own realm on the lab's Keycloak (namespace `keycloak`, CR `keycloak`, run by the operator): `inkcast-staging` and `inkcast-prod`, each a `KeycloakRealmImport` in `deploy/kustomize/shared/keycloak-realms` that `scripts/gen-realm-imports.py` renders from the one realm file, `deploy/keycloak/realm-inkcast.json`, unchanged but for its name, the environment's public URL and the mail; `--check` fails the tests when the realm file, an environment or the Mailpit Service moved without regenerating. The import Job reads the client secrets from `Secret inkcast-<side>-realm` through `spec.placeholders`, so nothing secret is in Git. The values that must agree, per side (`tests/test_realm_imports.py` checks each row):
+**The realms as code.** Each environment signs people in against its own realm on the lab's Keycloak (namespace `keycloak`, CR `keycloak`, run by the operator): `inkcast-staging` and `inkcast-prod`, each a `KeycloakRealmImport` in `deploy/kustomize/shared/keycloak-realms` that `scripts/gen-realm-imports.py` renders from the one realm file, `deploy/keycloak/realm-inkcast.json`, unchanged but for its name, the environment's public URL and the mail; `--check` fails the tests when the realm file, an environment or the Mailpit Service moved without regenerating. The import Job reads the client secrets from `Secret inkcast-<side>-realm` through `spec.placeholders`, so nothing secret is in Git. The order does not matter: each placeholder is an environment entry of the Job's pod from that Secret (`optional: false`), so an import applied before env-secrets made the Secret keeps its pod waiting in `CreateContainerConfigError`, the kubelet retries it, and the import completes on its own once the Secret exists, without any restart of the Keycloak server (measured on OpenShift Local, 2026-10-29: Done 40 s after the Secret; [docs/research/realm-import-before-secret-2026-10.md](docs/research/realm-import-before-secret-2026-10.md)). The values that must agree, per side (`tests/test_realm_imports.py` checks each row):
 
 | Value | Set in | Must agree with |
 |---|---|---|
