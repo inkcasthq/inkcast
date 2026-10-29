@@ -1,9 +1,9 @@
 # Who may reach the shared PostgreSQL's pods (selected by cnpg.io/cluster, the label the operator puts on every
 # instance pod: docs/src/labels_annotations.md at v1.30.1), and on which ports:
 #
-#   - OpenFGA's pods in inkcast-staging and inkcast-prod, on 5432. The server and the migrate Job both carry
-#     app.kubernetes.io/name=openfga and part-of=inkcast (components/openfga/deployment.yaml, job.yaml). Which
-#     database each may open is pg_hba's job (cluster.yaml).
+#   - OpenFGA's pods in inkcast-staging and inkcast-prod, on 5432. The pod that runs the migration and the server
+#     (one pod: the init container migrate, then the server) carries app.kubernetes.io/name=openfga and
+#     part-of=inkcast (components/openfga/deployment.yaml). Which database each may open is pg_hba's job (cluster.yaml).
 #   - The CloudNativePG operator, on 8000 and 5432. "The operator needs to communicate to each instance on TCP port
 #     8000 to get information about the status of the PostgreSQL server" (security.md, "Network Policies";
 #     https://cloudnative-pg.io/documentation/current/security/#network-policies), and "please ensure the operator

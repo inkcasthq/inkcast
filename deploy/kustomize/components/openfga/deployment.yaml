@@ -4,9 +4,35 @@
 # is satisfied without a runAsUser here: the restricted-v2 SCC assigns one on OpenShift, and Kubernetes keeps the
 # image's. No volume, no fsGroup: the binary writes nothing.
 #
+# The schema, before the server (E3.F3.9.S8, issue #337): the init container `migrate` runs `openfga migrate`
+# (cmd/migrate/migrate.go) with the server's own image and the server's datastore Secret, at every start of the pod.
+# It brings the database to the current revision and does nothing when it already is (pkg/storage/migrate/migrate.go:
+# goose.GetDBVersion, then goose.Up). OPENFGA_TIMEOUT is how long it keeps retrying the first connection
+# (migrate.go:119-125, a back-off bounded by cfg.Timeout): long enough for the Cluster to bootstrap on a fresh
+# install. A run that fails, a database still down after that or a migration refused, exits 1 and the kubelet starts it
+# again with its back-off (10 s, doubling, capped at 5 min) until it succeeds: no deadline, no Job to delete, nothing
+# a person re-applies. An image change is a new ReplicaSet whose pod runs the new image's migrations before its
+# server; during the rollout the previous pod keeps serving on the schema it knows. Why an init container and not a
+# Job: a Job's template is immutable (an image bump is refused: "field is immutable") and a Job past its deadline or
+# backoffLimit is failed for good. OpenFGA's own chart does the same with `migrationType: initContainer`
+# (openfga/helm-charts at openfga-0.3.16, charts/openfga/templates/deployment.yaml:52-61).
+#
+# Concurrent runs: v1.22.0 takes NO lock around its migrations. pkg/storage/migrate/migrate.go:141 calls the
+# package-level goose.Up (goose v3.28.0, up.go:161-170 -> UpToContext, up.go:41), which has no locker; goose's
+# PostgreSQL advisory lock exists only on its Provider API (provider_run.go:291-295, behind WithSessionLocker,
+# provider_options.go:74), which OpenFGA does not use. So safety is arranged here, not assumed: `replicas: 1`, which
+# every overlay and environment keeps (tests/test_openfga_component.py), so one pod at a time runs the migration and
+# the pod it replaces, already past its own init containers, never runs it again; and each of the six PostgreSQL
+# migration files (assets/migrations/postgres) is one goose transaction with its version row (goose
+# migration_sql.go:28-60), so a second runner that loses a DDL race fails whole, exits 1, and its retry finds the
+# revision current. The one file marked `-- +goose NO TRANSACTION` (006_add_collate_index.sql) holds only
+# `CREATE INDEX CONCURRENTLY IF NOT EXISTS` and `DROP INDEX CONCURRENTLY IF EXISTS`, each idempotent. Raise
+# `replicas` only with a lock in front of the migration (OpenFGA on goose's Provider, or one pod that migrates).
+#
 # Ports (pkg/server/config/config.go, DefaultConfig): HTTP 8080 (the API and /healthz, which answers without a key),
-# gRPC 8081, Prometheus 2112. /healthz is NOT_SERVING until the schema is current (job.yaml), so the startup probe
-# allows five minutes for the migrate Job on a fresh install.
+# gRPC 8081, Prometheus 2112. /healthz is NOT_SERVING until the schema is current (pkg/storage/sqlcommon/sqlcommon.go,
+# IsVersionReady), which the init container guarantees before the server starts; the startup probe's five minutes
+# cover a slow database.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -32,6 +58,23 @@ spec:
       securityContext:
         runAsNonRoot: true
         seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        - name: migrate
+          image: openfga/openfga:v1.22.0@sha256:9cf9a20af32a40434cd3a788c429879439ee9ea9abf65c9c200ee17cd43f769e
+          args: ["migrate"]
+          env:
+            - {name: OPENFGA_DATASTORE_ENGINE, value: postgres}
+            - name: OPENFGA_DATASTORE_URI
+              valueFrom: {secretKeyRef: {name: openfga-db-app, key: uri}}
+            - {name: OPENFGA_TIMEOUT, value: 10m}
+            - {name: OPENFGA_LOG_FORMAT, value: json}
+          resources:
+            requests: {cpu: 20m, memory: 64Mi}
+            limits: {memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
       containers:
         - name: openfga
           image: openfga/openfga:v1.22.0@sha256:9cf9a20af32a40434cd3a788c429879439ee9ea9abf65c9c200ee17cd43f769e

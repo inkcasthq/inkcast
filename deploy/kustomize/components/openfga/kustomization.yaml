@@ -1,9 +1,10 @@
 # OpenFGA for Inkcast's permission checks (E3.F3.9.S1, issue #279; design: docs/authorization.md §8, ADR-0007).
 #
 # What it adds: a PostgreSQL `Cluster` run by the CloudNativePG operator (a cluster prerequisite, like user-workload
-# monitoring for the ServiceMonitor; ADR-0014), a `migrate` Job that brings the schema up before the server answers,
-# the OpenFGA Deployment and Services, and the egress rule that lets Inkcast's pods reach it. Every image is pinned
-# by digest (scripts/images.py), so an air-gapped registry mirrors exactly these.
+# monitoring for the ServiceMonitor; ADR-0014), the OpenFGA Deployment, whose init container `migrate` brings the
+# schema up before the server starts (deployment.yaml: no Job, so nothing immutable to apply over and nothing that
+# fails for good; E3.F3.9.S8, issue #337), its Services, and the egress rule that lets Inkcast's pods reach it. Every
+# image is pinned by digest (scripts/images.py), so an air-gapped registry mirrors exactly these.
 #
 # What it sets on Inkcast: the engine, the server's URL, where the preshared key is read from, and the store's name.
 # The key is one more entry in the `inkcast-secrets` Secret (`fga-api-token`): Inkcast reads it as
@@ -22,7 +23,6 @@ apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
 resources:
   - cluster.yaml
-  - job.yaml
   - deployment.yaml
   - service.yaml
   - networkpolicy.yaml

@@ -24,7 +24,7 @@ pull request ─► ci.yml ─────────────────�
                  manifests (render every overlay/environment)                         │
                  image (build + Grype scan → code scanning)                           │
                  kind (deploy real image + manifests under PSS restricted, smoke;     │
-                       OpenFGA on CloudNativePG, migrate Job, authz-model init)       │
+                       OpenFGA on CloudNativePG, migrate and authz-model inits)       │
                  codeql (python + js)                                                 ┘
 
 push to main ──► publish.yml: gate (= ci.yml) ► build+push (digest) ► sbom ► attest (sign, SBOM attest,

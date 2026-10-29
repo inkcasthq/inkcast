@@ -62,8 +62,9 @@ class Rendered(unittest.TestCase):
             with self.subTest(environment=name):
                 docs = self.docs[name]
                 pod = pod_spec(one(docs, "Deployment", "openfga"))
-                (init,) = pod["initContainers"]
+                init, migrate = pod["initContainers"]   # env-secrets first: migrate reads the Secret it makes (#337)
                 self.assertEqual((init["name"], init["args"]), ("env-secrets", ["env-secrets"]))
+                self.assertEqual(migrate["name"], "migrate")
                 self.assertNotIn("command", init, "the image's entrypoint, the launcher")
                 inkcast_image = pod_spec(one(docs, "Deployment", "inkcast"))["containers"][0]["image"]
                 self.assertEqual(init["image"], inkcast_image, "the environment's digest: every release runs it")
@@ -76,7 +77,7 @@ class Rendered(unittest.TestCase):
                 self.assertIn("memory", init["resources"]["limits"])
                 self.assertIs(pod["automountServiceAccountToken"], False, "no token for OpenFGA's own container")
                 self.assertEqual(pod["volumes"], [TOKEN_VOLUME], "ten minutes, the shortest the API allows")
-                for container in pod["containers"]:
+                for container in (*pod["containers"], migrate):
                     self.assertFalse(container.get("volumeMounts"), f"{container['name']}: never the token")
                 self.assertEqual((pod["serviceAccountName"], pod["imagePullSecrets"]), (SA, PULL))
                 account = one(docs, "ServiceAccount", SA)
@@ -133,10 +134,12 @@ class Rendered(unittest.TestCase):
                 self.assertEqual(roles[layout.role]["passwordSecret"], {"name": layout.db_role.name})
                 self.assertEqual(layout.db_role.namespace, cluster["metadata"]["namespace"])
                 self.assertEqual((layout.app.namespace, layout.db_app.namespace), (namespace, namespace))
-                for obj in (one(docs, "Deployment", "openfga"), one(docs, "Job", "openfga-migrate")):
-                    env = env_by_name(pod_spec(obj)["containers"][0])
+                openfga = pod_spec(one(docs, "Deployment", "openfga"))
+                (migrate,) = [c for c in openfga["initContainers"] if c["name"] == "migrate"]   # the schema, before the server (#337)
+                for container in (openfga["containers"][0], migrate):
+                    env = env_by_name(container)
                     self.assertEqual(env["OPENFGA_DATASTORE_URI"]["valueFrom"],
-                                     {"secretKeyRef": {"name": layout.db_app.name, "key": "uri"}}, obj["kind"])
+                                     {"secretKeyRef": {"name": layout.db_app.name, "key": "uri"}}, container["name"])
                 env = env_by_name(pod_spec(one(docs, "Deployment", "openfga"))["containers"][0])
                 self.assertEqual(env["OPENFGA_AUTHN_PRESHARED_KEYS"]["valueFrom"],
                                  {"secretKeyRef": {"name": layout.app.name, "key": "fga-api-token"}})
@@ -157,7 +160,7 @@ class Rendered(unittest.TestCase):
             with self.subTest(overlay=name):
                 docs = self.docs[name]
                 pod = pod_spec(one(docs, "Deployment", "openfga"))
-                self.assertFalse(pod.get("initContainers"))
+                self.assertEqual([c["name"] for c in pod["initContainers"]], ["migrate"], "the component's own init container only")
                 self.assertNotIn("serviceAccountName", pod)
                 self.assertFalse([d for d in docs if d["kind"] in ("Role", "RoleBinding")])
                 self.assertNotIn("env-secrets", yaml.safe_dump_all(docs))

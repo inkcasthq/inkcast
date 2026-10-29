@@ -89,7 +89,7 @@ patches:
         path: /spec/host
         value: inkcast-prod.apps-crc.testing
   # The lab's two environments share one PostgreSQL (deploy/kustomize/shared/inkcast-db, #296): the component's
-  # per-namespace Cluster is dropped here, and OpenFGA's Deployment and migrate Job read the Secret openfga-db-app
+  # per-namespace Cluster is dropped here, and OpenFGA's pod (migrate, then the server) reads the Secret openfga-db-app
   # that components/env-secrets creates, pointing at the shared cluster. The kubernetes, openshift and ci-openfga
   # overlays keep the Cluster: a self-host or CI gets its own database from the component alone.
   - target: {kind: Cluster, name: openfga-db}

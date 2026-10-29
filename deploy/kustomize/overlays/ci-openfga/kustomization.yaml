@@ -1,9 +1,10 @@
 # Used only by CI (kind): the CI overlay plus the OpenFGA component (E3.F3.9.S1), in its own namespace so the other
 # kind steps keep the in-process engine. Proves, through scripts/dev/openfga-e2e.sh, that the component applies
-# under Pod Security "restricted", the migrate Job completes, the pod's init container authz-model writes the store
-# and the model with no manual step, Inkcast pins them by name and rolls out on its own with readiness passing
-# against OpenFGA, and a restarted pod finds the model unchanged (E3.F3.9.S6). The CloudNativePG operator is
-# installed first (scripts/versions.env). The end-to-end suite on OpenFGA is F3.9.S3.
+# under Pod Security "restricted", OpenFGA's init container migrate brings a fresh database up and an image change
+# re-runs it with no manual step (E3.F3.9.S8), the pod's init container authz-model writes the store and the model
+# with no manual step, Inkcast pins them by name and rolls out on its own with readiness passing against OpenFGA,
+# and a restarted pod finds the model unchanged (E3.F3.9.S6). The CloudNativePG operator is installed first
+# (scripts/versions.env). The end-to-end suite on OpenFGA is F3.9.S3.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: inkcast-openfga
