@@ -23,7 +23,7 @@ Frontend targets per project:
 | `scripts/mockups/render.js` | Renders a design-canvas artboard (`.dc.html`) to one self-contained HTML page, for given props: `node scripts/mockups/render.js Main.dc.html out.html '{"theme":"dark","tab":"agents"}'` |
 | `scripts/mockups/check.py` | Renders every variant (each combination of the artboard's enum tweaks: theme, tab, range...) and opens it at 390, 820 and 1440 px. It fails on a leftover placeholder, a page that scrolls sideways, or a background that stops short. `--export <dir>` then writes one HTML page and PNG per tab for the repo (light by default). |
 
-Both need Node; `check.py` also needs Playwright with Chromium. `tests/test_mockup_tools.py` covers them.
+Both need Node; `check.py` also needs Playwright with Chromium. A boolean attribute written as a hole (`checked="{{x}}"`, `selected`, `disabled`) is rendered only when its value is truthy, as the canvas does. `tests/test_mockup_tools.py` covers them.
 
 ## Building a mockup (`build-mockup`)
 
@@ -91,6 +91,7 @@ Every section is one of these, with `data-component="<type>"` and `data-dataset=
 | `callout` | warning or tip, often with a `<code>` command | `tone, title, body, command?` |
 | `stat-strip` | one card: a heading figure with its note, and a few labelled numbers beside it | `title, value, note, stats: Stat[]` |
 | `segmented` | button group (theme, range, measure) with `aria-pressed` | `options, value, onChange` |
+| `form` | labelled inputs, checkbox groups in a `fieldset` with a `legend`, and the buttons that send it to one endpoint | `value: <Request>, onChange, onSubmit` (the request type from the `// dataset`) |
 
 Each section starts with an eyebrow (small upper-case letter-spaced `accent`) and an `h2`. A new type is added to this table in the same change.
 
@@ -141,6 +142,8 @@ Both targets use function components, hooks and JSX, so components written for o
 | `<sc-for>` | `.map()` with a stable `key` | the same |
 | `<sc-if>` | conditional render | the same |
 | handler props (`onClick="{{x}}"`) | `onClick` | `onClick` |
+| `form` section | controlled inputs bound to the request type; the server's 422 shown on the field it names | the same |
+| boolean attribute holes (`checked="{{x}}"`) | `checked={x}` | `checked={x}` |
 | helmet media queries | media queries in the component's CSS (the project's way), at the mockup's breakpoints | one stylesheet or CSS modules via Vite, same breakpoints |
 | build | the project's existing bundler | Vite + `@preact/preset-vite` to static files (one JS bundle, `tokens.css`, `index.html`) embedded in the binary at compile time; no CDN, works offline; Node only at build |
 | tests | the project's runner + Testing Library | Vitest + `@testing-library/preact` |

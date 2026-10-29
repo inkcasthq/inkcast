@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Inkcast web app: Insights tab, dark</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.ik-cols{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}
+@media (max-width:640px){.ik-user{display:none!important}.ik-actions button,.ik-actions a{flex:1 1 auto}}
+</style>
+</helmet>
+<div style="width: 1440px; height: 1380px; overflow: hidden; background: #0F1216">
+  <dc-import name="Main" theme="dark" tab="insights" hint-size="1440px,1380px"></dc-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1380}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
