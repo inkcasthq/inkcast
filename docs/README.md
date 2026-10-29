@@ -40,6 +40,7 @@
 
 ## Roadmap
 - [Epics and backlog](epics/README.md): file the backlog with `scripts/backlog/file.py inkcasthq/inkcast`.
+- [Backlog tracker](backlog/TRACKER.md): every story, its status, its issue and its place in the execution order.
 - [Issues](issues/): earlier ready-to-file issues. File them with `scripts/file-issues.sh inkcasthq/inkcast`.
 
 ## Organisation
