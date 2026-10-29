@@ -53,7 +53,7 @@ Where the work stands and how to pick it up on another machine or in a fresh ses
    ```bash
    PYTHONPATH=src:tests .venv/bin/python -m unittest discover -s tests
    .venv/bin/ruff check .
-   .venv/bin/python scripts/gen-manifests.py --check && .venv/bin/python scripts/gen-alerts.py --check && .venv/bin/python scripts/gen-dashboards.py --check && .venv/bin/python scripts/gen-realm-imports.py --check
+   .venv/bin/python scripts/gen-manifests.py --check && .venv/bin/python scripts/gen-alerts.py --check && .venv/bin/python scripts/gen-dashboards.py --check && .venv/bin/python scripts/gen-realm-imports.py --check && .venv/bin/python scripts/backlog/tracker.py --check
    scripts/dev/codeql.sh     # must end "nothing at CI's failure threshold"
    ```
    Always from the checkout's `.venv` (CONTRIBUTING.md, "Run the checks locally"); a worktree without one uses the main

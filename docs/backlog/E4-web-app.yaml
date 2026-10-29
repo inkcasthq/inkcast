@@ -21,6 +21,7 @@ features:
     title: 'Mockup: the writer web app (Posts, Compose, Connections, Git sync, Tokens, Insights, API), approved before UI
       code'
     status: done
+    issue: 347
     change: 'issue #347; new 2026-10-28; first in order: the mockup gates F4.1.S1, F4.2 and every screen build (ADR-0004);
       approved by the owner 2026-10-29'
     acceptance:
@@ -34,6 +35,7 @@ features:
   - id: F4.1.S5
     title: Node lock resolved in CI, as the Python lock is
     status: planned
+    issue: 348
     change: 'issue #348; new 2026-10-28: the build sandbox can''t reach npm, so the web workspace''s lock comes from CI'
     acceptance:
     - 'A workflow, run on demand and weekly like lock-refresh.yml, resolves web/package-lock.json with integrity hashes
@@ -46,6 +48,7 @@ features:
   - id: F4.2.S1
     title: 'WebApp service: OIDC with Keycloak, HttpOnly SameSite session'
     status: planned
+    issue: 349
     change: 'issue #349; refined 2026-10-28: Inkcast has no web entry today; the service is named inkcast-web, on its
       own host, with its own Keycloak client (owner''s decision)'
     acceptance:
@@ -62,12 +65,17 @@ features:
     - 'The client secret is a placeholder fed from a new key web-client-secret of Secret keycloak/inkcast-<side>-realm,
       paired by env-secrets with the WebApp''s own copy, like the identity and sync clients; it is never in Git or a log'
     - 'The session cookie is HttpOnly, Secure and SameSite=Lax; the browser never holds a bearer token (ADR-0004)'
+    - 'How the BFF calls /api/v1 as the person is decided and recorded in ADR-0004 before code: the API accepts only
+      Inkcast OAuth access tokens and personal access tokens (libs/http/rest.py, Authed), so either inkcast-web is an
+      OAuth client of Inkcast''s own authorization server, or the API learns to accept the inkcast-web client''s Keycloak
+      tokens; the token stays in the BFF''s server-side session'
   - id: F4.2.S2
     title: Generated API client
     status: planned
   - id: F4.2.S3
     title: 'inkcast-web on OpenShift: in each environment''s namespace, its own host, promoted by digest'
     status: planned
+    issue: 350
     change: 'issue #350; new 2026-10-28; the owner chose each environment''s namespace over a shared client namespace'
     acceptance:
     - 'inkcast-web runs in the namespace of its environment (inkcast-staging, inkcast-prod), never in a namespace shared
@@ -87,20 +95,34 @@ features:
   stories:
   - id: F4.3.S1
     title: 'Mockup: sign-up → workspace → connect → first token → Git guide'
-    status: planned
+    status: done
+    change: docs/epics/E4-web-app/mockups/onboarding.html, approved by the owner 2026-10-28
   - id: F4.3.S2
     title: Build
     status: planned
+  - id: F4.3.S3
+    title: 'Mockup + build: create a personal, team or company organization, join one by invitation or by a domain
+      suggestion, and switch between them; the screens call a workspace a team'
+    status: planned
+    change: 'new 2026-10-28 (owner ask); "team" for workspace in the screens until the owner decides otherwise (#360);
+      the API keeps workspace'
+    acceptance:
+    - 'Create asks the name of the team or company; the type shows as derived (F3.2.S11), never typed'
+    - 'The switcher lists every membership with its type; leaving and the last-owner refusal are shown (F3.2.S7)'
+    - 'Domain verification shows the TXT value and the state of the check (F3.2.S10); the conversion of a personal
+      organization is offered on its first invitation (F3.2.S8)'
 - id: F4.4
   phase: 1
   title: Connections
   stories:
   - id: F4.4.S1
     title: 'Mockup: health badges, scopes, reconnect, posts at risk'
-    status: planned
+    status: done
+    change: docs/epics/E4-web-app/mockups/connections.html, approved by the owner 2026-10-28
   - id: F4.4.S2
     title: Build
     status: planned
+    issue: 351
     change: 'issue #351; refined 2026-10-28: one screen per story, from the writer app mockup (F4.1.S4)'
     acceptance:
     - 'Translated from the approved mockup''s Connections tab per docs/tooling/mockup-standard.md, and matches it at 390,
@@ -111,10 +133,12 @@ features:
   stories:
   - id: F4.5.S1
     title: 'Mockup: editor with per-platform preview and counters'
-    status: planned
+    status: done
+    change: docs/epics/E4-web-app/mockups/composer.html, approved by the owner 2026-10-28
   - id: F4.5.S2
     title: Build (server-rendered preview from prepare())
     status: planned
+    issue: 352
     change: 'issue #352; refined 2026-10-28: one screen per story, from the writer app mockup (F4.1.S4)'
     acceptance:
     - 'Translated from the approved mockup''s Compose tab per docs/tooling/mockup-standard.md, and matches it at 390, 820
@@ -125,13 +149,15 @@ features:
   stories:
   - id: F4.6.S1
     title: 'Mockup: week/month, drag to reschedule, IANA time zone'
-    status: planned
+    status: done
+    change: docs/epics/E4-web-app/mockups/calendar.html, approved by the owner 2026-10-28
   - id: F4.6.S2
     title: Build
     status: planned
   - id: F4.6.S3
     title: Post list and history with errors
     status: planned
+    issue: 353
     change: 'issue #353; refined 2026-10-28: one screen per story, from the writer app mockup (F4.1.S4)'
     acceptance:
     - 'Translated from the approved mockup''s Posts tab per docs/tooling/mockup-standard.md, and matches it at 390, 820
@@ -142,10 +168,12 @@ features:
   stories:
   - id: F4.7.S1
     title: Mockup
-    status: planned
+    status: done
+    change: docs/epics/E4-web-app/mockups/tokens.html and git-publishing.html, approved by the owner 2026-10-28
   - id: F4.7.S2
     title: Build
     status: planned
+    issue: 354
     change: 'issue #354; refined 2026-10-28: one screen per story, from the writer app mockup (F4.1.S4)'
     acceptance:
     - 'Translated from the approved mockup''s Tokens tab per docs/tooling/mockup-standard.md, and matches it at 390, 820
@@ -153,6 +181,7 @@ features:
   - id: F4.7.S3
     title: 'Build: Git sync ledger page'
     status: planned
+    issue: 355
     change: 'issue #355; new 2026-10-28: a tab of the writer app mockup (F4.1.S4) that no story covered'
     acceptance:
     - 'Translated from the approved mockup''s Git sync tab per docs/tooling/mockup-standard.md, from GET /api/v1/ledger,
@@ -160,6 +189,7 @@ features:
   - id: F4.7.S4
     title: 'Build: API page (reference links, MCP endpoint, endpoints with their scopes)'
     status: planned
+    issue: 356
     change: 'issue #356; new 2026-10-28: a tab of the writer app mockup (F4.1.S4) that no story covered'
     acceptance:
     - 'Translated from the approved mockup''s API tab per docs/tooling/mockup-standard.md, and matches it at 390, 820
@@ -174,9 +204,14 @@ features:
     status: done
     change: new
   - id: F4.8.S2
-    title: 'Build: invite, grant and revoke through the E3 member API; seat-limit paywall (E5.F5.5.S3)'
+    title: 'Build: invite, grant and revoke through the E3 member API'
     status: planned
-    change: new
+    change: 'new; refined 2026-10-29: the seat-limit paywall is F4.8.S3, after E5''s seat ledger'
+  - id: F4.8.S3
+    phase: 4
+    title: 'Seat-limit paywall on invite and grant (E5.F5.5.S3), on the members screen'
+    status: planned
+    change: 'new 2026-10-29: split from F4.8.S2, so the members screen ships in phase 2 and the paywall with E5'
 - id: F4.9
   phase: 2
   title: Approvals
@@ -186,30 +221,45 @@ features:
     status: done
     change: new
   - id: F4.9.S2
-    title: 'Build: reviewers approve (can_approve); approval status in the DB; plan-gated depth (E5)'
+    title: 'Build: reviewers approve (can_approve); approval status in the DB'
     status: planned
-    change: new
+    change: 'new; refined 2026-10-28 (review): the plan-gated depth is F4.9.S4, after E5''s enforcement'
   - id: F4.9.S3
     title: post.approval_requested / post.approved events; approval_cycle_seconds and member_approval_latency KPIs built
     status: planned
     change: new
+  - id: F4.9.S4
+    phase: 4
+    title: 'Approval depth gated by plan: the entitlement checked at the edge of the approval use case (E5.F5.3.S4)'
+    status: planned
+    change: 'new 2026-10-28 (review): split from F4.9.S2, which W10 builds before E5'
 - id: F4.10
   phase: 1
   title: Insights pages (customer and team KPIs)
   stories:
   - id: F4.10.S1
+    phase: 2
     title: 'Mockup: workspace insights (posts by status stacked, success and on-time rates with their parts, Git sync table,
       usage vs plan); light theme'
     status: planned
     change: new
   - id: F4.10.S2
-    title: Build on /api/v1/insights with ?scope=workspace:<id>; charts follow the chart grammar (counts from zero, rates
-      show parts, colour carries one thing)
+    title: 'Build the Insights screen of the approved writer-app mockup on /api/v1/insights (the caller''s own posts); charts
+      follow the chart grammar (counts from zero, rates show parts, colour carries one thing)'
     status: planned
-    change: 'issue #357; new; refined 2026-10-28: from the writer app mockup''s Insights tab (F4.1.S4)'
+    issue: 357
+    change: 'issue #357; new; refined 2026-10-28: from the writer app mockup''s Insights tab (F4.1.S4); refined 2026-10-29:
+      the approved tab reads "your posts", so the workspace scope is F4.10.S5 (phase 2)'
     acceptance:
     - 'Translated from the approved mockup''s Insights tab per docs/tooling/mockup-standard.md, and matches it at 390, 820
       and 1440 px'
+  - id: F4.10.S5
+    phase: 2
+    title: 'Insights at workspace scope: /api/v1/insights?scope=workspace:<id> after authz.require(principal,
+      can_view_usage, scope)'
+    status: planned
+    change: 'new 2026-10-29: split from F4.10.S2; needs F3.2.S1 (workspaces), F3.7.S1 (authz.require) and F3.3.S6 (rollups
+      at workspace scope), as services/insights/rest.py:9-11 says'
   - id: F4.10.S3
     phase: 2
     title: 'Mockup + build: team view (per-member throughput, reviewer load, approval cycle time) shown only with can_view_usage;

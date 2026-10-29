@@ -85,10 +85,15 @@ features:
   title: Fit with Keycloak and OpenFGA (billing side)
   stories:
   - id: F10.4.S1
+    phase: 2
     title: Keycloak Organizations scale probe (10k and 100k orgs) to confirm a personal organization per sign-up
     status: planned
     timebox: 1d
-    change: new
+    change: 'new; refined 2026-10-28 (review): runs before F3.2.S1, so the owner decides open question 2 here, not in
+      F10.5.S3'
+    acceptance:
+    - 'The owner decides design.md section 8.3 question 2 (a personal organization per sign-up, or one at the first invite
+      or upgrade) on the measured numbers, before F3.2.S1 starts'
   - id: F10.4.S2
     title: 'Seats from billable relations: seat ledger vs OpenFGA Read/ListUsers reconcile'
     status: planned

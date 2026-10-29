@@ -55,6 +55,37 @@ It also adds the team and tier relations (billing admin, client reviewer, member
 - **OpenFGA store:** a separate Postgres database run by the same operator.
 - **Outbox:** tuples are written through a transactional outbox, so the database and OpenFGA can't diverge. A reconciler catches drift.
 
+### Organizations, teams and joining
+
+Added 2026-10-28 from the owner's brief: a person sets up a personal organization, a company organization or both, and joins other organizations by invitation, or other people join theirs.
+
+- **Two levels.** An organization owns and pays. Its workspaces hold channels, posts and members. The screens call a workspace a *team*, and the API keeps the name `workspace`. Data belongs to the organization, so a member who leaves takes nothing with them (F3.2.S1).
+- **Many memberships.** A person belongs to any number of organizations, and works in one active organization at a time (F3.2.S7). The last owner cannot leave.
+- **A personal organization grows in place.** Its first invitation offers to turn it into a team organization: the name and `kind` change, and nothing moves (F3.2.S8). A workspace can move between two organizations that the same person owns (F3.2.S9).
+- **Three ways in.**
+  - An invitation by email, with a role and an expiry (F3.2.S4).
+  - A verified domain, proved by a DNS TXT record and checked again daily, with one mode per domain (F3.2.S10). The default mode is a suggestion that an admin approves. The other modes are an automatic invitation and manual invitation only. A free mail provider's domain is never accepted.
+  - Enterprise SSO through the organization's identity provider (F9.6.S1).
+- **The type is derived, never typed.** An organization's type follows from facts (F3.2.S11):
+  - personal: made at sign-up.
+  - team: made or converted by a person, with no verified domain.
+  - company: has a verified domain.
+  - enterprise: has SSO connected.
+  - client: managed by an agency.
+
+  Owners' own labels are stored apart, and nothing reads them for access or billing.
+- **No account takeover.** Accounts are never linked by email. A company sign-in reaches an existing account only after the person proves it (F9.3.S2, ADR-0018 section 8).
+- **Keycloak's invitation API is not used.** Invitations are Inkcast rows, because CVE-2026-16072 lets an invite link listed by Keycloak's organization API create a member without email verification.
+
+Sources:
+
+- The organization and workspace split: [WorkOS](https://workos.com/docs/authkit/modeling-your-app).
+- The join modes: [Clerk](https://clerk.com/docs/guides/organizations/add-members/verified-domains).
+- Domain claims: [Slack](https://slack.com/help/articles/5513043606547-Claim-and-verify-email-domains) and [Atlassian](https://support.atlassian.com/user-management/docs/verify-a-domain-to-manage-accounts/).
+- Personal accounts turned into teams: [Vercel](https://vercel.com/changelog/2024-01-account-changes).
+- Domains unique per realm: [Keycloak organizations](https://docs.redhat.com/en/documentation/red_hat_build_of_keycloak/26.0/html/server_administration_guide/managing_organizations).
+- The invitation flaw: [Red Hat Bugzilla 2501721](https://bugzilla.redhat.com/show_bug.cgi?id=2501721).
+
 ## Risks
 
 - **Check latency on hot paths.** The F3.0.S1 spike measures it, and batching plus `ListObjects` on workspaces mitigate it.

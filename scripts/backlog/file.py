@@ -98,6 +98,10 @@ def main(argv: list[str]) -> int:
             f_url = create(f"[{feature['id']}] {feature['title']}", f"Part of {epic['id']} {epic['title']}.{parent}"
                            f"\n\nDesign: {link}", ["feature"], all(s["status"] == "done" for s in feature["stories"]))
             for story in feature["stories"]:
+                if story.get("issue"):
+                    # Filed already: its title may have been refined since, so the title match below would miss it
+                    print(f"= #{story['issue']} [{story['id']}]")
+                    continue
                 parent = f"\n\nFeature: {f_url}" if f_url else ""
                 create(f"[{story['id']}] {story['title']}", story_body(args.repo, epic, feature, story, parent),
                        ["story"], story["status"] == "done")

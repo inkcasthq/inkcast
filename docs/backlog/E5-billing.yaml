@@ -113,6 +113,7 @@ features:
     - Increases prorated now, decreases at renewal, debounced
     - Reconcile against OpenFGA reports injected drift
   - id: F5.3.S6
+    phase: 5
     change: new
     status: planned
     title: 'Credits wallet: AI assists and paid-platform sends (X weights) reserved before send; cost shown in dry run (issue
@@ -155,7 +156,7 @@ features:
   title: Billing UI
   stories:
   - id: F5.5.S1
-    change: refined
+    change: refined; pricing.html, billing-usage.html and paywall.html approved by the owner 2026-10-28
     status: in-progress
     title: 'Mockups: pricing, plan and usage, paywalls (done); checkout handoff, downgrade impact (E10.F10.5.S1)'
     acceptance:
@@ -245,6 +246,8 @@ features:
     change: new
     status: planned
     title: Expiry warning, grace, read-only licensed features; own-content publishing never stops
+    acceptance:
+    - 'An alert fires a set number of days before the licence''s exp, with a runbook section (from F7.1.S2)'
   - id: F5.8.S5
     change: new
     status: planned

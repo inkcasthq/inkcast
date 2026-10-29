@@ -84,6 +84,10 @@ features:
     acceptance:
     - No role or permission columns
     - Personal organization created at first login (E9.F9.2.S2)
+    - 'kind is structural (personal, team, client) and changes only through F3.2.S8; the type people see is derived from
+      facts (F3.2.S11)'
+    - 'Data belongs to the organization, not the person: a member who leaves keeps nothing of the organization''s, and
+      the organization keeps their posts'
   - id: F3.2.S2
     title: 'Roles are OpenFGA relations: org owner, admin, member, billing_admin; workspace manager, editor, reviewer, publisher,
       viewer, client_reviewer'
@@ -101,16 +105,84 @@ features:
   - id: F3.2.S4
     title: Invites as rows (token, role, expiry, accepted_at); accepting writes the tuple through the outbox
     status: planned
-    change: refined
+    change: 'refined; refined 2026-10-28 (owner ask: join an existing organization by invitation)'
+    acceptance:
+    - 'An owner or admin invites an email address with a preset role; the link expires (a setting, 7 days by default)
+      and can be revoked; only its hash is stored'
+    - 'Only a signed-in person whose verified email equals the invited address can accept; a person who already has an
+      account gains a second membership, and accounts are never linked or merged by email (ADR-0018 section 8)'
+    - 'Invitations are Inkcast rows, not Keycloak''s organization invitation API: CVE-2026-16072 (Red Hat Bugzilla
+      2501721, reported 2026-07-17, no fixed version named) lets an invite link listed by that API create a member
+      without email verification; the runbook records the pinned Keycloak version''s state'
   - id: F3.2.S5
     title: Ledger and tokens keyed by workspace (migration from user)
     status: planned
     change: refined
   - id: F3.2.S6
+    phase: 4
     title: Grant API writes seat_assignments and agency_grants in the same transaction and calls entitlements before billable
       or agency tuples (E5.F5.3.S5, F5.9)
     status: planned
     change: new
+  - id: F3.2.S7
+    title: 'A person belongs to many organizations: list them, switch the active one, leave one; the last owner cannot
+      leave'
+    status: planned
+    change: 'new 2026-10-28 (owner ask: personal and company organizations, joined both ways)'
+    acceptance:
+    - 'GET /api/v1/me/organizations lists each membership with its role and type; the web session, the CLI and the MCP
+      tools act in one active organization and workspace, named on every call or chosen in the session'
+    - 'Leaving removes the membership tuples through the outbox; the organization keeps the person''s posts; the last
+      owner is refused with a named error until another owner exists'
+  - id: F3.2.S8
+    title: 'Turn a personal organization into a team organization in place: a rename and a kind change, nothing moved'
+    status: planned
+    change: 'new 2026-10-28 (owner ask; Vercel turned personal accounts into free teams in January 2024 so a plan change
+      moves nothing, while GitHub''s user-to-organization conversion cannot be undone and loses sign-in and tokens)'
+    acceptance:
+    - 'Inviting a person into a personal organization offers this conversion first; the owner names the team or company'
+    - 'Ids, workspaces, channels, posts, tokens and the Keycloak Organization stay; only kind and name change, audited'
+    - 'The owner gets a new personal organization at their next sign-in, so they always have one'
+    - 'A team organization with one member can turn back into a personal one, if the owner has no other personal
+      organization'
+  - id: F3.2.S9
+    title: 'Move a workspace between organizations, both ways, by a person who is an owner of both'
+    status: planned
+    change: 'new 2026-10-28 (owner ask: personal to company and back)'
+    acceptance:
+    - 'Channels, posts, schedules, the ledger and the workspace''s tokens move with it; its tuples are rewritten through
+      the outbox in one transaction with the move'
+    - 'Members of the workspace who are not members of the target organization are listed before the move, and lose
+      access after it; scheduled posts keep their times'
+    - 'Audited in both organizations; entitlements of the target are checked once E5 enforces them (F5.3.S4)'
+  - id: F3.2.S10
+    title: 'Verified domains: an organization proves a domain by a DNS TXT record, and people who sign up with it can join
+      by suggestion (default), automatic invitation or manual invitation only'
+    status: planned
+    change: 'new 2026-10-28 (owner ask; the modes Clerk documents; Slack, Linear and Atlassian claim domains the same
+      way). Default mode suggestion until the owner decides otherwise (#360)'
+    acceptance:
+    - 'An owner adds a domain and gets a TXT value; Inkcast resolves it and marks the domain verified; the domain is
+      written to the Keycloak Organization''s domains, which Keycloak keeps unique per realm'
+    - 'Domains of free mail providers (a versioned list in the repository: gmail.com, outlook.com, yahoo.com,
+      icloud.com and others) and a domain verified by another organization are refused'
+    - 'Each domain has one mode and a default role: suggestion (the person asks, an admin approves), automatic
+      invitation (a pending invitation the person accepts) or manual (nothing offered)'
+    - 'The TXT record is checked again daily; after 14 days without it the domain is unverified, its mode stops, and the
+      owners are told; existing members stay'
+    - 'At sign-up, a person whose email is on a verified domain sees that organization''s offer; one on another company
+      domain is asked whether to create an organization for it and verify the domain'
+  - id: F3.2.S11
+    title: 'Organization type and system tags derived from facts: personal, team, company (a verified domain), enterprise
+      (SSO connected), client (agency-managed); people''s own labels kept apart'
+    status: planned
+    change: 'new 2026-10-28 (owner ask: a tag added automatically to classify each organization)'
+    acceptance:
+    - 'The type and the system tags (plan, seat band, SSO on) are computed from stored facts and recomputed on the events
+      that change them; nobody can set them by hand'
+    - 'Owners may add free labels, stored apart and never read by authorization, billing or the type'
+    - 'No outside enrichment service is called (personal data would leave, and air-gapped installs could not reach it)'
+    - 'The type is in GET /api/v1/me/organizations, in the admin portal (E6) and in the signups-by-type KPI (F6.5.S2)'
 - id: F3.3
   phase: 2
   title: Isolation and audit
@@ -136,10 +208,11 @@ features:
     phase: 1
     title: 'Erasure flow (user and organization): owning tables, user-scope KPI rows deleted, member dims tombstoned, outbox
       purged; audited'
-    status: in-progress
+    status: done
+    issue: 65
     change: 'user half built (issue #65): Store.erase_user over every user-keyed table in one transaction, the user_erasures
       audit (salted id hash, time, counts) and an architecture test that scans the live schema; the organization half
-      (member dims tombstoned) follows with E3''s organizations'
+      (member dims tombstoned) is F3.3.S11, split out 2026-10-28 so this story matches its closed issue'
   - id: F3.3.S6
     title: Events carry org_id and workspace_id; rollups appear at those scopes with no consumer change (test)
     status: planned
@@ -148,6 +221,7 @@ features:
     phase: 3
     title: 'Export my data: one JSON bundle of everything Inkcast holds about the person (never credentials or tokens)'
     status: planned
+    issue: 61
     change: 'new; issue #61 (offered first by the account-deletion page, E9.F9.5.S4)'
     acceptance:
     - MCP inkcast_export and REST POST /api/v1/account/export give a one-time download link (OAuth only, 24 h, once)
@@ -158,6 +232,7 @@ features:
     phase: 3
     title: 'Export for a cut-off person: an emailed link (7 days, 5 downloads, never past the erasure)'
     status: planned
+    issue: 328
     change: 'new; issue #328; ADR-0018 section 6, builds on F3.3.S7 (#61) and F7.4.S4'
     acceptance:
     - 'Each account notice carries a link to /account/export/<token>: a 256-bit random token stored only as its hash
@@ -180,6 +255,7 @@ features:
     phase: 3
     title: 'Legal hold: an operator stops one person''s erasure, audited'
     status: planned
+    issue: 329
     change: 'new; issue #329; ADR-0018 section 10 (GDPR Art. 17(3)(e))'
     acceptance:
     - 'inkcast accounts hold --user <id> --ref <matter> --by <who>, release --user <id> --by <who>, and holds;
@@ -196,6 +272,7 @@ features:
     phase: 3
     title: 'Import an export bundle into a new account: posts and schedules become drafts, nothing is sent'
     status: planned
+    issue: 333
     change: 'new; issue #333; ADR-0018 owner decision 7; after F3.3.S7 (#61)'
     acceptance:
     - 'MCP inkcast_import and REST POST /api/v1/account/import take an F3.3.S7 bundle from a signed-in person (schema
@@ -205,6 +282,26 @@ features:
     - 'Importing the same bundle twice adds nothing the second time (the bundle''s id)'
     - 'Tests: a round trip from export to import, a bundle of a newer schema refused, ids from the bundle never trusted
       as another person''s'
+  - id: F3.3.S11
+    title: 'Erase an organization: its rows in the owning tables, its tuples, the member dims tombstoned and the outbox
+      purged; audited'
+    status: planned
+    change: 'new 2026-10-28; the organization half of F3.3.S5 (issue #65 built the user half); needs E3''s organizations
+      (F3.2.S1)'
+- id: F3.11
+  phase: 2
+  title: Envelope encryption of stored credentials
+  stories:
+  - id: F3.11.S1
+    title: 'KeyProvider (local, Vault Transit, AWS KMS, GCP KMS); per-workspace data keys stored wrapped; inkcast rotate-keys
+      re-wraps without downtime'
+    status: planned
+    change: 'new 2026-10-28 (review: product-spec Phase 1; parked as docs/issues/09-security-envelope-encryption.md; the
+      social OAuth token store needs it, docs/design/social-platforms-epic.md issue 16)'
+    acceptance:
+    - 'Platform credentials and notification webhook URLs are encrypted under a data key per workspace, wrapped by the
+      KeyProvider; today one Fernet key derived from INKCAST_SECRET_KEY encrypts them (docs/architecture.md)'
+    - A key rotation is tested, and a copy of the database alone yields no usable secret
 - id: F3.4
   phase: 5
   title: Bring your own platform app credentials per workspace
@@ -357,6 +454,7 @@ features:
   - id: F3.9.S1
     title: 'Kustomize component: OpenFGA on Postgres, OpenShift restricted-v2, migrate Job, mirrored images'
     status: done
+    issue: 279
     change: 'built in PR #285'
     acceptance:
     - 'The kubernetes and openshift overlays use OpenFGA and drop INKCAST_AUTHZ_ALLOW_LOCAL=true (set in PR #49 so
@@ -385,6 +483,7 @@ features:
       scripts/deploy/openfga-db-credentials.sh; the private image''s pull Secret named on the ServiceAccount and on
       every Inkcast-image pod spec, in the environments only (scripts/deploy/ghcr-pull-secret.sh)'
     status: in-progress
+    issue: 296
     change: new
     acceptance:
     - environments/staging and environments/production render no Cluster, set their namespaces and keep OpenFGA on
@@ -401,8 +500,9 @@ features:
       (components/openfga) runs inkcast authz write-model with the pod''s own image before the server, on every pod
       start; INKCAST_FGA_STORE_NAME pins by name at start-up (the store and the version equal to the packaged
       model), with a named refusal while they are missing'
-    status: in-progress
-    change: 'new; issue #315'
+    status: done
+    issue: 315
+    change: 'new; issue #315; built in PR #317'
     acceptance:
     - An init container authz-model on every Inkcast Deployment whose processes check permissions (the all-in-one
       Deployment, or each split service but the Gateway) runs `inkcast authz write-model` with the server's image
@@ -427,8 +527,9 @@ features:
   - id: F3.9.S7
     title: 'The cluster generates every environment Secret: no secret scripts, no copied values (inkcast env-secrets,
       the init container of OpenFGA''s pod in each lab environment, components/env-secrets)'
-    status: in-progress
-    change: 'new; issue #323'
+    status: done
+    issue: 323
+    change: 'new; issue #323; built in PR #336'
     acceptance:
     - applied with each environment, every Secret is created when absent (inkcast-<side>/inkcast-secrets,
       inkcast-db/inkcast-pg-openfga-<side>, inkcast-<side>/openfga-db-app, keycloak/inkcast-<side>-realm), the agreeing
@@ -444,6 +545,19 @@ features:
     - the secret scripts are replaced and the README's bring-up has no secret step; proven on kind in CI and on
       OpenShift Local (delete a namespace's generated Secrets in a fresh environment, apply, and everything comes back
       in agreement)
+  - id: F3.9.S8
+    title: "OpenFGA's schema migration runs as an init container: no Job to delete and re-apply"
+    status: planned
+    issue: 337
+    change: 'new 2026-10-28; issue #337 (the review of #317 found K1, an immutable Job template, and K2, a Job failed
+      for good)'
+    acceptance:
+    - openfga migrate runs as an init container of the openfga Deployment, after env-secrets where present, with the
+      server's pinned image under restricted-v2
+    - The Job openfga-migrate and everything that waits for or deletes it are removed
+    - Two pods migrating at once is safe (OpenFGA's migrate locking cited from source at the pinned version)
+    - 'Proven on kind: a fresh install, an image change that re-runs the migration, a database outage longer than 30
+      minutes that self-heals; and on OpenShift Local with /inkcast-crc'
 - id: F3.10
   phase: 2
   title: 'Backing services: Valkey and PostgreSQL in the cluster'

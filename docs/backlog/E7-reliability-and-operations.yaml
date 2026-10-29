@@ -15,10 +15,10 @@ features:
     status: done
     change: 'refined; built in PR #8'
   - id: F7.1.S2
-    title: 'Alerts: authz error rate, Keycloak/OpenFGA drift, billing webhook rejections and reconcile drift, licence expiring,
-      seat-sync failures'
+    title: 'Alerts: Keycloak/OpenFGA drift from the reconcilers (F3.8.S3, F9.5.S3)'
     status: planned
-    change: new
+    change: 'new; refined 2026-10-28 (review): the authz error alert exists (InkcastAuthzErrors, F3.6.S5); the billing
+      alerts are F7.1.S7 and licence expiry is in F5.8.S4, since W12 comes before E5'
   - id: F7.1.S3
     title: 'ServiceMonitor relabelings: inkcast.io/service → service label; monitoring ingress by namespace AND pod selector'
     status: planned
@@ -34,9 +34,19 @@ features:
     change: new
   - id: F7.1.S6
     title: Alertmanager routing example (severity → pager/channel, inhibit scheduler-stalled over overdue) in the openshift
-      overlay as an AlertmanagerConfig
+      overlay as an AlertmanagerConfig; receivers for email, Slack, Microsoft Teams (msteamsv2, Workflows) and
+      Telegram, each credential from a Secret
     status: planned
     change: new
+    acceptance:
+    - 'Each credential is a SecretKeySelector of the AlertmanagerConfig: slackConfigs apiURL, msteamsv2Configs webhookURL,
+      telegramConfigs botToken, emailConfigs authPassword'
+    - 'msteamsv2Configs needs Alertmanager 0.28.0 or later (prometheus-operator''s AlertmanagerConfig types); the PR
+      records the version the cluster''s user-workload Alertmanager runs'
+  - id: F7.1.S7
+    title: 'Alerts: billing webhook rejections, billing reconcile drift (F5.4.S3) and seat-sync failures (F5.3.S5)'
+    status: planned
+    change: 'new 2026-10-28 (review): split from F7.1.S2'
 - id: F7.2
   phase: 3
   title: Channel health
@@ -45,6 +55,7 @@ features:
     title: healthy → degraded → reauth_required → revoked
     status: planned
   - id: F7.2.S2
+    phase: 5
     title: Refresh lock and refresh-token merge
     status: planned
   - id: F7.2.S3
@@ -81,10 +92,18 @@ features:
   - id: F7.4.S3
     title: 'Customer notifications: failed, unconfirmed, posts at risk (reauth), weekly digest from KPIs'
     status: planned
-    change: new
+    change: 'new; refined 2026-10-28 (review): the digest''s one-click unsubscribe moved here from F7.4.S5'
+    acceptance:
+    - 'The digest carries List-Unsubscribe (one HTTPS URI with an opaque token) and List-Unsubscribe-Post:
+      List-Unsubscribe=One-Click, both covered by the message''s DKIM signature; the POST needs no cookie or sign-in,
+      answers without a redirect and takes effect at once (RFC 8058 section 3.1; Gmail and Yahoo require one-click for
+      a bulk sender''s subscribed mail and honouring it within 2 days)'
+    - 'Failures for one person within a window are batched into one message per channel, so an outage of a platform
+      does not send one mail per post'
   - id: F7.4.S4
     title: 'Email to a person: the notifier''s SMTP channel (libs/notify), first used by the account notices'
     status: planned
+    issue: 327
     change: 'new; issue #327; split from F7.4.S2 for ADR-0018''s notices'
     acceptance:
     - 'libs/notify sends one email (plain text, and an HTML part) to one address through an SMTP relay:
@@ -97,6 +116,143 @@ features:
     - 'Proven on kind with Mailpit (as F9.2.S1 does): a template is delivered, and a refused connection is a retryable
       error'
     - 'The network policy lets only the pods that send mail reach the relay'
+  - id: F7.4.S5
+    title: 'Notification preferences: each person chooses the channels for each kind of notification; account and security
+      notices always go by email; a suppression list'
+    status: planned
+    change: 'new 2026-10-28 (owner ask: email, Slack, Telegram and notifications); refined (review): the workspace part
+      is F7.4.S12, the digest''s unsubscribe is in F7.4.S3'
+    acceptance:
+    - 'A preference per person maps each notification type to its channels; defaults are settings; GET and PUT
+      /api/v1/me/notifications, and an MCP tool, read and change them'
+    - 'Account and security notices (ADR-0018: the cut-off notice, the export link, the erasure) are transactional: email,
+      and no preference turns them off'
+    - 'Optional mail (the digest, product news) and required notices (account, security, legal, ADR-0018) are separate
+      classes; a person turns optional mail off here or by one-click unsubscribe, and only closing the account stops
+      required notices (the terms, F9.2.S4)'
+    - 'A hard bounce puts the address on a suppression list for every kind of mail; nothing more is sent to it until the
+      person confirms it again or changes it; the account-cleanup job counts such a person as one with no email address
+      (F9.5.S9). A spam complaint is not an opt-out and does not suppress required notices (F7.4.S14)'
+  - id: F7.4.S12
+    title: 'Workspace notification preferences: which notification types go to the workspace''s Slack, Teams and Discord
+      destinations'
+    status: planned
+    change: 'new 2026-10-28 (review): split from F7.4.S5, which W3 builds before workspaces and shared channels exist'
+    acceptance:
+    - 'GET and PUT /api/v1/workspaces/<id>/notifications with can_manage_members; each destination shows its last delivery,
+      its last error and why it was disabled'
+  - id: F7.4.S13
+    title: 'Notification dispatcher: an outbox consumer notify sends each notification once per channel and recipient'
+    status: planned
+    change: 'new 2026-10-28 (review): no story said how notifications are queued, retried and deduplicated, and
+      InkcastNotifyBacklog (F7.4.S10) needs a queue to measure'
+    acceptance:
+    - 'Notifications are domain events read by an outbox consumer notify (F7.11.S4); the idempotency key is the event id,
+      the channel and the recipient, so a replay sends nothing twice'
+    - 'A retryable error is retried with backoff up to a set number of attempts; a permanent one is recorded and not
+      retried; inkcast_notify_sent_total{channel,result} and the consumer''s lag are exported'
+  - id: F7.4.S14
+    title: 'Spam complaints: a complaint turns off optional mail, required notices continue, and the person is told why
+      once, by email and in the app'
+    status: planned
+    change: 'new 2026-10-28 (owner decision: a person opts out like any junk mail, and marking Inkcast as spam instead
+      of opting out does not stop the notices the sign-up agreement requires)'
+    acceptance:
+    - 'Complaint reports from the mailbox providers that send them (Yahoo''s Complaint Feedback Loop and Microsoft''s
+      JMRP, in ARF) are read and matched to the person; Gmail sends no complaint per person, only aggregate rates in
+      Postmaster Tools, and the runbook says so'
+    - 'A complaint turns off every kind of optional mail at once, as a one-click unsubscribe does, recorded with its time
+      and source'
+    - 'Required notices keep going, and carry no promotional content, so they stay transactional (CAN-SPAM exempts only
+      messages whose content is all transactional or relationship content)'
+    - 'After a complaint the person gets one complaint notice, at most once in 90 days: they marked Inkcast mail as spam;
+      required notices continue under the terms they accepted (version and date); how to turn optional mail off; that
+      closing the account stops all mail. The same notice shows in the app at their next sign-in until they acknowledge
+      it, since the email may land in their spam folder'
+    - 'Each required notice and complaint notice is recorded (template, time, the relay''s accepted id) as evidence that it
+      was sent, never with its body or the address in logs'
+    - 'An alert, InkcastEmailComplaintRate, fires before the rate Postmaster Tools reports reaches 0.3%'
+  - id: F7.4.S6
+    title: 'Slack channel: a workspace connects Slack by OAuth (incoming-webhook scope; the installer picks the Slack
+      channel); messages in Block Kit'
+    status: planned
+    change: new 2026-10-28 (owner ask)
+    acceptance:
+    - The OAuth answer's webhook URL (incoming_webhook.url) is stored encrypted like platform credentials, and never logged
+    - 'The answers Slack documents for a dead webhook (no_service, no_active_hooks, invalid_token, team_disabled,
+      channel_is_archived) disable the destination, and the workspace owner is told by email; action_prohibited (an
+      admin restricted posting; Slack says not to retry for now) pauses it and tells the owner; channel_not_found,
+      posting_to_general_channel_denied and invalid_payload are not retried'
+    - 'A 429 is retried after its Retry-After seconds; a destination sends at most one message per second (Slack: incoming
+      webhooks 1 per second, short bursts allowed)'
+    - Proven against a recorded fake in CI, and once against a real Slack workspace (evidence in the PR)
+  - id: F7.4.S7
+    title: 'Microsoft Teams channel: a Workflows webhook URL (Office 365 connectors and their Incoming Webhook are
+      retired); messages as Adaptive Cards'
+    status: planned
+    change: new 2026-10-28 (owner ask)
+    acceptance:
+    - A workspace manager pastes the URL of a Workflows flow that posts to a channel when a webhook request arrives; a
+      test message must arrive before it is saved; it is stored encrypted and never logged
+    - 'The body is {"type": "message", "attachments": [{"contentType": "application/vnd.microsoft.card.adaptive",
+      "content": <AdaptiveCard>}]}, at most 28 KB (Microsoft Learn, "Create an Incoming Webhook")'
+    - 'Only https URLs on the Power Automate webhook hosts are accepted (no other host is called); a legacy connector URL
+      is refused with an error that names the May 2026 retirement'
+    - 'At most four requests per second per destination (Microsoft throttles more); a 429 is retried with backoff; the
+      answers of a deleted and of a turned-off flow are recorded from a real flow in the PR, and each disables the
+      destination and tells the owner (a flow is tied to its owner and can be orphaned when they leave)'
+  - id: F7.4.S8
+    title: 'Telegram channel: a person links Telegram to the Inkcast bot with a one-time deep link, and gets their
+      notifications there'
+    status: planned
+    change: new 2026-10-28 (owner ask)
+    acceptance:
+    - The bot token is a Secret (INKCAST_TELEGRAM_BOT_TOKEN or _FILE), never in Git, logs or chat
+    - 'Linking: Inkcast shows https://t.me/<bot>?start=<code>; the code is single use, expires in 10 minutes and keeps
+      to the deep-link limit (up to 64 characters of A-Z, a-z, 0-9, _ and -); the bot''s /start stores the chat id
+      against the person'
+    - 'Updates reach Inkcast by webhook where Telegram can reach INKCAST_PUBLIC_URL (ports 443, 80, 88 or 8443), else by
+      getUpdates from one poller; each webhook request''s X-Telegram-Bot-Api-Secret-Token header is compared in constant
+      time with the secret_token given to setWebhook'
+    - '/stop, unlinking in Inkcast, a my_chat_member update whose new status is kicked (the person blocked the bot),
+      or a 403 from sendMessage removes the link; error descriptions are not matched as text (the Bot API says
+      error_code and its contents may change)'
+    - An install that cannot reach api.telegram.org has the channel off, and the posture check says so
+    - Proven against a fake Bot API in CI
+  - id: F7.4.S9
+    title: 'Discord channel: a channel webhook URL a workspace manager pastes; messages as embeds'
+    status: planned
+    change: 'new 2026-10-28 (owner ask: "etc.")'
+    acceptance:
+    - 'Only https://discord.com/api/webhooks/<id>/<token> URLs are accepted; the test message is sent with ?wait=true and
+      must come back before the URL is saved; it is stored encrypted and never logged'
+    - A 404 disables the destination and the owner is told (Discord says not to use a webhook again after a 404)
+    - 'A 429 is retried after Retry-After (or retry_after, in seconds); a 401 or 403 is never retried, since Discord bans
+      an IP address for a while after 10,000 requests answered 401, 403 or 429 within 10 minutes'
+  - id: F7.4.S10
+    title: 'Email in production: the sending domain authenticated (SPF, DKIM, DMARC aligned with From), bounces and
+      complaints handled, a relay per environment'
+    status: planned
+    change: new 2026-10-28 (owner ask)
+    acceptance:
+    - 'A runbook gives the DNS records for the sending domain: SPF and DKIM both, DMARC at p=none or stricter that passes
+      by alignment with the From domain, and forward and reverse DNS for the sending IPs; mail goes over TLS (the Gmail
+      and Yahoo sender requirements)'
+    - 'The runbook says where the spam rate is read (Google Postmaster Tools) and keeps it below 0.3%'
+    - The relay per environment is in the Helm values (Mailpit on kind and on OpenShift Local; the production relay by
+      name), its credentials from a Secret
+    - Bounces reach the suppression list (F7.4.S5) and complaints reach F7.4.S14
+    - 'Required notices and optional mail go from separate sending subdomains, each authenticated, so complaints about
+      the digest do not lower the reputation the required notices depend on'
+    - 'Alerts: InkcastNotifyFailing (the ratio of permanent failures) and InkcastNotifyBacklog'
+  - id: F7.4.S11
+    title: 'In-app notifications: a feed per person that the web app shows (bell, unread count), fed by the same events as
+      the other channels'
+    status: planned
+    change: new 2026-10-28 (owner ask)
+    acceptance:
+    - GET /api/v1/notifications and a mark-read call; entries kept 90 days
+    - The E4 shell shows the bell and the unread count
 - id: F7.5
   phase: 2
   title: Publish now through the queue
@@ -126,6 +282,7 @@ features:
     title: 'Runbook: the Compose stack on an EC2 instance (localhost-bound ports reached over SSM or SSH port forwarding,
       secrets from AWS Secrets Manager)'
     status: planned
+    issue: 39
     change: 'new; issue #39'
     acceptance:
     - docs/runbooks/compose-on-ec2.md takes a fresh Amazon Linux or Ubuntu instance to a running stack (Docker, Compose,
@@ -174,6 +331,7 @@ features:
     title: 'Dashboard panels for the identity sync (passes, failures, people cut off) and authorization checks (allowed,
       denied, error, latency)'
     status: planned
+    issue: 40
     change: 'new; issue #40'
     acceptance:
     - 'Generated from libs/dashboards.py: inkcast_identity_sync_total by result, inkcast_identity_users_disabled_total
