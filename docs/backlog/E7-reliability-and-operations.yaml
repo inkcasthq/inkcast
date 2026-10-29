@@ -33,7 +33,8 @@ features:
     change: new
   - id: F7.1.S6
     title: Alertmanager routing example (severity → pager/channel, inhibit scheduler-stalled over overdue) in the openshift
-      overlay as an AlertmanagerConfig
+      overlay as an AlertmanagerConfig; receivers for email, Slack, Microsoft Teams (msteamsv2, Workflows) and
+      Telegram, each credential from a Secret
     status: planned
     change: new
 - id: F7.2
@@ -81,6 +82,7 @@ features:
   - id: F7.4.S4
     title: 'Email to a person: the notifier''s SMTP channel (libs/notify), first used by the account notices'
     status: planned
+    issue: 327
     change: 'new; issue #327; split from F7.4.S2 for ADR-0018''s notices'
     acceptance:
     - 'libs/notify sends one email (plain text, and an HTML part) to one address through an SMTP relay:
@@ -93,6 +95,83 @@ features:
     - 'Proven on kind with Mailpit (as F9.2.S1 does): a template is delivered, and a refused connection is a retryable
       error'
     - 'The network policy lets only the pods that send mail reach the relay'
+  - id: F7.4.S5
+    title: 'Notification preferences: each person chooses the channels for each kind of notification; account and security
+      notices always go by email; one-click unsubscribe on the digest'
+    status: planned
+    change: 'new 2026-10-28 (owner ask: email, Slack, Telegram and notifications)'
+    acceptance:
+    - 'A preference per person, and per workspace for shared channels (Slack, Teams), maps each notification type to its
+      channels; defaults are settings; GET and PUT /api/v1/me/notifications, and an MCP tool, read and change them'
+    - 'Account and security notices (ADR-0018: the cut-off notice, the export link, the erasure) are transactional: email,
+      and never turned off'
+    - 'Mail a person can stop (the weekly digest) carries List-Unsubscribe and List-Unsubscribe-Post:
+      List-Unsubscribe=One-Click (RFC 8058) under the DKIM signature; the unsubscribe POST works without sign-in and takes
+      effect at once'
+    - A hard bounce or a complaint puts the address on a suppression list; nothing more is sent to it until the person
+      confirms it again or changes it
+  - id: F7.4.S6
+    title: 'Slack channel: a workspace connects Slack by OAuth (incoming-webhook scope; the installer picks the Slack
+      channel); messages in Block Kit'
+    status: planned
+    change: new 2026-10-28 (owner ask)
+    acceptance:
+    - The OAuth answer's webhook URL is stored encrypted like platform credentials, and never logged
+    - A revoked webhook (Slack's documented error answers, cited in the PR) disables the destination, and the workspace
+      owner is told by email
+    - A 429 is retryable after Retry-After; Slack's per-webhook rate limit is read from Slack's documentation and cited
+    - Proven against a recorded fake in CI, and once against a real Slack workspace (evidence in the PR)
+  - id: F7.4.S7
+    title: 'Microsoft Teams channel: a Workflows webhook URL (Office 365 connectors and their Incoming Webhook are
+      retired); messages as Adaptive Cards'
+    status: planned
+    change: new 2026-10-28 (owner ask)
+    acceptance:
+    - A workspace manager pastes the URL of a Workflows flow that posts to a channel when a webhook request arrives; a
+      test message must arrive before it is saved; it is stored encrypted
+    - The body is an Adaptive Card in the envelope Workflows expects (Microsoft's documentation cited in the PR)
+    - A legacy connector URL is refused with an error that names the retirement
+  - id: F7.4.S8
+    title: 'Telegram channel: a person links Telegram to the Inkcast bot with a one-time deep link, and gets their
+      notifications there'
+    status: planned
+    change: new 2026-10-28 (owner ask)
+    acceptance:
+    - The bot token is a Secret (INKCAST_TELEGRAM_BOT_TOKEN or _FILE), never in Git, logs or chat
+    - 'Linking: Inkcast shows https://t.me/<bot>?start=<code>; the code is single use, expires in 10 minutes and keeps
+      to the Bot API start-parameter limit (1-64 characters of A-Z, a-z, 0-9, _ and -); the bot''s /start stores the
+      chat id against the person'
+    - Updates reach Inkcast by webhook, and each is checked against the secret token given to setWebhook
+    - /stop, unlinking in Inkcast, or a 403 from sendMessage (the person blocked the bot) removes the link
+    - An install that cannot reach api.telegram.org has the channel off, and the posture check says so
+    - Proven against a fake Bot API in CI
+  - id: F7.4.S9
+    title: 'Discord channel: a channel webhook URL a workspace manager pastes; messages as embeds'
+    status: planned
+    change: 'new 2026-10-28 (owner ask: "etc.")'
+    acceptance:
+    - A test message must arrive before the URL is saved; it is stored encrypted; a 404 disables the destination and the
+      owner is told
+    - A 429 is retryable after the time Discord returns
+  - id: F7.4.S10
+    title: 'Email in production: the sending domain authenticated (SPF, DKIM, DMARC aligned with From), bounces and
+      complaints handled, a relay per environment'
+    status: planned
+    change: new 2026-10-28 (owner ask)
+    acceptance:
+    - 'A runbook gives the DNS records for the sending domain: SPF, DKIM, and DMARC aligned with the From domain'
+    - The relay per environment is in the Helm values (Mailpit on kind and on OpenShift Local; the production relay by
+      name), its credentials from a Secret
+    - Bounce and complaint feedback reaches the suppression list (F7.4.S5)
+    - 'Alerts: InkcastNotifyFailing (the ratio of permanent failures) and InkcastNotifyBacklog'
+  - id: F7.4.S11
+    title: 'In-app notifications: a feed per person that the web app shows (bell, unread count), fed by the same events as
+      the other channels'
+    status: planned
+    change: new 2026-10-28 (owner ask)
+    acceptance:
+    - GET /api/v1/notifications and a mark-read call; entries kept 90 days
+    - The E4 shell shows the bell and the unread count
 - id: F7.5
   title: Publish now through the queue
   stories:
@@ -118,6 +197,7 @@ features:
     title: 'Runbook: the Compose stack on an EC2 instance (localhost-bound ports reached over SSM or SSH port forwarding,
       secrets from AWS Secrets Manager)'
     status: planned
+    issue: 39
     change: 'new; issue #39'
     acceptance:
     - docs/runbooks/compose-on-ec2.md takes a fresh Amazon Linux or Ubuntu instance to a running stack (Docker, Compose,
@@ -165,6 +245,7 @@ features:
     title: 'Dashboard panels for the identity sync (passes, failures, people cut off) and authorization checks (allowed,
       denied, error, latency)'
     status: planned
+    issue: 40
     change: 'new; issue #40'
     acceptance:
     - 'Generated from libs/dashboards.py: inkcast_identity_sync_total by result, inkcast_identity_users_disabled_total

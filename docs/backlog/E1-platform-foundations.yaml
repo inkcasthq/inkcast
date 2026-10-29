@@ -76,6 +76,7 @@ features:
   - id: F1.6.S3
     title: 'The image on Python 3.15 once its wheels settle (second half of #24; CI already tests 3.15)'
     status: planned
+    issue: 32
     change: 'new; issue #32'
     acceptance:
     - Both Dockerfile stages on python:3.15-slim (digest-pinned, F1.8.S2); the image job, grype and kind pass
@@ -84,6 +85,7 @@ features:
   - id: F1.6.S4
     title: 'End-to-end walkthrough built and checked in CI: the MCP client flow, the browser pages and the REST calls, pictured'
     status: done
+    issue: 57
     change: 'new; issue #57, built in PR #58'
     acceptance:
     - 'scripts/dev/walkthrough/run_walk.sh drives the whole journey for real against the fake platforms: the real SDK OAuth
@@ -101,8 +103,9 @@ features:
       (walkthrough/latest/) and the branch README links the document; tests/test_walkthrough.py covers the helpers'
   - id: F1.6.S5
     title: 'Screenshots in the docs: a curated handful from the walkthrough that shows the product'
-    status: in progress
-    change: 'new; issue #78'
+    status: done
+    issue: 78
+    change: 'new; issue #78; built in PR #79'
     acceptance:
     - 'docs/screenshots.md: about eight pictures in the order a person meets them (consent, connect, dry run, posts, token,
       API reference, delete my account, deleted), each with a heading and a line on what it shows; not every step'
@@ -123,6 +126,7 @@ features:
     title: 'Correct merged PR descriptions that went stale before merge (#22 names the servicemonitor component; the policy
       is in metrics-access)'
     status: done
+    issue: 33
     change: 'new; issue #33, done 2026-10-19 (PR #22 description corrected, with a dated note)'
     acceptance:
     - The PR body says what was merged; a dated note at the end says what changed and why
@@ -132,6 +136,7 @@ features:
   - id: F1.8.S1
     title: 'Protect main with a ruleset: required checks, squash only, no force-push or deletion'
     status: in-progress
+    issue: 34
     change: 'new; issue #34, as code in PR #46 (approvals 0 while there is one maintainer); live once the owner runs
       scripts/repo/settings.py apply (automation here may not write repository settings)'
     acceptance:
@@ -143,6 +148,7 @@ features:
   - id: F1.8.S2
     title: Base images pinned by digest (python, Keycloak, Mailpit, Prometheus, Grafana) and moved by Dependabot
     status: done
+    issue: 35
     change: 'new; issue #35, built in PR #50 (digests resolved by CI; Kubernetes manifests are checked weekly by
       scripts/images.py verify, since Dependabot does not read them)'
     acceptance:
@@ -153,6 +159,7 @@ features:
   - id: F1.8.S3
     title: Hash-locked Python dependencies for the image (requirements.lock, pip install --require-hashes)
     status: done
+    issue: 36
     change: 'new; issue #36. PR #53: scripts/lock.sh and the lock-refresh workflow (locks resolved in CI, where PyPI
       is reachable); then the image installs from the locks with --require-hashes, and the locks job checks them'
     acceptance:
@@ -164,6 +171,7 @@ features:
   - id: F1.8.S4
     title: kind's node image pinned by digest in CI and scripts/dev/stack.sh
     status: done
+    issue: 37
     change: 'new; issue #37, built in PR #55 (kind v0.33.0, kindest/node v1.37.0 by digest, kubectl v1.37.0; both
       binaries SHA-256 checked by scripts/kind-tools.sh)'
     acceptance:
@@ -173,6 +181,7 @@ features:
   - id: F1.8.S5
     title: Remove the stale publish.yml:codeql code-scanning configuration
     status: in-progress
+    issue: 38
     change: 'new; issue #38; docs/cicd.md says how (UI or API with security_events); the deletion itself is the
       owner''s, since automation here cannot use the code-scanning API'
     acceptance:
@@ -183,6 +192,7 @@ features:
     title: 'Repository security settings as code: secret scanning with push protection, Dependabot security updates,
       private vulnerability reporting'
     status: in-progress
+    issue: 45
     change: 'new; issue #45, found 2026-10-19 (all off on a public repository); as code in PR #46, live once the owner
       runs scripts/repo/settings.py apply'
     acceptance:
@@ -196,6 +206,7 @@ features:
   - id: F1.9.S1
     title: 'Run Inkcast on a Mac: pinned macOS tools, a doctor script, a setup guide, and arm64 proven in CI'
     status: planned
+    issue: 66
     change: 'new; issue #66 (before the owner moves from the cloud workspace to a MacBook)'
     acceptance:
     - scripts/versions.env pins kubectl's SHA-256 for darwin/arm64, darwin/amd64 and linux/arm64; kind-tools.sh installs on all four
@@ -211,6 +222,7 @@ features:
   - id: F1.10.S1
     title: Publish retry policy as settings (attempts and delays)
     status: done
+    issue: 89
     change: 'new; issue #89, built in PR #124'
     acceptance:
     - 'INKCAST_PUBLISH_MAX_ATTEMPTS (default 4, 1-10) and INKCAST_PUBLISH_RETRY_DELAYS (default 60,300,1800; 1-9 values,
@@ -219,6 +231,7 @@ features:
   - id: F1.10.S2
     title: 'Token lifetimes as settings: personal access tokens and MCP sign-in'
     status: done
+    issue: 90
     change: 'new; issue #90, built in PR #132'
     acceptance:
     - 'INKCAST_PAT_DEFAULT_DAYS (90), INKCAST_PAT_MAX_DAYS (366, at most 366), INKCAST_PAT_ALLOW_NO_EXPIRY (true),
@@ -227,6 +240,7 @@ features:
   - id: F1.10.S3
     title: 'Retention as settings: domain events and hourly KPIs'
     status: done
+    issue: 91
     change: 'new; issue #91, built in PR #137'
     acceptance:
     - INKCAST_OUTBOX_RETENTION_DAYS (7, 1-30) and INKCAST_KPI_HOURLY_RETENTION_DAYS (90, 31-400); production sets both
@@ -234,12 +248,14 @@ features:
   - id: F1.10.S4
     title: One-time link lifetime as a setting (connect and deletion links)
     status: done
+    issue: 92
     change: 'new; issue #92, built in PR #147'
     acceptance:
     - INKCAST_ONE_TIME_LINK_MINUTES (15, 5-60, one value for both links); MCP and REST replies state the configured lifetime
   - id: F1.10.S5
     title: 'Validate the existing business settings: intervals, grace, rate limit, backup copies'
     status: done
+    issue: 93
     change: 'new; issue #93, built in PR #155'
     acceptance:
     - 'Sync, reconcile, scheduler, insights and shutdown intervals refuse <= 0; the scheduler stays 1-60; overdue grace is

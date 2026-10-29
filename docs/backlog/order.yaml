@@ -1,0 +1,370 @@
+# Execution order of the backlog: the waves are worked top to bottom, the items in each wave in the order listed.
+# An item is a story id from docs/backlog/E*.yaml, or '#N' for an open GitHub issue that is not a backlog story.
+# Every story that is not done must appear exactly once. scripts/backlog/tracker.py checks this and generates
+# docs/backlog/TRACKER.md from it; edit this file, never the tracker.
+waves:
+- id: W1
+  title: Finish what is in flight
+  why: Open loops on the lab and the repository cost the most while they stay open. Each item is partly built or waits
+    on one proof.
+  items:
+  - F3.9.S5
+  - F3.9.S8
+  - '#342'
+  - '#343'
+  - '#312'
+  - '#324'
+  - F9.1.S3
+  - F3.1.S9
+  - F1.8.S1
+  - F1.8.S5
+  - F1.8.S6
+- id: W2
+  title: Publishing and Git sync safety
+  why: These follow-ups guard against double-sends and lost posts, the failures a writer notices first (handover, suggested
+    order 1).
+  items:
+  - '#214'
+  - '#130'
+  - '#280'
+  - '#290'
+  - '#291'
+  - '#222'
+  - '#234'
+  - '#219'
+  - '#141'
+  - '#159'
+- id: W3
+  title: Email and the notifier
+  why: ADR-0018's notices, the export link and Keycloak's own verify and reset mail all need outbound email. The seam and
+    the preferences come before any second channel.
+  items:
+  - F7.4.S4
+  - F9.2.S3
+  - F7.4.S10
+  - F7.4.S2
+  - F7.4.S5
+- id: W4
+  title: Account lifecycle (ADR-0018)
+  why: Export, notice, legal hold and erasure of a cut-off person. Depends on W3's email. The erasure follow-ups close the
+    known gaps in the same code.
+  items:
+  - F3.3.S7
+  - F3.3.S8
+  - F3.3.S9
+  - F9.5.S9
+  - F9.5.S10
+  - F9.5.S11
+  - F3.3.S10
+  - '#212'
+  - '#112'
+  - '#161'
+  - '#149'
+  - '#128'
+  - '#202'
+  - '#139'
+- id: W5
+  title: Directory federation (LDAP)
+  why: F9.8.S3 decides what the user sync does to a federated person who leaves the group, which is W4's cleanup job.
+  items:
+  - F9.8.S1
+  - F9.8.S2
+  - F9.8.S3
+  - F9.8.S4
+- id: W6
+  title: The writer web app
+  why: 'The order that PR #358 set. The writer-app mockup to the mockup standard gates every screen (ADR-0004,
+    ADR-0016). Channel health comes before the Connections screen, which shows it.'
+  items:
+  - F4.1.S4
+  - F4.1.S5
+  - F4.1.S1
+  - F4.1.S2
+  - F4.1.S3
+  - F4.2.S1
+  - F4.2.S2
+  - F4.2.S3
+  - F7.2.S1
+  - F7.2.S2
+  - F7.2.S3
+  - F7.2.S4
+  - F4.4.S2
+  - F4.5.S2
+  - F4.6.S2
+  - F4.6.S3
+  - F4.7.S2
+  - F4.7.S3
+  - F4.7.S4
+  - F4.10.S1
+  - F4.10.S2
+  - F7.4.S11
+- id: W7
+  title: PostgreSQL
+  why: Organizations, the outbox at scale and the billing counters all need PostgreSQL. The spike measures OpenFGA on it
+    first.
+  items:
+  - F3.0.S1
+  - F3.1.S1
+  - F3.1.S2
+  - F3.1.S8
+  - F3.1.S3
+  - F3.1.S4
+  - F3.1.S5
+  - F7.6.S1
+  - F3.1.S6
+  - F3.10.S4
+  - F3.10.S3
+  - F3.10.S2
+  - F3.10.S5
+  - '#299'
+- id: W8
+  title: Tenancy and one enforcement path
+  why: Organizations and workspaces, every route and tool through authz.require, and the sync that keeps OpenFGA right.
+    The Keycloak Organizations probe confirms a personal organization per sign-up before it is built.
+  items:
+  - F3.0.S2
+  - F10.4.S1
+  - F3.2.S1
+  - F9.2.S2
+  - F3.2.S2
+  - F3.2.S3
+  - F3.2.S4
+  - F3.2.S5
+  - F3.5.S3
+  - F3.7.S1
+  - F3.7.S2
+  - F3.7.S3
+  - F3.7.S4
+  - F3.7.S5
+  - F3.8.S1
+  - F3.8.S2
+  - F3.8.S3
+  - F9.5.S1
+  - F9.5.S3
+  - F9.5.S5
+  - F3.3.S6
+  - F3.3.S11
+  - F3.3.S1
+  - F3.3.S2
+  - F3.3.S3
+  - F3.3.S4
+  - F3.9.S2
+  - F3.9.S3
+  - F3.9.S4
+  - '#72'
+  - '#136'
+- id: W9
+  title: Notifications to customers and teams
+  why: Customer notices and team channels need W3's notifier, W6's channel health and W8's workspaces (a Slack or Teams
+    destination belongs to a workspace).
+  items:
+  - F7.4.S1
+  - F7.4.S3
+  - F7.4.S6
+  - F7.4.S7
+  - F7.4.S8
+  - F7.4.S9
+  - F7.5.S1
+- id: W10
+  title: Onboarding, members and approvals
+  why: Screens that need W8's organizations, workspaces and member API.
+  items:
+  - F4.3.S2
+  - F4.9.S2
+  - F4.9.S3
+  - F4.10.S3
+- id: W11
+  title: Identity extras
+  why: Social login, operator MFA and enterprise SSO, on top of W8's organizations.
+  items:
+  - F9.4.S1
+  - F9.3.S1
+  - F9.3.S2
+  - F9.6.S1
+  - F9.7.S1
+- id: W12
+  title: Observability and operations
+  why: Alerts, dashboards and traces for what W1 to W11 add, and the alert routing that sends them to email, Slack, Teams
+    and Telegram.
+  items:
+  - F7.1.S5
+  - F7.1.S3
+  - F7.1.S2
+  - F7.1.S4
+  - F7.1.S6
+  - F7.7.S2
+  - F7.7.S3
+  - F7.7.S7
+  - '#207'
+  - F7.8.S1
+  - F7.8.S2
+  - F7.8.S3
+  - F7.9.S1
+  - F7.11.S3
+  - F7.3.S1
+  - F7.3.S2
+  - '#215'
+- id: W13
+  title: Tiers and billing spike (E10)
+  why: Pricing, the provider bake-off and the entitlement design, decided before E5 builds them.
+  items:
+  - F10.1.S1
+  - F10.1.S2
+  - F10.1.S3
+  - F10.2.S1
+  - F10.2.S2
+  - F10.2.S3
+  - F10.2.S4
+  - F10.3.S1
+  - F10.3.S2
+  - F10.3.S3
+  - F10.4.S2
+  - F10.4.S3
+  - F10.5.S1
+  - F10.5.S2
+  - F10.5.S3
+  - F10.5.S4
+  - F10.5.S5
+- id: W14
+  title: Billing, entitlements and metering (E5)
+  why: Built from W13's decisions. Members with the seat paywall come after the seat ledger.
+  items:
+  - F5.2.S1
+  - F5.2.S4
+  - F5.1.S1
+  - F5.1.S2
+  - F5.1.S3
+  - F5.2.S3
+  - F5.3.S1
+  - F5.3.S2
+  - F5.3.S3
+  - F5.3.S4
+  - F5.3.S5
+  - F3.2.S6
+  - F5.4.S1
+  - F5.4.S2
+  - F5.4.S3
+  - F5.5.S1
+  - F5.5.S2
+  - F5.5.S3
+  - F5.5.S4
+  - F5.5.S5
+  - F4.8.S2
+  - F5.3.S7
+  - F5.6.S1
+  - F5.6.S2
+  - F5.2.S2
+  - F5.6.S3
+  - F5.7.S1
+  - F5.7.S2
+  - F5.7.S3
+  - F5.7.S4
+  - F5.7.S5
+  - F5.3.S6
+  - F5.1.S4
+- id: W15
+  title: Admin portal (E6)
+  why: The operator's views over W8's tenants and W14's subscriptions.
+  items:
+  - F6.1.S1
+  - F6.1.S2
+  - F6.2.S1
+  - F6.2.S2
+  - F6.3.S1
+  - F6.3.S2
+  - F6.3.S3
+  - F6.4.S1
+  - F6.4.S2
+  - F6.4.S3
+  - F6.5.S1
+  - F6.5.S2
+  - F6.5.S3
+  - F6.5.S4
+- id: W16
+  title: Social platforms (E8)
+  why: Instagram with Facebook Pages, then YouTube, TikTok and X (product-spec Phase 2). Start the platform reviews early;
+    their queues set the timeline.
+  items:
+  - F8.1.S1
+  - F7.6.S2
+  - F8.2.S2
+  - F8.2.S5
+  - F8.2.S4
+  - F8.2.S3
+  - F8.2.S1
+  - F8.3.S1
+  - F4.10.S4
+  - F8.3.S2
+- id: W17
+  title: Self-host, agency and scale
+  why: Offline licences, the agency add-on, more regions and a second KPI store, each when a customer or a measurement asks
+    for it.
+  items:
+  - F5.8.S1
+  - F5.8.S2
+  - F5.8.S3
+  - F5.8.S4
+  - F5.8.S5
+  - F6.4.S4
+  - F5.9.S1
+  - F5.9.S2
+  - F5.9.S3
+  - F5.9.S4
+  - F3.4.S1
+  - F3.1.S7
+  - F7.6.S3
+  - F7.10.S1
+  - F7.11.S6
+  - F1.6.S3
+  - F1.9.S1
+  - F7.6.S5
+  - '#59'
+# Developer tooling outside the product: worked only when the owner asks.
+tooling:
+- '#227'
+- '#246'
+- '#265'
+- '#268'
+- '#269'
+- '#270'
+- '#271'
+- '#272'
+- '#273'
+# Titles of the '#N' items, so the tracker reads without a network call. --drift checks them against GitHub.
+issues:
+  59: "DEV destinations: list the organizations this person has already published to (DEV's API can't list a user's organizations)"
+  72: "Authz hardening from the adversarial review (PR #70): smaller concerns"
+  112: "Erasure: copies outside the backup rotation keep erased data indefinitely"
+  128: "restore: 'Nothing was replaced' can be false when the restore is stopped (PID 1 ignores SIGTERM)"
+  130: "Publishing: a bad value in a platform block, or a lone surrogate in a field, still answers 500"
+  136: "Token lifetimes: follow-ups from the review of #132"
+  139: "Keycloak sync breaker: a scripted mass delete or disable through the admin API is acted on one person at a time"
+  141: "Outbox housekeeping: retired consumers block purging forever, and housekeeping can starve"
+  149: "Account-deletion links are written in clear to the access log"
+  159: "Test-order dependence: NoBearerLinksInLogs fails when run after the breaker tests"
+  161: "Erasure and cut-off races: the remaining shapes after #102"
+  202: "Restore: two restores stamped in the same second leave a full copy on the data volume"
+  207: "Alerts: InkcastIdentitySyncReconcileEndingEarly can't fire near the top of the reconcile interval"
+  212: "Erasure: workspace member KPIs keep the person's id in dims.member"
+  214: "Publishing: writes after a send don't check the claim, and an empty 2xx is published with no URL"
+  215: "Rate limits: wording and docs left from #188"
+  219: "Owner guards: rollbacks drop newer guards, and the orphan sweep can stop early"
+  222: "Always-schedule follow-ups: large imports can page, clock skew in the lag measure, stale wording"
+  227: "tokensave fork: workspaces, agent and model discovery, and a local token dashboard"
+  234: "Person decides: follow-ups from the review of #231"
+  246: "tokensave fork S1: record effort, model, thinking and subagent runs per turn"
+  265: "tokensave fork S3b: dashboard page from the mockup"
+  268: "Repair tokensave Claude turns stored before the first-line fix"
+  269: "tokensave fork S2: workspaces, repo discovery and init --workspace"
+  270: "tokensave fork S3c: start the dashboard at login (launchd)"
+  271: "tokensave fork S6: propose S1–S3 to tokensave upstream"
+  272: "Fix tokensave global.db writers waiting on dashboard reads"
+  273: "Fix the tokensave saving rate under tool, model and effort filters"
+  280: "Git sync: a replacement remade after a failed run loses the replaced post's created_at"
+  290: "Git sync: a re-run within 24 h replays the first skipped result"
+  291: "inkcast sync --removed-since: glob_pattern matches more than glob.glob"
+  299: "OpenFGA to PostgreSQL with cert-manager client certificates instead of passwords"
+  312: "Runbooks: name the namespace instead of hard-coding inkcast"
+  324: "Research and design: disabled accounts get export, notice and deletion after N days (cleanup job)"
+  342: "Bring a deleted generated Secret back without restarting OpenFGA"
+  343: "Measure a realm import applied before its client-secret Secret exists"

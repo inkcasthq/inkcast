@@ -130,10 +130,11 @@ features:
   - id: F3.3.S5
     title: 'Erasure flow (user and organization): owning tables, user-scope KPI rows deleted, member dims tombstoned, outbox
       purged; audited'
-    status: in-progress
+    status: done
+    issue: 65
     change: 'user half built (issue #65): Store.erase_user over every user-keyed table in one transaction, the user_erasures
       audit (salted id hash, time, counts) and an architecture test that scans the live schema; the organization half
-      (member dims tombstoned) follows with E3''s organizations'
+      (member dims tombstoned) is F3.3.S11, split out 2026-10-28 so this story matches its closed issue'
   - id: F3.3.S6
     title: Events carry org_id and workspace_id; rollups appear at those scopes with no consumer change (test)
     status: planned
@@ -141,6 +142,7 @@ features:
   - id: F3.3.S7
     title: 'Export my data: one JSON bundle of everything Inkcast holds about the person (never credentials or tokens)'
     status: planned
+    issue: 61
     change: 'new; issue #61 (offered first by the account-deletion page, E9.F9.5.S4)'
     acceptance:
     - MCP inkcast_export and REST POST /api/v1/account/export give a one-time download link (OAuth only, 24 h, once)
@@ -150,6 +152,7 @@ features:
   - id: F3.3.S8
     title: 'Export for a cut-off person: an emailed link (7 days, 5 downloads, never past the erasure)'
     status: planned
+    issue: 328
     change: 'new; issue #328; ADR-0018 section 6, builds on F3.3.S7 (#61) and F7.4.S4'
     acceptance:
     - 'Each account notice carries a link to /account/export/<token>: a 256-bit random token stored only as its hash
@@ -171,6 +174,7 @@ features:
   - id: F3.3.S9
     title: 'Legal hold: an operator stops one person''s erasure, audited'
     status: planned
+    issue: 329
     change: 'new; issue #329; ADR-0018 section 10 (GDPR Art. 17(3)(e))'
     acceptance:
     - 'inkcast accounts hold --user <id> --ref <matter> --by <who>, release --user <id> --by <who>, and holds;
@@ -186,6 +190,7 @@ features:
   - id: F3.3.S10
     title: 'Import an export bundle into a new account: posts and schedules become drafts, nothing is sent'
     status: planned
+    issue: 333
     change: 'new; issue #333; ADR-0018 owner decision 7; after F3.3.S7 (#61)'
     acceptance:
     - 'MCP inkcast_import and REST POST /api/v1/account/import take an F3.3.S7 bundle from a signed-in person (schema
@@ -195,6 +200,12 @@ features:
     - 'Importing the same bundle twice adds nothing the second time (the bundle''s id)'
     - 'Tests: a round trip from export to import, a bundle of a newer schema refused, ids from the bundle never trusted
       as another person''s'
+  - id: F3.3.S11
+    title: 'Erase an organization: its rows in the owning tables, its tuples, the member dims tombstoned and the outbox
+      purged; audited'
+    status: planned
+    change: 'new 2026-10-28; the organization half of F3.3.S5 (issue #65 built the user half); needs E3''s organizations
+      (F3.2.S1)'
 - id: F3.4
   title: Bring your own platform app credentials per workspace
   stories:
@@ -342,6 +353,7 @@ features:
   - id: F3.9.S1
     title: 'Kustomize component: OpenFGA on Postgres, OpenShift restricted-v2, migrate Job, mirrored images'
     status: done
+    issue: 279
     change: 'built in PR #285'
     acceptance:
     - 'The kubernetes and openshift overlays use OpenFGA and drop INKCAST_AUTHZ_ALLOW_LOCAL=true (set in PR #49 so
@@ -367,6 +379,7 @@ features:
       scripts/deploy/openfga-db-credentials.sh; the private image''s pull Secret named on the ServiceAccount and on
       every Inkcast-image pod spec, in the environments only (scripts/deploy/ghcr-pull-secret.sh)'
     status: in-progress
+    issue: 296
     change: new
     acceptance:
     - environments/staging and environments/production render no Cluster, set their namespaces and keep OpenFGA on
@@ -383,8 +396,9 @@ features:
       (components/openfga) runs inkcast authz write-model with the pod''s own image before the server, on every pod
       start; INKCAST_FGA_STORE_NAME pins by name at start-up (the store and the version equal to the packaged
       model), with a named refusal while they are missing'
-    status: in-progress
-    change: 'new; issue #315'
+    status: done
+    issue: 315
+    change: 'new; issue #315; built in PR #317'
     acceptance:
     - An init container authz-model on every Inkcast Deployment whose processes check permissions (the all-in-one
       Deployment, or each split service but the Gateway) runs `inkcast authz write-model` with the server's image
@@ -409,8 +423,9 @@ features:
   - id: F3.9.S7
     title: 'The cluster generates every environment Secret: no secret scripts, no copied values (inkcast env-secrets,
       the init container of OpenFGA''s pod in each lab environment, components/env-secrets)'
-    status: in-progress
-    change: 'new; issue #323'
+    status: done
+    issue: 323
+    change: 'new; issue #323; built in PR #336'
     acceptance:
     - applied with each environment, every Secret is created when absent (inkcast-<side>/inkcast-secrets,
       inkcast-db/inkcast-pg-openfga-<side>, inkcast-<side>/openfga-db-app, keycloak/inkcast-<side>-realm), the agreeing
@@ -426,6 +441,19 @@ features:
     - the secret scripts are replaced and the README's bring-up has no secret step; proven on kind in CI and on
       OpenShift Local (delete a namespace's generated Secrets in a fresh environment, apply, and everything comes back
       in agreement)
+  - id: F3.9.S8
+    title: "OpenFGA's schema migration runs as an init container: no Job to delete and re-apply"
+    status: planned
+    issue: 337
+    change: 'new 2026-10-28; issue #337 (the review of #317 found K1, an immutable Job template, and K2, a Job failed
+      for good)'
+    acceptance:
+    - openfga migrate runs as an init container of the openfga Deployment, after env-secrets where present, with the
+      server's pinned image under restricted-v2
+    - The Job openfga-migrate and everything that waits for or deletes it are removed
+    - Two pods migrating at once is safe (OpenFGA's migrate locking cited from source at the pinned version)
+    - 'Proven on kind: a fresh install, an image change that re-runs the migration, a database outage longer than 30
+      minutes that self-heals; and on OpenShift Local with /inkcast-crc'
 - id: F3.10
   title: 'Backing services: Valkey and PostgreSQL in the cluster'
   stories:

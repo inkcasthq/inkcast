@@ -20,6 +20,7 @@ features:
     title: 'Mockup: the writer web app (Posts, Compose, Connections, Git sync, Tokens, Insights, API), approved before UI
       code'
     status: planned
+    issue: 347
     change: 'issue #347; new 2026-10-28; first in order: the mockup gates F4.1.S1, F4.2 and every screen build (ADR-0004)'
     acceptance:
     - 'One app artboard to the mockup standard (docs/tooling/mockup-standard.md, target react-ts), with a tab per screen,
@@ -32,6 +33,7 @@ features:
   - id: F4.1.S5
     title: Node lock resolved in CI, as the Python lock is
     status: planned
+    issue: 348
     change: 'issue #348; new 2026-10-28: the build sandbox can''t reach npm, so the web workspace''s lock comes from CI'
     acceptance:
     - 'A workflow, run on demand and weekly like lock-refresh.yml, resolves web/package-lock.json with integrity hashes
@@ -43,6 +45,7 @@ features:
   - id: F4.2.S1
     title: 'WebApp service: OIDC with Keycloak, HttpOnly SameSite session'
     status: planned
+    issue: 349
     change: 'issue #349; refined 2026-10-28: Inkcast has no web entry today; the service is named inkcast-web, on its
       own host, with its own Keycloak client (owner''s decision)'
     acceptance:
@@ -65,6 +68,7 @@ features:
   - id: F4.2.S3
     title: 'inkcast-web on OpenShift: in each environment''s namespace, its own host, promoted by digest'
     status: planned
+    issue: 350
     change: 'issue #350; new 2026-10-28; the owner chose each environment''s namespace over a shared client namespace'
     acceptance:
     - 'inkcast-web runs in the namespace of its environment (inkcast-staging, inkcast-prod), never in a namespace shared
@@ -83,7 +87,8 @@ features:
   stories:
   - id: F4.3.S1
     title: 'Mockup: sign-up → workspace → connect → first token → Git guide'
-    status: planned
+    status: done
+    change: docs/epics/E4-web-app/mockups/onboarding.html, approved by the owner 2026-10-28
   - id: F4.3.S2
     title: Build
     status: planned
@@ -92,10 +97,12 @@ features:
   stories:
   - id: F4.4.S1
     title: 'Mockup: health badges, scopes, reconnect, posts at risk'
-    status: planned
+    status: done
+    change: docs/epics/E4-web-app/mockups/connections.html, approved by the owner 2026-10-28
   - id: F4.4.S2
     title: Build
     status: planned
+    issue: 351
     change: 'issue #351; refined 2026-10-28: one screen per story, from the writer app mockup (F4.1.S4)'
     acceptance:
     - 'Translated from the approved mockup''s Connections tab per docs/tooling/mockup-standard.md, and matches it at 390,
@@ -105,10 +112,12 @@ features:
   stories:
   - id: F4.5.S1
     title: 'Mockup: editor with per-platform preview and counters'
-    status: planned
+    status: done
+    change: docs/epics/E4-web-app/mockups/composer.html, approved by the owner 2026-10-28
   - id: F4.5.S2
     title: Build (server-rendered preview from prepare())
     status: planned
+    issue: 352
     change: 'issue #352; refined 2026-10-28: one screen per story, from the writer app mockup (F4.1.S4)'
     acceptance:
     - 'Translated from the approved mockup''s Compose tab per docs/tooling/mockup-standard.md, and matches it at 390, 820
@@ -118,13 +127,15 @@ features:
   stories:
   - id: F4.6.S1
     title: 'Mockup: week/month, drag to reschedule, IANA time zone'
-    status: planned
+    status: done
+    change: docs/epics/E4-web-app/mockups/calendar.html, approved by the owner 2026-10-28
   - id: F4.6.S2
     title: Build
     status: planned
   - id: F4.6.S3
     title: Post list and history with errors
     status: planned
+    issue: 353
     change: 'issue #353; refined 2026-10-28: one screen per story, from the writer app mockup (F4.1.S4)'
     acceptance:
     - 'Translated from the approved mockup''s Posts tab per docs/tooling/mockup-standard.md, and matches it at 390, 820
@@ -134,10 +145,12 @@ features:
   stories:
   - id: F4.7.S1
     title: Mockup
-    status: planned
+    status: done
+    change: docs/epics/E4-web-app/mockups/tokens.html and git-publishing.html, approved by the owner 2026-10-28
   - id: F4.7.S2
     title: Build
     status: planned
+    issue: 354
     change: 'issue #354; refined 2026-10-28: one screen per story, from the writer app mockup (F4.1.S4)'
     acceptance:
     - 'Translated from the approved mockup''s Tokens tab per docs/tooling/mockup-standard.md, and matches it at 390, 820
@@ -145,6 +158,7 @@ features:
   - id: F4.7.S3
     title: 'Build: Git sync ledger page'
     status: planned
+    issue: 355
     change: 'issue #355; new 2026-10-28: a tab of the writer app mockup (F4.1.S4) that no story covered'
     acceptance:
     - 'Translated from the approved mockup''s Git sync tab per docs/tooling/mockup-standard.md, from GET /api/v1/ledger,
@@ -152,6 +166,7 @@ features:
   - id: F4.7.S4
     title: 'Build: API page (reference links, MCP endpoint, endpoints with their scopes)'
     status: planned
+    issue: 356
     change: 'issue #356; new 2026-10-28: a tab of the writer app mockup (F4.1.S4) that no story covered'
     acceptance:
     - 'Translated from the approved mockup''s API tab per docs/tooling/mockup-standard.md, and matches it at 390, 820
@@ -195,6 +210,7 @@ features:
     title: Build on /api/v1/insights with ?scope=workspace:<id>; charts follow the chart grammar (counts from zero, rates
       show parts, colour carries one thing)
     status: planned
+    issue: 357
     change: 'issue #357; new; refined 2026-10-28: from the writer app mockup''s Insights tab (F4.1.S4)'
     acceptance:
     - 'Translated from the approved mockup''s Insights tab per docs/tooling/mockup-standard.md, and matches it at 390, 820

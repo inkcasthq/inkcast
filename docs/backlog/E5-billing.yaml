@@ -150,7 +150,7 @@ features:
   title: Billing UI
   stories:
   - id: F5.5.S1
-    change: refined
+    change: refined; pricing.html, billing-usage.html and paywall.html approved by the owner 2026-10-28
     status: in-progress
     title: 'Mockups: pricing, plan and usage, paywalls (done); checkout handoff, downgrade impact (E10.F10.5.S1)'
     acceptance:

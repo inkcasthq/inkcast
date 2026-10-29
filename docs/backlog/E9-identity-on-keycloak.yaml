@@ -47,6 +47,16 @@ features:
     title: First login creates the Inkcast user and their personal organization (owner tuple; emits org.created)
     status: planned
     change: needs E3's organizations (F3.2) for the personal organization; the Inkcast user is already created at first login
+  - id: F9.2.S3
+    title: 'Realm email in each environment: Keycloak sends verify-email and reset-password mail through the environment''s
+      SMTP relay, settings as code, the password from a Secret'
+    status: planned
+    change: 'new 2026-10-28 (owner ask; F9.2.S1 left the realm''s SMTP settings as placeholders)'
+    acceptance:
+    - The generated realm imports set smtpServer per environment (host, port, from, TLS, auth); the password reaches the
+      realm from a Secret the way the generated client secrets do, never from Git
+    - 'Proven on OpenShift Local staging with Mailpit: a newcomer gets the verify link, and a reset-password mail arrives'
+    - Production sends from the domain that F7.4.S10 authenticates
 - id: F9.3
   title: Social login and account linking
   stories:
@@ -102,6 +112,7 @@ features:
     title: 'Delete my account: Inkcast leads, Keycloak deletes the account (kc_action=delete_account), Inkcast erases
       the data'
     status: done
+    issue: 41
     change: 'built in PR #69 (issue #41): Inkcast-led, Keycloak deletes through its delete_account application-initiated
       action (fine-grained admin permissions have no delete-only scope: manage also allows email change and action emails);
       Keycloak 26 never redirects back after a successful deletion, so the client baseUrl links its "deleted" page to
@@ -123,6 +134,7 @@ features:
   - id: F9.5.S5
     title: The user sync proven in split mode on kind (IdentityService's own Deployment carries the sync settings)
     status: planned
+    issue: 42
     change: 'new; issue #42'
     acceptance:
     - ci-split-oidc sets INKCAST_KEYCLOAK_SYNC_* and the secret on the IdentityService Deployment only
@@ -208,6 +220,7 @@ features:
     title: 'The account-cleanup job: a cut-off person is told, reminded and erased INKCAST_KEYCLOAK_ERASE_AFTER_DAYS
       after the notice (replaces F9.5.S6''s rule)'
     status: planned
+    issue: 330
     change: 'new; issue #330; ADR-0018 sections 1 to 5; needs F7.4.S4, F3.3.S8 and F3.3.S9'
     acceptance:
     - 'The rule, stated in the README, the E9 design, the alerts runbook and the posture check: every person Inkcast has
@@ -246,6 +259,7 @@ features:
     title: 'Remove the Keycloak user at erasure: a separate cleanup client; local users always, federated users only
       once out of the directory group'
     status: planned
+    issue: 331
     change: 'new; issue #331; ADR-0018 section 9; owner decisions 1 to 3 first; needs F9.5.S9 and F9.8.S3''s
       measurements'
     acceptance:
@@ -267,6 +281,7 @@ features:
   - id: F9.5.S11
     title: 'A cut-off person''s scheduled posts are paused; nothing paused goes out on their return without them'
     status: planned
+    issue: 332
     change: 'new; issue #332; ADR-0018 owner decision 4'
     acceptance:
     - 'The scheduler does not claim a post whose person has disabled_at set (posts.py _OWNED); a person the breaker
@@ -292,6 +307,7 @@ features:
   - id: F9.7.S2
     title: 'Keycloak event retention in the realm: eventsExpiration and adminEventsExpiration (7 days)'
     status: done
+    issue: 43
     change: 'new; issue #43, built in the event-retention PR (adminEventsExpiration is a realm attribute in Keycloak 26)'
     acceptance:
     - realm-inkcast.json sets both; tests/test_keycloak_realm.py keeps them set and at least 1 day (the sync reads from
@@ -304,6 +320,7 @@ features:
     title: 'LDAP user federation in the inkcast-staging and inkcast-prod realms, as code (read-only, LDAPS, bind password
       from a Secret)'
     status: planned
+    issue: 318
     change: 'new; issue #318; the lab''s corp realm (OpenLDAP in ldap-testing) is the measured pattern'
     acceptance:
     - 'The generated KeycloakRealmImport of each environment carries one org.keycloak.storage.UserStorageProvider
@@ -323,6 +340,7 @@ features:
     title: 'Only members of the environment''s LDAP group sign in to Inkcast: the group grants the realm role
       inkcast-user'
     status: planned
+    issue: 319
     change: 'new; issue #319; the owner creates the LDAP groups (for example inkcast-staging-users and
       inkcast-prod-users in ou=Groups)'
     acceptance:
@@ -336,6 +354,7 @@ features:
   - id: F9.8.S3
     title: 'Leaving the group, deletion in LDAP and an LDAP outage: what the user sync does to a federated person'
     status: planned
+    issue: 320
     change: 'new; issue #320; decide removeInvalidUsersEnabled with the owner before building'
     acceptance:
     - 'Recorded from Keycloak 26.6.7 source: a person no longer matched by the user filter (left the group or deleted in
@@ -355,6 +374,7 @@ features:
     title: 'An LDAP person signs in to Inkcast staging and production end to end (browser, MCP client, personal access
       token)'
     status: planned
+    issue: 321
     change: 'new; issue #321'
     acceptance:
     - 'Proven on OpenShift Local: authorization-code sign-in with PKCE for a
