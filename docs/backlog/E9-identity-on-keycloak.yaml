@@ -6,6 +6,7 @@ goal: Keycloak is the single identity layer of the SaaS (sign-up, social login, 
   consent and tokens (ADR-0006). Needed before E4 and E6.
 features:
 - id: F9.1
+  phase: 1
   title: Realm as code and real Keycloak in CI
   stories:
   - id: F9.1.S1
@@ -30,6 +31,7 @@ features:
     status: in-progress
     change: 'dev Kustomize and production notes in PR #14; a production component waits for ADR-0014''s PostgreSQL'
 - id: F9.2
+  phase: 2
   title: Self sign-up
   stories:
   - id: F9.2.S1
@@ -48,6 +50,7 @@ features:
     status: planned
     change: needs E3's organizations (F3.2) for the personal organization; the Inkcast user is already created at first login
 - id: F9.3
+  phase: 3
   title: Social login and account linking
   stories:
   - id: F9.3.S1
@@ -67,15 +70,18 @@ features:
     - 'Measured on kind: a social sign-in whose email matches an enabled account is linked only after verification; one
       whose email matches a disabled account makes no new account'
 - id: F9.4
+  phase: 3
   title: MFA and operators
   stories:
   - id: F9.4.S1
     title: inkcast-admin requires OTP or WebAuthn; admin client enforces it
     status: planned
 - id: F9.5
+  phase: 3
   title: Identity and membership sync
   stories:
   - id: F9.5.S1
+    phase: 2
     title: IdentitySync consumes Keycloak user and Organization events (membership, admins) and writes tuples (ADR-0008)
     status: planned
     change: refined
@@ -95,6 +101,7 @@ features:
     - 'kind CI: an administrator disables ada with kcadm; her OAuth token and PAT answer 401 within 60 s; re-enabled,
       she signs in again'
   - id: F9.5.S3
+    phase: 2
     title: Scheduled reconcile of Keycloak membership against OpenFGA; a missed event still removes access; drift alert
     status: planned
     change: new
@@ -277,6 +284,7 @@ features:
     - 'Tests: a due post of a cut-off person is not claimed, a held person''s is, the return, and the lag gauges leave
       paused posts out'
 - id: F9.6
+  phase: 3
   title: Enterprise SSO
   stories:
   - id: F9.6.S1
@@ -284,6 +292,7 @@ features:
     status: planned
     change: refined
 - id: F9.7
+  phase: 3
   title: Operations
   stories:
   - id: F9.7.S1
@@ -298,6 +307,7 @@ features:
       the day before its cursor)
     - The kind e2e reads the imported realm and checks both values
 - id: F9.8
+  phase: 3
   title: Directory federation (LDAP) for the inkcast realms
   stories:
   - id: F9.8.S1

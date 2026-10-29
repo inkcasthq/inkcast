@@ -65,6 +65,7 @@ features:
     title: Generated split-services component
     status: done
 - id: F1.6
+  phase: 1
   title: CI
   stories:
   - id: F1.6.S1
@@ -74,6 +75,7 @@ features:
     title: End-to-end suite in single and split mode
     status: done
   - id: F1.6.S3
+    phase: ongoing
     title: 'The image on Python 3.15 once its wheels settle (second half of #24; CI already tests 3.15)'
     status: planned
     change: 'new; issue #32'
@@ -127,6 +129,7 @@ features:
     acceptance:
     - The PR body says what was merged; a dated note at the end says what changed and why
 - id: F1.8
+  phase: 1
   title: Supply chain and repository hardening
   stories:
   - id: F1.8.S1
@@ -191,6 +194,7 @@ features:
     - Kept as code in .github/repo-settings.json; scripts/repo/settings.py apply sets them and check compares them
     - The repo-settings workflow runs check daily and on changes, and fails on drift
 - id: F1.9
+  phase: ongoing
   title: Local development
   stories:
   - id: F1.9.S1
