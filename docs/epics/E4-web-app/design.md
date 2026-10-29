@@ -28,7 +28,7 @@ Members and approvals (added 2026-10-18) follow the [authorization design](../..
 
 ## System design
 
-- **WebApp service.** It serves the built SPA and a backend-for-frontend (ADR-0004). The BFF signs in with Keycloak, keeps an `HttpOnly`, `SameSite=Lax`, `Secure` session cookie, and calls the other services with the user's identity. The browser never holds a bearer token.
+- **WebApp service.** It serves the built SPA and a backend-for-frontend (ADR-0004). The BFF signs in with Keycloak, keeps an `HttpOnly`, `SameSite=Lax`, `Secure` session cookie, and calls the other services with the user's identity. The browser never holds a bearer token. It is named `inkcast-web` and runs in each environment's own namespace, on a host of its own (`inkcast-web-<side>`, beside the API's `inkcast-<side>`) with its own Keycloak client `inkcast-web` (F4.2.S1, F4.2.S3).
 - **Previews come from the server.** The composer calls `POST /api/v1/preview`, which runs the same `prepare()` as publishing, so the preview can't drift from what is sent.
 - **Times.** Times are stored in UTC with the IANA zone the writer picked, and expanded in that zone (lessons: integer offsets break across daylight saving).
 - **Health.** Health badges and "posts at risk" come from E7's channel-health state machine.
