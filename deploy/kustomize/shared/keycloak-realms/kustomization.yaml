@@ -11,11 +11,10 @@
 # reads the Secret through spec.placeholders, each an environment entry of its pod (optional: false): applied before
 # the Secret exists, the pod waits in CreateContainerConfigError and runs once the Secret appears, with no restart of
 # the server (#343, measured: docs/research/realm-import-before-secret-2026-10.md); no secret value is in Git. An
-# import creates its realm once and never
-# changes it (`kc.sh import --override=false`). Change a realm that has people through the admin console or API, and
-# the realm file in the same pull request. Deleting a realm deletes its accounts, and the user sync then treats each
-# person as deleted, so delete and re-import only a realm with no accounts to keep. The imports stay: their Jobs are the
-# import's log, and a re-apply changes nothing.
+# import creates its realm once and never changes it (`kc.sh import --override=false`). Change a realm that has people
+# through the admin console or API, and the realm file in the same pull request. Deleting a realm deletes its accounts,
+# and the user sync then treats each person as deleted, so delete and re-import only a realm with no accounts to keep.
+# The imports stay: their Jobs are the import's log, and a re-apply changes nothing.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: keycloak
