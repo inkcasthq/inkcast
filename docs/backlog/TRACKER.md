@@ -4,7 +4,7 @@
 
 This page lists every story in the backlog and the order in which the work is done. To change a story, edit its epic file in `docs/backlog/`. To change the order, edit `docs/backlog/order.yaml`. Then run `scripts/backlog/tracker.py`. The tests fail when this page is out of date.
 
-The backlog holds 310 stories: 83 done, 7 in progress and 220 planned.
+The backlog holds 310 stories: 84 done, 6 in progress and 220 planned.
 
 Tracked in [#360](https://github.com/inkcasthq/inkcast/issues/360): Backlog tracker: every story in one execution order, reviewed wave by wave.
 
@@ -14,7 +14,7 @@ Tracked in [#360](https://github.com/inkcasthq/inkcast/issues/360): Backlog trac
 |---|---|---:|---:|---:|---:|
 | E1 | Platform foundations | 30 | 3 | 2 | 35 |
 | E2 | Git publishing | 17 | 0 | 3 | 20 |
-| E3 | Tenancy, data and authorization (OpenFGA) | 12 | 2 | 50 | 64 |
+| E3 | Tenancy, data and authorization (OpenFGA) | 13 | 1 | 50 | 64 |
 | E4 | SaaS web app | 8 | 0 | 26 | 34 |
 | E5 | Billing, entitlements and metering | 0 | 1 | 39 | 40 |
 | E6 | Admin portal | 0 | 0 | 15 | 15 |
@@ -27,7 +27,7 @@ Tracked in [#360](https://github.com/inkcasthq/inkcast/issues/360): Backlog trac
 
 Work the waves from top to bottom, and the items in each wave in the order listed. An item is a story, or an open issue that is not a story. Each wave names its delivery phase (see the epics index): the phases run 1 to 5 in order, and the ongoing waves are worked beside them.
 
-### W1: Finish what is in flight (phase 1, 0 of 7 stories done)
+### W1: Finish what is in flight (phase 1, 1 of 7 stories done)
 
 Open loops on the lab and the repository cost the most while they stay open. Each item is partly built or waits on one proof.
 
@@ -40,7 +40,7 @@ Open loops on the lab and the repository cost the most while they stay open. Eac
 | 5 | #312 | open issue | Runbooks: name the namespace instead of hard-coding inkcast | | [#312](https://github.com/inkcasthq/inkcast/issues/312) |
 | 6 | #324 | open issue | Research and design: disabled accounts get export, notice and deletion after N days (cleanup job) | | [#324](https://github.com/inkcasthq/inkcast/issues/324) |
 | 7 | F9.1.S3 | in-progress | Kustomize component for Keycloak (dev) and docs for a production Keycloak on Postgres | E9 |  |
-| 8 | F3.1.S9 | in-progress | SQLite stopgap until F3.1.S5: inkcast backup/restore/backups, the backup component (daily CronJob, own volume, deny-all network), InkcastBackupMissing, restore runbook, restore drill in CI on kind | E3 |  |
+| 8 | F3.1.S9 | done | SQLite stopgap until F3.1.S5: inkcast backup/restore/backups, the backup component (daily CronJob, own volume, deny-all network), InkcastBackupMissing, restore runbook, restore drill in CI on kind | E3 |  |
 | 9 | F1.8.S1 | in-progress | Protect main with a ruleset: required checks, squash only, no force-push or deletion | E1 | [#34](https://github.com/inkcasthq/inkcast/issues/34) |
 | 10 | F1.8.S5 | in-progress | Remove the stale publish.yml:codeql code-scanning configuration | E1 | [#38](https://github.com/inkcasthq/inkcast/issues/38) |
 | 11 | F1.8.S6 | in-progress | Repository security settings as code: secret scanning with push protection, Dependabot security updates, private vulnerability reporting | E1 | [#45](https://github.com/inkcasthq/inkcast/issues/45) |
@@ -490,7 +490,7 @@ Outside the product. Worked only when the owner asks.
 | F2.7.S2 | planned | WordPress plug-in: the REST API with an application password; markdown to HTML; tags and categories by name |  | 229 (W16) |
 | F2.7.S3 | planned | Ghost plug-in: the Admin API with an Admin API key (a short-lived HS256 JWT per request) |  | 230 (W16) |
 
-### E3: Tenancy, data and authorization (OpenFGA) (12 of 64 done)
+### E3: Tenancy, data and authorization (OpenFGA) (13 of 64 done)
 
 | Story | Status | Title | Issue | Order |
 |---|---|---|---|---|
@@ -504,7 +504,7 @@ Outside the product. Worked only when the owner asks.
 | F3.1.S6 | planned | Queue gauges from the scheduler's memory, not a COUNT per scrape per replica |  | 52 (W4) |
 | F3.1.S7 | planned | Full-text search on posts and ledger (tsvector); no external search engine |  | 58 (W4) |
 | F3.1.S8 | planned | Outbox and kpi_rollups as PostgreSQL tables in the owning schemas (BIGSERIAL seq; index-only cursor reads); migrations |  | 47 (W4) |
-| F3.1.S9 | in-progress | SQLite stopgap until F3.1.S5: inkcast backup/restore/backups, the backup component (daily CronJob, own volume, deny-all network), InkcastBackupMissing, restore runbook, restore drill in CI on kind |  | 8 (W1) |
+| F3.1.S9 | done | SQLite stopgap until F3.1.S5: inkcast backup/restore/backups, the backup component (daily CronJob, own volume, deny-all network), InkcastBackupMissing, restore runbook, restore drill in CI on kind |  | 8 (W1) |
 | F3.2.S1 | planned | Organization and workspace tables hold business state only; organization id = Keycloak Organization id; every account has a personal organization; kind (personal, team, client) and billing_parent for managed client orgs |  | 61 (W5) |
 | F3.2.S2 | planned | Roles are OpenFGA relations: org owner, admin, member, billing_admin; workspace manager, editor, reviewer, publisher, viewer, client_reviewer |  | 63 (W5) |
 | F3.2.S3 | planned | Membership changes require can_manage_members (model rule) |  | 64 (W5) |
