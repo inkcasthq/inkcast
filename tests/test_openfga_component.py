@@ -71,26 +71,36 @@ class ComponentFiles(unittest.TestCase):
     def load(self, name: str) -> list[dict]:
         return [d for d in yaml.safe_load_all((COMPONENT / name).read_text()) if d]
 
-    def test_the_server_and_the_migrate_job_fit_restricted_v2(self):
+    def test_the_server_and_its_migrate_init_container_fit_restricted_v2(self):
+        """The schema migration is an init container of the server's pod (E3.F3.9.S8, issue #337), not a Job: the
+        same pinned image as the server, the same security context, run to completion (no sidecar restartPolicy)."""
         (deployment,) = self.load("deployment.yaml")
-        assert_restricted_v2(self, pod_spec(deployment), "Deployment openfga")
-        (job,) = self.load("job.yaml")
-        assert_restricted_v2(self, pod_spec(job), "Job openfga-migrate")
-        self.assertEqual(pod_spec(job)["restartPolicy"], "OnFailure")
-        self.assertEqual(pod_spec(job)["containers"][0]["args"], ["migrate"])
-        self.assertEqual(pod_spec(deployment)["containers"][0]["args"], ["run"])
+        pod = pod_spec(deployment)
+        assert_restricted_v2(self, pod, "Deployment openfga")
+        (migrate,) = pod["initContainers"]
+        (server,) = pod["containers"]
+        self.assertEqual((migrate["name"], migrate["args"]), ("migrate", ["migrate"]))
+        self.assertEqual(migrate["image"], server["image"], "one image, one digest, for the migration and the server")
+        self.assertNotIn("restartPolicy", migrate, "an init container that runs to completion, not a sidecar")
+        self.assertEqual(server["args"], ["run"])
+        self.assertEqual(deployment["spec"]["replicas"], 1, "v1.22.0 takes no lock around its migrations (deployment.yaml)")
+        self.assertFalse(list(COMPONENT.glob("job*.yaml")), "the Job is gone: nothing immutable, nothing to delete")
 
     def test_openfga_reads_its_settings_by_the_server_s_own_names(self):
         """cmd/run/flags.go and cmd/migrate/flags.go at v1.22.0: the datastore from the operator's Secret, the
         preshared key from the Secret Inkcast reads, nothing as a literal."""
         (deployment,) = self.load("deployment.yaml")
-        (job,) = self.load("job.yaml")
-        for obj, what in ((deployment, "server"), (job, "migrate")):
-            env = {e["name"]: e for e in pod_spec(obj)["containers"][0]["env"]}
+        (server,) = pod_spec(deployment)["containers"]
+        (migrate,) = pod_spec(deployment)["initContainers"]
+        for container, what in ((server, "server"), (migrate, "migrate")):
+            env = {e["name"]: e for e in container["env"]}
             self.assertEqual(env["OPENFGA_DATASTORE_ENGINE"]["value"], "postgres", what)
             self.assertEqual(env["OPENFGA_DATASTORE_URI"]["valueFrom"], {"secretKeyRef": {"name": "openfga-db-app", "key": "uri"}}, what)
             for name, e in env.items():
                 self.assertNotIn("KEY", {k for k in e if k == "value" and "KEY" in name}, f"{what}: {name} as a literal")
+        migrate_env = {e["name"]: e for e in migrate["env"]}
+        self.assertEqual(migrate_env["OPENFGA_TIMEOUT"]["value"], "10m", "the first connection, while the Cluster bootstraps")
+        self.assertNotIn("OPENFGA_AUTHN_PRESHARED_KEYS", migrate_env, "the migration needs no API key")
         server = {e["name"]: e for e in pod_spec(deployment)["containers"][0]["env"]}
         self.assertEqual(server["OPENFGA_AUTHN_METHOD"]["value"], "preshared")
         self.assertEqual(server["OPENFGA_AUTHN_PRESHARED_KEYS"]["valueFrom"],
@@ -169,7 +179,7 @@ class Rendered(unittest.TestCase):
                 self.assertEqual(data["INKCAST_FGA_API_URL"], "http://openfga:8080")
                 self.assertEqual(data["INKCAST_FGA_API_TOKEN_FILE"], "/var/run/secrets/inkcast/fga-api-token")
                 kinds = {(d["kind"], d["metadata"]["name"]) for d in self.docs[name]}
-                for wanted in (("Cluster", "openfga-db"), ("Job", "openfga-migrate"), ("Deployment", "openfga"),
+                for wanted in (("Cluster", "openfga-db"), ("Deployment", "openfga"),
                                ("Service", "openfga"), ("Service", "openfga-metrics"), ("NetworkPolicy", "inkcast-to-openfga")):
                     self.assertIn(wanted, kinds)
                 self.assertEqual(one(self.docs[name], "Deployment", "openfga")["metadata"]["namespace"], "inkcast")
@@ -177,16 +187,41 @@ class Rendered(unittest.TestCase):
     def test_the_rendered_openfga_pods_are_admitted_under_restricted_v2(self):
         """The overlays patch Inkcast's own pod with a uid on Kubernetes; OpenFGA's pod needs none anywhere. The
         environments' init container env-secrets and its token volume (components/env-secrets) are checked in
-        tests/test_env_secrets_manifests.py; the rest of their pod is the component's."""
+        tests/test_env_secrets_manifests.py; the rest of their pod, the init container migrate included, is the
+        component's."""
         for name in self.docs:
             with self.subTest(overlay=name):
                 pod = copy.deepcopy(pod_spec(one(self.docs[name], "Deployment", "openfga")))
                 if name.startswith("environments/"):
-                    (init,) = pod.pop("initContainers")
+                    init = pod["initContainers"].pop(0)
                     self.assertEqual(init["name"], "env-secrets")
                     self.assertEqual([v["name"] for v in pod.pop("volumes")], ["api-token"])
+                self.assertEqual([c["name"] for c in pod["initContainers"]], ["migrate"])
                 assert_restricted_v2(self, pod, f"{name}: Deployment")
-                assert_restricted_v2(self, pod_spec(one(self.docs[name], "Job", "openfga-migrate")), f"{name}: Job")
+
+    def test_the_migration_is_an_init_container_of_the_server_s_pod_and_no_job_anywhere(self):
+        """E3.F3.9.S8 (issue #337): every overlay and environment renders the init container migrate with the server's
+        own pinned image, reading the datastore URI from the Secret and key the server reads; after env-secrets where
+        that component is present (it makes the Secret); replicas 1 (no lock in v1.22.0's migrate); and no Job named
+        openfga-migrate, or anything labelled authz-migrate, is rendered anywhere."""
+        for name in self.docs:
+            with self.subTest(overlay=name):
+                docs = self.docs[name]
+                deployment = one(docs, "Deployment", "openfga")
+                pod = pod_spec(deployment)
+                (server,) = pod["containers"]
+                names = [c["name"] for c in pod["initContainers"]]
+                self.assertEqual(names, ["env-secrets", "migrate"] if name.startswith("environments/") else ["migrate"])
+                migrate = pod["initContainers"][-1]
+                self.assertEqual(migrate["image"], server["image"])
+                self.assertRegex(migrate["image"], OPENFGA_IMAGE)
+                uri = {e["name"]: e for e in migrate["env"]}["OPENFGA_DATASTORE_URI"]
+                self.assertEqual(uri, {e["name"]: e for e in server["env"]}["OPENFGA_DATASTORE_URI"])
+                self.assertEqual(uri["valueFrom"]["secretKeyRef"], {"name": "openfga-db-app", "key": "uri"})
+                self.assertEqual(deployment["spec"]["replicas"], 1)
+                self.assertNotIn("strategy", deployment["spec"], "the default rolling update: the old pod serves while the new one migrates")
+                self.assertFalse([d for d in docs if d["kind"] == "Job" and d["metadata"]["name"] == "openfga-migrate"])
+                self.assertFalse([d for d in docs if d["metadata"].get("labels", {}).get("app.kubernetes.io/component") == "authz-migrate"])
 
     def test_the_hosted_environments_name_the_store_and_pin_no_id(self):
         """The rendered ConfigMap, loaded as the pod would load it (the key as the mounted file the ConfigMap names):
@@ -431,13 +466,35 @@ class KindJob(unittest.TestCase):
         self.assertRegex(versions["CNPG_VERSION"], r"^\d+\.\d+\.\d+$")
         self.assertRegex(versions["CNPG_MANIFEST_SHA256"], r"^[0-9a-f]{64}$")
         script = (ROOT / "scripts" / "dev" / "openfga-e2e.sh").read_text()
-        for needed in ("CNPG_MANIFEST_SHA256", "apply --server-side", "overlays/ci-openfga", "job/openfga-migrate",
-                       "-c authz-model", "rollout restart deploy/inkcast", "/readyz", "model written", "model unchanged"):
+        for needed in ("CNPG_MANIFEST_SHA256", "apply --server-side", "overlays/ci-openfga", "-c migrate",
+                       '"current version":0', "set image deploy/openfga", "-c authz-model", "rollout restart deploy/inkcast",
+                       "/readyz", "model written", "model unchanged"):
             self.assertIn(needed, script)
+        self.assertNotIn("openfga-migrate", script, "no Job to wait for (E3.F3.9.S8)")
         self.assertNotIn("sha256sum -c", script, "not on macOS: compare the digest as scripts/kind-tools.sh does")
         ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
         self.assertIn("scripts/dev/openfga-e2e.sh", ci)
-        self.assertIn("inkcast-openfga", ci.split("name: Diagnostics")[1])
+        diagnostics = ci.split("name: Diagnostics")[1]
+        self.assertIn("inkcast-openfga", diagnostics)
+        self.assertIn("logs deploy/openfga -c migrate", diagnostics, "the init container's log on failure, not a Job's")
+        self.assertNotIn("openfga-migrate", ci)
+
+    def test_the_recovery_proofs_are_a_script_on_request_with_their_output_committed(self):
+        """E3.F3.9.S8 (issue #337): two pods migrating one fresh database at once, and a database outage longer than
+        the old Job's 30-minute deadline while a rollout is pending, are proven by scripts/dev/openfga-recovery-e2e.sh
+        on request (too long for every CI run) and its recorded output is committed beside the epic."""
+        script = (ROOT / "scripts" / "dev" / "openfga-recovery-e2e.sh").read_text()
+        for needed in ("scale deploy/openfga --replicas=2", "goose_db_version", "cnpg.io/hibernation=on", "cnpg.io/hibernation=off",
+                       'OUTAGE_SECONDS="${OUTAGE_SECONDS:-1860}"', "rollout restart deploy/openfga", "-c migrate"):
+            self.assertIn(needed, script)
+        self.assertNotIn("openfga-migrate", script)
+        self.assertNotIn("apply", script.split("rehydrating the Cluster")[1].split("PASS outage")[0], "self-healed: no apply after the outage")
+        evidence = (ROOT / "docs" / "epics" / "E3-tenancy-authorization" / "evidence" / "openfga-recovery-e2e.txt").read_text()
+        self.assertIn("PASS race:", evidence)
+        self.assertIn("PASS outage:", evidence)
+        (seconds,) = re.findall(r"the database away (\d+) s while a rollout is pending", evidence)
+        self.assertGreater(int(seconds), 1800, "longer than the Job's activeDeadlineSeconds was")
+        self.assertNotIn("/Users/", evidence, "no local path in the record")
 
 
 class NoSecretInTransport(unittest.TestCase):
