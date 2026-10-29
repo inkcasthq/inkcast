@@ -4,19 +4,19 @@
 
 This page lists every story in the backlog and the order in which the work is done. To change a story, edit its epic file in `docs/backlog/`. To change the order, edit `docs/backlog/order.yaml`. Then run `scripts/backlog/tracker.py`. The tests fail when this page is out of date.
 
-The backlog holds 292 stories: 82 done, 7 in progress and 203 planned.
+The backlog holds 300 stories: 82 done, 7 in progress and 211 planned.
 
 ## Progress by epic
 
 | Epic | Title | Done | In progress | Planned | Total |
 |---|---|---:|---:|---:|---:|
 | E1 | Platform foundations | 30 | 3 | 2 | 35 |
-| E2 | Git publishing | 17 | 0 | 0 | 17 |
-| E3 | Tenancy, data and authorization (OpenFGA) | 12 | 2 | 44 | 58 |
-| E4 | SaaS web app | 7 | 0 | 23 | 30 |
+| E2 | Git publishing | 17 | 0 | 3 | 20 |
+| E3 | Tenancy, data and authorization (OpenFGA) | 12 | 2 | 45 | 59 |
+| E4 | SaaS web app | 7 | 0 | 24 | 31 |
 | E5 | Billing, entitlements and metering | 0 | 1 | 39 | 40 |
 | E6 | Admin portal | 0 | 0 | 15 | 15 |
-| E7 | Reliability, observability and operations | 7 | 0 | 37 | 44 |
+| E7 | Reliability, observability and operations | 7 | 0 | 40 | 47 |
 | E8 | Social platforms | 0 | 0 | 8 | 8 |
 | E9 | Identity on Keycloak | 9 | 1 | 17 | 27 |
 | E10 | Tiers, subscriptions and entitlements strategy (spike) | 0 | 0 | 18 | 18 |
@@ -25,7 +25,7 @@ The backlog holds 292 stories: 82 done, 7 in progress and 203 planned.
 
 Work the waves from top to bottom, and the items in each wave in the order listed. An item is a story, or an open issue that is not a story.
 
-### W1: Finish what is in flight (0 of 11 stories done)
+### W1: Finish what is in flight (0 of 7 stories done)
 
 Open loops on the lab and the repository cost the most while they stay open. Each item is partly built or waits on one proof.
 
@@ -43,9 +43,9 @@ Open loops on the lab and the repository cost the most while they stay open. Eac
 | 10 | F1.8.S5 | in-progress | Remove the stale publish.yml:codeql code-scanning configuration | E1 | [#38](https://github.com/inkcasthq/inkcast/issues/38) |
 | 11 | F1.8.S6 | in-progress | Repository security settings as code: secret scanning with push protection, Dependabot security updates, private vulnerability reporting | E1 | [#45](https://github.com/inkcasthq/inkcast/issues/45) |
 
-### W2: Publishing and Git sync safety (0 of 10 stories done)
+### W2: Publishing and Git sync safety, then the Phase 1 blog platforms (0 of 3 stories done)
 
-These follow-ups guard against double-sends and lost posts, the failures a writer notices first (handover, suggested order 1).
+These follow-ups guard against double-sends and lost posts, the failures a writer notices first (handover, suggested order 1). Then Hashnode, WordPress and Ghost (product-spec Phase 1); Medium issues no new tokens, so a new writer can connect only DEV today.
 
 | # | Item | Status | Title | Epic | Issue |
 |---:|---|---|---|---|---|
@@ -59,199 +59,203 @@ These follow-ups guard against double-sends and lost posts, the failures a write
 | 19 | #219 | open issue | Owner guards: rollbacks drop newer guards, and the orphan sweep can stop early | | [#219](https://github.com/inkcasthq/inkcast/issues/219) |
 | 20 | #141 | open issue | Outbox housekeeping: retired consumers block purging forever, and housekeeping can starve | | [#141](https://github.com/inkcasthq/inkcast/issues/141) |
 | 21 | #159 | open issue | Test-order dependence: NoBearerLinksInLogs fails when run after the breaker tests | | [#159](https://github.com/inkcasthq/inkcast/issues/159) |
+| 22 | F2.7.S1 | planned | Hashnode plug-in: GraphQL API with a personal access token, publications as destinations | E2 |  |
+| 23 | F2.7.S2 | planned | WordPress plug-in: the REST API with an application password; markdown to HTML; tags and categories by name | E2 |  |
+| 24 | F2.7.S3 | planned | Ghost plug-in: the Admin API with an Admin API key (a short-lived HS256 JWT per request) | E2 |  |
 
-### W3: Email and the notifier (0 of 5 stories done)
+### W3: Email and the notifier (0 of 6 stories done)
 
-ADR-0018's notices, the export link and Keycloak's own verify and reset mail all need outbound email. The seam and the preferences come before any second channel.
+ADR-0018's notices, the export link and Keycloak's own verify and reset mail all need outbound email. The seam, the dispatcher and the preferences come before any second channel; the suppression list (F7.4.S5) before the relay that feeds it (F7.4.S10), and the authenticated domain before Keycloak's production mail (F9.2.S3).
 
 | # | Item | Status | Title | Epic | Issue |
 |---:|---|---|---|---|---|
-| 22 | F7.4.S4 | planned | Email to a person: the notifier's SMTP channel (libs/notify), first used by the account notices | E7 | [#327](https://github.com/inkcasthq/inkcast/issues/327) |
-| 23 | F9.2.S3 | planned | Realm email in each environment: Keycloak sends verify-email and reset-password mail through the environment's SMTP relay, settings as code, the password from a Secret | E9 |  |
-| 24 | F7.4.S10 | planned | Email in production: the sending domain authenticated (SPF, DKIM, DMARC aligned with From), bounces and complaints handled, a relay per environment | E7 |  |
-| 25 | F7.4.S2 | planned | Notifier seam (libs/notify): email via in-cluster SMTP relay (air-gapped), signed webhook, Slack/Teams webhook URL; Redactor on every body | E7 |  |
-| 26 | F7.4.S5 | planned | Notification preferences: each person chooses the channels for each kind of notification; account and security notices always go by email; one-click unsubscribe on the digest | E7 |  |
+| 25 | F7.4.S4 | planned | Email to a person: the notifier's SMTP channel (libs/notify), first used by the account notices | E7 | [#327](https://github.com/inkcasthq/inkcast/issues/327) |
+| 26 | F7.4.S2 | planned | Notifier seam (libs/notify): email via in-cluster SMTP relay (air-gapped), signed webhook, Slack/Teams webhook URL; Redactor on every body | E7 |  |
+| 27 | F7.4.S13 | planned | Notification dispatcher: an outbox consumer notify sends each notification once per channel and recipient | E7 |  |
+| 28 | F7.4.S5 | planned | Notification preferences: each person chooses the channels for each kind of notification; account and security notices always go by email; a suppression list | E7 |  |
+| 29 | F7.4.S10 | planned | Email in production: the sending domain authenticated (SPF, DKIM, DMARC aligned with From), bounces and complaints handled, a relay per environment | E7 |  |
+| 30 | F9.2.S3 | planned | Realm email in each environment: Keycloak sends verify-email and reset-password mail through the environment's SMTP relay, settings as code, the password from a Secret | E9 |  |
 
-### W4: Account lifecycle (ADR-0018) (0 of 14 stories done)
+### W4: Account lifecycle (ADR-0018) (0 of 6 stories done)
 
 Export, notice, legal hold and erasure of a cut-off person. Depends on W3's email. The erasure follow-ups close the known gaps in the same code.
 
 | # | Item | Status | Title | Epic | Issue |
 |---:|---|---|---|---|---|
-| 27 | F3.3.S7 | planned | Export my data: one JSON bundle of everything Inkcast holds about the person (never credentials or tokens) | E3 | [#61](https://github.com/inkcasthq/inkcast/issues/61) |
-| 28 | F3.3.S8 | planned | Export for a cut-off person: an emailed link (7 days, 5 downloads, never past the erasure) | E3 | [#328](https://github.com/inkcasthq/inkcast/issues/328) |
-| 29 | F3.3.S9 | planned | Legal hold: an operator stops one person's erasure, audited | E3 | [#329](https://github.com/inkcasthq/inkcast/issues/329) |
-| 30 | F9.5.S9 | planned | The account-cleanup job: a cut-off person is told, reminded and erased INKCAST_KEYCLOAK_ERASE_AFTER_DAYS after the notice (replaces F9.5.S6's rule) | E9 | [#330](https://github.com/inkcasthq/inkcast/issues/330) |
-| 31 | F9.5.S10 | planned | Remove the Keycloak user at erasure: a separate cleanup client; local users always, federated users only once out of the directory group | E9 | [#331](https://github.com/inkcasthq/inkcast/issues/331) |
-| 32 | F9.5.S11 | planned | A cut-off person's scheduled posts are paused; nothing paused goes out on their return without them | E9 | [#332](https://github.com/inkcasthq/inkcast/issues/332) |
-| 33 | F3.3.S10 | planned | Import an export bundle into a new account: posts and schedules become drafts, nothing is sent | E3 | [#333](https://github.com/inkcasthq/inkcast/issues/333) |
-| 34 | #212 | open issue | Erasure: workspace member KPIs keep the person's id in dims.member | | [#212](https://github.com/inkcasthq/inkcast/issues/212) |
-| 35 | #112 | open issue | Erasure: copies outside the backup rotation keep erased data indefinitely | | [#112](https://github.com/inkcasthq/inkcast/issues/112) |
-| 36 | #161 | open issue | Erasure and cut-off races: the remaining shapes after #102 | | [#161](https://github.com/inkcasthq/inkcast/issues/161) |
-| 37 | #149 | open issue | Account-deletion links are written in clear to the access log | | [#149](https://github.com/inkcasthq/inkcast/issues/149) |
-| 38 | #128 | open issue | restore: 'Nothing was replaced' can be false when the restore is stopped (PID 1 ignores SIGTERM) | | [#128](https://github.com/inkcasthq/inkcast/issues/128) |
-| 39 | #202 | open issue | Restore: two restores stamped in the same second leave a full copy on the data volume | | [#202](https://github.com/inkcasthq/inkcast/issues/202) |
-| 40 | #139 | open issue | Keycloak sync breaker: a scripted mass delete or disable through the admin API is acted on one person at a time | | [#139](https://github.com/inkcasthq/inkcast/issues/139) |
+| 31 | F3.3.S7 | planned | Export my data: one JSON bundle of everything Inkcast holds about the person (never credentials or tokens) | E3 | [#61](https://github.com/inkcasthq/inkcast/issues/61) |
+| 32 | F3.3.S8 | planned | Export for a cut-off person: an emailed link (7 days, 5 downloads, never past the erasure) | E3 | [#328](https://github.com/inkcasthq/inkcast/issues/328) |
+| 33 | F3.3.S9 | planned | Legal hold: an operator stops one person's erasure, audited | E3 | [#329](https://github.com/inkcasthq/inkcast/issues/329) |
+| 34 | F9.5.S9 | planned | The account-cleanup job: a cut-off person is told, reminded and erased INKCAST_KEYCLOAK_ERASE_AFTER_DAYS after the notice (replaces F9.5.S6's rule) | E9 | [#330](https://github.com/inkcasthq/inkcast/issues/330) |
+| 35 | F9.5.S11 | planned | A cut-off person's scheduled posts are paused; nothing paused goes out on their return without them | E9 | [#332](https://github.com/inkcasthq/inkcast/issues/332) |
+| 36 | F3.3.S10 | planned | Import an export bundle into a new account: posts and schedules become drafts, nothing is sent | E3 | [#333](https://github.com/inkcasthq/inkcast/issues/333) |
+| 37 | #212 | open issue | Erasure: workspace member KPIs keep the person's id in dims.member | | [#212](https://github.com/inkcasthq/inkcast/issues/212) |
+| 38 | #112 | open issue | Erasure: copies outside the backup rotation keep erased data indefinitely | | [#112](https://github.com/inkcasthq/inkcast/issues/112) |
+| 39 | #161 | open issue | Erasure and cut-off races: the remaining shapes after #102 | | [#161](https://github.com/inkcasthq/inkcast/issues/161) |
+| 40 | #149 | open issue | Account-deletion links are written in clear to the access log | | [#149](https://github.com/inkcasthq/inkcast/issues/149) |
+| 41 | #128 | open issue | restore: 'Nothing was replaced' can be false when the restore is stopped (PID 1 ignores SIGTERM) | | [#128](https://github.com/inkcasthq/inkcast/issues/128) |
+| 42 | #202 | open issue | Restore: two restores stamped in the same second leave a full copy on the data volume | | [#202](https://github.com/inkcasthq/inkcast/issues/202) |
+| 43 | #139 | open issue | Keycloak sync breaker: a scripted mass delete or disable through the admin API is acted on one person at a time | | [#139](https://github.com/inkcasthq/inkcast/issues/139) |
 
-### W5: Directory federation (LDAP) (0 of 4 stories done)
+### W5: Directory federation (LDAP) (0 of 5 stories done)
 
-F9.8.S3 decides what the user sync does to a federated person who leaves the group, which is W4's cleanup job.
+F9.8.S3 measures what the user sync and W4's cleanup job do to a federated person who leaves the group. F9.5.S10 removes a Keycloak copy only after those measurements (ADR-0018 section 9 and its build table).
 
 | # | Item | Status | Title | Epic | Issue |
 |---:|---|---|---|---|---|
-| 41 | F9.8.S1 | planned | LDAP user federation in the inkcast-staging and inkcast-prod realms, as code (read-only, LDAPS, bind password from a Secret) | E9 | [#318](https://github.com/inkcasthq/inkcast/issues/318) |
-| 42 | F9.8.S2 | planned | Only members of the environment's LDAP group sign in to Inkcast: the group grants the realm role inkcast-user | E9 | [#319](https://github.com/inkcasthq/inkcast/issues/319) |
-| 43 | F9.8.S3 | planned | Leaving the group, deletion in LDAP and an LDAP outage: what the user sync does to a federated person | E9 | [#320](https://github.com/inkcasthq/inkcast/issues/320) |
-| 44 | F9.8.S4 | planned | An LDAP person signs in to Inkcast staging and production end to end (browser, MCP client, personal access token) | E9 | [#321](https://github.com/inkcasthq/inkcast/issues/321) |
+| 44 | F9.8.S1 | planned | LDAP user federation in the inkcast-staging and inkcast-prod realms, as code (read-only, LDAPS, bind password from a Secret) | E9 | [#318](https://github.com/inkcasthq/inkcast/issues/318) |
+| 45 | F9.8.S2 | planned | Only members of the environment's LDAP group sign in to Inkcast: the group grants the realm role inkcast-user | E9 | [#319](https://github.com/inkcasthq/inkcast/issues/319) |
+| 46 | F9.8.S3 | planned | Leaving the group, deletion in LDAP and an LDAP outage: what the user sync does to a federated person | E9 | [#320](https://github.com/inkcasthq/inkcast/issues/320) |
+| 47 | F9.5.S10 | planned | Remove the Keycloak user at erasure: a separate cleanup client; local users always, federated users only once out of the directory group | E9 | [#331](https://github.com/inkcasthq/inkcast/issues/331) |
+| 48 | F9.8.S4 | planned | An LDAP person signs in to Inkcast staging and production end to end (browser, MCP client, personal access token) | E9 | [#321](https://github.com/inkcasthq/inkcast/issues/321) |
 
-### W6: The writer web app (0 of 22 stories done)
+### W6: The writer web app (0 of 19 stories done)
 
 The order that PR #358 set. The writer-app mockup to the mockup standard gates every screen (ADR-0004, ADR-0016). Channel health comes before the Connections screen, which shows it.
 
 | # | Item | Status | Title | Epic | Issue |
 |---:|---|---|---|---|---|
-| 45 | F4.1.S4 | planned | Mockup: the writer web app (Posts, Compose, Connections, Git sync, Tokens, Insights, API), approved before UI code | E4 | [#347](https://github.com/inkcasthq/inkcast/issues/347) |
-| 46 | F4.1.S5 | planned | Node lock resolved in CI, as the Python lock is | E4 | [#348](https://github.com/inkcasthq/inkcast/issues/348) |
-| 47 | F4.1.S1 | planned | Vite workspace, packages/ui, light and dark themes | E4 |  |
-| 48 | F4.1.S2 | planned | Responsive to 360px, axe-clean | E4 |  |
-| 49 | F4.1.S3 | planned | CI web job (typecheck, vitest, Playwright) | E4 |  |
-| 50 | F4.2.S1 | planned | WebApp service: OIDC with Keycloak, HttpOnly SameSite session | E4 | [#349](https://github.com/inkcasthq/inkcast/issues/349) |
-| 51 | F4.2.S2 | planned | Generated API client | E4 |  |
-| 52 | F4.2.S3 | planned | inkcast-web on OpenShift: in each environment's namespace, its own host, promoted by digest | E4 | [#350](https://github.com/inkcasthq/inkcast/issues/350) |
-| 53 | F7.2.S1 | planned | healthy → degraded → reauth_required → revoked | E7 |  |
-| 54 | F7.2.S2 | planned | Refresh lock and refresh-token merge | E7 |  |
-| 55 | F7.2.S3 | planned | Posts-at-risk warning | E7 |  |
-| 56 | F7.2.S4 | planned | channel.state domain event + inkcast_channels{state} gauge; InkcastReauthNeeded alert; channel_health KPI (customer) built | E7 |  |
-| 57 | F4.4.S2 | planned | Build | E4 | [#351](https://github.com/inkcasthq/inkcast/issues/351) |
-| 58 | F4.5.S2 | planned | Build (server-rendered preview from prepare()) | E4 | [#352](https://github.com/inkcasthq/inkcast/issues/352) |
-| 59 | F4.6.S2 | planned | Build | E4 |  |
-| 60 | F4.6.S3 | planned | Post list and history with errors | E4 | [#353](https://github.com/inkcasthq/inkcast/issues/353) |
-| 61 | F4.7.S2 | planned | Build | E4 | [#354](https://github.com/inkcasthq/inkcast/issues/354) |
-| 62 | F4.7.S3 | planned | Build: Git sync ledger page | E4 | [#355](https://github.com/inkcasthq/inkcast/issues/355) |
-| 63 | F4.7.S4 | planned | Build: API page (reference links, MCP endpoint, endpoints with their scopes) | E4 | [#356](https://github.com/inkcasthq/inkcast/issues/356) |
-| 64 | F4.10.S1 | planned | Mockup: workspace insights (posts by status stacked, success and on-time rates with their parts, Git sync table, usage vs plan); light theme | E4 |  |
-| 65 | F4.10.S2 | planned | Build on /api/v1/insights with ?scope=workspace:<id>; charts follow the chart grammar (counts from zero, rates show parts, colour carries one thing) | E4 | [#357](https://github.com/inkcasthq/inkcast/issues/357) |
-| 66 | F7.4.S11 | planned | In-app notifications: a feed per person that the web app shows (bell, unread count), fed by the same events as the other channels | E7 |  |
+| 49 | F4.1.S4 | planned | Mockup: the writer web app (Posts, Compose, Connections, Git sync, Tokens, Insights, API), approved before UI code | E4 | [#347](https://github.com/inkcasthq/inkcast/issues/347) |
+| 50 | F4.1.S5 | planned | Node lock resolved in CI, as the Python lock is | E4 | [#348](https://github.com/inkcasthq/inkcast/issues/348) |
+| 51 | F4.1.S1 | planned | Vite workspace, packages/ui, light and dark themes | E4 |  |
+| 52 | F4.1.S2 | planned | Responsive to 360px, axe-clean | E4 |  |
+| 53 | F4.1.S3 | planned | CI web job (typecheck, vitest, Playwright) | E4 |  |
+| 54 | F4.2.S1 | planned | WebApp service: OIDC with Keycloak, HttpOnly SameSite session | E4 | [#349](https://github.com/inkcasthq/inkcast/issues/349) |
+| 55 | F4.2.S2 | planned | Generated API client | E4 |  |
+| 56 | F4.2.S3 | planned | inkcast-web on OpenShift: in each environment's namespace, its own host, promoted by digest | E4 | [#350](https://github.com/inkcasthq/inkcast/issues/350) |
+| 57 | F7.2.S1 | planned | healthy → degraded → reauth_required → revoked | E7 |  |
+| 58 | F7.2.S3 | planned | Posts-at-risk warning | E7 |  |
+| 59 | F7.2.S4 | planned | channel.state domain event + inkcast_channels{state} gauge; InkcastReauthNeeded alert; channel_health KPI (customer) built | E7 |  |
+| 60 | F4.4.S2 | planned | Build | E4 | [#351](https://github.com/inkcasthq/inkcast/issues/351) |
+| 61 | F4.5.S2 | planned | Build (server-rendered preview from prepare()) | E4 | [#352](https://github.com/inkcasthq/inkcast/issues/352) |
+| 62 | F4.6.S2 | planned | Build | E4 |  |
+| 63 | F4.6.S3 | planned | Post list and history with errors | E4 | [#353](https://github.com/inkcasthq/inkcast/issues/353) |
+| 64 | F4.7.S2 | planned | Build | E4 | [#354](https://github.com/inkcasthq/inkcast/issues/354) |
+| 65 | F4.7.S3 | planned | Build: Git sync ledger page | E4 | [#355](https://github.com/inkcasthq/inkcast/issues/355) |
+| 66 | F4.7.S4 | planned | Build: API page (reference links, MCP endpoint, endpoints with their scopes) | E4 | [#356](https://github.com/inkcasthq/inkcast/issues/356) |
+| 67 | F7.4.S11 | planned | In-app notifications: a feed per person that the web app shows (bell, unread count), fed by the same events as the other channels | E7 |  |
 
-### W7: PostgreSQL (0 of 14 stories done)
+### W7: PostgreSQL (0 of 13 stories done)
 
 Organizations, the outbox at scale and the billing counters all need PostgreSQL. The spike measures OpenFGA on it first.
 
 | # | Item | Status | Title | Epic | Issue |
 |---:|---|---|---|---|---|
-| 67 | F3.0.S1 | planned | Check latency, p99 and ListObjects limits at 100k tuples on Postgres; consistency modes | E3 |  |
-| 68 | F3.1.S1 | planned | Postgres implementation of each repository (schema per service); the OpenFGA store uses the same operator in its own database | E3 |  |
-| 69 | F3.1.S2 | planned | Versioned, reversible migrations | E3 |  |
-| 70 | F3.1.S8 | planned | Outbox and kpi_rollups as PostgreSQL tables in the owning schemas (BIGSERIAL seq; index-only cursor reads); migrations | E3 |  |
-| 71 | F3.1.S3 | planned | Posts queue with FOR UPDATE SKIP LOCKED | E3 |  |
-| 72 | F3.1.S4 | planned | CI runs the suite on SQLite and Postgres | E3 |  |
-| 73 | F3.1.S5 | planned | Backups: CloudNativePG scheduled base backups + WAL archiving to object storage; PITR; restore drill in CI (restore into a new Cluster, run the e2e suite). Decision: ADR-0014 | E3 |  |
-| 74 | F7.6.S1 | planned | Restore drill job and runbook (with E3 F3.1.S5) | E7 |  |
-| 75 | F3.1.S6 | planned | Queue gauges from the scheduler's memory, not a COUNT per scrape per replica | E3 |  |
-| 76 | F3.10.S4 | planned | ADR: Valkey over Redis (BSD-3 vs RSALv2/SSPL/AGPL; Linux Foundation; drop-in for the commands used); ADR: posts table + outbox, no broker until an external consumer needs one | E3 |  |
-| 77 | F3.10.S3 | planned | PostgreSQL egress rule (5432) and PgBouncer Pooler; the same for OpenFGA's database | E3 |  |
-| 78 | F3.10.S2 | planned | Valkey Kustomize component (OpenShift restricted-v2, non-root image, mirrored), egress NetworkPolicy rule for 6379 (namespace + pod selectors), password from the secrets store; kind CI runs split mode with Valkey | E3 |  |
-| 79 | F3.10.S5 | planned | Cache uses behind the seam: single-flight platform lookups (destinations, find_existing), idempotency markers, refresh locks, OpenFGA check cache | E3 |  |
-| 80 | #299 | open issue | OpenFGA to PostgreSQL with cert-manager client certificates instead of passwords | | [#299](https://github.com/inkcasthq/inkcast/issues/299) |
+| 68 | F3.0.S1 | planned | Check latency, p99 and ListObjects limits at 100k tuples on Postgres; consistency modes | E3 |  |
+| 69 | F3.1.S1 | planned | Postgres implementation of each repository (schema per service); the OpenFGA store uses the same operator in its own database | E3 |  |
+| 70 | F3.1.S2 | planned | Versioned, reversible migrations | E3 |  |
+| 71 | F3.1.S8 | planned | Outbox and kpi_rollups as PostgreSQL tables in the owning schemas (BIGSERIAL seq; index-only cursor reads); migrations | E3 |  |
+| 72 | F3.1.S3 | planned | Posts queue with FOR UPDATE SKIP LOCKED | E3 |  |
+| 73 | F3.1.S4 | planned | CI runs the suite on SQLite and Postgres | E3 |  |
+| 74 | F3.1.S5 | planned | Backups: CloudNativePG scheduled base backups + WAL archiving to object storage; PITR; restore drill in CI (restore into a new Cluster, run the e2e suite). Decision: ADR-0014 | E3 |  |
+| 75 | F7.6.S1 | planned | Restore drill job and runbook (with E3 F3.1.S5) | E7 |  |
+| 76 | F3.1.S6 | planned | Queue gauges from the scheduler's memory, not a COUNT per scrape per replica | E3 |  |
+| 77 | F3.10.S4 | planned | ADR: Valkey over Redis (BSD-3 vs RSALv2/SSPL/AGPL; Linux Foundation; drop-in for the commands used); ADR: posts table + outbox, no broker until an external consumer needs one | E3 |  |
+| 78 | F3.10.S3 | planned | PostgreSQL egress rule (5432) and PgBouncer Pooler; the same for OpenFGA's database | E3 |  |
+| 79 | F3.10.S2 | planned | Valkey Kustomize component (OpenShift restricted-v2, non-root image, mirrored), egress NetworkPolicy rule for 6379 (namespace + pod selectors), password from the secrets store; kind CI runs split mode with Valkey | E3 |  |
+| 80 | F3.10.S5 | planned | Cache uses behind the seam: single-flight platform lookups (destinations, find_existing), idempotency markers, refresh locks, OpenFGA check cache | E3 |  |
+| 81 | #299 | open issue | OpenFGA to PostgreSQL with cert-manager client certificates instead of passwords | | [#299](https://github.com/inkcasthq/inkcast/issues/299) |
 
-### W8: Tenancy and one enforcement path (0 of 31 stories done)
+### W8: Tenancy and one enforcement path (0 of 30 stories done)
 
 Organizations and workspaces, every route and tool through authz.require, and the sync that keeps OpenFGA right. The Keycloak Organizations probe confirms a personal organization per sign-up before it is built.
 
 | # | Item | Status | Title | Epic | Issue |
 |---:|---|---|---|---|---|
-| 81 | F3.0.S2 | planned | Keycloak to OpenFGA sync: event-listener SPI vs polling admin events, air-gapped image builds | E3 |  |
-| 82 | F10.4.S1 | planned | Keycloak Organizations scale probe (10k and 100k orgs) to confirm a personal organization per sign-up | E10 |  |
-| 83 | F3.2.S1 | planned | Organization and workspace tables hold business state only; organization id = Keycloak Organization id; every account has a personal organization; kind (personal, team, client) and billing_parent for managed client orgs | E3 |  |
-| 84 | F9.2.S2 | planned | First login creates the Inkcast user and their personal organization (owner tuple; emits org.created) | E9 |  |
-| 85 | F3.2.S2 | planned | Roles are OpenFGA relations: org owner, admin, member, billing_admin; workspace manager, editor, reviewer, publisher, viewer, client_reviewer | E3 |  |
-| 86 | F3.2.S3 | planned | Membership changes require can_manage_members (model rule) | E3 |  |
-| 87 | F3.2.S4 | planned | Invites as rows (token, role, expiry, accepted_at); accepting writes the tuple through the outbox | E3 |  |
-| 88 | F3.2.S5 | planned | Ledger and tokens keyed by workspace (migration from user) | E3 |  |
-| 89 | F3.5.S3 | planned | Model versions: inkcast authz apply-model writes a version; INKCAST_FGA_MODEL_ID pinned per deploy | E3 |  |
-| 90 | F3.7.S1 | planned | authz.require(principal, relation, ref, scope): token scope AND OpenFGA; 403 denied, 503 engine error | E3 |  |
-| 91 | F3.7.S2 | planned | Authed(..., permission=...); architecture test fails any route without a permission or public=True | E3 |  |
-| 92 | F3.7.S3 | planned | MCP tools call the same require(); a test enumerates every tool | E3 |  |
-| 93 | F3.7.S4 | planned | SchedulerWorker re-checks can_publish at send time; Git sync checks per file and channel | E3 |  |
-| 94 | F3.7.S5 | planned | List endpoints via ListObjects on workspaces or BatchCheck | E3 |  |
-| 95 | F3.8.S1 | planned | Lifecycle tuples (workspace org, channel workspace, post workspace and author) through a transactional outbox; deletes remove tuples | E3 |  |
-| 96 | F3.8.S2 | planned | Member API: grant or revoke manager, editor, reviewer, publisher, client reviewer; one-call agency grant; all audited | E3 |  |
-| 97 | F3.8.S3 | planned | Reconciler compares DB-owned relationships with tuples, fixes drift (including misaligned role grants), reports a metric | E3 |  |
-| 98 | F9.5.S1 | planned | IdentitySync consumes Keycloak user and Organization events (membership, admins) and writes tuples (ADR-0008) | E9 |  |
-| 99 | F9.5.S3 | planned | Scheduled reconcile of Keycloak membership against OpenFGA; a missed event still removes access; drift alert | E9 |  |
-| 100 | F9.5.S5 | planned | The user sync proven in split mode on kind (IdentityService's own Deployment carries the sync settings) | E9 | [#42](https://github.com/inkcasthq/inkcast/issues/42) |
-| 101 | F3.3.S6 | planned | Events carry org_id and workspace_id; rollups appear at those scopes with no consumer change (test) | E3 |  |
-| 102 | F3.3.S11 | planned | Erase an organization: its rows in the owning tables, its tuples, the member dims tombstoned and the outbox purged; audited | E3 |  |
-| 103 | F3.3.S1 | planned | Row-level security on workspace_id as defence in depth behind OpenFGA | E3 |  |
-| 104 | F3.3.S2 | planned | Cross-tenant negative suite at the model-test and API level | E3 |  |
-| 105 | F3.3.S3 | planned | Audit log of every state change, grant, revoke and billing action, with actor (web, API, MCP, action) | E3 |  |
-| 106 | F3.3.S4 | planned | Retention policy as code: posts, ledger, idempotency, tokens last_used, audit per plan; housekeeping job; documented in docs/design/observability-and-kpis.md §6 | E3 |  |
-| 107 | F3.9.S2 | planned | NetworkPolicy (only Inkcast services reach OpenFGA); credentials from the secrets store | E3 |  |
-| 108 | F3.9.S3 | planned | kind CI: end-to-end suite split with INKCAST_AUTHZ_ENGINE=openfga | E3 |  |
-| 109 | F3.9.S4 | planned | Runbooks: model rollout and rollback, store backup and restore, drift | E3 |  |
-| 110 | #72 | open issue | Authz hardening from the adversarial review (PR #70): smaller concerns | | [#72](https://github.com/inkcasthq/inkcast/issues/72) |
-| 111 | #136 | open issue | Token lifetimes: follow-ups from the review of #132 | | [#136](https://github.com/inkcasthq/inkcast/issues/136) |
+| 82 | F3.0.S2 | planned | Keycloak to OpenFGA sync: event-listener SPI vs polling admin events, air-gapped image builds | E3 |  |
+| 83 | F10.4.S1 | planned | Keycloak Organizations scale probe (10k and 100k orgs) to confirm a personal organization per sign-up | E10 |  |
+| 84 | F3.2.S1 | planned | Organization and workspace tables hold business state only; organization id = Keycloak Organization id; every account has a personal organization; kind (personal, team, client) and billing_parent for managed client orgs | E3 |  |
+| 85 | F9.2.S2 | planned | First login creates the Inkcast user and their personal organization (owner tuple; emits org.created) | E9 |  |
+| 86 | F3.2.S2 | planned | Roles are OpenFGA relations: org owner, admin, member, billing_admin; workspace manager, editor, reviewer, publisher, viewer, client_reviewer | E3 |  |
+| 87 | F3.2.S3 | planned | Membership changes require can_manage_members (model rule) | E3 |  |
+| 88 | F3.2.S4 | planned | Invites as rows (token, role, expiry, accepted_at); accepting writes the tuple through the outbox | E3 |  |
+| 89 | F3.2.S5 | planned | Ledger and tokens keyed by workspace (migration from user) | E3 |  |
+| 90 | F3.11.S1 | planned | KeyProvider (local, Vault Transit, AWS KMS, GCP KMS); per-workspace data keys stored wrapped; inkcast rotate-keys re-wraps without downtime | E3 |  |
+| 91 | F3.5.S3 | planned | Model versions: inkcast authz apply-model writes a version; INKCAST_FGA_MODEL_ID pinned per deploy | E3 |  |
+| 92 | F3.7.S1 | planned | authz.require(principal, relation, ref, scope): token scope AND OpenFGA; 403 denied, 503 engine error | E3 |  |
+| 93 | F3.7.S2 | planned | Authed(..., permission=...); architecture test fails any route without a permission or public=True | E3 |  |
+| 94 | F3.7.S3 | planned | MCP tools call the same require(); a test enumerates every tool | E3 |  |
+| 95 | F3.7.S4 | planned | SchedulerWorker re-checks can_publish at send time; Git sync checks per file and channel | E3 |  |
+| 96 | F3.7.S5 | planned | List endpoints via ListObjects on workspaces or BatchCheck | E3 |  |
+| 97 | F3.8.S1 | planned | Lifecycle tuples (workspace org, channel workspace, post workspace and author) through a transactional outbox; deletes remove tuples | E3 |  |
+| 98 | F3.8.S2 | planned | Member API: grant or revoke manager, editor, reviewer, publisher, client reviewer; one-call agency grant; all audited | E3 |  |
+| 99 | F3.8.S3 | planned | Reconciler compares DB-owned relationships with tuples, fixes drift (including misaligned role grants), reports a metric | E3 |  |
+| 100 | F9.5.S1 | planned | IdentitySync consumes Keycloak user and Organization events (membership, admins) and writes tuples (ADR-0008) | E9 |  |
+| 101 | F9.5.S3 | planned | Scheduled reconcile of Keycloak membership against OpenFGA; a missed event still removes access; drift alert | E9 |  |
+| 102 | F9.5.S5 | planned | The user sync proven in split mode on kind (IdentityService's own Deployment carries the sync settings) | E9 | [#42](https://github.com/inkcasthq/inkcast/issues/42) |
+| 103 | F3.3.S6 | planned | Events carry org_id and workspace_id; rollups appear at those scopes with no consumer change (test) | E3 |  |
+| 104 | F3.3.S11 | planned | Erase an organization: its rows in the owning tables, its tuples, the member dims tombstoned and the outbox purged; audited | E3 |  |
+| 105 | F3.3.S1 | planned | Row-level security on workspace_id as defence in depth behind OpenFGA | E3 |  |
+| 106 | F3.3.S2 | planned | Cross-tenant negative suite at the model-test and API level | E3 |  |
+| 107 | F3.3.S3 | planned | Audit log of every state change, grant, revoke and billing action, with actor (web, API, MCP, action) | E3 |  |
+| 108 | F3.3.S4 | planned | Retention policy as code: posts, ledger, idempotency, tokens last_used, audit per plan; housekeeping job; documented in docs/design/observability-and-kpis.md §6 | E3 |  |
+| 109 | F3.9.S2 | planned | NetworkPolicy (only Inkcast services reach OpenFGA); credentials from the secrets store | E3 |  |
+| 110 | F3.9.S3 | planned | kind CI: end-to-end suite split with INKCAST_AUTHZ_ENGINE=openfga | E3 |  |
+| 111 | F3.9.S4 | planned | Runbooks: model rollout and rollback, store backup and restore, drift | E3 |  |
+| 112 | #72 | open issue | Authz hardening from the adversarial review (PR #70): smaller concerns | | [#72](https://github.com/inkcasthq/inkcast/issues/72) |
+| 113 | #136 | open issue | Token lifetimes: follow-ups from the review of #132 | | [#136](https://github.com/inkcasthq/inkcast/issues/136) |
 
-### W9: Notifications to customers and teams (0 of 7 stories done)
+### W9: Notifications to customers and teams (0 of 8 stories done)
 
 Customer notices and team channels need W3's notifier, W6's channel health and W8's workspaces (a Slack or Teams destination belongs to a workspace).
 
 | # | Item | Status | Title | Epic | Issue |
 |---:|---|---|---|---|---|
-| 112 | F7.4.S1 | planned | Post lifecycle webhooks (CloudEvents) with SSRF-safe delivery, as an outbox consumer 'webhooks' | E7 |  |
-| 113 | F7.4.S3 | planned | Customer notifications: failed, unconfirmed, posts at risk (reauth), weekly digest from KPIs | E7 |  |
-| 114 | F7.4.S6 | planned | Slack channel: a workspace connects Slack by OAuth (incoming-webhook scope; the installer picks the Slack channel); messages in Block Kit | E7 |  |
-| 115 | F7.4.S7 | planned | Microsoft Teams channel: a Workflows webhook URL (Office 365 connectors and their Incoming Webhook are retired); messages as Adaptive Cards | E7 |  |
-| 116 | F7.4.S8 | planned | Telegram channel: a person links Telegram to the Inkcast bot with a one-time deep link, and gets their notifications there | E7 |  |
-| 117 | F7.4.S9 | planned | Discord channel: a channel webhook URL a workspace manager pastes; messages as embeds | E7 |  |
-| 118 | F7.5.S1 | planned | Enqueue with due=now; API waits briefly for the result | E7 |  |
+| 114 | F7.4.S1 | planned | Post lifecycle webhooks (CloudEvents) with SSRF-safe delivery, as an outbox consumer 'webhooks' | E7 |  |
+| 115 | F7.4.S3 | planned | Customer notifications: failed, unconfirmed, posts at risk (reauth), weekly digest from KPIs | E7 |  |
+| 116 | F7.4.S6 | planned | Slack channel: a workspace connects Slack by OAuth (incoming-webhook scope; the installer picks the Slack channel); messages in Block Kit | E7 |  |
+| 117 | F7.4.S7 | planned | Microsoft Teams channel: a Workflows webhook URL (Office 365 connectors and their Incoming Webhook are retired); messages as Adaptive Cards | E7 |  |
+| 118 | F7.4.S8 | planned | Telegram channel: a person links Telegram to the Inkcast bot with a one-time deep link, and gets their notifications there | E7 |  |
+| 119 | F7.4.S9 | planned | Discord channel: a channel webhook URL a workspace manager pastes; messages as embeds | E7 |  |
+| 120 | F7.4.S12 | planned | Workspace notification preferences: which notification types go to the workspace's Slack, Teams and Discord destinations | E7 |  |
+| 121 | F7.5.S1 | planned | Enqueue with due=now; API waits briefly for the result | E7 |  |
 
-### W10: Onboarding, members and approvals (0 of 4 stories done)
+### W10: Onboarding, approvals and insights (0 of 6 stories done)
 
-Screens that need W8's organizations, workspaces and member API.
-
-| # | Item | Status | Title | Epic | Issue |
-|---:|---|---|---|---|---|
-| 119 | F4.3.S2 | planned | Build | E4 |  |
-| 120 | F4.9.S2 | planned | Build: reviewers approve (can_approve); approval status in the DB; plan-gated depth (E5) | E4 |  |
-| 121 | F4.9.S3 | planned | post.approval_requested / post.approved events; approval_cycle_seconds and member_approval_latency KPIs built | E4 |  |
-| 122 | F4.10.S3 | planned | Mockup + build: team view (per-member throughput, reviewer load, approval cycle time) shown only with can_view_usage; viewers see totals; former members labelled | E4 |  |
-
-### W11: Identity extras (0 of 5 stories done)
-
-Social login, operator MFA and enterprise SSO, on top of W8's organizations.
+Screens that need W8's organizations, workspaces and member API, and the rollups at workspace scope (F3.3.S6). The members screen waits for the seat ledger (W14).
 
 | # | Item | Status | Title | Epic | Issue |
 |---:|---|---|---|---|---|
-| 123 | F9.4.S1 | planned | inkcast-admin requires OTP or WebAuthn; admin client enforces it | E9 |  |
-| 124 | F9.3.S1 | planned | Google, GitHub, Microsoft identity providers (secrets from Kubernetes Secrets) | E9 |  |
-| 125 | F9.3.S2 | planned | First-broker-login flow links by verified email; manual verification runbook | E9 |  |
-| 126 | F9.6.S1 | planned | Keycloak Organizations for enterprise SSO: domain to customer IdP; Organization id = organization:<id> in OpenFGA | E9 |  |
-| 127 | F9.7.S1 | planned | Runbook: realm upgrades, signing-key rotation, backup and restore | E9 |  |
+| 122 | F4.3.S2 | planned | Build | E4 |  |
+| 123 | F4.9.S2 | planned | Build: reviewers approve (can_approve); approval status in the DB | E4 |  |
+| 124 | F4.9.S3 | planned | post.approval_requested / post.approved events; approval_cycle_seconds and member_approval_latency KPIs built | E4 |  |
+| 125 | F4.10.S1 | planned | Mockup: workspace insights (posts by status stacked, success and on-time rates with their parts, Git sync table, usage vs plan); light theme | E4 |  |
+| 126 | F4.10.S2 | planned | Build on /api/v1/insights with ?scope=workspace:<id>; charts follow the chart grammar (counts from zero, rates show parts, colour carries one thing) | E4 | [#357](https://github.com/inkcasthq/inkcast/issues/357) |
+| 127 | F4.10.S3 | planned | Mockup + build: team view (per-member throughput, reviewer load, approval cycle time) shown only with can_view_usage; viewers see totals; former members labelled | E4 |  |
 
-### W12: Observability and operations (0 of 17 stories done)
+### W11: Identity extras (0 of 4 stories done)
+
+Social login and enterprise SSO, on top of W8's organizations.
+
+| # | Item | Status | Title | Epic | Issue |
+|---:|---|---|---|---|---|
+| 128 | F9.3.S1 | planned | Google, GitHub, Microsoft identity providers (secrets from Kubernetes Secrets) | E9 |  |
+| 129 | F9.3.S2 | planned | First-broker-login flow links by verified email; manual verification runbook | E9 |  |
+| 130 | F9.6.S1 | planned | Keycloak Organizations for enterprise SSO: domain to customer IdP; Organization id = organization:<id> in OpenFGA | E9 |  |
+| 131 | F9.7.S1 | planned | Runbook: realm upgrades, signing-key rotation, backup and restore | E9 |  |
+
+### W12: Observability and operations (0 of 15 stories done)
 
 Alerts, dashboards and traces for what W1 to W11 add, and the alert routing that sends them to email, Slack, Teams and Telegram.
 
 | # | Item | Status | Title | Epic | Issue |
 |---:|---|---|---|---|---|
-| 128 | F7.1.S5 | planned | promtool check rules + promtool test rules (one unit test per alert) in CI | E7 |  |
-| 129 | F7.1.S3 | planned | ServiceMonitor relabelings: inkcast.io/service → service label; monitoring ingress by namespace AND pod selector | E7 |  |
-| 130 | F7.1.S2 | planned | Alerts: authz error rate, Keycloak/OpenFGA drift, billing webhook rejections and reconcile drift, licence expiring, seat-sync failures | E7 |  |
-| 131 | F7.1.S4 | planned | Log-based alerts from the EVENTS catalogue (Loki ruler): config.unsafe, secrets.fetch.failed, auth.login.refused bursts; generated like the PrometheusRule | E7 |  |
-| 132 | F7.1.S6 | planned | Alertmanager routing example (severity → pager/channel, inhibit scheduler-stalled over overdue) in the openshift overlay as an AlertmanagerConfig; receivers for email, Slack, Microsoft Teams (msteamsv2, Workflows) and Telegram, each credential from a Secret | E7 |  |
-| 133 | F7.7.S2 | planned | Perses form via perses-dashboard; proven against the data source and in both themes (light captures committed); screenshots to the owner | E7 |  |
-| 134 | F7.7.S3 | planned | Backing-services board (PostgreSQL, Valkey, OpenFGA, Keycloak: USE) and the SLO board (error ratio 1h/6h/3d vs budget) | E7 |  |
-| 135 | F7.7.S7 | planned | Dashboard panels for the identity sync (passes, failures, people cut off) and authorization checks (allowed, denied, error, latency) | E7 | [#40](https://github.com/inkcasthq/inkcast/issues/40) |
-| 136 | #207 | open issue | Alerts: InkcastIdentitySyncReconcileEndingEarly can't fire near the top of the reconcile interval | | [#207](https://github.com/inkcasthq/inkcast/issues/207) |
-| 137 | F7.8.S1 | planned | Spans: request (middleware, request_id), platform call, scheduler tick, outbox pass; traceparent to platforms; trace_id in logs | E7 |  |
-| 138 | F7.8.S2 | planned | MetricsExporter: OTLP from Metrics.snapshot() and histogram state; keep /metrics | E7 |  |
-| 139 | F7.8.S3 | planned | Collector in the overlays (OpenShift distributed tracing / Tempo); air-gapped images | E7 |  |
-| 140 | F7.9.S1 | planned | OpenShift Route rate-limit annotations and a Gateway API policy example; app limiter stays as backstop | E7 |  |
-| 141 | F7.11.S3 | planned | Error-budget policy: freeze risky deploys under 25% budget; reviewed quarterly | E7 |  |
-| 142 | F7.3.S1 | planned | Manifest | E7 |  |
-| 143 | F7.3.S2 | planned | Sandbox-account contract tests | E7 |  |
-| 144 | #215 | open issue | Rate limits: wording and docs left from #188 | | [#215](https://github.com/inkcasthq/inkcast/issues/215) |
+| 132 | F7.1.S5 | planned | promtool check rules + promtool test rules (one unit test per alert) in CI | E7 |  |
+| 133 | F7.1.S3 | planned | ServiceMonitor relabelings: inkcast.io/service → service label; monitoring ingress by namespace AND pod selector | E7 |  |
+| 134 | F7.1.S2 | planned | Alerts: Keycloak/OpenFGA drift from the reconcilers (F3.8.S3, F9.5.S3) | E7 |  |
+| 135 | F7.1.S4 | planned | Log-based alerts from the EVENTS catalogue (Loki ruler): config.unsafe, secrets.fetch.failed, auth.login.refused bursts; generated like the PrometheusRule | E7 |  |
+| 136 | F7.1.S6 | planned | Alertmanager routing example (severity → pager/channel, inhibit scheduler-stalled over overdue) in the openshift overlay as an AlertmanagerConfig; receivers for email, Slack, Microsoft Teams (msteamsv2, Workflows) and Telegram, each credential from a Secret | E7 |  |
+| 137 | F7.7.S2 | planned | Perses form via perses-dashboard; proven against the data source and in both themes (light captures committed); screenshots to the owner | E7 |  |
+| 138 | F7.7.S3 | planned | Backing-services board (PostgreSQL, Valkey, OpenFGA, Keycloak: USE) and the SLO board (error ratio 1h/6h/3d vs budget) | E7 |  |
+| 139 | F7.7.S7 | planned | Dashboard panels for the identity sync (passes, failures, people cut off) and authorization checks (allowed, denied, error, latency) | E7 | [#40](https://github.com/inkcasthq/inkcast/issues/40) |
+| 140 | #207 | open issue | Alerts: InkcastIdentitySyncReconcileEndingEarly can't fire near the top of the reconcile interval | | [#207](https://github.com/inkcasthq/inkcast/issues/207) |
+| 141 | F7.8.S1 | planned | Spans: request (middleware, request_id), platform call, scheduler tick, outbox pass; traceparent to platforms; trace_id in logs | E7 |  |
+| 142 | F7.8.S2 | planned | MetricsExporter: OTLP from Metrics.snapshot() and histogram state; keep /metrics | E7 |  |
+| 143 | F7.8.S3 | planned | Collector in the overlays (OpenShift distributed tracing / Tempo); air-gapped images | E7 |  |
+| 144 | F7.9.S1 | planned | OpenShift Route rate-limit annotations and a Gateway API policy example; app limiter stays as backstop | E7 |  |
+| 145 | F7.11.S3 | planned | Error-budget policy: freeze risky deploys under 25% budget; reviewed quarterly | E7 |  |
+| 146 | F7.3.S1 | planned | Manifest | E7 |  |
+| 147 | F7.3.S2 | planned | Sandbox-account contract tests | E7 |  |
+| 148 | #215 | open issue | Rate limits: wording and docs left from #188 | | [#215](https://github.com/inkcasthq/inkcast/issues/215) |
 
 ### W13: Tiers and billing spike (E10) (0 of 17 stories done)
 
@@ -259,127 +263,131 @@ Pricing, the provider bake-off and the entitlement design, decided before E5 bui
 
 | # | Item | Status | Title | Epic | Issue |
 |---:|---|---|---|---|---|
-| 145 | F10.1.S1 | planned | Market and unit-economics refresh (competitors, provider fees, X cost, infra per org) | E10 |  |
-| 146 | F10.1.S2 | planned | Price validation: 10 interviews (writers, DevRel teams, agencies), Van Westendorp survey, fake-door pricing page | E10 |  |
-| 147 | F10.1.S3 | planned | Entitlement matrix and plans.yaml draft with the feature registry | E10 |  |
-| 148 | F10.2.S1 | planned | Merchant of record path: Paddle sandbox (checkout, webhook, seat change, cancel); Lemon Squeezy desk check | E10 |  |
-| 149 | F10.2.S2 | planned | Stripe Billing + Stripe Tax path (test mode) and the tax-registration burden estimate | E10 |  |
-| 150 | F10.2.S3 | planned | Self-hosted Lago path (compose, Stripe as payment processor) and an ops cost estimate | E10 |  |
-| 151 | F10.2.S4 | planned | Scoring against the weighted criteria; provider ADR | E10 |  |
-| 152 | F10.3.S1 | planned | Atomic reserve/release counters on SQLite and Postgres (50 concurrent reservations never exceed the limit) | E10 |  |
-| 153 | F10.3.S2 | planned | Ed25519 JWS licence: offline sign, verify, kid rotation, expiry and grace | E10 |  |
-| 154 | F10.3.S3 | planned | Fail-safe classes and the 402 problem contract (web, MCP, CLI renderings) | E10 |  |
-| 155 | F10.4.S2 | planned | Seats from billable relations: seat ledger vs OpenFGA Read/ListUsers reconcile | E10 |  |
-| 156 | F10.4.S3 | planned | Agency walkthrough: one-tuple grant, client slot per client org, client reviewer, managed-org billing, white-label scope | E10 |  |
-| 157 | F10.5.S1 | planned | Remaining mockups: checkout handoff, downgrade, roles editor, agency switcher, client review, admin override, licence | E10 |  |
-| 158 | F10.5.S2 | planned | Remaining diagrams to the /visual standard (light only): data ownership, ERD, effective power, over-limit states, entitlement resolution, licence lifecycle, outbox/inbox, tier ladder, roadmap | E10 |  |
-| 159 | F10.5.S3 | planned | Owner decisions on the six open questions (design.md section 8.3) | E10 |  |
-| 160 | F10.5.S4 | planned | Refine E5 stories with the spike results; file cross-epic asks | E10 |  |
-| 161 | F10.5.S5 | planned | Licence and terms-of-service mapping questions for counsel (issue 32) | E10 |  |
+| 149 | F10.1.S1 | planned | Market and unit-economics refresh (competitors, provider fees, X cost, infra per org) | E10 |  |
+| 150 | F10.1.S2 | planned | Price validation: 10 interviews (writers, DevRel teams, agencies), Van Westendorp survey, fake-door pricing page | E10 |  |
+| 151 | F10.1.S3 | planned | Entitlement matrix and plans.yaml draft with the feature registry | E10 |  |
+| 152 | F10.2.S1 | planned | Merchant of record path: Paddle sandbox (checkout, webhook, seat change, cancel); Lemon Squeezy desk check | E10 |  |
+| 153 | F10.2.S2 | planned | Stripe Billing + Stripe Tax path (test mode) and the tax-registration burden estimate | E10 |  |
+| 154 | F10.2.S3 | planned | Self-hosted Lago path (compose, Stripe as payment processor) and an ops cost estimate | E10 |  |
+| 155 | F10.2.S4 | planned | Scoring against the weighted criteria; provider ADR | E10 |  |
+| 156 | F10.3.S1 | planned | Atomic reserve/release counters on SQLite and Postgres (50 concurrent reservations never exceed the limit) | E10 |  |
+| 157 | F10.3.S2 | planned | Ed25519 JWS licence: offline sign, verify, kid rotation, expiry and grace | E10 |  |
+| 158 | F10.3.S3 | planned | Fail-safe classes and the 402 problem contract (web, MCP, CLI renderings) | E10 |  |
+| 159 | F10.4.S2 | planned | Seats from billable relations: seat ledger vs OpenFGA Read/ListUsers reconcile | E10 |  |
+| 160 | F10.4.S3 | planned | Agency walkthrough: one-tuple grant, client slot per client org, client reviewer, managed-org billing, white-label scope | E10 |  |
+| 161 | F10.5.S1 | planned | Remaining mockups: checkout handoff, downgrade, roles editor, agency switcher, client review, admin override, licence | E10 |  |
+| 162 | F10.5.S2 | planned | Remaining diagrams to the /visual standard (light only): data ownership, ERD, effective power, over-limit states, entitlement resolution, licence lifecycle, outbox/inbox, tier ladder, roadmap | E10 |  |
+| 163 | F10.5.S3 | planned | Owner decisions on the six open questions (design.md section 8.3) | E10 |  |
+| 164 | F10.5.S4 | planned | Refine E5 stories with the spike results; file cross-epic asks | E10 |  |
+| 165 | F10.5.S5 | planned | Licence and terms-of-service mapping questions for counsel (issue 32) | E10 |  |
 
-### W14: Billing, entitlements and metering (E5) (0 of 33 stories done)
+### W14: Billing, entitlements and metering (E5) (0 of 34 stories done)
 
 Built from W13's decisions. Members with the seat paywall come after the seat ledger.
 
 | # | Item | Status | Title | Epic | Issue |
 |---:|---|---|---|---|---|
-| 162 | F5.2.S1 | planned | plans.yaml: feature registry, versioned plans (Free, Personal, Team, Business, Enterprise, Community), prices, add-ons, meters | E5 |  |
-| 163 | F5.2.S4 | planned | Immutable plan versions; subscriptions pin plan_version (grandfathering) | E5 |  |
-| 164 | F5.1.S1 | planned | BillingProvider protocol: checkout_session, portal_session, verify_webhook, parse_event (+ get_subscription, update_quantity, change_plan, cancel, list_events_since) | E5 |  |
-| 165 | F5.1.S2 | planned | FakeBillingProvider: local hosted-checkout page and HMAC-signed webhooks (tests/fakes.py) | E5 |  |
-| 166 | F5.1.S3 | planned | SubscriptionService ServiceSpec; routes /api/v1/plans, /api/v1/billing, /webhooks/billing/; needs=billing | E5 |  |
-| 167 | F5.2.S3 | planned | Public GET /api/v1/plans (cacheable, rate-limited) | E5 |  |
-| 168 | F5.3.S1 | planned | Atomic reserve/release counters and idempotent usage events in the owning service's schema | E5 |  |
-| 169 | F5.3.S2 | planned | libs/entitlements client: snapshot cache, last-known-good, fail-safe classes, 402 problem with upgrade_url and can_upgrade | E5 |  |
-| 170 | F5.3.S3 | planned | Snapshots (plan + add-ons + overrides) with monotonic version and entitlements.changed; operator override API for E6.F6.4.S2 | E5 |  |
-| 171 | F5.3.S4 | planned | Enforce at the edge of each use case after authz.require: channels, stories, queue, repos, PATs, workspaces | E5 |  |
-| 172 | F5.3.S5 | planned | Seat ledger checked before billable grants (via the E3 grant API, F3.2.S6) and provider quantity sync | E5 |  |
-| 173 | F3.2.S6 | planned | Grant API writes seat_assignments and agency_grants in the same transaction and calls entitlements before billable or agency tuples (E5.F5.3.S5, F5.9) | E3 |  |
-| 174 | F5.4.S1 | planned | Signed intake: raw-body HMAC, timestamp tolerance, 64 KB cap, inbox unique on provider event id, fast 200 | E5 |  |
-| 175 | F5.4.S2 | planned | Processing: re-fetch from the provider API, state machine, snapshot recompute, outbox events | E5 |  |
-| 176 | F5.4.S3 | planned | Daily reconciliation with drift alert | E5 |  |
-| 177 | F5.5.S1 | in-progress | Mockups: pricing, plan and usage, paywalls (done); checkout handoff, downgrade impact (E10.F10.5.S1) | E5 |  |
-| 178 | F5.5.S2 | planned | Build plan and usage, checkout handoff with return polling, portal link, invoices (E4 shell) | E5 |  |
-| 179 | F5.5.S3 | planned | One paywall contract rendered in web, MCP tool text and CLI | E5 |  |
-| 180 | F5.5.S4 | planned | Pricing page generated from GET /api/v1/plans | E5 |  |
-| 181 | F5.5.S5 | planned | Downgrade impact flow: choose channels and seats to keep | E5 |  |
-| 182 | F4.8.S2 | planned | Build: invite, grant and revoke through the E3 member API; seat-limit paywall (E5.F5.5.S3) | E4 |  |
-| 183 | F5.3.S7 | planned | Plan-based API rate limits per organization and token | E5 |  |
-| 184 | F5.6.S1 | planned | ADR: launch provider from the E10.F10.2 bake-off; hosted checkout only | E5 |  |
-| 185 | F5.6.S2 | planned | Adapter for the chosen provider; contract tests on recorded fixtures; optional sandbox CI job | E5 |  |
-| 186 | F5.2.S2 | planned | Provider price ids per environment and a drift-check script | E5 |  |
-| 187 | F5.6.S3 | planned | Go-live: provider approval, tax categories, refund policy, terms of service and plan terms (issue 32) | E5 |  |
-| 188 | F5.7.S1 | planned | Reverse trial (14-day Team, no card) and trial-ending notices | E5 |  |
-| 189 | F5.7.S2 | planned | Dunning: past_due 14 days, then restricted, then canceled; accepted work honoured | E5 |  |
-| 190 | F5.7.S3 | planned | Over-limit engine: paused channels, held posts, extra seats become viewers via the E3 API; safety controls stay on | E5 |  |
-| 191 | F5.7.S4 | planned | Cancellation, 90-day retention with export, reactivation | E5 |  |
-| 192 | F5.7.S5 | planned | Add-ons: channel packs and credit packs | E5 |  |
-| 193 | F5.3.S6 | planned | Credits wallet: AI assists and paid-platform sends (X weights) reserved before send; cost shown in dry run (issue 21) | E5 |  |
-| 194 | F5.1.S4 | planned | ManualBillingProvider for invoiced Enterprise subscriptions | E5 |  |
+| 166 | F5.2.S1 | planned | plans.yaml: feature registry, versioned plans (Free, Personal, Team, Business, Enterprise, Community), prices, add-ons, meters | E5 |  |
+| 167 | F5.2.S4 | planned | Immutable plan versions; subscriptions pin plan_version (grandfathering) | E5 |  |
+| 168 | F5.1.S1 | planned | BillingProvider protocol: checkout_session, portal_session, verify_webhook, parse_event (+ get_subscription, update_quantity, change_plan, cancel, list_events_since) | E5 |  |
+| 169 | F5.1.S2 | planned | FakeBillingProvider: local hosted-checkout page and HMAC-signed webhooks (tests/fakes.py) | E5 |  |
+| 170 | F5.1.S3 | planned | SubscriptionService ServiceSpec; routes /api/v1/plans, /api/v1/billing, /webhooks/billing/; needs=billing | E5 |  |
+| 171 | F5.2.S3 | planned | Public GET /api/v1/plans (cacheable, rate-limited) | E5 |  |
+| 172 | F5.3.S1 | planned | Atomic reserve/release counters and idempotent usage events in the owning service's schema | E5 |  |
+| 173 | F5.3.S2 | planned | libs/entitlements client: snapshot cache, last-known-good, fail-safe classes, 402 problem with upgrade_url and can_upgrade | E5 |  |
+| 174 | F5.3.S3 | planned | Snapshots (plan + add-ons + overrides) with monotonic version and entitlements.changed; operator override API for E6.F6.4.S2 | E5 |  |
+| 175 | F5.3.S4 | planned | Enforce at the edge of each use case after authz.require: channels, stories, queue, repos, PATs, workspaces | E5 |  |
+| 176 | F4.9.S4 | planned | Approval depth gated by plan: the entitlement checked at the edge of the approval use case (E5.F5.3.S4) | E4 |  |
+| 177 | F5.3.S5 | planned | Seat ledger checked before billable grants (via the E3 grant API, F3.2.S6) and provider quantity sync | E5 |  |
+| 178 | F3.2.S6 | planned | Grant API writes seat_assignments and agency_grants in the same transaction and calls entitlements before billable or agency tuples (E5.F5.3.S5, F5.9) | E3 |  |
+| 179 | F5.4.S1 | planned | Signed intake: raw-body HMAC, timestamp tolerance, 64 KB cap, inbox unique on provider event id, fast 200 | E5 |  |
+| 180 | F5.4.S2 | planned | Processing: re-fetch from the provider API, state machine, snapshot recompute, outbox events | E5 |  |
+| 181 | F5.4.S3 | planned | Daily reconciliation with drift alert | E5 |  |
+| 182 | F7.1.S7 | planned | Alerts: billing webhook rejections, billing reconcile drift (F5.4.S3) and seat-sync failures (F5.3.S5) | E7 |  |
+| 183 | F5.5.S1 | in-progress | Mockups: pricing, plan and usage, paywalls (done); checkout handoff, downgrade impact (E10.F10.5.S1) | E5 |  |
+| 184 | F5.5.S2 | planned | Build plan and usage, checkout handoff with return polling, portal link, invoices (E4 shell) | E5 |  |
+| 185 | F5.5.S3 | planned | One paywall contract rendered in web, MCP tool text and CLI | E5 |  |
+| 186 | F5.5.S4 | planned | Pricing page generated from GET /api/v1/plans | E5 |  |
+| 187 | F5.5.S5 | planned | Downgrade impact flow: choose channels and seats to keep | E5 |  |
+| 188 | F4.8.S2 | planned | Build: invite, grant and revoke through the E3 member API; seat-limit paywall (E5.F5.5.S3) | E4 |  |
+| 189 | F5.3.S7 | planned | Plan-based API rate limits per organization and token | E5 |  |
+| 190 | F5.6.S1 | planned | ADR: launch provider from the E10.F10.2 bake-off; hosted checkout only | E5 |  |
+| 191 | F5.6.S2 | planned | Adapter for the chosen provider; contract tests on recorded fixtures; optional sandbox CI job | E5 |  |
+| 192 | F5.2.S2 | planned | Provider price ids per environment and a drift-check script | E5 |  |
+| 193 | F5.6.S3 | planned | Go-live: provider approval, tax categories, refund policy, terms of service and plan terms (issue 32) | E5 |  |
+| 194 | F5.7.S1 | planned | Reverse trial (14-day Team, no card) and trial-ending notices | E5 |  |
+| 195 | F5.7.S2 | planned | Dunning: past_due 14 days, then restricted, then canceled; accepted work honoured | E5 |  |
+| 196 | F5.7.S3 | planned | Over-limit engine: paused channels, held posts, extra seats become viewers via the E3 API; safety controls stay on | E5 |  |
+| 197 | F5.7.S4 | planned | Cancellation, 90-day retention with export, reactivation | E5 |  |
+| 198 | F5.7.S5 | planned | Add-ons: channel packs and credit packs | E5 |  |
+| 199 | F5.1.S4 | planned | ManualBillingProvider for invoiced Enterprise subscriptions | E5 |  |
 
-### W15: Admin portal (E6) (0 of 14 stories done)
+### W15: Admin portal (E6) (0 of 15 stories done)
 
 The operator's views over W8's tenants and W14's subscriptions.
 
 | # | Item | Status | Title | Epic | Issue |
 |---:|---|---|---|---|---|
-| 195 | F6.1.S1 | planned | AdminService with the inkcast-admin realm role | E6 |  |
-| 196 | F6.1.S2 | planned | Separate admin bundle | E6 |  |
-| 197 | F6.2.S1 | planned | Users with linked identities | E6 |  |
-| 198 | F6.2.S2 | planned | Suspend and unsuspend | E6 |  |
-| 199 | F6.3.S1 | planned | Failed and unconfirmed posts across tenants | E6 |  |
-| 200 | F6.3.S2 | planned | Scheduler heartbeat and channel health overview | E6 |  |
-| 201 | F6.3.S3 | planned | Unconfirmed-post resolution UI (record as published / re-queue), audited; backs the InkcastUnconfirmedPublishes runbook | E6 |  |
-| 202 | F6.4.S1 | planned | Audit search | E6 |  |
-| 203 | F6.4.S2 | planned | Plan overrides and feature flags through the SubscriptionService operator API (reason and expiry required, audited; no impersonation) | E6 |  |
-| 204 | F6.4.S3 | planned | Read-only view of a user's effective access (OpenFGA expand) | E6 |  |
-| 205 | F6.5.S1 | planned | Operator API /admin/v1/insights (inkcast-admin): platform-scope rollups (publish success, unconfirmed rate per platform), active_publishers, outbox and consumer lag | E6 |  |
-| 206 | F6.5.S2 | planned | Growth: signups and activation_rate from user.created (E9) joined with post.published | E6 |  |
-| 207 | F6.5.S3 | planned | Revenue: mrr, arr, churn, NRR, ARPA from SubscriptionService daily snapshots (E5); credits_spent | E6 |  |
-| 208 | F6.5.S4 | planned | Mockup then build: the owner's business board (light theme), reading /admin/v1/insights | E6 |  |
+| 200 | F6.1.S1 | planned | AdminService with the inkcast-admin realm role | E6 |  |
+| 201 | F9.4.S1 | planned | inkcast-admin requires OTP or WebAuthn; admin client enforces it | E9 |  |
+| 202 | F6.1.S2 | planned | Separate admin bundle | E6 |  |
+| 203 | F6.2.S1 | planned | Users with linked identities | E6 |  |
+| 204 | F6.2.S2 | planned | Suspend and unsuspend | E6 |  |
+| 205 | F6.3.S1 | planned | Failed and unconfirmed posts across tenants | E6 |  |
+| 206 | F6.3.S2 | planned | Scheduler heartbeat and channel health overview | E6 |  |
+| 207 | F6.3.S3 | planned | Unconfirmed-post resolution UI (record as published / re-queue), audited; backs the InkcastUnconfirmedPublishes runbook | E6 |  |
+| 208 | F6.4.S1 | planned | Audit search | E6 |  |
+| 209 | F6.4.S2 | planned | Plan overrides and feature flags through the SubscriptionService operator API (reason and expiry required, audited; no impersonation) | E6 |  |
+| 210 | F6.4.S3 | planned | Read-only view of a user's effective access (OpenFGA expand) | E6 |  |
+| 211 | F6.5.S1 | planned | Operator API /admin/v1/insights (inkcast-admin): platform-scope rollups (publish success, unconfirmed rate per platform), active_publishers, outbox and consumer lag | E6 |  |
+| 212 | F6.5.S2 | planned | Growth: signups and activation_rate from user.created (E9) joined with post.published | E6 |  |
+| 213 | F6.5.S3 | planned | Revenue: mrr, arr, churn, NRR, ARPA from SubscriptionService daily snapshots (E5); credits_spent | E6 |  |
+| 214 | F6.5.S4 | planned | Mockup then build: the owner's business board (light theme), reading /admin/v1/insights | E6 |  |
 
-### W16: Social platforms (E8) (0 of 10 stories done)
+### W16: Social platforms (E8) (0 of 13 stories done)
 
 Instagram with Facebook Pages, then YouTube, TikTok and X (product-spec Phase 2). Start the platform reviews early; their queues set the timeline.
 
 | # | Item | Status | Title | Epic | Issue |
 |---:|---|---|---|---|---|
-| 209 | F8.1.S1 | planned | Media pipeline and async publish (see docs/issues 15-19) | E8 |  |
-| 210 | F7.6.S2 | planned | Object storage replication and lifecycle for media (with E8) | E7 |  |
-| 211 | F8.2.S2 | planned | Instagram | E8 |  |
-| 212 | F8.2.S5 | planned | Facebook Pages: Reels through the Meta app shared with Instagram (docs/issues 34) | E8 |  |
-| 213 | F8.2.S4 | planned | YouTube: OAuth, resumable upload, audience and synthetic-media fields, quota (docs/issues 33) | E8 |  |
-| 214 | F8.2.S3 | planned | TikTok (consent UI designed before the audit) | E8 |  |
-| 215 | F8.2.S1 | planned | X | E8 |  |
-| 216 | F8.3.S1 | planned | Batch review queue: reviews API, inkcast_submit_for_review, per-post consent, web and mobile screens (docs/issues 35) | E8 |  |
-| 217 | F4.10.S4 | planned | Engagement from platform APIs (with E8): engagement.sampled events → KPI | E4 |  |
-| 218 | F8.3.S2 | planned | Engagement inbox (later): read, draft, approve, send through official APIs (docs/issues 36) | E8 |  |
+| 215 | F8.1.S1 | planned | Media pipeline and async publish (see docs/issues 15-19) | E8 |  |
+| 216 | F7.2.S2 | planned | Refresh lock and refresh-token merge | E7 |  |
+| 217 | F7.6.S2 | planned | Object storage replication and lifecycle for media (with E8) | E7 |  |
+| 218 | F8.2.S2 | planned | Instagram | E8 |  |
+| 219 | F8.2.S5 | planned | Facebook Pages: Reels through the Meta app shared with Instagram (docs/issues 34) | E8 |  |
+| 220 | F8.2.S4 | planned | YouTube: OAuth, resumable upload, audience and synthetic-media fields, quota (docs/issues 33) | E8 |  |
+| 221 | F8.2.S3 | planned | TikTok (consent UI designed before the audit) | E8 |  |
+| 222 | F3.4.S1 | planned | Per-workspace OAuth app credentials for platforms | E3 |  |
+| 223 | F5.3.S6 | planned | Credits wallet: AI assists and paid-platform sends (X weights) reserved before send; cost shown in dry run (issue 21) | E5 |  |
+| 224 | F8.2.S1 | planned | X | E8 |  |
+| 225 | F8.3.S1 | planned | Batch review queue: reviews API, inkcast_submit_for_review, per-post consent, web and mobile screens (docs/issues 35) | E8 |  |
+| 226 | F4.10.S4 | planned | Engagement from platform APIs (with E8): engagement.sampled events → KPI | E4 |  |
+| 227 | F8.3.S2 | planned | Engagement inbox (later): read, draft, approve, send through official APIs (docs/issues 36) | E8 |  |
 
-### W17: Self-host, agency and scale (0 of 19 stories done)
+### W17: Self-host, agency and scale (0 of 17 stories done)
 
 Offline licences, the agency add-on, more regions and a second KPI store, each when a customer or a measurement asks for it.
 
 | # | Item | Status | Title | Epic | Issue |
 |---:|---|---|---|---|---|
-| 219 | F5.8.S1 | planned | LicenceFileSource: Ed25519 JWS, kid rotation, nbf/exp, deployment host, hot reload | E5 |  |
-| 220 | F5.8.S2 | planned | CommunitySource default for self-host | E5 |  |
-| 221 | F5.8.S3 | planned | Offline signing CLI and licence register (no signing key in the SaaS) | E5 |  |
-| 222 | F5.8.S4 | planned | Expiry warning, grace, read-only licensed features; own-content publishing never stops | E5 |  |
-| 223 | F5.8.S5 | planned | Posture check and `inkcast checks` row for licence status | E5 |  |
-| 224 | F6.4.S4 | planned | Licence register view (issued self-host licences, metadata only) | E6 |  |
-| 225 | F5.9.S1 | planned | Catalogue: agency_client add-on; managed client orgs derive entitlements from their billing parent | E5 |  |
-| 226 | F5.9.S2 | planned | Client-slot checks on agency grants (E3 grant API hook) and at use cases | E5 |  |
-| 227 | F5.9.S3 | planned | Agency-edition licence for self-host (client_orgs: N) | E5 |  |
-| 228 | F5.9.S4 | planned | White-label settings entitlement and freeze-on-lapse (UI owned by E4) | E5 |  |
-| 229 | F3.4.S1 | planned | Per-workspace OAuth app credentials for platforms | E3 |  |
-| 230 | F3.1.S7 | planned | Full-text search on posts and ledger (tsvector); no external search engine | E3 |  |
-| 231 | F7.6.S3 | planned | Active/passive region: CloudNativePG replica cluster, scheduler active in one region, DNS failover; DR drill | E7 |  |
-| 232 | F7.10.S1 | planned | OpenCost namespace allocation by service label; infra_cost KPI built | E7 |  |
-| 233 | F7.11.S6 | planned | KpiStore on ClickHouse behind the same seam, when hourly rows per scope outgrow SQL (trigger: p95 insights read > 500 ms) | E7 |  |
-| 234 | F1.6.S3 | planned | The image on Python 3.15 once its wheels settle (second half of #24; CI already tests 3.15) | E1 | [#32](https://github.com/inkcasthq/inkcast/issues/32) |
-| 235 | F1.9.S1 | planned | Run Inkcast on a Mac: pinned macOS tools, a doctor script, a setup guide, and arm64 proven in CI | E1 | [#66](https://github.com/inkcasthq/inkcast/issues/66) |
-| 236 | F7.6.S5 | planned | Runbook: the Compose stack on an EC2 instance (localhost-bound ports reached over SSM or SSH port forwarding, secrets from AWS Secrets Manager) | E7 | [#39](https://github.com/inkcasthq/inkcast/issues/39) |
-| 237 | #59 | open issue | DEV destinations: list the organizations this person has already published to (DEV's API can't list a user's organizations) | | [#59](https://github.com/inkcasthq/inkcast/issues/59) |
+| 228 | F5.8.S1 | planned | LicenceFileSource: Ed25519 JWS, kid rotation, nbf/exp, deployment host, hot reload | E5 |  |
+| 229 | F5.8.S2 | planned | CommunitySource default for self-host | E5 |  |
+| 230 | F5.8.S3 | planned | Offline signing CLI and licence register (no signing key in the SaaS) | E5 |  |
+| 231 | F5.8.S4 | planned | Expiry warning, grace, read-only licensed features; own-content publishing never stops | E5 |  |
+| 232 | F5.8.S5 | planned | Posture check and `inkcast checks` row for licence status | E5 |  |
+| 233 | F6.4.S4 | planned | Licence register view (issued self-host licences, metadata only) | E6 |  |
+| 234 | F5.9.S1 | planned | Catalogue: agency_client add-on; managed client orgs derive entitlements from their billing parent | E5 |  |
+| 235 | F5.9.S2 | planned | Client-slot checks on agency grants (E3 grant API hook) and at use cases | E5 |  |
+| 236 | F5.9.S3 | planned | Agency-edition licence for self-host (client_orgs: N) | E5 |  |
+| 237 | F5.9.S4 | planned | White-label settings entitlement and freeze-on-lapse (UI owned by E4) | E5 |  |
+| 238 | F3.1.S7 | planned | Full-text search on posts and ledger (tsvector); no external search engine | E3 |  |
+| 239 | F7.6.S3 | planned | Active/passive region: CloudNativePG replica cluster, scheduler active in one region, DNS failover; DR drill | E7 |  |
+| 240 | F7.10.S1 | planned | OpenCost namespace allocation by service label; infra_cost KPI built | E7 |  |
+| 241 | F7.11.S6 | planned | KpiStore on ClickHouse behind the same seam, when hourly rows per scope outgrow SQL (trigger: p95 insights read > 500 ms) | E7 |  |
+| 242 | F1.6.S3 | planned | The image on Python 3.15 once its wheels settle (second half of #24; CI already tests 3.15) | E1 | [#32](https://github.com/inkcasthq/inkcast/issues/32) |
+| 243 | F1.9.S1 | planned | Run Inkcast on a Mac: pinned macOS tools, a doctor script, a setup guide, and arm64 proven in CI | E1 | [#66](https://github.com/inkcasthq/inkcast/issues/66) |
+| 244 | F7.6.S5 | planned | Runbook: the Compose stack on an EC2 instance (localhost-bound ports reached over SSM or SSH port forwarding, secrets from AWS Secrets Manager) | E7 | [#39](https://github.com/inkcasthq/inkcast/issues/39) |
+| 245 | #59 | open issue | DEV destinations: list the organizations this person has already published to (DEV's API can't list a user's organizations) | | [#59](https://github.com/inkcasthq/inkcast/issues/59) |
 
 ### Developer tooling
 
@@ -420,7 +428,7 @@ Outside the product. Worked only when the owner asks.
 | F1.5.S3 | done | Generated split-services component |  |  |
 | F1.6.S1 | done | kind: split services through the Gateway |  |  |
 | F1.6.S2 | done | End-to-end suite in single and split mode |  |  |
-| F1.6.S3 | planned | The image on Python 3.15 once its wheels settle (second half of #24; CI already tests 3.15) | [#32](https://github.com/inkcasthq/inkcast/issues/32) | 234 (W17) |
+| F1.6.S3 | planned | The image on Python 3.15 once its wheels settle (second half of #24; CI already tests 3.15) | [#32](https://github.com/inkcasthq/inkcast/issues/32) | 242 (W17) |
 | F1.6.S4 | done | End-to-end walkthrough built and checked in CI: the MCP client flow, the browser pages and the REST calls, pictured | [#57](https://github.com/inkcasthq/inkcast/issues/57) |  |
 | F1.6.S5 | done | Screenshots in the docs: a curated handful from the walkthrough that shows the product | [#78](https://github.com/inkcasthq/inkcast/issues/78) |  |
 | F1.7.S1 | done | ADRs, definition of done, contributor map, epic docs |  |  |
@@ -432,14 +440,14 @@ Outside the product. Worked only when the owner asks.
 | F1.8.S4 | done | kind's node image pinned by digest in CI and scripts/dev/stack.sh | [#37](https://github.com/inkcasthq/inkcast/issues/37) |  |
 | F1.8.S5 | in-progress | Remove the stale publish.yml:codeql code-scanning configuration | [#38](https://github.com/inkcasthq/inkcast/issues/38) | 10 (W1) |
 | F1.8.S6 | in-progress | Repository security settings as code: secret scanning with push protection, Dependabot security updates, private vulnerability reporting | [#45](https://github.com/inkcasthq/inkcast/issues/45) | 11 (W1) |
-| F1.9.S1 | planned | Run Inkcast on a Mac: pinned macOS tools, a doctor script, a setup guide, and arm64 proven in CI | [#66](https://github.com/inkcasthq/inkcast/issues/66) | 235 (W17) |
+| F1.9.S1 | planned | Run Inkcast on a Mac: pinned macOS tools, a doctor script, a setup guide, and arm64 proven in CI | [#66](https://github.com/inkcasthq/inkcast/issues/66) | 243 (W17) |
 | F1.10.S1 | done | Publish retry policy as settings (attempts and delays) | [#89](https://github.com/inkcasthq/inkcast/issues/89) |  |
 | F1.10.S2 | done | Token lifetimes as settings: personal access tokens and MCP sign-in | [#90](https://github.com/inkcasthq/inkcast/issues/90) |  |
 | F1.10.S3 | done | Retention as settings: domain events and hourly KPIs | [#91](https://github.com/inkcasthq/inkcast/issues/91) |  |
 | F1.10.S4 | done | One-time link lifetime as a setting (connect and deletion links) | [#92](https://github.com/inkcasthq/inkcast/issues/92) |  |
 | F1.10.S5 | done | Validate the existing business settings: intervals, grace, rate limit, backup copies | [#93](https://github.com/inkcasthq/inkcast/issues/93) |  |
 
-### E2: Git publishing (17 of 17 done)
+### E2: Git publishing (17 of 20 done)
 
 | Story | Status | Title | Issue | Order |
 |---|---|---|---|---|
@@ -460,231 +468,239 @@ Outside the product. Worked only when the owner asks.
 | F2.5.S4 | done | Example workflow and guide |  |  |
 | F2.6.S1 | done | Check unconfirmed publishes before retrying |  |  |
 | F2.6.S2 | done | Rename unknown to unconfirmed |  |  |
+| F2.7.S1 | planned | Hashnode plug-in: GraphQL API with a personal access token, publications as destinations |  | 22 (W2) |
+| F2.7.S2 | planned | WordPress plug-in: the REST API with an application password; markdown to HTML; tags and categories by name |  | 23 (W2) |
+| F2.7.S3 | planned | Ghost plug-in: the Admin API with an Admin API key (a short-lived HS256 JWT per request) |  | 24 (W2) |
 
-### E3: Tenancy, data and authorization (OpenFGA) (12 of 58 done)
+### E3: Tenancy, data and authorization (OpenFGA) (12 of 59 done)
 
 | Story | Status | Title | Issue | Order |
 |---|---|---|---|---|
-| F3.0.S1 | planned | Check latency, p99 and ListObjects limits at 100k tuples on Postgres; consistency modes |  | 67 (W7) |
-| F3.0.S2 | planned | Keycloak to OpenFGA sync: event-listener SPI vs polling admin events, air-gapped image builds |  | 81 (W8) |
-| F3.1.S1 | planned | Postgres implementation of each repository (schema per service); the OpenFGA store uses the same operator in its own database |  | 68 (W7) |
-| F3.1.S2 | planned | Versioned, reversible migrations |  | 69 (W7) |
-| F3.1.S3 | planned | Posts queue with FOR UPDATE SKIP LOCKED |  | 71 (W7) |
-| F3.1.S4 | planned | CI runs the suite on SQLite and Postgres |  | 72 (W7) |
-| F3.1.S5 | planned | Backups: CloudNativePG scheduled base backups + WAL archiving to object storage; PITR; restore drill in CI (restore into a new Cluster, run the e2e suite). Decision: ADR-0014 |  | 73 (W7) |
-| F3.1.S6 | planned | Queue gauges from the scheduler's memory, not a COUNT per scrape per replica |  | 75 (W7) |
-| F3.1.S7 | planned | Full-text search on posts and ledger (tsvector); no external search engine |  | 230 (W17) |
-| F3.1.S8 | planned | Outbox and kpi_rollups as PostgreSQL tables in the owning schemas (BIGSERIAL seq; index-only cursor reads); migrations |  | 70 (W7) |
+| F3.0.S1 | planned | Check latency, p99 and ListObjects limits at 100k tuples on Postgres; consistency modes |  | 68 (W7) |
+| F3.0.S2 | planned | Keycloak to OpenFGA sync: event-listener SPI vs polling admin events, air-gapped image builds |  | 82 (W8) |
+| F3.1.S1 | planned | Postgres implementation of each repository (schema per service); the OpenFGA store uses the same operator in its own database |  | 69 (W7) |
+| F3.1.S2 | planned | Versioned, reversible migrations |  | 70 (W7) |
+| F3.1.S3 | planned | Posts queue with FOR UPDATE SKIP LOCKED |  | 72 (W7) |
+| F3.1.S4 | planned | CI runs the suite on SQLite and Postgres |  | 73 (W7) |
+| F3.1.S5 | planned | Backups: CloudNativePG scheduled base backups + WAL archiving to object storage; PITR; restore drill in CI (restore into a new Cluster, run the e2e suite). Decision: ADR-0014 |  | 74 (W7) |
+| F3.1.S6 | planned | Queue gauges from the scheduler's memory, not a COUNT per scrape per replica |  | 76 (W7) |
+| F3.1.S7 | planned | Full-text search on posts and ledger (tsvector); no external search engine |  | 238 (W17) |
+| F3.1.S8 | planned | Outbox and kpi_rollups as PostgreSQL tables in the owning schemas (BIGSERIAL seq; index-only cursor reads); migrations |  | 71 (W7) |
 | F3.1.S9 | in-progress | SQLite stopgap until F3.1.S5: inkcast backup/restore/backups, the backup component (daily CronJob, own volume, deny-all network), InkcastBackupMissing, restore runbook, restore drill in CI on kind |  | 8 (W1) |
-| F3.2.S1 | planned | Organization and workspace tables hold business state only; organization id = Keycloak Organization id; every account has a personal organization; kind (personal, team, client) and billing_parent for managed client orgs |  | 83 (W8) |
-| F3.2.S2 | planned | Roles are OpenFGA relations: org owner, admin, member, billing_admin; workspace manager, editor, reviewer, publisher, viewer, client_reviewer |  | 85 (W8) |
-| F3.2.S3 | planned | Membership changes require can_manage_members (model rule) |  | 86 (W8) |
-| F3.2.S4 | planned | Invites as rows (token, role, expiry, accepted_at); accepting writes the tuple through the outbox |  | 87 (W8) |
-| F3.2.S5 | planned | Ledger and tokens keyed by workspace (migration from user) |  | 88 (W8) |
-| F3.2.S6 | planned | Grant API writes seat_assignments and agency_grants in the same transaction and calls entitlements before billable or agency tuples (E5.F5.3.S5, F5.9) |  | 173 (W14) |
-| F3.3.S1 | planned | Row-level security on workspace_id as defence in depth behind OpenFGA |  | 103 (W8) |
-| F3.3.S2 | planned | Cross-tenant negative suite at the model-test and API level |  | 104 (W8) |
-| F3.3.S3 | planned | Audit log of every state change, grant, revoke and billing action, with actor (web, API, MCP, action) |  | 105 (W8) |
-| F3.3.S4 | planned | Retention policy as code: posts, ledger, idempotency, tokens last_used, audit per plan; housekeeping job; documented in docs/design/observability-and-kpis.md §6 |  | 106 (W8) |
+| F3.2.S1 | planned | Organization and workspace tables hold business state only; organization id = Keycloak Organization id; every account has a personal organization; kind (personal, team, client) and billing_parent for managed client orgs |  | 84 (W8) |
+| F3.2.S2 | planned | Roles are OpenFGA relations: org owner, admin, member, billing_admin; workspace manager, editor, reviewer, publisher, viewer, client_reviewer |  | 86 (W8) |
+| F3.2.S3 | planned | Membership changes require can_manage_members (model rule) |  | 87 (W8) |
+| F3.2.S4 | planned | Invites as rows (token, role, expiry, accepted_at); accepting writes the tuple through the outbox |  | 88 (W8) |
+| F3.2.S5 | planned | Ledger and tokens keyed by workspace (migration from user) |  | 89 (W8) |
+| F3.2.S6 | planned | Grant API writes seat_assignments and agency_grants in the same transaction and calls entitlements before billable or agency tuples (E5.F5.3.S5, F5.9) |  | 178 (W14) |
+| F3.3.S1 | planned | Row-level security on workspace_id as defence in depth behind OpenFGA |  | 105 (W8) |
+| F3.3.S2 | planned | Cross-tenant negative suite at the model-test and API level |  | 106 (W8) |
+| F3.3.S3 | planned | Audit log of every state change, grant, revoke and billing action, with actor (web, API, MCP, action) |  | 107 (W8) |
+| F3.3.S4 | planned | Retention policy as code: posts, ledger, idempotency, tokens last_used, audit per plan; housekeeping job; documented in docs/design/observability-and-kpis.md §6 |  | 108 (W8) |
 | F3.3.S5 | done | Erasure flow (user and organization): owning tables, user-scope KPI rows deleted, member dims tombstoned, outbox purged; audited | [#65](https://github.com/inkcasthq/inkcast/issues/65) |  |
-| F3.3.S6 | planned | Events carry org_id and workspace_id; rollups appear at those scopes with no consumer change (test) |  | 101 (W8) |
-| F3.3.S7 | planned | Export my data: one JSON bundle of everything Inkcast holds about the person (never credentials or tokens) | [#61](https://github.com/inkcasthq/inkcast/issues/61) | 27 (W4) |
-| F3.3.S8 | planned | Export for a cut-off person: an emailed link (7 days, 5 downloads, never past the erasure) | [#328](https://github.com/inkcasthq/inkcast/issues/328) | 28 (W4) |
-| F3.3.S9 | planned | Legal hold: an operator stops one person's erasure, audited | [#329](https://github.com/inkcasthq/inkcast/issues/329) | 29 (W4) |
-| F3.3.S10 | planned | Import an export bundle into a new account: posts and schedules become drafts, nothing is sent | [#333](https://github.com/inkcasthq/inkcast/issues/333) | 33 (W4) |
-| F3.3.S11 | planned | Erase an organization: its rows in the owning tables, its tuples, the member dims tombstoned and the outbox purged; audited |  | 102 (W8) |
-| F3.4.S1 | planned | Per-workspace OAuth app credentials for platforms |  | 229 (W17) |
+| F3.3.S6 | planned | Events carry org_id and workspace_id; rollups appear at those scopes with no consumer change (test) |  | 103 (W8) |
+| F3.3.S7 | planned | Export my data: one JSON bundle of everything Inkcast holds about the person (never credentials or tokens) | [#61](https://github.com/inkcasthq/inkcast/issues/61) | 31 (W4) |
+| F3.3.S8 | planned | Export for a cut-off person: an emailed link (7 days, 5 downloads, never past the erasure) | [#328](https://github.com/inkcasthq/inkcast/issues/328) | 32 (W4) |
+| F3.3.S9 | planned | Legal hold: an operator stops one person's erasure, audited | [#329](https://github.com/inkcasthq/inkcast/issues/329) | 33 (W4) |
+| F3.3.S10 | planned | Import an export bundle into a new account: posts and schedules become drafts, nothing is sent | [#333](https://github.com/inkcasthq/inkcast/issues/333) | 36 (W4) |
+| F3.3.S11 | planned | Erase an organization: its rows in the owning tables, its tuples, the member dims tombstoned and the outbox purged; audited |  | 104 (W8) |
+| F3.11.S1 | planned | KeyProvider (local, Vault Transit, AWS KMS, GCP KMS); per-workspace data keys stored wrapped; inkcast rotate-keys re-wraps without downtime |  | 90 (W8) |
+| F3.4.S1 | planned | Per-workspace OAuth app credentials for platforms |  | 222 (W16) |
 | F3.5.S1 | done | authz/model.fga with the owner's model, the two fixes and the tier relations; authz/model.json compiled and checked in CI |  |  |
 | F3.5.S2 | done | authz/model.fga.yaml: the owner's five scenarios plus removed author, outside publisher, agency without grant, tenant list isolation, billing admin, client reviewer, custom role, cross-organization custom role |  |  |
-| F3.5.S3 | planned | Model versions: inkcast authz apply-model writes a version; INKCAST_FGA_MODEL_ID pinned per deploy |  | 89 (W8) |
+| F3.5.S3 | planned | Model versions: inkcast authz apply-model writes a version; INKCAST_FGA_MODEL_ID pinned per deploy |  | 91 (W8) |
 | F3.6.S1 | done | PolicyEngine interface (check, batch_check, list_objects, write, delete, read) with typed Ref and relation constants |  |  |
 | F3.6.S2 | done | OpenFgaEngine over the REST API with httpx2: store and model id from config, credentials via SecretsProvider, timeouts, fail closed |  |  |
 | F3.6.S3 | done | LocalEngine evaluating authz/model.json over tuples in the DB (tests, laptops, small air-gapped self-hosts) |  |  |
 | F3.6.S4 | done | INKCAST_AUTHZ_ENGINE; posture check (hosted production requires openfga); readiness checks the store and model id |  |  |
 | F3.6.S5 | done | authz.denied and authz.error events; inkcast_authz_checks_total{relation,result} and latency |  |  |
-| F3.7.S1 | planned | authz.require(principal, relation, ref, scope): token scope AND OpenFGA; 403 denied, 503 engine error |  | 90 (W8) |
-| F3.7.S2 | planned | Authed(..., permission=...); architecture test fails any route without a permission or public=True |  | 91 (W8) |
-| F3.7.S3 | planned | MCP tools call the same require(); a test enumerates every tool |  | 92 (W8) |
-| F3.7.S4 | planned | SchedulerWorker re-checks can_publish at send time; Git sync checks per file and channel |  | 93 (W8) |
-| F3.7.S5 | planned | List endpoints via ListObjects on workspaces or BatchCheck |  | 94 (W8) |
-| F3.8.S1 | planned | Lifecycle tuples (workspace org, channel workspace, post workspace and author) through a transactional outbox; deletes remove tuples |  | 95 (W8) |
-| F3.8.S2 | planned | Member API: grant or revoke manager, editor, reviewer, publisher, client reviewer; one-call agency grant; all audited |  | 96 (W8) |
-| F3.8.S3 | planned | Reconciler compares DB-owned relationships with tuples, fixes drift (including misaligned role grants), reports a metric |  | 97 (W8) |
+| F3.7.S1 | planned | authz.require(principal, relation, ref, scope): token scope AND OpenFGA; 403 denied, 503 engine error |  | 92 (W8) |
+| F3.7.S2 | planned | Authed(..., permission=...); architecture test fails any route without a permission or public=True |  | 93 (W8) |
+| F3.7.S3 | planned | MCP tools call the same require(); a test enumerates every tool |  | 94 (W8) |
+| F3.7.S4 | planned | SchedulerWorker re-checks can_publish at send time; Git sync checks per file and channel |  | 95 (W8) |
+| F3.7.S5 | planned | List endpoints via ListObjects on workspaces or BatchCheck |  | 96 (W8) |
+| F3.8.S1 | planned | Lifecycle tuples (workspace org, channel workspace, post workspace and author) through a transactional outbox; deletes remove tuples |  | 97 (W8) |
+| F3.8.S2 | planned | Member API: grant or revoke manager, editor, reviewer, publisher, client reviewer; one-call agency grant; all audited |  | 98 (W8) |
+| F3.8.S3 | planned | Reconciler compares DB-owned relationships with tuples, fixes drift (including misaligned role grants), reports a metric |  | 99 (W8) |
 | F3.9.S1 | done | Kustomize component: OpenFGA on Postgres, OpenShift restricted-v2, migrate Job, mirrored images | [#279](https://github.com/inkcasthq/inkcast/issues/279) |  |
-| F3.9.S2 | planned | NetworkPolicy (only Inkcast services reach OpenFGA); credentials from the secrets store |  | 107 (W8) |
-| F3.9.S3 | planned | kind CI: end-to-end suite split with INKCAST_AUTHZ_ENGINE=openfga |  | 108 (W8) |
-| F3.9.S4 | planned | Runbooks: model rollout and rollback, store backup and restore, drift |  | 109 (W8) |
+| F3.9.S2 | planned | NetworkPolicy (only Inkcast services reach OpenFGA); credentials from the secrets store |  | 109 (W8) |
+| F3.9.S3 | planned | kind CI: end-to-end suite split with INKCAST_AUTHZ_ENGINE=openfga |  | 110 (W8) |
+| F3.9.S4 | planned | Runbooks: model rollout and rollback, store backup and restore, drift |  | 111 (W8) |
 | F3.9.S5 | in-progress | OpenShift Local: staging and prod in inkcast-staging and inkcast-prod, OpenFGA on one shared CloudNativePG cluster in inkcast-db (a database and a login role per side, pg_hba gating each role to its own database over TLS, a NetworkPolicy admitting 5432 from OpenFGA's pods only); passwords one Secret per side, written once by scripts/deploy/openfga-db-credentials.sh; the private image's pull Secret named on the ServiceAccount and on every Inkcast-image pod spec, in the environments only (scripts/deploy/ghcr-pull-secret.sh) | [#296](https://github.com/inkcasthq/inkcast/issues/296) | 1 (W1) |
 | F3.9.S6 | done | Write and pin the OpenFGA model from the deployment, with no manual step: the init container authz-model (components/openfga) runs inkcast authz write-model with the pod's own image before the server, on every pod start; INKCAST_FGA_STORE_NAME pins by name at start-up (the store and the version equal to the packaged model), with a named refusal while they are missing | [#315](https://github.com/inkcasthq/inkcast/issues/315) |  |
 | F3.9.S7 | done | The cluster generates every environment Secret: no secret scripts, no copied values (inkcast env-secrets, the init container of OpenFGA's pod in each lab environment, components/env-secrets) | [#323](https://github.com/inkcasthq/inkcast/issues/323) |  |
 | F3.9.S8 | planned | OpenFGA's schema migration runs as an init container: no Job to delete and re-apply | [#337](https://github.com/inkcasthq/inkcast/issues/337) | 2 (W1) |
 | F3.10.S1 | done | libs/cache: CacheBackend, MemoryCache, RedisCache (RESP client), FakeRedis, distributed rate limiter with fallback; INKCAST_CACHE_URL/INKCAST_CACHE_PASSWORD |  |  |
-| F3.10.S2 | planned | Valkey Kustomize component (OpenShift restricted-v2, non-root image, mirrored), egress NetworkPolicy rule for 6379 (namespace + pod selectors), password from the secrets store; kind CI runs split mode with Valkey |  | 78 (W7) |
-| F3.10.S3 | planned | PostgreSQL egress rule (5432) and PgBouncer Pooler; the same for OpenFGA's database |  | 77 (W7) |
-| F3.10.S4 | planned | ADR: Valkey over Redis (BSD-3 vs RSALv2/SSPL/AGPL; Linux Foundation; drop-in for the commands used); ADR: posts table + outbox, no broker until an external consumer needs one |  | 76 (W7) |
-| F3.10.S5 | planned | Cache uses behind the seam: single-flight platform lookups (destinations, find_existing), idempotency markers, refresh locks, OpenFGA check cache |  | 79 (W7) |
+| F3.10.S2 | planned | Valkey Kustomize component (OpenShift restricted-v2, non-root image, mirrored), egress NetworkPolicy rule for 6379 (namespace + pod selectors), password from the secrets store; kind CI runs split mode with Valkey |  | 79 (W7) |
+| F3.10.S3 | planned | PostgreSQL egress rule (5432) and PgBouncer Pooler; the same for OpenFGA's database |  | 78 (W7) |
+| F3.10.S4 | planned | ADR: Valkey over Redis (BSD-3 vs RSALv2/SSPL/AGPL; Linux Foundation; drop-in for the commands used); ADR: posts table + outbox, no broker until an external consumer needs one |  | 77 (W7) |
+| F3.10.S5 | planned | Cache uses behind the seam: single-flight platform lookups (destinations, find_existing), idempotency markers, refresh locks, OpenFGA check cache |  | 80 (W7) |
 
-### E4: SaaS web app (7 of 30 done)
+### E4: SaaS web app (7 of 31 done)
 
 | Story | Status | Title | Issue | Order |
 |---|---|---|---|---|
-| F4.1.S1 | planned | Vite workspace, packages/ui, light and dark themes |  | 47 (W6) |
-| F4.1.S2 | planned | Responsive to 360px, axe-clean |  | 48 (W6) |
-| F4.1.S3 | planned | CI web job (typecheck, vitest, Playwright) |  | 49 (W6) |
-| F4.1.S4 | planned | Mockup: the writer web app (Posts, Compose, Connections, Git sync, Tokens, Insights, API), approved before UI code | [#347](https://github.com/inkcasthq/inkcast/issues/347) | 45 (W6) |
-| F4.1.S5 | planned | Node lock resolved in CI, as the Python lock is | [#348](https://github.com/inkcasthq/inkcast/issues/348) | 46 (W6) |
-| F4.2.S1 | planned | WebApp service: OIDC with Keycloak, HttpOnly SameSite session | [#349](https://github.com/inkcasthq/inkcast/issues/349) | 50 (W6) |
-| F4.2.S2 | planned | Generated API client |  | 51 (W6) |
-| F4.2.S3 | planned | inkcast-web on OpenShift: in each environment's namespace, its own host, promoted by digest | [#350](https://github.com/inkcasthq/inkcast/issues/350) | 52 (W6) |
+| F4.1.S1 | planned | Vite workspace, packages/ui, light and dark themes |  | 51 (W6) |
+| F4.1.S2 | planned | Responsive to 360px, axe-clean |  | 52 (W6) |
+| F4.1.S3 | planned | CI web job (typecheck, vitest, Playwright) |  | 53 (W6) |
+| F4.1.S4 | planned | Mockup: the writer web app (Posts, Compose, Connections, Git sync, Tokens, Insights, API), approved before UI code | [#347](https://github.com/inkcasthq/inkcast/issues/347) | 49 (W6) |
+| F4.1.S5 | planned | Node lock resolved in CI, as the Python lock is | [#348](https://github.com/inkcasthq/inkcast/issues/348) | 50 (W6) |
+| F4.2.S1 | planned | WebApp service: OIDC with Keycloak, HttpOnly SameSite session | [#349](https://github.com/inkcasthq/inkcast/issues/349) | 54 (W6) |
+| F4.2.S2 | planned | Generated API client |  | 55 (W6) |
+| F4.2.S3 | planned | inkcast-web on OpenShift: in each environment's namespace, its own host, promoted by digest | [#350](https://github.com/inkcasthq/inkcast/issues/350) | 56 (W6) |
 | F4.3.S1 | done | Mockup: sign-up → workspace → connect → first token → Git guide |  |  |
-| F4.3.S2 | planned | Build |  | 119 (W10) |
+| F4.3.S2 | planned | Build |  | 122 (W10) |
 | F4.4.S1 | done | Mockup: health badges, scopes, reconnect, posts at risk |  |  |
-| F4.4.S2 | planned | Build | [#351](https://github.com/inkcasthq/inkcast/issues/351) | 57 (W6) |
+| F4.4.S2 | planned | Build | [#351](https://github.com/inkcasthq/inkcast/issues/351) | 60 (W6) |
 | F4.5.S1 | done | Mockup: editor with per-platform preview and counters |  |  |
-| F4.5.S2 | planned | Build (server-rendered preview from prepare()) | [#352](https://github.com/inkcasthq/inkcast/issues/352) | 58 (W6) |
+| F4.5.S2 | planned | Build (server-rendered preview from prepare()) | [#352](https://github.com/inkcasthq/inkcast/issues/352) | 61 (W6) |
 | F4.6.S1 | done | Mockup: week/month, drag to reschedule, IANA time zone |  |  |
-| F4.6.S2 | planned | Build |  | 59 (W6) |
-| F4.6.S3 | planned | Post list and history with errors | [#353](https://github.com/inkcasthq/inkcast/issues/353) | 60 (W6) |
+| F4.6.S2 | planned | Build |  | 62 (W6) |
+| F4.6.S3 | planned | Post list and history with errors | [#353](https://github.com/inkcasthq/inkcast/issues/353) | 63 (W6) |
 | F4.7.S1 | done | Mockup |  |  |
-| F4.7.S2 | planned | Build | [#354](https://github.com/inkcasthq/inkcast/issues/354) | 61 (W6) |
-| F4.7.S3 | planned | Build: Git sync ledger page | [#355](https://github.com/inkcasthq/inkcast/issues/355) | 62 (W6) |
-| F4.7.S4 | planned | Build: API page (reference links, MCP endpoint, endpoints with their scopes) | [#356](https://github.com/inkcasthq/inkcast/issues/356) | 63 (W6) |
+| F4.7.S2 | planned | Build | [#354](https://github.com/inkcasthq/inkcast/issues/354) | 64 (W6) |
+| F4.7.S3 | planned | Build: Git sync ledger page | [#355](https://github.com/inkcasthq/inkcast/issues/355) | 65 (W6) |
+| F4.7.S4 | planned | Build: API page (reference links, MCP endpoint, endpoints with their scopes) | [#356](https://github.com/inkcasthq/inkcast/issues/356) | 66 (W6) |
 | F4.8.S1 | done | Mockup: members table (relations, billable or free seat, MFA, SSO), invite with seat impact, agency access |  |  |
-| F4.8.S2 | planned | Build: invite, grant and revoke through the E3 member API; seat-limit paywall (E5.F5.5.S3) |  | 182 (W14) |
+| F4.8.S2 | planned | Build: invite, grant and revoke through the E3 member API; seat-limit paywall (E5.F5.5.S3) |  | 188 (W14) |
 | F4.9.S1 | done | Mockup: approval queue with per-platform previews, Git origin, policy chip, client step |  |  |
-| F4.9.S2 | planned | Build: reviewers approve (can_approve); approval status in the DB; plan-gated depth (E5) |  | 120 (W10) |
-| F4.9.S3 | planned | post.approval_requested / post.approved events; approval_cycle_seconds and member_approval_latency KPIs built |  | 121 (W10) |
-| F4.10.S1 | planned | Mockup: workspace insights (posts by status stacked, success and on-time rates with their parts, Git sync table, usage vs plan); light theme |  | 64 (W6) |
-| F4.10.S2 | planned | Build on /api/v1/insights with ?scope=workspace:<id>; charts follow the chart grammar (counts from zero, rates show parts, colour carries one thing) | [#357](https://github.com/inkcasthq/inkcast/issues/357) | 65 (W6) |
-| F4.10.S3 | planned | Mockup + build: team view (per-member throughput, reviewer load, approval cycle time) shown only with can_view_usage; viewers see totals; former members labelled |  | 122 (W10) |
-| F4.10.S4 | planned | Engagement from platform APIs (with E8): engagement.sampled events → KPI |  | 217 (W16) |
+| F4.9.S2 | planned | Build: reviewers approve (can_approve); approval status in the DB |  | 123 (W10) |
+| F4.9.S3 | planned | post.approval_requested / post.approved events; approval_cycle_seconds and member_approval_latency KPIs built |  | 124 (W10) |
+| F4.9.S4 | planned | Approval depth gated by plan: the entitlement checked at the edge of the approval use case (E5.F5.3.S4) |  | 176 (W14) |
+| F4.10.S1 | planned | Mockup: workspace insights (posts by status stacked, success and on-time rates with their parts, Git sync table, usage vs plan); light theme |  | 125 (W10) |
+| F4.10.S2 | planned | Build on /api/v1/insights with ?scope=workspace:<id>; charts follow the chart grammar (counts from zero, rates show parts, colour carries one thing) | [#357](https://github.com/inkcasthq/inkcast/issues/357) | 126 (W10) |
+| F4.10.S3 | planned | Mockup + build: team view (per-member throughput, reviewer load, approval cycle time) shown only with can_view_usage; viewers see totals; former members labelled |  | 127 (W10) |
+| F4.10.S4 | planned | Engagement from platform APIs (with E8): engagement.sampled events → KPI |  | 226 (W16) |
 
 ### E5: Billing, entitlements and metering (0 of 40 done)
 
 | Story | Status | Title | Issue | Order |
 |---|---|---|---|---|
-| F5.1.S1 | planned | BillingProvider protocol: checkout_session, portal_session, verify_webhook, parse_event (+ get_subscription, update_quantity, change_plan, cancel, list_events_since) |  | 164 (W14) |
-| F5.1.S2 | planned | FakeBillingProvider: local hosted-checkout page and HMAC-signed webhooks (tests/fakes.py) |  | 165 (W14) |
-| F5.1.S3 | planned | SubscriptionService ServiceSpec; routes /api/v1/plans, /api/v1/billing, /webhooks/billing/; needs=billing |  | 166 (W14) |
-| F5.1.S4 | planned | ManualBillingProvider for invoiced Enterprise subscriptions |  | 194 (W14) |
-| F5.2.S1 | planned | plans.yaml: feature registry, versioned plans (Free, Personal, Team, Business, Enterprise, Community), prices, add-ons, meters |  | 162 (W14) |
-| F5.2.S2 | planned | Provider price ids per environment and a drift-check script |  | 186 (W14) |
-| F5.2.S3 | planned | Public GET /api/v1/plans (cacheable, rate-limited) |  | 167 (W14) |
-| F5.2.S4 | planned | Immutable plan versions; subscriptions pin plan_version (grandfathering) |  | 163 (W14) |
-| F5.3.S1 | planned | Atomic reserve/release counters and idempotent usage events in the owning service's schema |  | 168 (W14) |
-| F5.3.S2 | planned | libs/entitlements client: snapshot cache, last-known-good, fail-safe classes, 402 problem with upgrade_url and can_upgrade |  | 169 (W14) |
-| F5.3.S3 | planned | Snapshots (plan + add-ons + overrides) with monotonic version and entitlements.changed; operator override API for E6.F6.4.S2 |  | 170 (W14) |
-| F5.3.S4 | planned | Enforce at the edge of each use case after authz.require: channels, stories, queue, repos, PATs, workspaces |  | 171 (W14) |
-| F5.3.S5 | planned | Seat ledger checked before billable grants (via the E3 grant API, F3.2.S6) and provider quantity sync |  | 172 (W14) |
-| F5.3.S6 | planned | Credits wallet: AI assists and paid-platform sends (X weights) reserved before send; cost shown in dry run (issue 21) |  | 193 (W14) |
-| F5.3.S7 | planned | Plan-based API rate limits per organization and token |  | 183 (W14) |
-| F5.4.S1 | planned | Signed intake: raw-body HMAC, timestamp tolerance, 64 KB cap, inbox unique on provider event id, fast 200 |  | 174 (W14) |
-| F5.4.S2 | planned | Processing: re-fetch from the provider API, state machine, snapshot recompute, outbox events |  | 175 (W14) |
-| F5.4.S3 | planned | Daily reconciliation with drift alert |  | 176 (W14) |
-| F5.5.S1 | in-progress | Mockups: pricing, plan and usage, paywalls (done); checkout handoff, downgrade impact (E10.F10.5.S1) |  | 177 (W14) |
-| F5.5.S2 | planned | Build plan and usage, checkout handoff with return polling, portal link, invoices (E4 shell) |  | 178 (W14) |
-| F5.5.S3 | planned | One paywall contract rendered in web, MCP tool text and CLI |  | 179 (W14) |
-| F5.5.S4 | planned | Pricing page generated from GET /api/v1/plans |  | 180 (W14) |
-| F5.5.S5 | planned | Downgrade impact flow: choose channels and seats to keep |  | 181 (W14) |
-| F5.6.S1 | planned | ADR: launch provider from the E10.F10.2 bake-off; hosted checkout only |  | 184 (W14) |
-| F5.6.S2 | planned | Adapter for the chosen provider; contract tests on recorded fixtures; optional sandbox CI job |  | 185 (W14) |
-| F5.6.S3 | planned | Go-live: provider approval, tax categories, refund policy, terms of service and plan terms (issue 32) |  | 187 (W14) |
-| F5.7.S1 | planned | Reverse trial (14-day Team, no card) and trial-ending notices |  | 188 (W14) |
-| F5.7.S2 | planned | Dunning: past_due 14 days, then restricted, then canceled; accepted work honoured |  | 189 (W14) |
-| F5.7.S3 | planned | Over-limit engine: paused channels, held posts, extra seats become viewers via the E3 API; safety controls stay on |  | 190 (W14) |
-| F5.7.S4 | planned | Cancellation, 90-day retention with export, reactivation |  | 191 (W14) |
-| F5.7.S5 | planned | Add-ons: channel packs and credit packs |  | 192 (W14) |
-| F5.8.S1 | planned | LicenceFileSource: Ed25519 JWS, kid rotation, nbf/exp, deployment host, hot reload |  | 219 (W17) |
-| F5.8.S2 | planned | CommunitySource default for self-host |  | 220 (W17) |
-| F5.8.S3 | planned | Offline signing CLI and licence register (no signing key in the SaaS) |  | 221 (W17) |
-| F5.8.S4 | planned | Expiry warning, grace, read-only licensed features; own-content publishing never stops |  | 222 (W17) |
-| F5.8.S5 | planned | Posture check and `inkcast checks` row for licence status |  | 223 (W17) |
-| F5.9.S1 | planned | Catalogue: agency_client add-on; managed client orgs derive entitlements from their billing parent |  | 225 (W17) |
-| F5.9.S2 | planned | Client-slot checks on agency grants (E3 grant API hook) and at use cases |  | 226 (W17) |
-| F5.9.S3 | planned | Agency-edition licence for self-host (client_orgs: N) |  | 227 (W17) |
-| F5.9.S4 | planned | White-label settings entitlement and freeze-on-lapse (UI owned by E4) |  | 228 (W17) |
+| F5.1.S1 | planned | BillingProvider protocol: checkout_session, portal_session, verify_webhook, parse_event (+ get_subscription, update_quantity, change_plan, cancel, list_events_since) |  | 168 (W14) |
+| F5.1.S2 | planned | FakeBillingProvider: local hosted-checkout page and HMAC-signed webhooks (tests/fakes.py) |  | 169 (W14) |
+| F5.1.S3 | planned | SubscriptionService ServiceSpec; routes /api/v1/plans, /api/v1/billing, /webhooks/billing/; needs=billing |  | 170 (W14) |
+| F5.1.S4 | planned | ManualBillingProvider for invoiced Enterprise subscriptions |  | 199 (W14) |
+| F5.2.S1 | planned | plans.yaml: feature registry, versioned plans (Free, Personal, Team, Business, Enterprise, Community), prices, add-ons, meters |  | 166 (W14) |
+| F5.2.S2 | planned | Provider price ids per environment and a drift-check script |  | 192 (W14) |
+| F5.2.S3 | planned | Public GET /api/v1/plans (cacheable, rate-limited) |  | 171 (W14) |
+| F5.2.S4 | planned | Immutable plan versions; subscriptions pin plan_version (grandfathering) |  | 167 (W14) |
+| F5.3.S1 | planned | Atomic reserve/release counters and idempotent usage events in the owning service's schema |  | 172 (W14) |
+| F5.3.S2 | planned | libs/entitlements client: snapshot cache, last-known-good, fail-safe classes, 402 problem with upgrade_url and can_upgrade |  | 173 (W14) |
+| F5.3.S3 | planned | Snapshots (plan + add-ons + overrides) with monotonic version and entitlements.changed; operator override API for E6.F6.4.S2 |  | 174 (W14) |
+| F5.3.S4 | planned | Enforce at the edge of each use case after authz.require: channels, stories, queue, repos, PATs, workspaces |  | 175 (W14) |
+| F5.3.S5 | planned | Seat ledger checked before billable grants (via the E3 grant API, F3.2.S6) and provider quantity sync |  | 177 (W14) |
+| F5.3.S6 | planned | Credits wallet: AI assists and paid-platform sends (X weights) reserved before send; cost shown in dry run (issue 21) |  | 223 (W16) |
+| F5.3.S7 | planned | Plan-based API rate limits per organization and token |  | 189 (W14) |
+| F5.4.S1 | planned | Signed intake: raw-body HMAC, timestamp tolerance, 64 KB cap, inbox unique on provider event id, fast 200 |  | 179 (W14) |
+| F5.4.S2 | planned | Processing: re-fetch from the provider API, state machine, snapshot recompute, outbox events |  | 180 (W14) |
+| F5.4.S3 | planned | Daily reconciliation with drift alert |  | 181 (W14) |
+| F5.5.S1 | in-progress | Mockups: pricing, plan and usage, paywalls (done); checkout handoff, downgrade impact (E10.F10.5.S1) |  | 183 (W14) |
+| F5.5.S2 | planned | Build plan and usage, checkout handoff with return polling, portal link, invoices (E4 shell) |  | 184 (W14) |
+| F5.5.S3 | planned | One paywall contract rendered in web, MCP tool text and CLI |  | 185 (W14) |
+| F5.5.S4 | planned | Pricing page generated from GET /api/v1/plans |  | 186 (W14) |
+| F5.5.S5 | planned | Downgrade impact flow: choose channels and seats to keep |  | 187 (W14) |
+| F5.6.S1 | planned | ADR: launch provider from the E10.F10.2 bake-off; hosted checkout only |  | 190 (W14) |
+| F5.6.S2 | planned | Adapter for the chosen provider; contract tests on recorded fixtures; optional sandbox CI job |  | 191 (W14) |
+| F5.6.S3 | planned | Go-live: provider approval, tax categories, refund policy, terms of service and plan terms (issue 32) |  | 193 (W14) |
+| F5.7.S1 | planned | Reverse trial (14-day Team, no card) and trial-ending notices |  | 194 (W14) |
+| F5.7.S2 | planned | Dunning: past_due 14 days, then restricted, then canceled; accepted work honoured |  | 195 (W14) |
+| F5.7.S3 | planned | Over-limit engine: paused channels, held posts, extra seats become viewers via the E3 API; safety controls stay on |  | 196 (W14) |
+| F5.7.S4 | planned | Cancellation, 90-day retention with export, reactivation |  | 197 (W14) |
+| F5.7.S5 | planned | Add-ons: channel packs and credit packs |  | 198 (W14) |
+| F5.8.S1 | planned | LicenceFileSource: Ed25519 JWS, kid rotation, nbf/exp, deployment host, hot reload |  | 228 (W17) |
+| F5.8.S2 | planned | CommunitySource default for self-host |  | 229 (W17) |
+| F5.8.S3 | planned | Offline signing CLI and licence register (no signing key in the SaaS) |  | 230 (W17) |
+| F5.8.S4 | planned | Expiry warning, grace, read-only licensed features; own-content publishing never stops |  | 231 (W17) |
+| F5.8.S5 | planned | Posture check and `inkcast checks` row for licence status |  | 232 (W17) |
+| F5.9.S1 | planned | Catalogue: agency_client add-on; managed client orgs derive entitlements from their billing parent |  | 234 (W17) |
+| F5.9.S2 | planned | Client-slot checks on agency grants (E3 grant API hook) and at use cases |  | 235 (W17) |
+| F5.9.S3 | planned | Agency-edition licence for self-host (client_orgs: N) |  | 236 (W17) |
+| F5.9.S4 | planned | White-label settings entitlement and freeze-on-lapse (UI owned by E4) |  | 237 (W17) |
 
 ### E6: Admin portal (0 of 15 done)
 
 | Story | Status | Title | Issue | Order |
 |---|---|---|---|---|
-| F6.1.S1 | planned | AdminService with the inkcast-admin realm role |  | 195 (W15) |
-| F6.1.S2 | planned | Separate admin bundle |  | 196 (W15) |
-| F6.2.S1 | planned | Users with linked identities |  | 197 (W15) |
-| F6.2.S2 | planned | Suspend and unsuspend |  | 198 (W15) |
-| F6.3.S1 | planned | Failed and unconfirmed posts across tenants |  | 199 (W15) |
-| F6.3.S2 | planned | Scheduler heartbeat and channel health overview |  | 200 (W15) |
-| F6.3.S3 | planned | Unconfirmed-post resolution UI (record as published / re-queue), audited; backs the InkcastUnconfirmedPublishes runbook |  | 201 (W15) |
-| F6.4.S1 | planned | Audit search |  | 202 (W15) |
-| F6.4.S2 | planned | Plan overrides and feature flags through the SubscriptionService operator API (reason and expiry required, audited; no impersonation) |  | 203 (W15) |
-| F6.4.S3 | planned | Read-only view of a user's effective access (OpenFGA expand) |  | 204 (W15) |
-| F6.4.S4 | planned | Licence register view (issued self-host licences, metadata only) |  | 224 (W17) |
-| F6.5.S1 | planned | Operator API /admin/v1/insights (inkcast-admin): platform-scope rollups (publish success, unconfirmed rate per platform), active_publishers, outbox and consumer lag |  | 205 (W15) |
-| F6.5.S2 | planned | Growth: signups and activation_rate from user.created (E9) joined with post.published |  | 206 (W15) |
-| F6.5.S3 | planned | Revenue: mrr, arr, churn, NRR, ARPA from SubscriptionService daily snapshots (E5); credits_spent |  | 207 (W15) |
-| F6.5.S4 | planned | Mockup then build: the owner's business board (light theme), reading /admin/v1/insights |  | 208 (W15) |
+| F6.1.S1 | planned | AdminService with the inkcast-admin realm role |  | 200 (W15) |
+| F6.1.S2 | planned | Separate admin bundle |  | 202 (W15) |
+| F6.2.S1 | planned | Users with linked identities |  | 203 (W15) |
+| F6.2.S2 | planned | Suspend and unsuspend |  | 204 (W15) |
+| F6.3.S1 | planned | Failed and unconfirmed posts across tenants |  | 205 (W15) |
+| F6.3.S2 | planned | Scheduler heartbeat and channel health overview |  | 206 (W15) |
+| F6.3.S3 | planned | Unconfirmed-post resolution UI (record as published / re-queue), audited; backs the InkcastUnconfirmedPublishes runbook |  | 207 (W15) |
+| F6.4.S1 | planned | Audit search |  | 208 (W15) |
+| F6.4.S2 | planned | Plan overrides and feature flags through the SubscriptionService operator API (reason and expiry required, audited; no impersonation) |  | 209 (W15) |
+| F6.4.S3 | planned | Read-only view of a user's effective access (OpenFGA expand) |  | 210 (W15) |
+| F6.4.S4 | planned | Licence register view (issued self-host licences, metadata only) |  | 233 (W17) |
+| F6.5.S1 | planned | Operator API /admin/v1/insights (inkcast-admin): platform-scope rollups (publish success, unconfirmed rate per platform), active_publishers, outbox and consumer lag |  | 211 (W15) |
+| F6.5.S2 | planned | Growth: signups and activation_rate from user.created (E9) joined with post.published |  | 212 (W15) |
+| F6.5.S3 | planned | Revenue: mrr, arr, churn, NRR, ARPA from SubscriptionService daily snapshots (E5); credits_spent |  | 213 (W15) |
+| F6.5.S4 | planned | Mockup then build: the owner's business board (light theme), reading /admin/v1/insights |  | 214 (W15) |
 
-### E7: Reliability, observability and operations (7 of 44 done)
+### E7: Reliability, observability and operations (7 of 47 done)
 
 | Story | Status | Title | Issue | Order |
 |---|---|---|---|---|
 | F7.1.S1 | done | catalogue → PrometheusRule and runbooks: 13 symptom alerts (overdue, stalled, unconfirmed, failure rate, 5xx, gateway, outbox lag, cache, rate limits, restarts, volume), generator with --check, test-linked runbooks |  |  |
-| F7.1.S2 | planned | Alerts: authz error rate, Keycloak/OpenFGA drift, billing webhook rejections and reconcile drift, licence expiring, seat-sync failures |  | 130 (W12) |
-| F7.1.S3 | planned | ServiceMonitor relabelings: inkcast.io/service → service label; monitoring ingress by namespace AND pod selector |  | 129 (W12) |
-| F7.1.S4 | planned | Log-based alerts from the EVENTS catalogue (Loki ruler): config.unsafe, secrets.fetch.failed, auth.login.refused bursts; generated like the PrometheusRule |  | 131 (W12) |
-| F7.1.S5 | planned | promtool check rules + promtool test rules (one unit test per alert) in CI |  | 128 (W12) |
-| F7.1.S6 | planned | Alertmanager routing example (severity → pager/channel, inhibit scheduler-stalled over overdue) in the openshift overlay as an AlertmanagerConfig; receivers for email, Slack, Microsoft Teams (msteamsv2, Workflows) and Telegram, each credential from a Secret |  | 132 (W12) |
-| F7.2.S1 | planned | healthy → degraded → reauth_required → revoked |  | 53 (W6) |
-| F7.2.S2 | planned | Refresh lock and refresh-token merge |  | 54 (W6) |
-| F7.2.S3 | planned | Posts-at-risk warning |  | 55 (W6) |
-| F7.2.S4 | planned | channel.state domain event + inkcast_channels{state} gauge; InkcastReauthNeeded alert; channel_health KPI (customer) built |  | 56 (W6) |
-| F7.3.S1 | planned | Manifest |  | 142 (W12) |
-| F7.3.S2 | planned | Sandbox-account contract tests |  | 143 (W12) |
-| F7.4.S1 | planned | Post lifecycle webhooks (CloudEvents) with SSRF-safe delivery, as an outbox consumer 'webhooks' |  | 112 (W9) |
-| F7.4.S2 | planned | Notifier seam (libs/notify): email via in-cluster SMTP relay (air-gapped), signed webhook, Slack/Teams webhook URL; Redactor on every body |  | 25 (W3) |
-| F7.4.S3 | planned | Customer notifications: failed, unconfirmed, posts at risk (reauth), weekly digest from KPIs |  | 113 (W9) |
-| F7.4.S4 | planned | Email to a person: the notifier's SMTP channel (libs/notify), first used by the account notices | [#327](https://github.com/inkcasthq/inkcast/issues/327) | 22 (W3) |
-| F7.4.S5 | planned | Notification preferences: each person chooses the channels for each kind of notification; account and security notices always go by email; one-click unsubscribe on the digest |  | 26 (W3) |
-| F7.4.S6 | planned | Slack channel: a workspace connects Slack by OAuth (incoming-webhook scope; the installer picks the Slack channel); messages in Block Kit |  | 114 (W9) |
-| F7.4.S7 | planned | Microsoft Teams channel: a Workflows webhook URL (Office 365 connectors and their Incoming Webhook are retired); messages as Adaptive Cards |  | 115 (W9) |
-| F7.4.S8 | planned | Telegram channel: a person links Telegram to the Inkcast bot with a one-time deep link, and gets their notifications there |  | 116 (W9) |
-| F7.4.S9 | planned | Discord channel: a channel webhook URL a workspace manager pastes; messages as embeds |  | 117 (W9) |
-| F7.4.S10 | planned | Email in production: the sending domain authenticated (SPF, DKIM, DMARC aligned with From), bounces and complaints handled, a relay per environment |  | 24 (W3) |
-| F7.4.S11 | planned | In-app notifications: a feed per person that the web app shows (bell, unread count), fed by the same events as the other channels |  | 66 (W6) |
-| F7.5.S1 | planned | Enqueue with due=now; API waits briefly for the result |  | 118 (W9) |
-| F7.6.S1 | planned | Restore drill job and runbook (with E3 F3.1.S5) |  | 74 (W7) |
-| F7.6.S2 | planned | Object storage replication and lifecycle for media (with E8) |  | 210 (W16) |
-| F7.6.S3 | planned | Active/passive region: CloudNativePG replica cluster, scheduler active in one region, DNS failover; DR drill |  | 231 (W17) |
-| F7.6.S5 | planned | Runbook: the Compose stack on an EC2 instance (localhost-bound ports reached over SSM or SSH port forwarding, secrets from AWS Secrets Manager) | [#39](https://github.com/inkcasthq/inkcast/issues/39) | 236 (W17) |
+| F7.1.S2 | planned | Alerts: Keycloak/OpenFGA drift from the reconcilers (F3.8.S3, F9.5.S3) |  | 134 (W12) |
+| F7.1.S3 | planned | ServiceMonitor relabelings: inkcast.io/service → service label; monitoring ingress by namespace AND pod selector |  | 133 (W12) |
+| F7.1.S4 | planned | Log-based alerts from the EVENTS catalogue (Loki ruler): config.unsafe, secrets.fetch.failed, auth.login.refused bursts; generated like the PrometheusRule |  | 135 (W12) |
+| F7.1.S5 | planned | promtool check rules + promtool test rules (one unit test per alert) in CI |  | 132 (W12) |
+| F7.1.S6 | planned | Alertmanager routing example (severity → pager/channel, inhibit scheduler-stalled over overdue) in the openshift overlay as an AlertmanagerConfig; receivers for email, Slack, Microsoft Teams (msteamsv2, Workflows) and Telegram, each credential from a Secret |  | 136 (W12) |
+| F7.1.S7 | planned | Alerts: billing webhook rejections, billing reconcile drift (F5.4.S3) and seat-sync failures (F5.3.S5) |  | 182 (W14) |
+| F7.2.S1 | planned | healthy → degraded → reauth_required → revoked |  | 57 (W6) |
+| F7.2.S2 | planned | Refresh lock and refresh-token merge |  | 216 (W16) |
+| F7.2.S3 | planned | Posts-at-risk warning |  | 58 (W6) |
+| F7.2.S4 | planned | channel.state domain event + inkcast_channels{state} gauge; InkcastReauthNeeded alert; channel_health KPI (customer) built |  | 59 (W6) |
+| F7.3.S1 | planned | Manifest |  | 146 (W12) |
+| F7.3.S2 | planned | Sandbox-account contract tests |  | 147 (W12) |
+| F7.4.S1 | planned | Post lifecycle webhooks (CloudEvents) with SSRF-safe delivery, as an outbox consumer 'webhooks' |  | 114 (W9) |
+| F7.4.S2 | planned | Notifier seam (libs/notify): email via in-cluster SMTP relay (air-gapped), signed webhook, Slack/Teams webhook URL; Redactor on every body |  | 26 (W3) |
+| F7.4.S3 | planned | Customer notifications: failed, unconfirmed, posts at risk (reauth), weekly digest from KPIs |  | 115 (W9) |
+| F7.4.S4 | planned | Email to a person: the notifier's SMTP channel (libs/notify), first used by the account notices | [#327](https://github.com/inkcasthq/inkcast/issues/327) | 25 (W3) |
+| F7.4.S5 | planned | Notification preferences: each person chooses the channels for each kind of notification; account and security notices always go by email; a suppression list |  | 28 (W3) |
+| F7.4.S12 | planned | Workspace notification preferences: which notification types go to the workspace's Slack, Teams and Discord destinations |  | 120 (W9) |
+| F7.4.S13 | planned | Notification dispatcher: an outbox consumer notify sends each notification once per channel and recipient |  | 27 (W3) |
+| F7.4.S6 | planned | Slack channel: a workspace connects Slack by OAuth (incoming-webhook scope; the installer picks the Slack channel); messages in Block Kit |  | 116 (W9) |
+| F7.4.S7 | planned | Microsoft Teams channel: a Workflows webhook URL (Office 365 connectors and their Incoming Webhook are retired); messages as Adaptive Cards |  | 117 (W9) |
+| F7.4.S8 | planned | Telegram channel: a person links Telegram to the Inkcast bot with a one-time deep link, and gets their notifications there |  | 118 (W9) |
+| F7.4.S9 | planned | Discord channel: a channel webhook URL a workspace manager pastes; messages as embeds |  | 119 (W9) |
+| F7.4.S10 | planned | Email in production: the sending domain authenticated (SPF, DKIM, DMARC aligned with From), bounces and complaints handled, a relay per environment |  | 29 (W3) |
+| F7.4.S11 | planned | In-app notifications: a feed per person that the web app shows (bell, unread count), fed by the same events as the other channels |  | 67 (W6) |
+| F7.5.S1 | planned | Enqueue with due=now; API waits briefly for the result |  | 121 (W9) |
+| F7.6.S1 | planned | Restore drill job and runbook (with E3 F3.1.S5) |  | 75 (W7) |
+| F7.6.S2 | planned | Object storage replication and lifecycle for media (with E8) |  | 217 (W16) |
+| F7.6.S3 | planned | Active/passive region: CloudNativePG replica cluster, scheduler active in one region, DNS failover; DR drill |  | 239 (W17) |
+| F7.6.S5 | planned | Runbook: the Compose stack on an EC2 instance (localhost-bound ports reached over SSM or SSH port forwarding, secrets from AWS Secrets Manager) | [#39](https://github.com/inkcasthq/inkcast/issues/39) | 244 (W17) |
 | F7.7.S1 | done | Platform health Grafana dashboard generated from libs/dashboards.py; sidecar ConfigMap component |  |  |
-| F7.7.S2 | planned | Perses form via perses-dashboard; proven against the data source and in both themes (light captures committed); screenshots to the owner |  | 133 (W12) |
-| F7.7.S3 | planned | Backing-services board (PostgreSQL, Valkey, OpenFGA, Keycloak: USE) and the SLO board (error ratio 1h/6h/3d vs budget) |  | 134 (W12) |
+| F7.7.S2 | planned | Perses form via perses-dashboard; proven against the data source and in both themes (light captures committed); screenshots to the owner |  | 137 (W12) |
+| F7.7.S3 | planned | Backing-services board (PostgreSQL, Valkey, OpenFGA, Keycloak: USE) and the SLO board (error ratio 1h/6h/3d vs budget) |  | 138 (W12) |
 | F7.7.S4 | done | Local Grafana stack for testing dashboards: Prometheus and Grafana on Docker Compose and on kind (deploy/dev), provisioned from the generated dashboard and rules, seeded with real traffic, every panel checked |  |  |
-| F7.7.S7 | planned | Dashboard panels for the identity sync (passes, failures, people cut off) and authorization checks (allowed, denied, error, latency) | [#40](https://github.com/inkcasthq/inkcast/issues/40) | 135 (W12) |
-| F7.8.S1 | planned | Spans: request (middleware, request_id), platform call, scheduler tick, outbox pass; traceparent to platforms; trace_id in logs |  | 137 (W12) |
-| F7.8.S2 | planned | MetricsExporter: OTLP from Metrics.snapshot() and histogram state; keep /metrics |  | 138 (W12) |
-| F7.8.S3 | planned | Collector in the overlays (OpenShift distributed tracing / Tempo); air-gapped images |  | 139 (W12) |
-| F7.9.S1 | planned | OpenShift Route rate-limit annotations and a Gateway API policy example; app limiter stays as backstop |  | 140 (W12) |
-| F7.10.S1 | planned | OpenCost namespace allocation by service label; infra_cost KPI built |  | 232 (W17) |
+| F7.7.S7 | planned | Dashboard panels for the identity sync (passes, failures, people cut off) and authorization checks (allowed, denied, error, latency) | [#40](https://github.com/inkcasthq/inkcast/issues/40) | 139 (W12) |
+| F7.8.S1 | planned | Spans: request (middleware, request_id), platform call, scheduler tick, outbox pass; traceparent to platforms; trace_id in logs |  | 141 (W12) |
+| F7.8.S2 | planned | MetricsExporter: OTLP from Metrics.snapshot() and histogram state; keep /metrics |  | 142 (W12) |
+| F7.8.S3 | planned | Collector in the overlays (OpenShift distributed tracing / Tempo); air-gapped images |  | 143 (W12) |
+| F7.9.S1 | planned | OpenShift Route rate-limit annotations and a Gateway API policy example; app limiter stays as backstop |  | 144 (W12) |
+| F7.10.S1 | planned | OpenCost namespace allocation by service label; infra_cost KPI built |  | 240 (W17) |
 | F7.11.S1 | done | Per-route RED histograms by route template, schedule lag and publish duration histograms, head-of-line lag, cache and rate-limit counters |  |  |
 | F7.11.S2 | done | Four SLOs with multiwindow burn-rate alerts (api-availability, api-latency, publish-success, schedule-timeliness) |  |  |
-| F7.11.S3 | planned | Error-budget policy: freeze risky deploys under 25% budget; reviewed quarterly |  | 141 (W12) |
+| F7.11.S3 | planned | Error-budget policy: freeze risky deploys under 25% budget; reviewed quarterly |  | 145 (W12) |
 | F7.11.S4 | done | Domain events + transactional outbox + OutboxPoller (at-least-once, idempotent sinks) |  |  |
 | F7.11.S5 | done | KPI catalogue as code, RollupEngine, KpiStore (SQLite), InsightsService with /api/v1/insights (insights:read); e2e in both modes |  |  |
-| F7.11.S6 | planned | KpiStore on ClickHouse behind the same seam, when hourly rows per scope outgrow SQL (trigger: p95 insights read > 500 ms) |  | 233 (W17) |
+| F7.11.S6 | planned | KpiStore on ClickHouse behind the same seam, when hourly rows per scope outgrow SQL (trigger: p95 insights read > 500 ms) |  | 241 (W17) |
 
 ### E8: Social platforms (0 of 8 done)
 
 | Story | Status | Title | Issue | Order |
 |---|---|---|---|---|
-| F8.1.S1 | planned | Media pipeline and async publish (see docs/issues 15-19) |  | 209 (W16) |
-| F8.2.S1 | planned | X |  | 215 (W16) |
-| F8.2.S2 | planned | Instagram |  | 211 (W16) |
-| F8.2.S3 | planned | TikTok (consent UI designed before the audit) |  | 214 (W16) |
-| F8.2.S4 | planned | YouTube: OAuth, resumable upload, audience and synthetic-media fields, quota (docs/issues 33) |  | 213 (W16) |
-| F8.2.S5 | planned | Facebook Pages: Reels through the Meta app shared with Instagram (docs/issues 34) |  | 212 (W16) |
-| F8.3.S1 | planned | Batch review queue: reviews API, inkcast_submit_for_review, per-post consent, web and mobile screens (docs/issues 35) |  | 216 (W16) |
-| F8.3.S2 | planned | Engagement inbox (later): read, draft, approve, send through official APIs (docs/issues 36) |  | 218 (W16) |
+| F8.1.S1 | planned | Media pipeline and async publish (see docs/issues 15-19) |  | 215 (W16) |
+| F8.2.S1 | planned | X |  | 224 (W16) |
+| F8.2.S2 | planned | Instagram |  | 218 (W16) |
+| F8.2.S3 | planned | TikTok (consent UI designed before the audit) |  | 221 (W16) |
+| F8.2.S4 | planned | YouTube: OAuth, resumable upload, audience and synthetic-media fields, quota (docs/issues 33) |  | 220 (W16) |
+| F8.2.S5 | planned | Facebook Pages: Reels through the Meta app shared with Instagram (docs/issues 34) |  | 219 (W16) |
+| F8.3.S1 | planned | Batch review queue: reviews API, inkcast_submit_for_review, per-post consent, web and mobile screens (docs/issues 35) |  | 225 (W16) |
+| F8.3.S2 | planned | Engagement inbox (later): read, draft, approve, send through official APIs (docs/issues 36) |  | 227 (W16) |
 
 ### E9: Identity on Keycloak (9 of 27 done)
 
@@ -694,50 +710,50 @@ Outside the product. Worked only when the owner asks.
 | F9.1.S2 | done | kind CI: Keycloak with the realm; end-to-end sign-in against it in single and split mode |  |  |
 | F9.1.S3 | in-progress | Kustomize component for Keycloak (dev) and docs for a production Keycloak on Postgres |  | 7 (W1) |
 | F9.2.S1 | done | Registration, email verification, terms; default role inkcast-user |  |  |
-| F9.2.S2 | planned | First login creates the Inkcast user and their personal organization (owner tuple; emits org.created) |  | 84 (W8) |
-| F9.2.S3 | planned | Realm email in each environment: Keycloak sends verify-email and reset-password mail through the environment's SMTP relay, settings as code, the password from a Secret |  | 23 (W3) |
-| F9.3.S1 | planned | Google, GitHub, Microsoft identity providers (secrets from Kubernetes Secrets) |  | 124 (W11) |
-| F9.3.S2 | planned | First-broker-login flow links by verified email; manual verification runbook |  | 125 (W11) |
-| F9.4.S1 | planned | inkcast-admin requires OTP or WebAuthn; admin client enforces it |  | 123 (W11) |
-| F9.5.S1 | planned | IdentitySync consumes Keycloak user and Organization events (membership, admins) and writes tuples (ADR-0008) |  | 98 (W8) |
+| F9.2.S2 | planned | First login creates the Inkcast user and their personal organization (owner tuple; emits org.created) |  | 85 (W8) |
+| F9.2.S3 | planned | Realm email in each environment: Keycloak sends verify-email and reset-password mail through the environment's SMTP relay, settings as code, the password from a Secret |  | 30 (W3) |
+| F9.3.S1 | planned | Google, GitHub, Microsoft identity providers (secrets from Kubernetes Secrets) |  | 128 (W11) |
+| F9.3.S2 | planned | First-broker-login flow links by verified email; manual verification runbook |  | 129 (W11) |
+| F9.4.S1 | planned | inkcast-admin requires OTP or WebAuthn; admin client enforces it |  | 201 (W15) |
+| F9.5.S1 | planned | IdentitySync consumes Keycloak user and Organization events (membership, admins) and writes tuples (ADR-0008) |  | 100 (W8) |
 | F9.5.S2 | done | Disabled or deleted user: revoke OAuth tokens and PATs, delete tuples, refuse sign-in (tested with real Keycloak) |  |  |
-| F9.5.S3 | planned | Scheduled reconcile of Keycloak membership against OpenFGA; a missed event still removes access; drift alert |  | 99 (W8) |
+| F9.5.S3 | planned | Scheduled reconcile of Keycloak membership against OpenFGA; a missed event still removes access; drift alert |  | 101 (W8) |
 | F9.5.S4 | done | Delete my account: Inkcast leads, Keycloak deletes the account (kc_action=delete_account), Inkcast erases the data | [#41](https://github.com/inkcasthq/inkcast/issues/41) |  |
-| F9.5.S5 | planned | The user sync proven in split mode on kind (IdentityService's own Deployment carries the sync settings) | [#42](https://github.com/inkcasthq/inkcast/issues/42) | 100 (W8) |
+| F9.5.S5 | planned | The user sync proven in split mode on kind (IdentityService's own Deployment carries the sync settings) | [#42](https://github.com/inkcasthq/inkcast/issues/42) | 102 (W8) |
 | F9.5.S6 | done | A person gone from Keycloak with no DELETE_ACCOUNT event (an administrator's deletion, a trimmed event) is erased after INKCAST_KEYCLOAK_ERASE_AFTER_DAYS |  |  |
 | F9.5.S7 | done | A mass "user not found" from Keycloak waits for an operator: a circuit breaker on the reconcile, parameterised |  |  |
 | F9.5.S8 | done | The breaker holds a mass "disabled" too: sign-in is cut at once, personal access tokens are held, not revoked |  |  |
-| F9.5.S9 | planned | The account-cleanup job: a cut-off person is told, reminded and erased INKCAST_KEYCLOAK_ERASE_AFTER_DAYS after the notice (replaces F9.5.S6's rule) | [#330](https://github.com/inkcasthq/inkcast/issues/330) | 30 (W4) |
-| F9.5.S10 | planned | Remove the Keycloak user at erasure: a separate cleanup client; local users always, federated users only once out of the directory group | [#331](https://github.com/inkcasthq/inkcast/issues/331) | 31 (W4) |
-| F9.5.S11 | planned | A cut-off person's scheduled posts are paused; nothing paused goes out on their return without them | [#332](https://github.com/inkcasthq/inkcast/issues/332) | 32 (W4) |
-| F9.6.S1 | planned | Keycloak Organizations for enterprise SSO: domain to customer IdP; Organization id = organization:<id> in OpenFGA |  | 126 (W11) |
-| F9.7.S1 | planned | Runbook: realm upgrades, signing-key rotation, backup and restore |  | 127 (W11) |
+| F9.5.S9 | planned | The account-cleanup job: a cut-off person is told, reminded and erased INKCAST_KEYCLOAK_ERASE_AFTER_DAYS after the notice (replaces F9.5.S6's rule) | [#330](https://github.com/inkcasthq/inkcast/issues/330) | 34 (W4) |
+| F9.5.S10 | planned | Remove the Keycloak user at erasure: a separate cleanup client; local users always, federated users only once out of the directory group | [#331](https://github.com/inkcasthq/inkcast/issues/331) | 47 (W5) |
+| F9.5.S11 | planned | A cut-off person's scheduled posts are paused; nothing paused goes out on their return without them | [#332](https://github.com/inkcasthq/inkcast/issues/332) | 35 (W4) |
+| F9.6.S1 | planned | Keycloak Organizations for enterprise SSO: domain to customer IdP; Organization id = organization:<id> in OpenFGA |  | 130 (W11) |
+| F9.7.S1 | planned | Runbook: realm upgrades, signing-key rotation, backup and restore |  | 131 (W11) |
 | F9.7.S2 | done | Keycloak event retention in the realm: eventsExpiration and adminEventsExpiration (7 days) | [#43](https://github.com/inkcasthq/inkcast/issues/43) |  |
-| F9.8.S1 | planned | LDAP user federation in the inkcast-staging and inkcast-prod realms, as code (read-only, LDAPS, bind password from a Secret) | [#318](https://github.com/inkcasthq/inkcast/issues/318) | 41 (W5) |
-| F9.8.S2 | planned | Only members of the environment's LDAP group sign in to Inkcast: the group grants the realm role inkcast-user | [#319](https://github.com/inkcasthq/inkcast/issues/319) | 42 (W5) |
-| F9.8.S3 | planned | Leaving the group, deletion in LDAP and an LDAP outage: what the user sync does to a federated person | [#320](https://github.com/inkcasthq/inkcast/issues/320) | 43 (W5) |
-| F9.8.S4 | planned | An LDAP person signs in to Inkcast staging and production end to end (browser, MCP client, personal access token) | [#321](https://github.com/inkcasthq/inkcast/issues/321) | 44 (W5) |
+| F9.8.S1 | planned | LDAP user federation in the inkcast-staging and inkcast-prod realms, as code (read-only, LDAPS, bind password from a Secret) | [#318](https://github.com/inkcasthq/inkcast/issues/318) | 44 (W5) |
+| F9.8.S2 | planned | Only members of the environment's LDAP group sign in to Inkcast: the group grants the realm role inkcast-user | [#319](https://github.com/inkcasthq/inkcast/issues/319) | 45 (W5) |
+| F9.8.S3 | planned | Leaving the group, deletion in LDAP and an LDAP outage: what the user sync does to a federated person | [#320](https://github.com/inkcasthq/inkcast/issues/320) | 46 (W5) |
+| F9.8.S4 | planned | An LDAP person signs in to Inkcast staging and production end to end (browser, MCP client, personal access token) | [#321](https://github.com/inkcasthq/inkcast/issues/321) | 48 (W5) |
 
 ### E10: Tiers, subscriptions and entitlements strategy (spike) (0 of 18 done)
 
 | Story | Status | Title | Issue | Order |
 |---|---|---|---|---|
-| F10.1.S1 | planned | Market and unit-economics refresh (competitors, provider fees, X cost, infra per org) |  | 145 (W13) |
-| F10.1.S2 | planned | Price validation: 10 interviews (writers, DevRel teams, agencies), Van Westendorp survey, fake-door pricing page |  | 146 (W13) |
-| F10.1.S3 | planned | Entitlement matrix and plans.yaml draft with the feature registry |  | 147 (W13) |
-| F10.2.S1 | planned | Merchant of record path: Paddle sandbox (checkout, webhook, seat change, cancel); Lemon Squeezy desk check |  | 148 (W13) |
-| F10.2.S2 | planned | Stripe Billing + Stripe Tax path (test mode) and the tax-registration burden estimate |  | 149 (W13) |
-| F10.2.S3 | planned | Self-hosted Lago path (compose, Stripe as payment processor) and an ops cost estimate |  | 150 (W13) |
-| F10.2.S4 | planned | Scoring against the weighted criteria; provider ADR |  | 151 (W13) |
-| F10.3.S1 | planned | Atomic reserve/release counters on SQLite and Postgres (50 concurrent reservations never exceed the limit) |  | 152 (W13) |
-| F10.3.S2 | planned | Ed25519 JWS licence: offline sign, verify, kid rotation, expiry and grace |  | 153 (W13) |
-| F10.3.S3 | planned | Fail-safe classes and the 402 problem contract (web, MCP, CLI renderings) |  | 154 (W13) |
-| F10.4.S1 | planned | Keycloak Organizations scale probe (10k and 100k orgs) to confirm a personal organization per sign-up |  | 82 (W8) |
-| F10.4.S2 | planned | Seats from billable relations: seat ledger vs OpenFGA Read/ListUsers reconcile |  | 155 (W13) |
-| F10.4.S3 | planned | Agency walkthrough: one-tuple grant, client slot per client org, client reviewer, managed-org billing, white-label scope |  | 156 (W13) |
-| F10.5.S1 | planned | Remaining mockups: checkout handoff, downgrade, roles editor, agency switcher, client review, admin override, licence |  | 157 (W13) |
-| F10.5.S2 | planned | Remaining diagrams to the /visual standard (light only): data ownership, ERD, effective power, over-limit states, entitlement resolution, licence lifecycle, outbox/inbox, tier ladder, roadmap |  | 158 (W13) |
-| F10.5.S3 | planned | Owner decisions on the six open questions (design.md section 8.3) |  | 159 (W13) |
-| F10.5.S4 | planned | Refine E5 stories with the spike results; file cross-epic asks |  | 160 (W13) |
-| F10.5.S5 | planned | Licence and terms-of-service mapping questions for counsel (issue 32) |  | 161 (W13) |
+| F10.1.S1 | planned | Market and unit-economics refresh (competitors, provider fees, X cost, infra per org) |  | 149 (W13) |
+| F10.1.S2 | planned | Price validation: 10 interviews (writers, DevRel teams, agencies), Van Westendorp survey, fake-door pricing page |  | 150 (W13) |
+| F10.1.S3 | planned | Entitlement matrix and plans.yaml draft with the feature registry |  | 151 (W13) |
+| F10.2.S1 | planned | Merchant of record path: Paddle sandbox (checkout, webhook, seat change, cancel); Lemon Squeezy desk check |  | 152 (W13) |
+| F10.2.S2 | planned | Stripe Billing + Stripe Tax path (test mode) and the tax-registration burden estimate |  | 153 (W13) |
+| F10.2.S3 | planned | Self-hosted Lago path (compose, Stripe as payment processor) and an ops cost estimate |  | 154 (W13) |
+| F10.2.S4 | planned | Scoring against the weighted criteria; provider ADR |  | 155 (W13) |
+| F10.3.S1 | planned | Atomic reserve/release counters on SQLite and Postgres (50 concurrent reservations never exceed the limit) |  | 156 (W13) |
+| F10.3.S2 | planned | Ed25519 JWS licence: offline sign, verify, kid rotation, expiry and grace |  | 157 (W13) |
+| F10.3.S3 | planned | Fail-safe classes and the 402 problem contract (web, MCP, CLI renderings) |  | 158 (W13) |
+| F10.4.S1 | planned | Keycloak Organizations scale probe (10k and 100k orgs) to confirm a personal organization per sign-up |  | 83 (W8) |
+| F10.4.S2 | planned | Seats from billable relations: seat ledger vs OpenFGA Read/ListUsers reconcile |  | 159 (W13) |
+| F10.4.S3 | planned | Agency walkthrough: one-tuple grant, client slot per client org, client reviewer, managed-org billing, white-label scope |  | 160 (W13) |
+| F10.5.S1 | planned | Remaining mockups: checkout handoff, downgrade, roles editor, agency switcher, client review, admin override, licence |  | 161 (W13) |
+| F10.5.S2 | planned | Remaining diagrams to the /visual standard (light only): data ownership, ERD, effective power, over-limit states, entitlement resolution, licence lifecycle, outbox/inbox, tier ladder, roadmap |  | 162 (W13) |
+| F10.5.S3 | planned | Owner decisions on the six open questions (design.md section 8.3) |  | 163 (W13) |
+| F10.5.S4 | planned | Refine E5 stories with the spike results; file cross-epic asks |  | 164 (W13) |
+| F10.5.S5 | planned | Licence and terms-of-service mapping questions for counsel (issue 32) |  | 165 (W13) |
 

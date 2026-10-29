@@ -38,8 +38,15 @@ def load_epics(folder: pathlib.Path = BACKLOG) -> list[dict]:
 
 
 def index(epics: list[dict]) -> dict[str, tuple[dict, dict, dict]]:
-    """Story id -> (epic, feature, story)."""
-    return {s["id"]: (e, f, s) for e in epics for f in e["features"] for s in f["stories"]}
+    """Story id -> (epic, feature, story). A story id written twice is an error: a dict would keep one silently."""
+    stories: dict[str, tuple[dict, dict, dict]] = {}
+    for e in epics:
+        for f in e["features"]:
+            for s in f["stories"]:
+                if s["id"] in stories:
+                    raise ValueError(f"{s['id']} is in docs/backlog twice ({stories[s['id']][0]['id']} and {e['id']})")
+                stories[s["id"]] = (e, f, s)
+    return stories
 
 
 def validate(stories: dict[str, tuple[dict, dict, dict]], order: dict) -> list[str]:
@@ -49,19 +56,29 @@ def validate(stories: dict[str, tuple[dict, dict, dict]], order: dict) -> list[s
         if story.get("status") not in STATUSES:
             problems.append(f"{sid}: status {story.get('status')!r} is not one of {', '.join(STATUSES)}")
     seen: dict[str, str] = {}
-    wave_ids = [w["id"] for w in order["waves"]]
+    wave_ids = [w.get("id") for w in order["waves"]]
     if len(set(wave_ids)) != len(wave_ids):
         problems.append(f"wave ids repeat: {wave_ids}")
-    titled = {int(n) for n in order.get("issues", {})}
-    places = [(w["id"], item) for w in order["waves"] for item in w["items"]]
-    places += [("tooling", item) for item in order.get("tooling", [])]
+    for w in order["waves"]:
+        missing = [key for key in ("id", "title", "why") if not w.get(key)]
+        if missing:
+            problems.append(f"wave {w.get('id')!r} has no {', '.join(missing)}")
+    titled = {int(n) for n in order.get("issues") or {}}
+    places = [(w.get("id"), item) for w in order["waves"] for item in w.get("items") or []]
+    places += [("tooling", item) for item in order.get("tooling") or []]
     for where, item in places:
+        if not isinstance(item, str):
+            # `- #342` without quotes is a YAML comment, so the item reads as None
+            problems.append(f"{item!r} ({where}) is neither a story id nor '#N' (quote '#N' in YAML)")
+            continue
         if item in seen:
             problems.append(f"{item} is placed twice ({seen[item]} and {where})")
         seen[item] = where
         if ISSUE_REF.fullmatch(item):
             if int(item[1:]) not in titled:
                 problems.append(f"{item} ({where}) has no title under 'issues:'")
+        elif where == "tooling":
+            problems.append(f"{item!r} (tooling) is not '#N': tooling holds open issues only")
         elif not STORY_ID.fullmatch(item):
             problems.append(f"{item!r} ({where}) is neither a story id nor '#N'")
         elif item not in stories:
@@ -86,13 +103,13 @@ def _count(stories: list[dict]) -> dict[str, int]:
 
 def render(epics: list[dict], order: dict) -> str:
     stories = index(epics)
-    titles = {int(n): t for n, t in order.get("issues", {}).items()}
+    titles = {int(n): t for n, t in (order.get("issues") or {}).items()}
     position: dict[str, str] = {}
     rows_by_wave = []
     n = 0
     for wave in order["waves"]:
         rows = []
-        for item in wave["items"]:
+        for item in wave.get("items") or []:      # a wave may be empty while its issues are closed
             n += 1
             position[item] = f"{n} ({wave['id']})"
             if ISSUE_REF.fullmatch(item):
@@ -132,8 +149,9 @@ def render(epics: list[dict], order: dict) -> str:
             "Work the waves from top to bottom, and the items in each wave in the order listed. An item is a story, "
             "or an open issue that is not a story.", ""]
     for wave, rows in rows_by_wave:
-        done = sum(1 for i in wave["items"] if i in stories and stories[i][2]["status"] == "done")
-        out += [f"### {wave['id']}: {_cell(wave['title'])} ({done} of {len(wave['items'])} stories done)", "",
+        in_wave = [i for i in wave.get("items") or [] if i in stories]      # the open issues are not stories
+        done = sum(1 for i in in_wave if stories[i][2]["status"] == "done")
+        out += [f"### {wave['id']}: {_cell(wave['title'])} ({done} of {len(in_wave)} stories done)", "",
                 _cell(wave["why"]), "",
                 "| # | Item | Status | Title | Epic | Issue |", "|---:|---|---|---|---|---|", *rows, ""]
     if order.get("tooling"):
@@ -161,10 +179,16 @@ def drift(repo: str, stories: dict[str, tuple[dict, dict, dict]], order: dict) -
     issues = {i["number"]: i for i in json.loads(listed)}
     problems = []
     filed: dict[str, int] = {}
-    for number, issue in issues.items():
+    for number, issue in sorted(issues.items()):
         m = re.match(r"\[(F\d+\.\d+\.S\d+)\]", issue["title"])
-        if m:
+        if m and m.group(1) in filed:
+            problems.append(f"issues #{filed[m.group(1)]} and #{number} are both titled [{m.group(1)}]")
+        elif m:
             filed[m.group(1)] = number
+    titles = {int(n): t for n, t in (order.get("issues") or {}).items()}
+    for number, title in sorted(titles.items()):
+        if number in issues and issues[number]["title"] != title:
+            problems.append(f"#{number}: order.yaml's title {title!r} is not GitHub's {issues[number]['title']!r}")
     for sid, (_, _, story) in stories.items():
         number = story.get("issue")
         if sid in filed and number != filed[sid]:
@@ -179,13 +203,15 @@ def drift(repo: str, stories: dict[str, tuple[dict, dict, dict]], order: dict) -
     for sid, number in sorted(filed.items()):
         if sid not in stories:
             problems.append(f"issue #{number} is titled [{sid}], which is not in docs/backlog/E*.yaml")
-    placed = {int(i[1:]) for w in order["waves"] for i in w["items"] if ISSUE_REF.fullmatch(i)}
-    placed |= {int(i[1:]) for i in order.get("tooling", [])}
+    placed = {int(i[1:]) for w in order["waves"] for i in w.get("items") or [] if ISSUE_REF.fullmatch(i)}
+    placed |= {int(i[1:]) for i in order.get("tooling") or []}
     for number in sorted(placed):
         issue = issues.get(number)
-        if issue is None or issue["state"] != "OPEN":
-            problems.append(f"#{number} is in docs/backlog/order.yaml but is {issue and issue['state'].lower()}")
-    story_issues = set(filed.values())
+        if issue is None:
+            problems.append(f"#{number} is in docs/backlog/order.yaml but does not exist")
+        elif issue["state"] != "OPEN":
+            problems.append(f"#{number} is in docs/backlog/order.yaml but is {issue['state'].lower()}")
+    story_issues = set(filed.values()) | {s["issue"] for _, _, s in stories.values() if s.get("issue")}
     for number, issue in sorted(issues.items()):
         if issue["state"] == "OPEN" and number not in placed and number not in story_issues:
             problems.append(f"#{number} is open but has no place in docs/backlog/order.yaml: {issue['title']}")
@@ -198,7 +224,11 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--drift", metavar="REPO")
     args = parser.parse_args(argv)
     epics, order = load_epics(), yaml.safe_load(ORDER.read_text())
-    stories = index(epics)
+    try:
+        stories = index(epics)
+    except ValueError as exc:
+        print(f"The backlog or its order is invalid:\n  {exc}", file=sys.stderr)
+        return 1
     problems = validate(stories, order)
     if problems:
         print("The backlog or its order is invalid:\n  " + "\n  ".join(problems), file=sys.stderr)

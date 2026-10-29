@@ -62,6 +62,10 @@ features:
     - 'The client secret is a placeholder fed from a new key web-client-secret of Secret keycloak/inkcast-<side>-realm,
       paired by env-secrets with the WebApp''s own copy, like the identity and sync clients; it is never in Git or a log'
     - 'The session cookie is HttpOnly, Secure and SameSite=Lax; the browser never holds a bearer token (ADR-0004)'
+    - 'How the BFF calls /api/v1 as the person is decided and recorded in ADR-0004 before code: the API accepts only
+      Inkcast OAuth access tokens and personal access tokens (libs/http/rest.py, Authed), so either inkcast-web is an
+      OAuth client of Inkcast''s own authorization server, or the API learns to accept the inkcast-web client''s Keycloak
+      tokens; the token stays in the BFF''s server-side session'
   - id: F4.2.S2
     title: Generated API client
     status: planned
@@ -191,13 +195,17 @@ features:
     status: done
     change: new
   - id: F4.9.S2
-    title: 'Build: reviewers approve (can_approve); approval status in the DB; plan-gated depth (E5)'
+    title: 'Build: reviewers approve (can_approve); approval status in the DB'
     status: planned
-    change: new
+    change: 'new; refined 2026-10-28 (review): the plan-gated depth is F4.9.S4, after E5''s enforcement'
   - id: F4.9.S3
     title: post.approval_requested / post.approved events; approval_cycle_seconds and member_approval_latency KPIs built
     status: planned
     change: new
+  - id: F4.9.S4
+    title: 'Approval depth gated by plan: the entitlement checked at the edge of the approval use case (E5.F5.3.S4)'
+    status: planned
+    change: 'new 2026-10-28 (review): split from F4.9.S2, which W10 builds before E5'
 - id: F4.10
   title: Insights pages (customer and team KPIs)
   stories:

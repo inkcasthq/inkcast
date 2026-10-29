@@ -51,10 +51,16 @@ features:
     title: 'Realm email in each environment: Keycloak sends verify-email and reset-password mail through the environment''s
       SMTP relay, settings as code, the password from a Secret'
     status: planned
-    change: 'new 2026-10-28 (owner ask; F9.2.S1 left the realm''s SMTP settings as placeholders)'
+    change: 'new 2026-10-28 (owner ask); the lab''s generated imports already send to Mailpit without auth
+      (scripts/gen-realm-imports.py, #305), so what is left is a relay with TLS and a password'
     acceptance:
-    - The generated realm imports set smtpServer per environment (host, port, from, TLS, auth); the password reaches the
-      realm from a Secret the way the generated client secrets do, never from Git
+    - 'The generated realm imports set smtpServer per environment (host, port, from, TLS, auth) from the environment''s
+      settings; the password is never in Git: it is supplied (the relay issues it; env-secrets does not generate it) in a
+      Secret in the keycloak namespace, fed as a spec.placeholders entry that gen-realm-imports.py allows for
+      smtpServer.password only, or as a Keycloak vault reference'
+    - 'A KeycloakRealmImport only creates a realm (--override=false), so an existing realm gets its smtpServer, and any
+      new password, through the admin API (PUT /admin/realms/<realm>) by a step the runbook names; proven on the
+      existing inkcast-staging realm'
     - 'Proven on OpenShift Local staging with Mailpit: a newcomer gets the verify link, and a reset-password mail arrives'
     - Production sends from the domain that F7.4.S10 authenticates
 - id: F9.3

@@ -73,3 +73,24 @@ features:
   - id: F2.6.S2
     title: Rename unknown to unconfirmed
     status: done
+- id: F2.7
+  title: Blog platforms (product-spec Phase 1)
+  stories:
+  - id: F2.7.S1
+    title: 'Hashnode plug-in: GraphQL API with a personal access token, publications as destinations'
+    status: planned
+    change: 'new 2026-10-28 (review: Phase 1 names it; parked as docs/issues/01-platform-hashnode.md)'
+    acceptance:
+    - A fake GraphQL API and tests; the dry run shows the tag mapping; the docs table updated
+  - id: F2.7.S2
+    title: 'WordPress plug-in: the REST API with an application password; markdown to HTML; tags and categories by name'
+    status: planned
+    change: 'new 2026-10-28 (review: Phase 1 names it; parked as docs/issues/02-platform-wordpress.md)'
+    acceptance:
+    - A fake WordPress API and tests; a missing tag is created; the docs table updated
+  - id: F2.7.S3
+    title: 'Ghost plug-in: the Admin API with an Admin API key (a short-lived HS256 JWT per request)'
+    status: planned
+    change: 'new 2026-10-28 (review: Phase 1 names it; parked as docs/issues/03-platform-ghost.md)'
+    acceptance:
+    - A fake Ghost API and tests; the JWT signing unit-tested; a newsletter send only by an explicit opt-in field

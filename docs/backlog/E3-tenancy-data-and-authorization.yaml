@@ -206,6 +206,19 @@ features:
     status: planned
     change: 'new 2026-10-28; the organization half of F3.3.S5 (issue #65 built the user half); needs E3''s organizations
       (F3.2.S1)'
+- id: F3.11
+  title: Envelope encryption of stored credentials
+  stories:
+  - id: F3.11.S1
+    title: 'KeyProvider (local, Vault Transit, AWS KMS, GCP KMS); per-workspace data keys stored wrapped; inkcast rotate-keys
+      re-wraps without downtime'
+    status: planned
+    change: 'new 2026-10-28 (review: product-spec Phase 1; parked as docs/issues/09-security-envelope-encryption.md; the
+      social OAuth token store needs it, docs/design/social-platforms-epic.md issue 16)'
+    acceptance:
+    - 'Platform credentials and notification webhook URLs are encrypted under a data key per workspace, wrapped by the
+      KeyProvider; today one Fernet key derived from INKCAST_SECRET_KEY encrypts them (docs/architecture.md)'
+    - A key rotation is tested, and a copy of the database alone yields no usable secret
 - id: F3.4
   title: Bring your own platform app credentials per workspace
   stories:

@@ -20,9 +20,10 @@ waves:
   - F1.8.S5
   - F1.8.S6
 - id: W2
-  title: Publishing and Git sync safety
+  title: Publishing and Git sync safety, then the Phase 1 blog platforms
   why: These follow-ups guard against double-sends and lost posts, the failures a writer notices first (handover, suggested
-    order 1).
+    order 1). Then Hashnode, WordPress and Ghost (product-spec Phase 1); Medium issues no new tokens, so a new writer can
+    connect only DEV today.
   items:
   - '#214'
   - '#130'
@@ -34,16 +35,21 @@ waves:
   - '#219'
   - '#141'
   - '#159'
+  - F2.7.S1
+  - F2.7.S2
+  - F2.7.S3
 - id: W3
   title: Email and the notifier
-  why: ADR-0018's notices, the export link and Keycloak's own verify and reset mail all need outbound email. The seam and
-    the preferences come before any second channel.
+  why: ADR-0018's notices, the export link and Keycloak's own verify and reset mail all need outbound email. The seam,
+    the dispatcher and the preferences come before any second channel; the suppression list (F7.4.S5) before the relay
+    that feeds it (F7.4.S10), and the authenticated domain before Keycloak's production mail (F9.2.S3).
   items:
   - F7.4.S4
-  - F9.2.S3
-  - F7.4.S10
   - F7.4.S2
+  - F7.4.S13
   - F7.4.S5
+  - F7.4.S10
+  - F9.2.S3
 - id: W4
   title: Account lifecycle (ADR-0018)
   why: Export, notice, legal hold and erasure of a cut-off person. Depends on W3's email. The erasure follow-ups close the
@@ -53,7 +59,6 @@ waves:
   - F3.3.S8
   - F3.3.S9
   - F9.5.S9
-  - F9.5.S10
   - F9.5.S11
   - F3.3.S10
   - '#212'
@@ -65,11 +70,13 @@ waves:
   - '#139'
 - id: W5
   title: Directory federation (LDAP)
-  why: F9.8.S3 decides what the user sync does to a federated person who leaves the group, which is W4's cleanup job.
+  why: F9.8.S3 measures what the user sync and W4's cleanup job do to a federated person who leaves the group. F9.5.S10
+    removes a Keycloak copy only after those measurements (ADR-0018 section 9 and its build table).
   items:
   - F9.8.S1
   - F9.8.S2
   - F9.8.S3
+  - F9.5.S10
   - F9.8.S4
 - id: W6
   title: The writer web app
@@ -85,7 +92,6 @@ waves:
   - F4.2.S2
   - F4.2.S3
   - F7.2.S1
-  - F7.2.S2
   - F7.2.S3
   - F7.2.S4
   - F4.4.S2
@@ -95,8 +101,6 @@ waves:
   - F4.7.S2
   - F4.7.S3
   - F4.7.S4
-  - F4.10.S1
-  - F4.10.S2
   - F7.4.S11
 - id: W7
   title: PostgreSQL
@@ -130,6 +134,7 @@ waves:
   - F3.2.S3
   - F3.2.S4
   - F3.2.S5
+  - F3.11.S1
   - F3.5.S3
   - F3.7.S1
   - F3.7.S2
@@ -164,20 +169,23 @@ waves:
   - F7.4.S7
   - F7.4.S8
   - F7.4.S9
+  - F7.4.S12
   - F7.5.S1
 - id: W10
-  title: Onboarding, members and approvals
-  why: Screens that need W8's organizations, workspaces and member API.
+  title: Onboarding, approvals and insights
+  why: Screens that need W8's organizations, workspaces and member API, and the rollups at workspace scope (F3.3.S6). The
+    members screen waits for the seat ledger (W14).
   items:
   - F4.3.S2
   - F4.9.S2
   - F4.9.S3
+  - F4.10.S1
+  - F4.10.S2
   - F4.10.S3
 - id: W11
   title: Identity extras
-  why: Social login, operator MFA and enterprise SSO, on top of W8's organizations.
+  why: Social login and enterprise SSO, on top of W8's organizations.
   items:
-  - F9.4.S1
   - F9.3.S1
   - F9.3.S2
   - F9.6.S1
@@ -239,11 +247,13 @@ waves:
   - F5.3.S2
   - F5.3.S3
   - F5.3.S4
+  - F4.9.S4
   - F5.3.S5
   - F3.2.S6
   - F5.4.S1
   - F5.4.S2
   - F5.4.S3
+  - F7.1.S7
   - F5.5.S1
   - F5.5.S2
   - F5.5.S3
@@ -260,13 +270,13 @@ waves:
   - F5.7.S3
   - F5.7.S4
   - F5.7.S5
-  - F5.3.S6
   - F5.1.S4
 - id: W15
   title: Admin portal (E6)
   why: The operator's views over W8's tenants and W14's subscriptions.
   items:
   - F6.1.S1
+  - F9.4.S1
   - F6.1.S2
   - F6.2.S1
   - F6.2.S2
@@ -286,11 +296,14 @@ waves:
     their queues set the timeline.
   items:
   - F8.1.S1
+  - F7.2.S2
   - F7.6.S2
   - F8.2.S2
   - F8.2.S5
   - F8.2.S4
   - F8.2.S3
+  - F3.4.S1
+  - F5.3.S6
   - F8.2.S1
   - F8.3.S1
   - F4.10.S4
@@ -310,7 +323,6 @@ waves:
   - F5.9.S2
   - F5.9.S3
   - F5.9.S4
-  - F3.4.S1
   - F3.1.S7
   - F7.6.S3
   - F7.10.S1
