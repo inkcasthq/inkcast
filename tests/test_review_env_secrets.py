@@ -73,32 +73,36 @@ class ApiMessagesNeverCarryAValue(EnvSecretsCase):
                         self.assertNotIn(form, out + err)
 
 
-class TheMigrateJobWaitsForEnvSecrets(EnvSecretsCase):
-    """The environments' openfga-migrate Job reads openfga-db-app, which nobody makes before the apply any more: the
+class TheMigrationWaitsForEnvSecrets(EnvSecretsCase):
+    """The environments' schema migration reads openfga-db-app, which nobody makes before the apply any more: the
     init container env-secrets creates it, and only once every read it does succeeds, Keycloak's namespace included
-    (shared/keycloak-access applied, Keycloak installed). A Job's activeDeadlineSeconds counts from the Job's start,
-    with its pod waiting on the missing Secret (CreateContainerConfigError) or not; once it passes, the Job is Failed
-    (DeadlineExceeded) for good, and only a person deleting it and applying again runs the migration: OpenFGA's
-    server stays NOT_SERVING on the old schema. Real failures stay bounded by backoffLimit (restartPolicy OnFailure
-    counts container restarts)."""
+    (shared/keycloak-access applied, Keycloak installed). Until E3.F3.9.S8 (issue #337) the migration was a Job whose
+    activeDeadlineSeconds counted from the Job's start, with its pod waiting on the missing Secret or not; past it the
+    Job was Failed for good and only a person deleting it and applying again ran the migration. Now the migration is
+    the init container `migrate` of the same pod, ordered after env-secrets: the kubelet starts env-secrets first and
+    starts migrate only once it has succeeded, resolving migrate's secretKeyRef at that moment, so the Secret this run
+    wrote is the one the migration connects with. No deadline anywhere: a failed init container is retried by the
+    kubelet until it succeeds."""
 
     def test_openfga_db_app_waits_on_keycloak_s_namespace(self):
         self.kube.forbidden.add(("get", "keycloak", "inkcast-staging-realm"))
         code, _, err = self.run_main()
         self.assertEqual(code, 1)
         self.assertIn("deploy/kustomize/shared/keycloak-access", err)
-        self.assertNotIn(("inkcast-staging", "openfga-db-app"), self.kube.objects, "the migrate Job's input is not made")
+        self.assertNotIn(("inkcast-staging", "openfga-db-app"), self.kube.objects, "the migration's input is not made")
 
     @unittest.skipUnless(shutil.which("kubectl"), "kubectl renders the kustomizations (CI's manifests job has it)")
-    def test_the_migrate_job_has_no_deadline_while_env_secrets_makes_its_secret(self):
+    def test_migrate_runs_after_env_secrets_in_the_same_pod_and_no_job_remains(self):
         for target in ("environments/staging", "environments/production", "overlays/ci-env-secrets"):
             with self.subTest(target=target):
-                job = one(render(target), "Job", "openfga-migrate")
-                (container,) = pod_spec(job)["containers"]
-                uri = {e["name"]: e for e in container["env"]}["OPENFGA_DATASTORE_URI"]
-                self.assertEqual(uri["valueFrom"]["secretKeyRef"]["name"], "openfga-db-app")
-                self.assertNotIn("activeDeadlineSeconds", job["spec"], "a deadline fails the Job for good")
-                self.assertEqual((job["spec"]["backoffLimit"], pod_spec(job)["restartPolicy"]), (10, "OnFailure"))
+                docs = render(target)
+                pod = pod_spec(one(docs, "Deployment", "openfga"))
+                self.assertEqual([c["name"] for c in pod["initContainers"]], ["env-secrets", "migrate"])
+                migrate = pod["initContainers"][1]
+                uri = {e["name"]: e for e in migrate["env"]}["OPENFGA_DATASTORE_URI"]
+                self.assertEqual(uri["valueFrom"]["secretKeyRef"], {"name": "openfga-db-app", "key": "uri"})
+                self.assertNotIn("restartPolicy", migrate, "run to completion before the server, not a sidecar")
+                self.assertFalse([d for d in docs if d["kind"] == "Job"], "no Job: nothing with a deadline, nothing immutable")
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]

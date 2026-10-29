@@ -6,7 +6,8 @@
 #
 # Every pod start runs it, so there is nothing to re-run by hand and nothing immutable to apply over: a release, a
 # rollback or a restart writes what its own image packages. Idempotent: a version equal to the packaged model is not
-# written again. While OpenFGA does not answer (a fresh install: the database, then the migrate Job, then OpenFGA),
+# written again. While OpenFGA does not answer (a fresh install: the database, then OpenFGA's own init container
+# migrate, then its server),
 # it fails and the kubelet starts it again, backing off from 10 s to 300 s. Pods starting together converge on one
 # store (authz_cli._write_model). With INKCAST_FGA_STORE_ID and INKCAST_FGA_MODEL_ID both pinned it does nothing.
 #

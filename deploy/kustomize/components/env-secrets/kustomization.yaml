@@ -14,22 +14,19 @@
 # refused by the next release's apply while it still exists ("field is immutable"), and a Job that failed and was
 # deleted by its TTL is not run again until someone applies again. A Deployment's template is not immutable, and a
 # failing init container is retried by the kubelet, with its backoff, until it succeeds: no window, no stuck state,
-# no manual step. It runs before OpenFGA's own container reads openfga-db-app and inkcast-secrets (the kubelet
-# resolves a container's secretKeyRef when it starts that container), so OpenFGA always starts on the values this run
-# wrote: a pair generated anew is the pair OpenFGA connects with, without a restart. A pod whose run fails never
-# starts OpenFGA: during a rollout the previous pod keeps serving.
+# no manual step. It runs first, before the pod's other init container `migrate` (components/openfga) and OpenFGA's
+# own container read openfga-db-app and inkcast-secrets (the kubelet resolves a container's secretKeyRef when it
+# starts that container), so the migration and OpenFGA always run on the values this run wrote: a pair generated anew
+# is the pair both connect with, without a restart. A pod whose run fails never starts the migration or OpenFGA:
+# during a rollout the previous pod keeps serving.
 apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
 resources:
   - serviceaccount.yaml
   - rbac.yaml
 patches:
+  # openfga.yaml puts env-secrets FIRST in initContainers, before the component's `migrate` (which reads the Secret
+  # env-secrets creates): a JSON patch at index 0, so the order is stated, not left to how a strategic merge happens
+  # to order a list. tests/test_env_secrets_manifests.py keeps it.
   - path: openfga.yaml
-  # The migrate Job reads openfga-db-app, which the init container creates only once all its reads succeed (the
-  # shared Roles applied, Keycloak's namespace there): no deadline, so the Job waits for it however long that takes
-  # instead of failing for good (DeadlineExceeded) and needing a person to delete and apply it. backoffLimit still
-  # bounds a migration that fails.
-  - target: {kind: Job, name: openfga-migrate}
-    patch: |-
-      - op: remove
-        path: /spec/activeDeadlineSeconds
+    target: {kind: Deployment, name: openfga}

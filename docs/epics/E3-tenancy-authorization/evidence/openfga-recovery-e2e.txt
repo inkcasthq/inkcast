@@ -1,0 +1,56 @@
+# scripts/dev/openfga-recovery-e2e.sh all (E3.F3.9.S8, issue #337), recorded 2026-10-29 on kind v0.33.0 (node v1.37.0),
+# CloudNativePG 1.30.1, OpenFGA v1.22.0, the ci-openfga overlay of this commit. The configured outage is 1860 s; the
+# database was away from 09:20:21Z to 09:55:33Z (the sampling loop runs in 300 s steps). Verbatim output follows.
+== race: two pods migrate one fresh database at the same time (2026-10-29T09:16:37Z)
+namespace "inkcast-openfga" deleted
+deployment.apps/openfga scaled
+Waiting for deployment "openfga" rollout to finish: 0 of 2 updated replicas are available...
+Waiting for deployment "openfga" rollout to finish: 1 of 2 updated replicas are available...
+deployment "openfga" successfully rolled out
+-- openfga-6bd7b5db6f-45hpp: started 2026-10-29T09:16:53Z, finished 2026-10-29T09:17:13Z, restarts 0, found revision 0
+{"level":"info","timestamp":1793265433.0554535,"msg":"db info","build.version":"v1.22.0","build.commit":"a38d5d0f65a964b6030e0b1afd2a831f62309159","current version":0}
+{"level":"info","timestamp":1793265433.0555212,"msg":"running all migrations","build.version":"v1.22.0","build.commit":"a38d5d0f65a964b6030e0b1afd2a831f62309159"}
+{"level":"info","timestamp":1793265433.066984,"msg":"migration done","build.version":"v1.22.0","build.commit":"a38d5d0f65a964b6030e0b1afd2a831f62309159"}
+-- openfga-6bd7b5db6f-nwwmc: started 2026-10-29T09:16:53Z, finished 2026-10-29T09:17:13Z, restarts 0, found revision 6
+{"level":"info","timestamp":1793265433.089785,"msg":"db info","build.version":"v1.22.0","build.commit":"a38d5d0f65a964b6030e0b1afd2a831f62309159","current version":6}
+{"level":"info","timestamp":1793265433.089819,"msg":"running all migrations","build.version":"v1.22.0","build.commit":"a38d5d0f65a964b6030e0b1afd2a831f62309159"}
+{"level":"info","timestamp":1793265433.0903318,"msg":"migration done","build.version":"v1.22.0","build.commit":"a38d5d0f65a964b6030e0b1afd2a831f62309159"}
+-- goose_db_version on the primary (version_id, is_applied, tstamp):
+0|t|2026-10-29 09:17:13.052358
+1|t|2026-10-29 09:17:13.057656
+2|t|2026-10-29 09:17:13.062779
+3|t|2026-10-29 09:17:13.06359
+4|t|2026-10-29 09:17:13.064208
+5|t|2026-10-29 09:17:13.064647
+6|t|2026-10-29 09:17:13.066813
+schema revision 6, 6 distinct versions applied, 6 of them applied
+both pods Ready on revision 6; back to one replica
+deployment.apps/openfga scaled
+deployment "openfga" successfully rolled out
+PASS race: two init containers migrated the same fresh database at once and both pods serve on one schema revision
+== outage: the database away 1860 s while a rollout is pending (2026-10-29T09:17:19Z)
+deployment "openfga" successfully rolled out
+-- hibernating the Cluster (the pods removed, the volume kept)
+database pods gone at 2026-10-29T09:20:21Z; PVCs kept: persistentvolumeclaim/openfga-db-1 
+-- a rollout while the database is away: the new pod's init container migrate cannot connect
+2026-10-29T09:25:22Z +301s: openfga-5b546cdb75-m8jc2 Pending, migrate restarts 0, state {"running":{"startedAt":"2026-10-29T09:20:21Z"}}
+2026-10-29T09:30:22Z +601s: openfga-5b546cdb75-m8jc2 Pending, migrate restarts 1, state {"running":{"startedAt":"2026-10-29T09:29:25Z"}}
+2026-10-29T09:35:22Z +901s: openfga-5b546cdb75-m8jc2 Pending, migrate restarts 1, state {"running":{"startedAt":"2026-10-29T09:29:25Z"}}
+2026-10-29T09:40:22Z +1201s: openfga-5b546cdb75-m8jc2 Pending, migrate restarts 2, state {"running":{"startedAt":"2026-10-29T09:39:19Z"}}
+2026-10-29T09:45:22Z +1501s: openfga-5b546cdb75-m8jc2 Pending, migrate restarts 2, state {"running":{"startedAt":"2026-10-29T09:39:19Z"}}
+2026-10-29T09:50:23Z +1802s: openfga-5b546cdb75-m8jc2 Pending, migrate restarts 3, state {"running":{"startedAt":"2026-10-29T09:48:59Z"}}
+2026-10-29T09:55:23Z +2102s: openfga-5b546cdb75-m8jc2 Pending, migrate restarts 3, state {"running":{"startedAt":"2026-10-29T09:48:59Z"}}
+-- deployment after 1860 s without a database:
+Available=False (MinimumReplicasUnavailable) 2026-10-29T09:20:43Z
+Progressing=False (ProgressDeadlineExceeded) 2026-10-29T09:30:22Z
+-- rehydrating the Cluster at 2026-10-29T09:55:23Z; nothing applied, nothing deleted
+database Ready at 2026-10-29T09:55:33Z
+-- openfga-5b546cdb75-m8jc2 Ready at 2026-10-29T09:56:24Z: 51 s after the database came back, migrate restarts 3, found revision 6
+{"level":"info","timestamp":1793267780.4288661,"msg":"db info","build.version":"v1.22.0","build.commit":"a38d5d0f65a964b6030e0b1afd2a831f62309159","current version":6}
+{"level":"info","timestamp":1793267780.4289126,"msg":"running all migrations","build.version":"v1.22.0","build.commit":"a38d5d0f65a964b6030e0b1afd2a831f62309159"}
+{"level":"info","timestamp":1793267780.4301767,"msg":"migration done","build.version":"v1.22.0","build.commit":"a38d5d0f65a964b6030e0b1afd2a831f62309159"}
+Available=True (MinimumReplicasAvailable) 2026-10-29T09:55:43Z
+Progressing=True (NewReplicaSetAvailable) 2026-10-29T09:55:43Z
+PASS outage: after 1860 s without a database the pending pod's init container was retried by the kubelet and the pod became Ready 51 s after the database returned, with no apply and no delete
+PASS: all (2026-10-29T09:56:24Z)
+== exit 0 after 2387 s
