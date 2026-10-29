@@ -80,6 +80,10 @@ features:
     acceptance:
     - No role or permission columns
     - Personal organization created at first login (E9.F9.2.S2)
+    - 'kind is structural (personal, team, client) and changes only through F3.2.S8; the type people see is derived from
+      facts (F3.2.S11)'
+    - 'Data belongs to the organization, not the person: a member who leaves keeps nothing of the organization''s, and
+      the organization keeps their posts'
   - id: F3.2.S2
     title: 'Roles are OpenFGA relations: org owner, admin, member, billing_admin; workspace manager, editor, reviewer, publisher,
       viewer, client_reviewer'
@@ -97,7 +101,15 @@ features:
   - id: F3.2.S4
     title: Invites as rows (token, role, expiry, accepted_at); accepting writes the tuple through the outbox
     status: planned
-    change: refined
+    change: 'refined; refined 2026-10-28 (owner ask: join an existing organization by invitation)'
+    acceptance:
+    - 'An owner or admin invites an email address with a preset role; the link expires (a setting, 7 days by default)
+      and can be revoked; only its hash is stored'
+    - 'Only a signed-in person whose verified email equals the invited address can accept; a person who already has an
+      account gains a second membership, and accounts are never linked or merged by email (ADR-0018 section 8)'
+    - 'Invitations are Inkcast rows, not Keycloak''s organization invitation API: CVE-2026-16072 (Red Hat Bugzilla
+      2501721, reported 2026-07-17, no fixed version named) lets an invite link listed by that API create a member
+      without email verification; the runbook records the pinned Keycloak version''s state'
   - id: F3.2.S5
     title: Ledger and tokens keyed by workspace (migration from user)
     status: planned
@@ -107,6 +119,65 @@ features:
       or agency tuples (E5.F5.3.S5, F5.9)
     status: planned
     change: new
+  - id: F3.2.S7
+    title: 'A person belongs to many organizations: list them, switch the active one, leave one; the last owner cannot
+      leave'
+    status: planned
+    change: 'new 2026-10-28 (owner ask: personal and company organizations, joined both ways)'
+    acceptance:
+    - 'GET /api/v1/me/organizations lists each membership with its role and type; the web session, the CLI and the MCP
+      tools act in one active organization and workspace, named on every call or chosen in the session'
+    - 'Leaving removes the membership tuples through the outbox; the organization keeps the person''s posts; the last
+      owner is refused with a named error until another owner exists'
+  - id: F3.2.S8
+    title: 'Turn a personal organization into a team organization in place: a rename and a kind change, nothing moved'
+    status: planned
+    change: 'new 2026-10-28 (owner ask; Vercel turned personal accounts into free teams in January 2024 so a plan change
+      moves nothing, while GitHub''s user-to-organization conversion cannot be undone and loses sign-in and tokens)'
+    acceptance:
+    - 'Inviting a person into a personal organization offers this conversion first; the owner names the team or company'
+    - 'Ids, workspaces, channels, posts, tokens and the Keycloak Organization stay; only kind and name change, audited'
+    - 'The owner gets a new personal organization at their next sign-in, so they always have one'
+    - 'A team organization with one member can turn back into a personal one, if the owner has no other personal
+      organization'
+  - id: F3.2.S9
+    title: 'Move a workspace between organizations, both ways, by a person who is an owner of both'
+    status: planned
+    change: 'new 2026-10-28 (owner ask: personal to company and back)'
+    acceptance:
+    - 'Channels, posts, schedules, the ledger and the workspace''s tokens move with it; its tuples are rewritten through
+      the outbox in one transaction with the move'
+    - 'Members of the workspace who are not members of the target organization are listed before the move, and lose
+      access after it; scheduled posts keep their times'
+    - 'Audited in both organizations; entitlements of the target are checked once E5 enforces them (F5.3.S4)'
+  - id: F3.2.S10
+    title: 'Verified domains: an organization proves a domain by a DNS TXT record, and people who sign up with it can join
+      by suggestion (default), automatic invitation or manual invitation only'
+    status: planned
+    change: 'new 2026-10-28 (owner ask; the modes Clerk documents; Slack, Linear and Atlassian claim domains the same
+      way). Default mode suggestion until the owner decides otherwise (#360)'
+    acceptance:
+    - 'An owner adds a domain and gets a TXT value; Inkcast resolves it and marks the domain verified; the domain is
+      written to the Keycloak Organization''s domains, which Keycloak keeps unique per realm'
+    - 'Domains of free mail providers (a versioned list in the repository: gmail.com, outlook.com, yahoo.com,
+      icloud.com and others) and a domain verified by another organization are refused'
+    - 'Each domain has one mode and a default role: suggestion (the person asks, an admin approves), automatic
+      invitation (a pending invitation the person accepts) or manual (nothing offered)'
+    - 'The TXT record is checked again daily; after 14 days without it the domain is unverified, its mode stops, and the
+      owners are told; existing members stay'
+    - 'At sign-up, a person whose email is on a verified domain sees that organization''s offer; one on another company
+      domain is asked whether to create an organization for it and verify the domain'
+  - id: F3.2.S11
+    title: 'Organization type and system tags derived from facts: personal, team, company (a verified domain), enterprise
+      (SSO connected), client (agency-managed); people''s own labels kept apart'
+    status: planned
+    change: 'new 2026-10-28 (owner ask: a tag added automatically to classify each organization)'
+    acceptance:
+    - 'The type and the system tags (plan, seat band, SSO on) are computed from stored facts and recomputed on the events
+      that change them; nobody can set them by hand'
+    - 'Owners may add free labels, stored apart and never read by authorization, billing or the type'
+    - 'No outside enrichment service is called (personal data would leave, and air-gapped installs could not reach it)'
+    - 'The type is in GET /api/v1/me/organizations, in the admin portal (E6) and in the signups-by-type KPI (F6.5.S2)'
 - id: F3.3
   title: Isolation and audit
   stories:

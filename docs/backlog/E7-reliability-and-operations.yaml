@@ -122,9 +122,12 @@ features:
       /api/v1/me/notifications, and an MCP tool, read and change them'
     - 'Account and security notices (ADR-0018: the cut-off notice, the export link, the erasure) are transactional: email,
       and no preference turns them off'
-    - 'A hard bounce or a complaint puts the address on a suppression list for every kind of mail; nothing more is sent
-      to it until the person confirms it again or changes it; the account-cleanup job counts a suppressed person as one
-      with no email address (F9.5.S9)'
+    - 'Optional mail (the digest, product news) and required notices (account, security, legal, ADR-0018) are separate
+      classes; a person turns optional mail off here or by one-click unsubscribe, and only closing the account stops
+      required notices (the terms, F9.2.S4)'
+    - 'A hard bounce puts the address on a suppression list for every kind of mail; nothing more is sent to it until the
+      person confirms it again or changes it; the account-cleanup job counts such a person as one with no email address
+      (F9.5.S9). A spam complaint is not an opt-out and does not suppress required notices (F7.4.S14)'
   - id: F7.4.S12
     title: 'Workspace notification preferences: which notification types go to the workspace''s Slack, Teams and Discord
       destinations'
@@ -143,6 +146,27 @@ features:
       the channel and the recipient, so a replay sends nothing twice'
     - 'A retryable error is retried with backoff up to a set number of attempts; a permanent one is recorded and not
       retried; inkcast_notify_sent_total{channel,result} and the consumer''s lag are exported'
+  - id: F7.4.S14
+    title: 'Spam complaints: a complaint turns off optional mail, required notices continue, and the person is told why
+      once, by email and in the app'
+    status: planned
+    change: 'new 2026-10-28 (owner decision: a person opts out like any junk mail, and marking Inkcast as spam instead
+      of opting out does not stop the notices the sign-up agreement requires)'
+    acceptance:
+    - 'Complaint reports from the mailbox providers that send them (Yahoo''s Complaint Feedback Loop and Microsoft''s
+      JMRP, in ARF) are read and matched to the person; Gmail sends no complaint per person, only aggregate rates in
+      Postmaster Tools, and the runbook says so'
+    - 'A complaint turns off every kind of optional mail at once, as a one-click unsubscribe does, recorded with its time
+      and source'
+    - 'Required notices keep going, and carry no promotional content, so they stay transactional (CAN-SPAM exempts only
+      messages whose content is all transactional or relationship content)'
+    - 'After a complaint the person gets one complaint notice, at most once in 90 days: they marked Inkcast mail as spam;
+      required notices continue under the terms they accepted (version and date); how to turn optional mail off; that
+      closing the account stops all mail. The same notice shows in the app at their next sign-in until they acknowledge
+      it, since the email may land in their spam folder'
+    - 'Each required notice and complaint notice is recorded (template, time, the relay''s accepted id) as evidence that it
+      was sent, never with its body or the address in logs'
+    - 'An alert, InkcastEmailComplaintRate, fires before the rate Postmaster Tools reports reaches 0.3%'
   - id: F7.4.S6
     title: 'Slack channel: a workspace connects Slack by OAuth (incoming-webhook scope; the installer picks the Slack
       channel); messages in Block Kit'
@@ -212,7 +236,9 @@ features:
     - 'The runbook says where the spam rate is read (Google Postmaster Tools) and keeps it below 0.3%'
     - The relay per environment is in the Helm values (Mailpit on kind and on OpenShift Local; the production relay by
       name), its credentials from a Secret
-    - Bounce and complaint feedback reaches the suppression list (F7.4.S5)
+    - Bounces reach the suppression list (F7.4.S5) and complaints reach F7.4.S14
+    - 'Required notices and optional mail go from separate sending subdomains, each authenticated, so complaints about
+      the digest do not lower the reputation the required notices depend on'
     - 'Alerts: InkcastNotifyFailing (the ratio of permanent failures) and InkcastNotifyBacklog'
   - id: F7.4.S11
     title: 'In-app notifications: a feed per person that the web app shows (bell, unread count), fed by the same events as

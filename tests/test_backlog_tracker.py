@@ -115,6 +115,20 @@ class ReviewFindingsTest(unittest.TestCase):
         self.assertIn("342 (W1) is neither a story id nor '#N' (quote '#N' in YAML)",
                       self.problems(backlog(), order(342)))
 
+    def test_the_tracking_issue_is_named_on_the_page_and_holds_issues_only(self):
+        plan = {**order(issues={360: "Backlog tracker"}), "tracking": ["#360"]}
+        self.assertEqual(self.problems(backlog(), plan), [])
+        self.assertIn("Tracked in [#360](https://github.com/inkcasthq/inkcast/issues/360): Backlog tracker.",
+                      tracker.render(backlog(), plan))
+        plan["tracking"] = ["F1.1.S1"]
+        self.assertIn("'F1.1.S1' (tracking) is not '#N': tracking holds open issues only",
+                      self.problems(backlog(("F1.1.S1", "planned")), {**plan, "waves": [{**plan["waves"][0], "items": ["F1.1.S1"]}]}))
+
+    def test_drift_counts_the_tracking_issue_as_placed(self):
+        found = self.drift([{"number": 360, "title": "Backlog tracker", "state": "OPEN"}], backlog(),
+                           {**order(issues={360: "Backlog tracker"}), "tracking": ["#360"]})
+        self.assertEqual(found, [])
+
     def test_the_wave_header_counts_stories_only(self):
         plan = order("F1.1.S1", "#7", "#8", issues={7: "a", 8: "b"})
         self.assertIn("### W1: Wave (1 of 1 stories done)", tracker.render(backlog(("F1.1.S1", "done")), plan))

@@ -50,6 +50,8 @@ waves:
   - F7.4.S5
   - F7.4.S10
   - F9.2.S3
+  - F9.2.S4
+  - F7.4.S14
 - id: W4
   title: Account lifecycle (ADR-0018)
   why: Export, notice, legal hold and erasure of a cut-off person. Depends on W3's email. The erasure follow-ups close the
@@ -133,7 +135,12 @@ waves:
   - F3.2.S2
   - F3.2.S3
   - F3.2.S4
+  - F3.2.S7
+  - F3.2.S8
+  - F3.2.S10
+  - F3.2.S11
   - F3.2.S5
+  - F3.2.S9
   - F3.11.S1
   - F3.5.S3
   - F3.7.S1
@@ -176,6 +183,7 @@ waves:
   why: Screens that need W8's organizations, workspaces and member API, and the rollups at workspace scope (F3.3.S6). The
     members screen waits for the seat ledger (W14).
   items:
+  - F4.3.S3
   - F4.3.S2
   - F4.9.S2
   - F4.9.S3
@@ -331,6 +339,9 @@ waves:
   - F1.9.S1
   - F7.6.S5
   - '#59'
+# The issue that tracks the backlog and the review of this order: not work, so it sits outside the waves.
+tracking:
+- '#360'
 # Developer tooling outside the product: worked only when the owner asks.
 tooling:
 - '#227'
@@ -380,3 +391,4 @@ issues:
   324: "Research and design: disabled accounts get export, notice and deletion after N days (cleanup job)"
   342: "Bring a deleted generated Secret back without restarting OpenFGA"
   343: "Measure a realm import applied before its client-secret Secret exists"
+  360: "Backlog tracker: every story in one execution order, reviewed wave by wave"

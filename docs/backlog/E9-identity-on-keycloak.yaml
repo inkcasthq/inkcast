@@ -63,6 +63,21 @@ features:
       existing inkcast-staging realm'
     - 'Proven on OpenShift Local staging with Mailpit: a newcomer gets the verify link, and a reset-password mail arrives'
     - Production sends from the domain that F7.4.S10 authenticates
+  - id: F9.2.S4
+    title: 'The sign-up agreement is Inkcast''s own terms: consent to notices by email, required notices that only closing
+      the account stops, and marking mail as spam is not an opt-out'
+    status: planned
+    change: 'new 2026-10-28 (owner decision on F7.4.S14); today the realm turns on Keycloak''s TERMS_AND_CONDITIONS step
+      with no Inkcast text (no login theme, no localization texts in deploy/keycloak/realm-inkcast.json), and the
+      Inkcast Cloud Terms of Service are a planned template (legal/README.md)'
+    acceptance:
+    - 'The terms step shows the Inkcast Cloud Terms of Service, versioned in the repository; acceptance is recorded with
+      the version and the time'
+    - 'The terms say that the person consents to notices by email at the address on the account and keeps it current;
+      that account, security and legal notices cannot be turned off except by closing the account; that optional mail can
+      be turned off at any time; and that marking Inkcast mail as spam is not an opt-out'
+    - 'A new version of the terms asks each person to accept again at their next sign-in'
+    - Counsel reviews the wording before production (E10.F10.5.S5)
 - id: F9.3
   title: Social login and account linking
   stories:
@@ -303,7 +318,13 @@ features:
   - id: F9.6.S1
     title: 'Keycloak Organizations for enterprise SSO: domain to customer IdP; Organization id = organization:<id> in OpenFGA'
     status: planned
-    change: refined
+    change: 'refined; refined 2026-10-28 (owner ask: company organizations)'
+    acceptance:
+    - 'Only a domain verified in Inkcast (F3.2.S10) redirects to the organization''s identity provider'
+    - 'A company sign-in whose email matches an existing account links to it only after the person proves that account
+      (F9.3.S2); the identity provider never trusts email to link automatically, so it cannot take over a personal
+      account'
+    - 'Connecting SSO gives the organization the enterprise type (F3.2.S11)'
 - id: F9.7
   title: Operations
   stories:

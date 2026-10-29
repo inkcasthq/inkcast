@@ -96,6 +96,17 @@ features:
   - id: F4.3.S2
     title: Build
     status: planned
+  - id: F4.3.S3
+    title: 'Mockup + build: create a personal, team or company organization, join one by invitation or by a domain
+      suggestion, and switch between them; the screens call a workspace a team'
+    status: planned
+    change: 'new 2026-10-28 (owner ask); "team" for workspace in the screens until the owner decides otherwise (#360);
+      the API keeps workspace'
+    acceptance:
+    - 'Create asks the name of the team or company; the type shows as derived (F3.2.S11), never typed'
+    - 'The switcher lists every membership with its type; leaving and the last-owner refusal are shown (F3.2.S7)'
+    - 'Domain verification shows the TXT value and the state of the check (F3.2.S10); the conversion of a personal
+      organization is offered on its first invitation (F3.2.S8)'
 - id: F4.4
   title: Connections
   stories:

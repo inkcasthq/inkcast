@@ -30,6 +30,8 @@ REPO = "inkcasthq/inkcast"
 STATUSES = ("done", "in-progress", "planned")
 STORY_ID = re.compile(r"F\d+\.\d+\.S\d+")
 ISSUE_REF = re.compile(r"#(\d+)")
+# Lists of open issues outside the waves: developer tooling, and the issues that track the backlog itself.
+ISSUE_LISTS = ("tooling", "tracking")
 
 
 def load_epics(folder: pathlib.Path = BACKLOG) -> list[dict]:
@@ -65,7 +67,7 @@ def validate(stories: dict[str, tuple[dict, dict, dict]], order: dict) -> list[s
             problems.append(f"wave {w.get('id')!r} has no {', '.join(missing)}")
     titled = {int(n) for n in order.get("issues") or {}}
     places = [(w.get("id"), item) for w in order["waves"] for item in w.get("items") or []]
-    places += [("tooling", item) for item in order.get("tooling") or []]
+    places += [(key, item) for key in ISSUE_LISTS for item in order.get(key) or []]
     for where, item in places:
         if not isinstance(item, str):
             # `- #342` without quotes is a YAML comment, so the item reads as None
@@ -77,8 +79,8 @@ def validate(stories: dict[str, tuple[dict, dict, dict]], order: dict) -> list[s
         if ISSUE_REF.fullmatch(item):
             if int(item[1:]) not in titled:
                 problems.append(f"{item} ({where}) has no title under 'issues:'")
-        elif where == "tooling":
-            problems.append(f"{item!r} (tooling) is not '#N': tooling holds open issues only")
+        elif where in ISSUE_LISTS:
+            problems.append(f"{item!r} ({where}) is not '#N': {where} holds open issues only")
         elif not STORY_ID.fullmatch(item):
             problems.append(f"{item!r} ({where}) is neither a story id nor '#N'")
         elif item not in stories:
@@ -136,6 +138,8 @@ def render(epics: list[dict], order: dict) -> str:
         f"The backlog holds {len(every)} stories: {total['done']} done, {total['in-progress']} in progress and "
         f"{total['planned']} planned.",
         "",
+        *[f"Tracked in {_issue(int(i[1:]))}: {_cell(titles[int(i[1:])])}." for i in order.get("tracking") or []],
+        *([""] if order.get("tracking") else []),
         "## Progress by epic",
         "",
         "| Epic | Title | Done | In progress | Planned | Total |",
@@ -204,7 +208,7 @@ def drift(repo: str, stories: dict[str, tuple[dict, dict, dict]], order: dict) -
         if sid not in stories:
             problems.append(f"issue #{number} is titled [{sid}], which is not in docs/backlog/E*.yaml")
     placed = {int(i[1:]) for w in order["waves"] for i in w.get("items") or [] if ISSUE_REF.fullmatch(i)}
-    placed |= {int(i[1:]) for i in order.get("tooling") or []}
+    placed |= {int(i[1:]) for key in ISSUE_LISTS for i in order.get(key) or []}
     for number in sorted(placed):
         issue = issues.get(number)
         if issue is None:
