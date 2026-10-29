@@ -63,8 +63,10 @@ features:
     phase: 1
     title: 'SQLite stopgap until F3.1.S5: inkcast backup/restore/backups, the backup component (daily CronJob, own volume,
       deny-all network), InkcastBackupMissing, restore runbook, restore drill in CI on kind'
-    status: in-progress
-    change: new; closes the gap review's P0 (no backups) until PostgreSQL
+    status: done
+    change: 'new; closes the gap review''s P0 (no backups) until PostgreSQL; done 2026-10-29: built in PR #12
+      (src/inkcast/libs/db/backup.py, components/backup, InkcastBackupMissing at 26 h); the restore drill passed in main''s
+      CI run 40322850079, and the lab''s inkcast-staging CronJob last succeeded 2026-10-29T03:17:07Z'
     acceptance:
     - A backup taken while the server writes is consistent (WAL included), passes PRAGMA integrity_check, and has a manifest
       with SHA-256 and row counts
