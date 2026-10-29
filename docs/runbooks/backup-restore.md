@@ -8,6 +8,8 @@ Until PostgreSQL arrives in E3 (CloudNativePG: continuous WAL archiving and poin
 
 This runbook keeps that file safe.
 
+**Namespace.** The commands below write the app's namespace as `$NS`. Set it once before you start: `NS=inkcast` for a self-host from `deploy/kustomize/overlays/openshift` or `overlays/kubernetes`, `NS=inkcast-staging` for `deploy/kustomize/environments/staging`, and `NS=inkcast-prod` for `deploy/kustomize/environments/production`.
+
 | What | Where |
 |---|---|
 | Daily backup | The `backup` component, on by default in the OpenShift, Kubernetes and CI overlays: CronJob `inkcast-backup`, 03:17 UTC |
@@ -32,14 +34,14 @@ Retention removes the oldest copies, and only after a good backup. A failed back
 ## Take one now
 
 ```bash
-oc -n inkcast create job inkcast-backup-now --from=cronjob/inkcast-backup
-oc -n inkcast logs job/inkcast-backup-now        # look for "event": "backup.done"
+oc -n "$NS" create job inkcast-backup-now --from=cronjob/inkcast-backup
+oc -n "$NS" logs job/inkcast-backup-now        # look for "event": "backup.done"
 ```
 
 ## List the backups
 
 ```bash
-KUBECTL=oc scripts/ops/restore.sh inkcast --list
+KUBECTL=oc scripts/ops/restore.sh "$NS" --list
 ```
 
 Each line shows the name, size, checksum, and whether the backup still matches its manifest.
@@ -47,8 +49,8 @@ Each line shows the name, size, checksum, and whether the backup still matches i
 ## Restore
 
 ```bash
-KUBECTL=oc scripts/ops/restore.sh inkcast                              # the newest backup
-KUBECTL=oc scripts/ops/restore.sh inkcast inkcast-20261018T031700Z.db  # a chosen one
+KUBECTL=oc scripts/ops/restore.sh "$NS"                              # the newest backup
+KUBECTL=oc scripts/ops/restore.sh "$NS" inkcast-20261018T031700Z.db  # a chosen one
 ```
 
 The script does the following, stopping at the first failure:
@@ -59,7 +61,7 @@ The script does the following, stopping at the first failure:
    - checks the copy's row counts against the manifest;
    - carries the erasure records (`user_erasures`: a salted hash per person who deleted their account, the time, the counts; nothing that names them) and their aliases (`user_erasure_aliases`: the other salted hash an erasure is known by after a rotation of `INKCAST_SECRET_KEY`) of the database being replaced into the copy, skipping any it already has (`restore.erasures.carried` in the Job's log, with both counts; nothing is logged when there is nothing to carry). The record alone names nobody, but the person's row carries the same hash (`users.erasure_hash`), so whoever holds the database and a backup from before the erasure can tell which record is theirs; that backup holds their whole row anyway, so the hash tells them nothing more;
    - only then swaps it in.
-3. Once the Job's `Complete` condition is set, and only then, scales the server back up and waits for it to be ready. **Before it serves anything, the server re-applies the erasures:** when a process opens the store it looks up, through an index, everyone whose stored hash (`users.erasure_hash`, written when the person was created) is in `user_erasures` but who has rows, which is what a backup taken before their deletion brings back, and erases them again. One log line per person, `identity.erasure.reapplied`, with the id and the number of rows; no second audit row, and `inkcast_identity_users_deleted_total` does not move (it was one deletion). The step costs the records and the matches, not the number of users; with nothing to do, one read. A backup from before the hash column existed is filled in once, at that first open (one hash per person, in batches), at the one-off cost described under [Upgrading to the hash column](#upgrading-to-the-hash-column). Check the server's log after the rollout: `oc -n inkcast logs deploy/inkcast | grep identity.erasure.reapplied`.
+3. Once the Job's `Complete` condition is set, and only then, scales the server back up and waits for it to be ready. **Before it serves anything, the server re-applies the erasures:** when a process opens the store it looks up, through an index, everyone whose stored hash (`users.erasure_hash`, written when the person was created) is in `user_erasures` but who has rows, which is what a backup taken before their deletion brings back, and erases them again. One log line per person, `identity.erasure.reapplied`, with the id and the number of rows; no second audit row, and `inkcast_identity_users_deleted_total` does not move (it was one deletion). The step costs the records and the matches, not the number of users; with nothing to do, one read. A backup from before the hash column existed is filled in once, at that first open (one hash per person, in batches), at the one-off cost described under [Upgrading to the hash column](#upgrading-to-the-hash-column). Check the server's log after the rollout: `oc -n "$NS" logs deploy/inkcast | grep identity.erasure.reapplied`.
 
 Nothing is deleted. The replaced database stays on the data volume as `inkcast.db.before-restore-<time>`, with its WAL files.
 
@@ -68,7 +70,7 @@ Nothing is deleted. The replaced database stays on the data volume as `inkcast.d
 - the Job did not complete within `RESTORE_TIMEOUT` seconds (a very large `user_erasures` table, a slow volume): the deadline stops it on the cluster side, and the script deletes it on its own;
 - the script was interrupted (Ctrl-C, a lost terminal) or a step failed after the Job was created: an exit trap does the same, unless the Job had already completed, in which case it says the database was replaced and brings the server back.
 
-If the Job or a pod of it will not go (the delete was refused or timed out, or the list cannot be read), the server **stays at 0 replicas** and the script says so: bringing it back beside a restore that may still swap the database is the one thing it must not do. Remove the leftover Job and its pod by hand (`oc -n inkcast delete job <name>`), then `oc -n inkcast scale deploy/inkcast --replicas=<n>` with the count the script printed when it scaled down. A restore that needs longer than 300 s runs with `RESTORE_TIMEOUT=900 KUBECTL=oc scripts/ops/restore.sh inkcast`.
+If the Job or a pod of it will not go (the delete was refused or timed out, or the list cannot be read), the server **stays at 0 replicas** and the script says so: bringing it back beside a restore that may still swap the database is the one thing it must not do. Remove the leftover Job and its pod by hand (`oc -n "$NS" delete job <name>`), then `oc -n "$NS" scale deploy/inkcast --replicas=<n>` with the count the script printed when it scaled down. A restore that needs longer than 300 s runs with `RESTORE_TIMEOUT=900 KUBECTL=oc scripts/ops/restore.sh "$NS"`.
 
 After a restore:
 - **Tokens and sessions** issued after the backup no longer work. People sign in again, and CI tokens created since must be re-created.
