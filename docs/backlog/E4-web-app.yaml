@@ -5,6 +5,7 @@ status: planned
 goal: React + TypeScript SPA with a BFF session; mockups approved first.
 features:
 - id: F4.1
+  phase: 1
   title: Shell and design system
   stories:
   - id: F4.1.S1
@@ -38,6 +39,7 @@ features:
       and pushes it to a branch; the owner''s squash merge brings it in'
     - 'CI installs with npm ci only (no lock is written in a build), and fails when package.json and the lock disagree'
 - id: F4.2
+  phase: 1
   title: BFF session
   stories:
   - id: F4.2.S1
@@ -79,6 +81,7 @@ features:
     - 'A Playwright journey signs a new writer up and in through https://inkcast-web-staging.apps-crc.testing and reaches
       the app signed in, with screenshots kept as artifacts'
 - id: F4.3
+  phase: 2
   title: Onboarding
   stories:
   - id: F4.3.S1
@@ -88,6 +91,7 @@ features:
     title: Build
     status: planned
 - id: F4.4
+  phase: 1
   title: Connections
   stories:
   - id: F4.4.S1
@@ -101,6 +105,7 @@ features:
     - 'Translated from the approved mockup''s Connections tab per docs/tooling/mockup-standard.md, and matches it at 390,
       820 and 1440 px'
 - id: F4.5
+  phase: 1
   title: Composer
   stories:
   - id: F4.5.S1
@@ -114,6 +119,7 @@ features:
     - 'Translated from the approved mockup''s Compose tab per docs/tooling/mockup-standard.md, and matches it at 390, 820
       and 1440 px'
 - id: F4.6
+  phase: 1
   title: Calendar
   stories:
   - id: F4.6.S1
@@ -130,6 +136,7 @@ features:
     - 'Translated from the approved mockup''s Posts tab per docs/tooling/mockup-standard.md, and matches it at 390, 820
       and 1440 px'
 - id: F4.7
+  phase: 1
   title: Tokens and settings
   stories:
   - id: F4.7.S1
@@ -158,6 +165,7 @@ features:
       and 1440 px'
     - 'The scopes shown come from SCOPES in libs/auth, the set the API enforces, not a copy in the page'
 - id: F4.8
+  phase: 2
   title: Members and roles
   stories:
   - id: F4.8.S1
@@ -169,6 +177,7 @@ features:
     status: planned
     change: new
 - id: F4.9
+  phase: 2
   title: Approvals
   stories:
   - id: F4.9.S1
@@ -184,6 +193,7 @@ features:
     status: planned
     change: new
 - id: F4.10
+  phase: 1
   title: Insights pages (customer and team KPIs)
   stories:
   - id: F4.10.S1
@@ -200,11 +210,13 @@ features:
     - 'Translated from the approved mockup''s Insights tab per docs/tooling/mockup-standard.md, and matches it at 390, 820
       and 1440 px'
   - id: F4.10.S3
+    phase: 2
     title: 'Mockup + build: team view (per-member throughput, reviewer load, approval cycle time) shown only with can_view_usage;
       viewers see totals; former members labelled'
     status: planned
     change: new
   - id: F4.10.S4
+    phase: 5
     title: 'Engagement from platform APIs (with E8): engagement.sampled events → KPI'
     status: planned
     change: new

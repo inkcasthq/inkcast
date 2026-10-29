@@ -7,6 +7,7 @@ goal: 15 working days of time-boxed spikes that turn the tier and billing design
   PRs.
 features:
 - id: F10.1
+  phase: 4
   title: Pricing and packaging
   stories:
   - id: F10.1.S1
@@ -34,6 +35,7 @@ features:
     - Every key typed and classed
     - Never-paywalled list encoded
 - id: F10.2
+  phase: 4
   title: Billing provider bake-off
   stories:
   - id: F10.2.S1
@@ -60,6 +62,7 @@ features:
     - The same fake-provider contract tests pass against each prototype adapter
     - ADR records scores, fee model at 1, 5, 25 seats, tax position, exit plan
 - id: F10.3
+  phase: 4
   title: Entitlements, quotas and licences
   stories:
   - id: F10.3.S1
@@ -78,6 +81,7 @@ features:
     timebox: 0.5d
     change: new
 - id: F10.4
+  phase: 4
   title: Fit with Keycloak and OpenFGA (billing side)
   stories:
   - id: F10.4.S1
@@ -97,6 +101,7 @@ features:
     timebox: 1d
     change: new
 - id: F10.5
+  phase: 4
   title: Design outputs
   stories:
   - id: F10.5.S1
