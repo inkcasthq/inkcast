@@ -7,9 +7,9 @@
 # as environments/staging composes it (overlays/ci-env-secrets: OpenFGA on the shared database, components/
 # env-secrets, no Secret made by anyone). Each proof fails the script:
 #
-#   1. fresh: none of the four Secrets exists; one apply; OpenFGA (its migrate Job against the shared database with
-#      the generated password, the server with the generated preshared key) and Inkcast (the mounted inkcast-secrets)
-#      come up; the three pairs agree; the init container's log holds no value;
+#   1. fresh: none of the four Secrets exists; one apply; OpenFGA (its init container migrate against the shared
+#      database with the generated password, the server with the generated preshared key) and Inkcast (the mounted
+#      inkcast-secrets) come up; the three pairs agree; the init container's log holds no value;
 #  1b. staging's account is denied a create of production's Secrets, or of any other name, in inkcast-db and keycloak
 #      (a server-side dry run, as that account), and admitted for its own;
 #   2. the namespace rebuilt (deleted, applied again): the role's password and both client secrets come back the
@@ -137,10 +137,9 @@ else:
 PY
 check() { python3 "$work/check.py" "$@"; }
 
-up() {  # the environment applied and serving: OpenFGA on the shared database, its migrate Job, Inkcast
+up() {  # the environment applied and serving: OpenFGA on the shared database (env-secrets, then migrate, in its pod), Inkcast
   $k apply -k "$ROOT/deploy/kustomize/overlays/ci-env-secrets"
   $k -n "$ns" rollout status deploy/openfga --timeout=600s
-  $k -n "$ns" wait --for=condition=complete job/openfga-migrate --timeout=600s
   $k -n "$ns" rollout status deploy/inkcast --timeout=300s
 }
 serving() {  # OpenFGA answers with the key from inkcast-secrets and refuses without it; Inkcast is ready on its files

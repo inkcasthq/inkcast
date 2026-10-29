@@ -11,7 +11,7 @@ names (inkcast-staging is staging, inkcast-prod is prod), it writes:
 
     inkcast-db/inkcast-pg-openfga-<side>  kubernetes.io/basic-auth   username, password: the managed role's password
                                                                      (deploy/kustomize/shared/inkcast-db/cluster.yaml)
-    <namespace>/openfga-db-app            uri, username, password    what OpenFGA's server and migrate Job connect with
+    <namespace>/openfga-db-app            uri, username, password    what OpenFGA's pod (migrate, then the server) connects with
     keycloak/inkcast-<side>-realm         identity-client-secret,    the realm import's placeholders
                                           sync-client-secret         (deploy/kustomize/shared/keycloak-realms)
     <namespace>/inkcast-secrets           secret-key, fga-api-token, what Inkcast mounts, and OpenFGA's preshared key
