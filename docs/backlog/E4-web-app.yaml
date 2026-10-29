@@ -16,15 +16,68 @@ features:
   - id: F4.1.S3
     title: CI web job (typecheck, vitest, Playwright)
     status: planned
+  - id: F4.1.S4
+    title: 'Mockup: the writer web app (Posts, Compose, Connections, Git sync, Tokens, Insights, API), approved before UI
+      code'
+    status: planned
+    change: 'issue #347; new 2026-10-28; first in order: the mockup gates F4.1.S1, F4.2 and every screen build (ADR-0004)'
+    acceptance:
+    - 'One app artboard to the mockup standard (docs/tooling/mockup-standard.md, target react-ts), with a tab per screen,
+      tablet (820 px) and phone (390 px) frames and a theme tokens sheet, under docs/epics/E4-web-app/mockups/source/'
+    - 'Every dataset is typed and names the REST call it comes from (/api/v1/posts, /api/v1/preview, /api/v1/platforms,
+      /api/v1/ledger, /api/v1/tokens, /api/v1/insights/summary, /api/v1/me)'
+    - 'scripts/mockups/check.py passes on every tab and theme at 390, 820 and 1440 px, and --export writes one light
+      HTML page and PNG per tab, linked from docs/epics/E4-web-app/design.md'
+    - 'The owner approves it on its PR, or names the changes, before any UI code is written'
+  - id: F4.1.S5
+    title: Node lock resolved in CI, as the Python lock is
+    status: planned
+    change: 'issue #348; new 2026-10-28: the build sandbox can''t reach npm, so the web workspace''s lock comes from CI'
+    acceptance:
+    - 'A workflow, run on demand and weekly like lock-refresh.yml, resolves web/package-lock.json with integrity hashes
+      and pushes it to a branch; the owner''s squash merge brings it in'
+    - 'CI installs with npm ci only (no lock is written in a build), and fails when package.json and the lock disagree'
 - id: F4.2
   title: BFF session
   stories:
   - id: F4.2.S1
     title: 'WebApp service: OIDC with Keycloak, HttpOnly SameSite session'
     status: planned
+    change: 'issue #349; refined 2026-10-28: Inkcast has no web entry today; the service is named inkcast-web, on its
+      own host, with its own Keycloak client (owner''s decision)'
+    acceptance:
+    - 'Today GET / on the API host answers 404 and sign-in starts only from an OAuth or MCP client (/register, then
+      /authorize). After this story a writer opens INKCAST_WEB_URL in a browser, signs in or signs up through Keycloak,
+      and lands in the app signed in'
+    - 'The service is named inkcast-web: its container image, Deployment, Service and Route all carry that name'
+    - 'It has its own public URL, INKCAST_WEB_URL, separate from the API''s INKCAST_PUBLIC_URL: the session cookie is
+      never sent to the API host, and the API''s root paths (/authorize, /token, /register, /revoke, /auth/, /tokens/,
+      /mcp, /api, /.well-known/*) need no carve-out'
+    - 'It signs in through its own confidential client inkcast-web in deploy/keycloak/realm-inkcast.json, with PKCE S256
+      and redirect, web origin and post-logout URIs on ${INKCAST_WEB_URL} only; scripts/gen-realm-imports.py substitutes
+      that URL per environment, as it does ${INKCAST_PUBLIC_URL}'
+    - 'The client secret is a placeholder fed from a new key web-client-secret of Secret keycloak/inkcast-<side>-realm,
+      paired by env-secrets with the WebApp''s own copy, like the identity and sync clients; it is never in Git or a log'
+    - 'The session cookie is HttpOnly, Secure and SameSite=Lax; the browser never holds a bearer token (ADR-0004)'
   - id: F4.2.S2
     title: Generated API client
     status: planned
+  - id: F4.2.S3
+    title: 'inkcast-web on OpenShift: in each environment''s namespace, its own host, promoted by digest'
+    status: planned
+    change: 'issue #350; new 2026-10-28; the owner chose each environment''s namespace over a shared client namespace'
+    acceptance:
+    - 'inkcast-web runs in the namespace of its environment (inkcast-staging, inkcast-prod), never in a namespace shared
+      by both, so each environment keeps its own realm, Secrets and host'
+    - 'Hosts follow the environments'' naming (inkcast-<name>-<side>): https://inkcast-web-staging.apps-crc.testing and
+      https://inkcast-web-prod.apps-crc.testing on OpenShift Local. One label, not web.inkcast-<side>: the router''s
+      wildcard certificate *.apps-crc.testing covers one label only'
+    - 'Its image is built by CI, pushed to the registry and deployed by digest; promote.yml promotes it with Inkcast''s,
+      so one promotion PR moves both'
+    - 'On OpenShift Local, inkcast-web is ready, its Route is admitted, and its sign-in entry answers 200 through the
+      cluster''s own CA (no curl -k)'
+    - 'A Playwright journey signs a new writer up and in through https://inkcast-web-staging.apps-crc.testing and reaches
+      the app signed in, with screenshots kept as artifacts'
 - id: F4.3
   title: Onboarding
   stories:
@@ -43,6 +96,10 @@ features:
   - id: F4.4.S2
     title: Build
     status: planned
+    change: 'issue #351; refined 2026-10-28: one screen per story, from the writer app mockup (F4.1.S4)'
+    acceptance:
+    - 'Translated from the approved mockup''s Connections tab per docs/tooling/mockup-standard.md, and matches it at 390,
+      820 and 1440 px'
 - id: F4.5
   title: Composer
   stories:
@@ -52,6 +109,10 @@ features:
   - id: F4.5.S2
     title: Build (server-rendered preview from prepare())
     status: planned
+    change: 'issue #352; refined 2026-10-28: one screen per story, from the writer app mockup (F4.1.S4)'
+    acceptance:
+    - 'Translated from the approved mockup''s Compose tab per docs/tooling/mockup-standard.md, and matches it at 390, 820
+      and 1440 px'
 - id: F4.6
   title: Calendar
   stories:
@@ -64,6 +125,10 @@ features:
   - id: F4.6.S3
     title: Post list and history with errors
     status: planned
+    change: 'issue #353; refined 2026-10-28: one screen per story, from the writer app mockup (F4.1.S4)'
+    acceptance:
+    - 'Translated from the approved mockup''s Posts tab per docs/tooling/mockup-standard.md, and matches it at 390, 820
+      and 1440 px'
 - id: F4.7
   title: Tokens and settings
   stories:
@@ -73,6 +138,25 @@ features:
   - id: F4.7.S2
     title: Build
     status: planned
+    change: 'issue #354; refined 2026-10-28: one screen per story, from the writer app mockup (F4.1.S4)'
+    acceptance:
+    - 'Translated from the approved mockup''s Tokens tab per docs/tooling/mockup-standard.md, and matches it at 390, 820
+      and 1440 px'
+  - id: F4.7.S3
+    title: 'Build: Git sync ledger page'
+    status: planned
+    change: 'issue #355; new 2026-10-28: a tab of the writer app mockup (F4.1.S4) that no story covered'
+    acceptance:
+    - 'Translated from the approved mockup''s Git sync tab per docs/tooling/mockup-standard.md, from GET /api/v1/ledger,
+      and matches it at 390, 820 and 1440 px'
+  - id: F4.7.S4
+    title: 'Build: API page (reference links, MCP endpoint, endpoints with their scopes)'
+    status: planned
+    change: 'issue #356; new 2026-10-28: a tab of the writer app mockup (F4.1.S4) that no story covered'
+    acceptance:
+    - 'Translated from the approved mockup''s API tab per docs/tooling/mockup-standard.md, and matches it at 390, 820
+      and 1440 px'
+    - 'The scopes shown come from SCOPES in libs/auth, the set the API enforces, not a copy in the page'
 - id: F4.8
   title: Members and roles
   stories:
@@ -111,7 +195,10 @@ features:
     title: Build on /api/v1/insights with ?scope=workspace:<id>; charts follow the chart grammar (counts from zero, rates
       show parts, colour carries one thing)
     status: planned
-    change: new
+    change: 'issue #357; new; refined 2026-10-28: from the writer app mockup''s Insights tab (F4.1.S4)'
+    acceptance:
+    - 'Translated from the approved mockup''s Insights tab per docs/tooling/mockup-standard.md, and matches it at 390, 820
+      and 1440 px'
   - id: F4.10.S3
     title: 'Mockup + build: team view (per-member throughput, reviewer load, approval cycle time) shown only with can_view_usage;
       viewers see totals; former members labelled'
