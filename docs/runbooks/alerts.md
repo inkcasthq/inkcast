@@ -2,7 +2,9 @@
 
 Every alert in `src/inkcast/libs/alerting.py` links here by its name (a test checks the anchors). Each section says what the alert means, how to confirm it, what to do first, and when to escalate. The generated rules are in `deploy/kustomize/components/prometheus-rules/`; regenerate with `python scripts/gen-alerts.py`.
 
-**First five minutes, for any page:** `oc get pods -n inkcast` (or `kubectl`), `oc logs deploy/inkcast-<service> --since=15m | grep '"level":"error"\|"level":"critical"'`, then `curl -s :9090/readyz` on the pod. Log events are catalogued in `libs/observability.EVENTS`; the `event` field is what to grep.
+**Namespace.** The commands below write the app's namespace as `$NS`. Set it once before you start: `NS=inkcast` for a self-host from `deploy/kustomize/overlays/openshift` or `overlays/kubernetes`, `NS=inkcast-staging` for `deploy/kustomize/environments/staging`, and `NS=inkcast-prod` for `deploy/kustomize/environments/production`. Commands without `-n` use your current project, so run `oc project "$NS"` first (with `kubectl`: `kubectl config set-context --current --namespace "$NS"`).
+
+**First five minutes, for any page:** `oc get pods -n "$NS"` (or `kubectl`), `oc logs deploy/inkcast-<service> --since=15m | grep '"level":"error"\|"level":"critical"'`, then `curl -s :9090/readyz` on the pod. Log events are catalogued in `libs/observability.EVENTS`; the `event` field is what to grep.
 
 ## Severities and routing
 
