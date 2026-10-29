@@ -26,12 +26,12 @@ spec.loader.exec_module(tracker)
 
 def backlog(*stories: tuple[str, str]) -> list[dict]:
     return [{"id": "E1", "title": "Epic", "status": "planned", "goal": "g", "features": [
-        {"id": "F1.1", "title": "Feature", "stories": [{"id": sid, "title": f"Story {sid}", "status": status}
+        {"id": "F1.1", "title": "Feature", "phase": 1, "stories": [{"id": sid, "title": f"Story {sid}", "status": status}
                                                         for sid, status in stories]}]}]
 
 
 def order(*items: str, tooling: tuple[str, ...] = (), issues: dict | None = None) -> dict:
-    return {"waves": [{"id": "W1", "title": "Wave", "why": "Because.", "items": list(items)}],
+    return {"waves": [{"id": "W1", "phase": 1, "title": "Wave", "why": "Because.", "items": list(items)}],
             "tooling": list(tooling), "issues": issues or {}}
 
 
@@ -69,8 +69,8 @@ class RenderTest(unittest.TestCase):
     def test_order_numbers_run_across_waves_and_each_story_shows_its_place(self):
         epics = backlog(("F1.1.S1", "planned"), ("F1.1.S2", "done"))
         epics[0]["features"][0]["stories"][0]["issue"] = 12
-        plan = {"waves": [{"id": "W1", "title": "One", "why": "x", "items": ["#7"]},
-                          {"id": "W2", "title": "Two", "why": "y", "items": ["F1.1.S1"]}],
+        plan = {"waves": [{"id": "W1", "phase": 1, "title": "One", "why": "x", "items": ["#7"]},
+                          {"id": "W2", "phase": 1, "title": "Two", "why": "y", "items": ["F1.1.S1"]}],
                 "issues": {7: "A | bug"}}
         text = tracker.render(epics, plan)
         self.assertIn("| 1 | #7 | open issue | A \\| bug | | [#7](https://github.com/inkcasthq/inkcast/issues/7) |", text)
@@ -106,12 +106,12 @@ class ReviewFindingsTest(unittest.TestCase):
         self.assertIn("'F1.1.S2' (tooling) is not '#N': tooling holds open issues only", problems)
 
     def test_malformed_yaml_items_are_problems_not_tracebacks(self):
-        unquoted = yaml.safe_load("waves:\n- id: W1\n  title: W\n  why: y\n  items:\n  - #342\n")
+        unquoted = yaml.safe_load("waves:\n- id: W1\n  phase: 1\n  title: W\n  why: y\n  items:\n  - #342\n")
         self.assertIn("None (W1) is neither a story id nor '#N' (quote '#N' in YAML)",
                       self.problems(backlog(), unquoted))
-        empty = yaml.safe_load("waves:\n- id: W1\n  title: W\n  why: y\n  items:\nissues:\n")
+        empty = yaml.safe_load("waves:\n- id: W1\n  phase: 1\n  title: W\n  why: y\n  items:\nissues:\n")
         self.assertEqual(self.problems(backlog(), empty), [])
-        self.assertIn("### W1: W (0 of 0 stories done)", tracker.render(backlog(), empty))
+        self.assertIn("### W1: W (phase 1, 0 of 0 stories done)", tracker.render(backlog(), empty))
         self.assertIn("342 (W1) is neither a story id nor '#N' (quote '#N' in YAML)",
                       self.problems(backlog(), order(342)))
 
@@ -131,7 +131,7 @@ class ReviewFindingsTest(unittest.TestCase):
 
     def test_the_wave_header_counts_stories_only(self):
         plan = order("F1.1.S1", "#7", "#8", issues={7: "a", 8: "b"})
-        self.assertIn("### W1: Wave (1 of 1 stories done)", tracker.render(backlog(("F1.1.S1", "done")), plan))
+        self.assertIn("### W1: Wave (phase 1, 1 of 1 stories done)", tracker.render(backlog(("F1.1.S1", "done")), plan))
 
     def drift(self, gh_issues: list[dict], epics: list[dict], plan: dict) -> list[str]:
         answer = mock.Mock(stdout=json.dumps(gh_issues))
@@ -164,6 +164,43 @@ class ReviewFindingsTest(unittest.TestCase):
     def test_drift_says_a_placed_issue_does_not_exist(self):
         found = self.drift([], backlog(), order("#7", issues={7: "a"}))
         self.assertEqual(found, ["#7 is in docs/backlog/order.yaml but does not exist"])
+
+
+class PhaseTest(unittest.TestCase):
+    """Each wave names its delivery phase, the phases run in order, and a story sits in a wave of its own phase."""
+
+    def problems(self, epics: list[dict], waves: list[dict]) -> list[str]:
+        return tracker.validate(tracker.index(epics), {"waves": waves, "issues": {}})
+
+    def wave(self, wid: str, phase, *items: str) -> dict:
+        return {"id": wid, "phase": phase, "title": "Wave", "why": "Because.", "items": list(items)}
+
+    def test_a_wave_without_a_known_phase_fails(self):
+        problems = self.problems(backlog(), [self.wave("W1", None), self.wave("W2", 6)])
+        self.assertEqual(problems, ["wave 'W1': phase None is not one of 1, 2, 3, 4, 5, ongoing",
+                                    "wave 'W2': phase 6 is not one of 1, 2, 3, 4, 5, ongoing"])
+
+    def test_numbered_phases_never_go_back_and_ongoing_waves_sit_anywhere(self):
+        waves = [self.wave("W1", 2), self.wave("W2", "ongoing"), self.wave("W3", 1), self.wave("W4", 3)]
+        self.assertEqual(self.problems(backlog(), waves), ["wave 'W3' is phase 1, after 'W1' in phase 2"])
+
+    def test_a_story_sits_in_a_wave_of_its_own_phase(self):
+        epics = backlog(("F1.1.S1", "planned"), ("F1.1.S2", "planned"))
+        epics[0]["features"][0]["stories"][1]["phase"] = 2       # differs from the feature's phase 1
+        problems = self.problems(epics, [self.wave("W1", 1, "F1.1.S1", "F1.1.S2")])
+        self.assertEqual(problems, ["F1.1.S2 (W1) is phase 2, but W1 is phase 1"])
+        self.assertEqual(self.problems(epics, [self.wave("W1", 1, "F1.1.S1"), self.wave("W2", 2, "F1.1.S2")]), [])
+
+    def test_ongoing_stories_sit_in_any_wave_but_an_ongoing_wave_holds_only_them(self):
+        epics = backlog(("F1.1.S1", "planned"), ("F1.1.S2", "planned"))
+        epics[0]["features"][0]["stories"][0]["phase"] = "ongoing"
+        self.assertEqual(self.problems(epics, [self.wave("W1", 1, "F1.1.S1", "F1.1.S2")]), [])
+        problems = self.problems(epics, [self.wave("W1", "ongoing", "F1.1.S1", "F1.1.S2")])
+        self.assertEqual(problems, ["F1.1.S2 (W1) is phase 1, but W1 is phase 'ongoing'"])
+
+    def test_the_wave_header_names_its_phase(self):
+        text = tracker.render(backlog(("F1.1.S1", "planned")), {"waves": [self.wave("W9", "ongoing", "F1.1.S1")]})
+        self.assertIn("### W9: Wave (phase ongoing, 0 of 1 stories done)", text)
 
 
 class FileScriptTest(unittest.TestCase):

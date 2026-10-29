@@ -46,8 +46,12 @@ def design_link(repo: str, epic: dict) -> str:
 
 
 def story_body(repo: str, epic: dict, feature: dict, story: dict, parent: str) -> str:
-    """Issue body: where the story sits, how it changed in the last refinement, and its acceptance criteria."""
+    """Issue body: where the story sits, its delivery phase, how it changed in the last refinement, and its acceptance
+    criteria."""
     lines = [f"Part of {feature['id']} {feature['title']} ({epic['id']}).{parent}"]
+    phase = story.get("phase", feature.get("phase"))
+    if phase is not None:
+        lines.append(f"\nDelivery phase: {phase} (https://github.com/{repo}/blob/main/docs/epics/README.md#delivery-phases).")
     if story.get("change"):
         lines.append(f"\nRefinement: {story['change']}.")
     if story.get("timebox"):

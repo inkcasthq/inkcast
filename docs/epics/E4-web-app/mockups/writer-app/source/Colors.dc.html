@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Inkcast web app: theme tokens</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 1440px; height: 1460px; box-sizing: border-box; padding: 48px 56px; background: #FFFFFF; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #1A1D21; display: flex; flex-direction: column; gap: 24px">
+  <div style="display: flex; flex-direction: column; gap: 6px">
+    <h1 style="margin: 0; font-size: 32px; font-weight: 600">Theme tokens</h1>
+    <span style="font-size: 15px; color: #555E6B">Every colour is a named token, defined once per theme. Contrast is measured against the theme's surface (text: surface / page background; badges: against their own background).</span>
+  </div>
+  <div style="display: grid; grid-template-columns: 200px minmax(0, 1fr) minmax(0, 1fr) 320px; gap: 0; border: 1px solid #E3E5E8; border-radius: 10px; overflow: hidden; font-size: 14px">
+    <span style="padding: 12px 16px; background: #F6F7F9; color: #555E6B; font-weight: 500">Token</span>
+    <span style="padding: 12px 16px; background: #F6F7F9; color: #555E6B; font-weight: 500">Light</span>
+    <span style="padding: 12px 16px; background: #F6F7F9; color: #555E6B; font-weight: 500">Dark</span>
+    <span style="padding: 12px 16px; background: #F6F7F9; color: #555E6B; font-weight: 500">Used for</span>
+    <sc-for list="{{tokens}}" as="t" hint-placeholder-count="12">
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; font-size: 13px; display: flex; align-items: center">{{t.name}}</span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; display: flex; align-items: center; gap: 10px">
+        <span style="width: 56px; height: 28px; border-radius: 6px; border: 1px solid #CDD1D6; background: {{t.lbg}}; color: {{t.lfg}}; font-size: 12px; display: flex; align-items: center; justify-content: center">{{t.lsample}}</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">{{t.light}}</span>
+        <span style="font-size: 12px; color: #555E6B">{{t.lcr}}</span>
+      </span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; display: flex; align-items: center; gap: 10px">
+        <span style="width: 56px; height: 28px; border-radius: 6px; border: 1px solid #3A414B; background: {{t.dbg}}; color: {{t.dfg}}; font-size: 12px; display: flex; align-items: center; justify-content: center">{{t.dsample}}</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">{{t.dark}}</span>
+        <span style="font-size: 12px; color: #555E6B">{{t.dcr}}</span>
+      </span>
+      <span style="padding: 10px 16px; border-top: 1px solid #EEF0F3; color: #555E6B; display: flex; align-items: center">{{t.use}}</span>
+    </sc-for>
+  </div>
+  <div style="display: flex; gap: 32px; font-size: 13px; color: #555E6B">
+    <span>DEV (violet) and Medium (emerald) differ in lightness and hue, in both themes.</span>
+    <span>Docs and screenshots use the light theme.</span>
+    <span>cat-* colours mark a platform or a sync action: bars, dots, icon tiles; never body text.</span>
+    <span>Every badge carries its word: colour is never the only signal.</span>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1460}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const sw = (name, light, dark, use, o) => ({
+      name, light, dark, use,
+      lbg: (o && o.lbg) || light, lfg: (o && o.lfg) || 'transparent', lsample: (o && o.ls) || '',
+      dbg: (o && o.dbg) || dark, dfg: (o && o.dfg) || 'transparent', dsample: (o && o.ds) || '',
+      lcr: (o && o.lcr) || '', dcr: (o && o.dcr) || ''
+    });
+    // Contrast ratios measured with WCAG 2.x relative luminance (scratch script, 2026-10-28).
+    return {
+      tokens: [
+        sw('bg', '#F6F7F9', '#0F1216', 'page background'),
+        sw('surface', '#FFFFFF', '#171B21', 'cards, lists, forms'),
+        sw('border', '#E3E5E8', '#2A3038', 'lines'),
+        sw('text', '#1A1D21', '#E6E8EB', 'body text', { lbg: '#FFFFFF', lfg: '#1A1D21', ls: 'Aa', dbg: '#171B21', dfg: '#E6E8EB', ds: 'Aa', lcr: '16.9 / 15.8:1', dcr: '14.1 / 15.3:1' }),
+        sw('muted', '#555E6B', '#A1A9B4', 'labels, times, hints', { lbg: '#FFFFFF', lfg: '#555E6B', ls: 'Aa', dbg: '#171B21', dfg: '#A1A9B4', ds: 'Aa', lcr: '6.6 / 6.1:1', dcr: '7.3 / 7.9:1' }),
+        sw('accent', '#1D4ED8', '#93C5FD', 'links, active tab, primary button', { lbg: '#FFFFFF', lfg: '#1D4ED8', ls: 'Aa', dbg: '#171B21', dfg: '#93C5FD', ds: 'Aa', lcr: '6.7 / 6.3:1', dcr: '9.6 / 10.4:1' }),
+        sw('accentFg', '#FFFFFF', '#0F1216', 'text on a primary button', { lbg: '#1D4ED8', lfg: '#FFFFFF', ls: 'Go', dbg: '#93C5FD', dfg: '#0F1216', ds: 'Go', lcr: '6.7:1', dcr: '10.4:1' }),
+        sw('ok', '#14532D', '#86EFAC', 'published, connected, active', { lbg: '#E7F6EC', lfg: '#14532D', ls: 'ok', dbg: '#12321F', dfg: '#86EFAC', ds: 'ok', lcr: '8.2:1', dcr: '10.0:1' }),
+        sw('warn', '#7C2D12', '#FDBA74', 'unconfirmed, recovering, stale, at risk', { lbg: '#FDEFE3', lfg: '#7C2D12', ls: 'warn', dbg: '#3A2414', dfg: '#FDBA74', ds: 'warn', lcr: '8.3:1', dcr: '8.6:1' }),
+        sw('info', '#1E3A8A', '#BFDBFE', 'scheduled, publishing, guidance', { lbg: '#EEF2FF', lfg: '#1E3A8A', ls: 'info', dbg: '#1B2A4A', dfg: '#BFDBFE', ds: 'info', lcr: '9.3:1', dcr: '10.0:1' }),
+        sw('stop', '#7F1D1D', '#FCA5A5', 'failed, revoke, disconnect', { lbg: '#FDECEC', lfg: '#7F1D1D', ls: 'stop', dbg: '#3A1717', dfg: '#FCA5A5', ds: 'stop', lcr: '8.8:1', dcr: '8.4:1' }),
+        sw('sample', '#8A4B00', '#FDBA74', 'the "Sample data" pill (mockup only)', { lbg: '#FFF4E5', lfg: '#8A4B00', ls: 'pill', dbg: '#3A2414', dfg: '#FDBA74', ds: 'pill', lcr: '6.3:1', dcr: '8.6:1' }),
+        sw('cat-violet', '#6D5DF0', '#A5ADF8', 'DEV', { lcr: '4.7:1', dcr: '8.2:1' }),
+        sw('cat-emerald', '#059669', '#10D49A', 'Medium', { lcr: '3.8:1', dcr: '9.0:1' }),
+        sw('cat-teal', '#0F766E', '#2DD4BF', 'sync action: create', { lcr: '5.5:1', dcr: '9.3:1' }),
+        sw('cat-sky', '#0284C7', '#38BDF8', 'sync action: update', { lcr: '4.1:1', dcr: '8.1:1' }),
+        sw('cat-slate', '#475569', '#94A3B8', 'sync action: unchanged', { lcr: '7.6:1', dcr: '6.7:1' }),
+        sw('cat-amber', '#A16207', '#E2A717', 'sync action: stale', { lcr: '4.9:1', dcr: '8.0:1' }),
+        sw('cat-pink', '#DB2777', '#F472B6', 'sync action: skipped', { lcr: '4.6:1', dcr: '6.5:1' }),
+        sw('cat-coral', '#C2410C', '#F08A6C', 'sync action: failed', { lcr: '5.2:1', dcr: '7.0:1' })
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

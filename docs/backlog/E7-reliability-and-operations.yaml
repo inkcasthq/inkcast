@@ -6,6 +6,7 @@ goal: Alerts and SLOs as code, channel health, contract tests, notifications, da
   cost, and the metrics and KPI foundations (four layers).
 features:
 - id: F7.1
+  phase: ongoing
   title: Alert catalogue
   stories:
   - id: F7.1.S1
@@ -47,12 +48,14 @@ features:
     status: planned
     change: 'new 2026-10-28 (review): split from F7.1.S2'
 - id: F7.2
+  phase: 3
   title: Channel health
   stories:
   - id: F7.2.S1
     title: healthy → degraded → reauth_required → revoked
     status: planned
   - id: F7.2.S2
+    phase: 5
     title: Refresh lock and refresh-token merge
     status: planned
   - id: F7.2.S3
@@ -64,6 +67,7 @@ features:
     status: planned
     change: new
 - id: F7.3
+  phase: ongoing
   title: Provider capability manifest and nightly contract tests
   stories:
   - id: F7.3.S1
@@ -73,6 +77,7 @@ features:
     title: Sandbox-account contract tests
     status: planned
 - id: F7.4
+  phase: 3
   title: Outbound notifications
   stories:
   - id: F7.4.S1
@@ -249,19 +254,23 @@ features:
     - GET /api/v1/notifications and a mark-read call; entries kept 90 days
     - The E4 shell shows the bell and the unread count
 - id: F7.5
+  phase: 2
   title: Publish now through the queue
   stories:
   - id: F7.5.S1
     title: Enqueue with due=now; API waits briefly for the result
     status: planned
 - id: F7.6
+  phase: ongoing
   title: Backups, DR and multi-region readiness
   stories:
   - id: F7.6.S1
+    phase: 2
     title: Restore drill job and runbook (with E3 F3.1.S5)
     status: planned
     change: new
   - id: F7.6.S2
+    phase: 5
     title: Object storage replication and lifecycle for media (with E8)
     status: planned
     change: new
@@ -284,6 +293,7 @@ features:
       design (docs/reference/secrets.md); nothing secret on the command line or in shell history
     - Stop, start and teardown steps; what survives a stop (volumes) and what does not
 - id: F7.7
+  phase: ongoing
   title: Dashboards to the /dashboard standard
   stories:
   - id: F7.7.S1
@@ -331,6 +341,7 @@ features:
     - The kind dashboards check seeds them (a sync pass against the realm, allowed and denied checks) and every panel's
       query runs through Grafana
 - id: F7.8
+  phase: ongoing
   title: Traces and the OTLP exporter (replaces issue 27)
   stories:
   - id: F7.8.S1
@@ -347,6 +358,7 @@ features:
     status: planned
     change: new
 - id: F7.9
+  phase: ongoing
   title: Edge protection
   stories:
   - id: F7.9.S1
@@ -354,6 +366,7 @@ features:
     status: planned
     change: new
 - id: F7.10
+  phase: ongoing
   title: Cost
   stories:
   - id: F7.10.S1
@@ -361,6 +374,7 @@ features:
     status: planned
     change: new
 - id: F7.11
+  phase: ongoing
   title: Metrics, SLOs and KPIs (shipped foundations)
   stories:
   - id: F7.11.S1

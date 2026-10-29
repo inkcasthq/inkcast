@@ -6,6 +6,7 @@ goal: Plans as code, per-organization entitlements enforced at every use case af
   offline licences (ADR-0010 to ADR-0013; design in docs/epics/E10-tiers-and-billing/design.md).
 features:
 - id: F5.1
+  phase: 4
   title: BillingProvider seam, fake adapter and SubscriptionService
   stories:
   - id: F5.1.S1
@@ -37,6 +38,7 @@ features:
     acceptance:
     - An operator-created subscription produces a snapshot; audited
 - id: F5.2
+  phase: 4
   title: Plan catalogue as code
   stories:
   - id: F5.2.S1
@@ -69,6 +71,7 @@ features:
     - A test fails if a published version changes
     - Cohort migration tool with notice dates
 - id: F5.3
+  phase: 4
   title: Metering and entitlements
   stories:
   - id: F5.3.S1
@@ -110,6 +113,7 @@ features:
     - Increases prorated now, decreases at renewal, debounced
     - Reconcile against OpenFGA reports injected drift
   - id: F5.3.S6
+    phase: 5
     change: new
     status: planned
     title: 'Credits wallet: AI assists and paid-platform sends (X weights) reserved before send; cost shown in dry run (issue
@@ -124,6 +128,7 @@ features:
     acceptance:
     - 429 with Retry-After; daily figure approximate within 1%
 - id: F5.4
+  phase: 4
   title: Webhooks
   stories:
   - id: F5.4.S1
@@ -147,6 +152,7 @@ features:
     acceptance:
     - billing.reconcile.drift in the alert catalogue (E7.F7.1.S2)
 - id: F5.5
+  phase: 4
   title: Billing UI
   stories:
   - id: F5.5.S1
@@ -180,6 +186,7 @@ features:
     acceptance:
     - Preview equals the applied result
 - id: F5.6
+  phase: 4
   title: Real provider
   stories:
   - id: F5.6.S1
@@ -195,6 +202,7 @@ features:
     status: planned
     title: 'Go-live: provider approval, tax categories, refund policy, terms of service and plan terms (issue 32)'
 - id: F5.7
+  phase: 4
   title: Subscription lifecycle
   stories:
   - id: F5.7.S1
@@ -219,6 +227,7 @@ features:
     status: planned
     title: 'Add-ons: channel packs and credit packs'
 - id: F5.8
+  phase: 4
   title: Offline licences (self-host, air-gapped)
   stories:
   - id: F5.8.S1
@@ -244,6 +253,7 @@ features:
     status: planned
     title: Posture check and `inkcast checks` row for licence status
 - id: F5.9
+  phase: 4
   title: Agency add-on (designed in E10, built later)
   stories:
   - id: F5.9.S1

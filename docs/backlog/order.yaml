@@ -1,12 +1,15 @@
 # Execution order of the backlog: the waves are worked top to bottom, the items in each wave in the order listed.
+# Each wave sits in one delivery phase (docs/epics/README.md, "Delivery phases"): 1 to 5 in order, or ongoing beside
+# them. A story's phase (its own, or its feature's) is its wave's phase, or ongoing.
 # An item is a story id from docs/backlog/E*.yaml, or '#N' for an open GitHub issue that is not a backlog story.
 # Every story that is not done must appear exactly once. scripts/backlog/tracker.py checks this and generates
 # docs/backlog/TRACKER.md from it; edit this file, never the tracker.
 waves:
 - id: W1
+  phase: 1
   title: Finish what is in flight
-  why: Open loops on the lab and the repository cost the most while they stay open. Each item is partly built or waits
-    on one proof.
+  why: Open loops on the lab and the repository cost the most while they stay open. Each item is partly built or waits on
+    one proof.
   items:
   - F3.9.S5
   - F3.9.S8
@@ -20,12 +23,19 @@ waves:
   - F1.8.S5
   - F1.8.S6
 - id: W2
-  title: Publishing and Git sync safety, then the Phase 1 blog platforms
-  why: These follow-ups guard against double-sends and lost posts, the failures a writer notices first (handover, suggested
-    order 1). Then Hashnode, WordPress and Ghost (product-spec Phase 1); Medium issues no new tokens, so a new writer can
-    connect only DEV today.
+  phase: 1
+  title: Security, publishing and Git sync safety
+  why: 'Follow-ups in code that already runs: links written to the log, double-sends, lost posts and data kept after erasure.
+    These are the failures a writer or an auditor notices first (handover, suggested order 1), so they come before new screens.'
   items:
   - '#214'
+  - '#149'
+  - '#212'
+  - '#112'
+  - '#161'
+  - '#139'
+  - '#128'
+  - '#202'
   - '#130'
   - '#280'
   - '#290'
@@ -35,57 +45,13 @@ waves:
   - '#219'
   - '#141'
   - '#159'
-  - F2.7.S1
-  - F2.7.S2
-  - F2.7.S3
 - id: W3
-  title: Email and the notifier
-  why: ADR-0018's notices, the export link and Keycloak's own verify and reset mail all need outbound email. The seam,
-    the dispatcher and the preferences come before any second channel; the suppression list (F7.4.S5) before the relay
-    that feeds it (F7.4.S10), and the authenticated domain before Keycloak's production mail (F9.2.S3).
-  items:
-  - F7.4.S4
-  - F7.4.S2
-  - F7.4.S13
-  - F7.4.S5
-  - F7.4.S10
-  - F9.2.S3
-  - F9.2.S4
-  - F7.4.S14
-- id: W4
-  title: Account lifecycle (ADR-0018)
-  why: Export, notice, legal hold and erasure of a cut-off person. Depends on W3's email. The erasure follow-ups close the
-    known gaps in the same code.
-  items:
-  - F3.3.S7
-  - F3.3.S8
-  - F3.3.S9
-  - F9.5.S9
-  - F9.5.S11
-  - F3.3.S10
-  - '#212'
-  - '#112'
-  - '#161'
-  - '#149'
-  - '#128'
-  - '#202'
-  - '#139'
-- id: W5
-  title: Directory federation (LDAP)
-  why: F9.8.S3 measures what the user sync and W4's cleanup job do to a federated person who leaves the group. F9.5.S10
-    removes a Keycloak copy only after those measurements (ADR-0018 section 9 and its build table).
-  items:
-  - F9.8.S1
-  - F9.8.S2
-  - F9.8.S3
-  - F9.5.S10
-  - F9.8.S4
-- id: W6
+  phase: 1
   title: The writer web app
-  why: 'The order that PR #358 set. The writer-app mockup to the mockup standard gates every screen (ADR-0004,
-    ADR-0016). Channel health comes before the Connections screen, which shows it.'
+  why: 'The order that PR #358 set. The approved writer-app mockup (F4.1.S4, ADR-0004, ADR-0016) is the contract for every
+    screen. Phase 1 is one writer, so the Insights screen shows the writer''s own posts. The workspace scope is F4.10.S5 in
+    W6, and the approved Connections tab shows no channel health, so channel health is W10.'
   items:
-  - F4.1.S4
   - F4.1.S5
   - F4.1.S1
   - F4.1.S2
@@ -93,9 +59,6 @@ waves:
   - F4.2.S1
   - F4.2.S2
   - F4.2.S3
-  - F7.2.S1
-  - F7.2.S3
-  - F7.2.S4
   - F4.4.S2
   - F4.5.S2
   - F4.6.S2
@@ -103,11 +66,11 @@ waves:
   - F4.7.S2
   - F4.7.S3
   - F4.7.S4
-  - F7.4.S11
-- id: W7
+  - F4.10.S2
+- id: W4
+  phase: 2
   title: PostgreSQL
-  why: Organizations, the outbox at scale and the billing counters all need PostgreSQL. The spike measures OpenFGA on it
-    first.
+  why: Organizations, the outbox at scale and the billing counters all need PostgreSQL. The spike measures OpenFGA on it first.
   items:
   - F3.0.S1
   - F3.1.S1
@@ -123,10 +86,12 @@ waves:
   - F3.10.S2
   - F3.10.S5
   - '#299'
-- id: W8
+  - F3.1.S7
+- id: W5
+  phase: 2
   title: Tenancy and one enforcement path
-  why: Organizations and workspaces, every route and tool through authz.require, and the sync that keeps OpenFGA right.
-    The Keycloak Organizations probe confirms a personal organization per sign-up before it is built.
+  why: Organizations and workspaces, every route and tool through authz.require, and the sync that keeps OpenFGA right. The
+    Keycloak Organizations probe confirms a personal organization per sign-up before it is built.
   items:
   - F3.0.S2
   - F10.4.S1
@@ -165,11 +130,67 @@ waves:
   - F3.9.S4
   - '#72'
   - '#136'
-- id: W9
-  title: Notifications to customers and teams
-  why: Customer notices and team channels need W3's notifier, W6's channel health and W8's workspaces (a Slack or Teams
-    destination belongs to a workspace).
+  - F7.5.S1
+- id: W6
+  phase: 2
+  title: Onboarding, members, approvals and team insights
+  why: Screens that need W5's organizations, workspaces and member API, and the rollups at workspace scope (F3.3.S6). The
+    members screen ships here. Its seat-limit paywall (F4.8.S3) waits for E5's seat ledger in W13.
   items:
+  - F4.3.S3
+  - F4.3.S2
+  - F4.8.S2
+  - F4.9.S2
+  - F4.9.S3
+  - F4.10.S1
+  - F4.10.S5
+  - F4.10.S3
+- id: W7
+  phase: 3
+  title: Email and the notifier
+  why: ADR-0018's notices, the export link and Keycloak's own verify and reset mail all need outbound email. The seam, the
+    dispatcher and the preferences come before any second channel. The suppression list (F7.4.S5) comes before the relay that
+    feeds it (F7.4.S10), and the authenticated domain before Keycloak's production mail (F9.2.S3).
+  items:
+  - F7.4.S4
+  - F7.4.S2
+  - F7.4.S13
+  - F7.4.S5
+  - F7.4.S10
+  - F9.2.S3
+  - F9.2.S4
+  - F7.4.S14
+- id: W8
+  phase: 3
+  title: Account lifecycle (ADR-0018)
+  why: Export, notice, legal hold and erasure of a cut-off person. Depends on W7's email.
+  items:
+  - F3.3.S7
+  - F3.3.S8
+  - F3.3.S9
+  - F9.5.S9
+  - F9.5.S11
+  - F3.3.S10
+- id: W9
+  phase: 3
+  title: Directory federation (LDAP)
+  why: F9.8.S3 measures what the user sync and W8's cleanup job do to a federated person who leaves the group. F9.5.S10 removes
+    a Keycloak copy only after those measurements (ADR-0018 section 9 and its build table).
+  items:
+  - F9.8.S1
+  - F9.8.S2
+  - F9.8.S3
+  - F9.5.S10
+  - F9.8.S4
+- id: W10
+  phase: 3
+  title: Channel health and notifications
+  why: Channel health first, because the customer notices report it. Customer notices and team channels need W7's notifier
+    and W5's workspaces (a Slack or Teams destination belongs to a workspace).
+  items:
+  - F7.2.S1
+  - F7.2.S3
+  - F7.2.S4
   - F7.4.S1
   - F7.4.S3
   - F7.4.S6
@@ -177,50 +198,19 @@ waves:
   - F7.4.S8
   - F7.4.S9
   - F7.4.S12
-  - F7.5.S1
-- id: W10
-  title: Onboarding, approvals and insights
-  why: Screens that need W8's organizations, workspaces and member API, and the rollups at workspace scope (F3.3.S6). The
-    members screen waits for the seat ledger (W14).
-  items:
-  - F4.3.S3
-  - F4.3.S2
-  - F4.9.S2
-  - F4.9.S3
-  - F4.10.S1
-  - F4.10.S2
-  - F4.10.S3
+  - F7.4.S11
 - id: W11
+  phase: 3
   title: Identity extras
-  why: Social login and enterprise SSO, on top of W8's organizations.
+  why: A second factor for the admin client, social login and enterprise SSO on top of W5's organizations, and the realm runbook.
   items:
+  - F9.4.S1
   - F9.3.S1
   - F9.3.S2
   - F9.6.S1
   - F9.7.S1
 - id: W12
-  title: Observability and operations
-  why: Alerts, dashboards and traces for what W1 to W11 add, and the alert routing that sends them to email, Slack, Teams
-    and Telegram.
-  items:
-  - F7.1.S5
-  - F7.1.S3
-  - F7.1.S2
-  - F7.1.S4
-  - F7.1.S6
-  - F7.7.S2
-  - F7.7.S3
-  - F7.7.S7
-  - '#207'
-  - F7.8.S1
-  - F7.8.S2
-  - F7.8.S3
-  - F7.9.S1
-  - F7.11.S3
-  - F7.3.S1
-  - F7.3.S2
-  - '#215'
-- id: W13
+  phase: 4
   title: Tiers and billing spike (E10)
   why: Pricing, the provider bake-off and the entitlement design, decided before E5 builds them.
   items:
@@ -241,9 +231,10 @@ waves:
   - F10.5.S3
   - F10.5.S4
   - F10.5.S5
-- id: W14
+- id: W13
+  phase: 4
   title: Billing, entitlements and metering (E5)
-  why: Built from W13's decisions. Members with the seat paywall come after the seat ledger.
+  why: Built from W12's decisions. The seat-limit paywall on the members screen (F4.8.S3) comes after the seat ledger.
   items:
   - F5.2.S1
   - F5.2.S4
@@ -267,7 +258,7 @@ waves:
   - F5.5.S3
   - F5.5.S4
   - F5.5.S5
-  - F4.8.S2
+  - F4.8.S3
   - F5.3.S7
   - F5.6.S1
   - F5.6.S2
@@ -279,12 +270,12 @@ waves:
   - F5.7.S4
   - F5.7.S5
   - F5.1.S4
-- id: W15
+- id: W14
+  phase: 4
   title: Admin portal (E6)
-  why: The operator's views over W8's tenants and W14's subscriptions.
+  why: The operator's views over W5's tenants and W13's subscriptions.
   items:
   - F6.1.S1
-  - F9.4.S1
   - F6.1.S2
   - F6.2.S1
   - F6.2.S2
@@ -298,10 +289,27 @@ waves:
   - F6.5.S2
   - F6.5.S3
   - F6.5.S4
+- id: W15
+  phase: 4
+  title: Self-host licences and the agency add-on
+  why: Offline licences and the agency add-on, each when a customer asks for it.
+  items:
+  - F5.8.S1
+  - F5.8.S2
+  - F5.8.S3
+  - F5.8.S4
+  - F5.8.S5
+  - F6.4.S4
+  - F5.9.S1
+  - F5.9.S2
+  - F5.9.S3
+  - F5.9.S4
 - id: W16
-  title: Social platforms (E8)
-  why: Instagram with Facebook Pages, then YouTube, TikTok and X (product-spec Phase 2). Start the platform reviews early;
-    their queues set the timeline.
+  phase: 5
+  title: More platforms
+  why: 'Instagram with Facebook Pages, then YouTube, TikTok and X (product-spec Phase 2), then Hashnode, WordPress and Ghost.
+    Start the platform reviews early, because their queues set the timeline. The blogs'' phase is open in #360: product-spec
+    lists them in its Phase 1.'
   items:
   - F8.1.S1
   - F7.2.S2
@@ -316,29 +324,45 @@ waves:
   - F8.3.S1
   - F4.10.S4
   - F8.3.S2
+  - F2.7.S1
+  - F2.7.S2
+  - F2.7.S3
+  - '#59'
 - id: W17
-  title: Self-host, agency and scale
-  why: Offline licences, the agency add-on, more regions and a second KPI store, each when a customer or a measurement asks
-    for it.
+  phase: ongoing
+  title: Observability and operations
+  why: Alerts, dashboards and traces for what each phase adds, and the alert routing that sends them to email, Slack, Teams
+    and Telegram. Worked beside every phase.
   items:
-  - F5.8.S1
-  - F5.8.S2
-  - F5.8.S3
-  - F5.8.S4
-  - F5.8.S5
-  - F6.4.S4
-  - F5.9.S1
-  - F5.9.S2
-  - F5.9.S3
-  - F5.9.S4
-  - F3.1.S7
+  - F7.1.S5
+  - F7.1.S3
+  - F7.1.S2
+  - F7.1.S4
+  - F7.1.S6
+  - F7.7.S2
+  - F7.7.S3
+  - F7.7.S7
+  - '#207'
+  - F7.8.S1
+  - F7.8.S2
+  - F7.8.S3
+  - F7.9.S1
+  - F7.11.S3
+  - F7.3.S1
+  - F7.3.S2
+  - '#215'
+- id: W18
+  phase: ongoing
+  title: Scale and upkeep
+  why: A second region, cost allocation, a second KPI store, new Python, the Mac setup and the EC2 runbook, each when a customer
+    or a measurement asks for it.
+  items:
   - F7.6.S3
   - F7.10.S1
   - F7.11.S6
   - F1.6.S3
   - F1.9.S1
   - F7.6.S5
-  - '#59'
 # The issue that tracks the backlog and the review of this order: not work, so it sits outside the waves.
 tracking:
 - '#360'

@@ -74,6 +74,7 @@ features:
     title: Rename unknown to unconfirmed
     status: done
 - id: F2.7
+  phase: 5
   title: Blog platforms (product-spec Phase 1)
   stories:
   - id: F2.7.S1

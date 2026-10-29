@@ -8,7 +8,9 @@
     scripts/backlog/tracker.py --drift inkcasthq/inkcast     # compare with the GitHub issues (needs `gh`; not in CI)
 
 The stories live in docs/backlog/E*.yaml and the order in docs/backlog/order.yaml. Every story that is not done must
-appear in the order exactly once, so a new story cannot be filed without a place in the queue. Tests run --check.
+appear in the order exactly once, so a new story cannot be filed without a place in the queue. Each wave names its
+delivery phase (docs/epics/README.md, "Delivery phases"), and the stories in it must belong to that phase or be
+ongoing work. Tests run --check.
 """
 
 from __future__ import annotations
@@ -32,6 +34,8 @@ STORY_ID = re.compile(r"F\d+\.\d+\.S\d+")
 ISSUE_REF = re.compile(r"#(\d+)")
 # Lists of open issues outside the waves: developer tooling, and the issues that track the backlog itself.
 ISSUE_LISTS = ("tooling", "tracking")
+# Delivery phases: 1 to 5 are worked in order; ongoing work runs beside every phase.
+PHASES = (1, 2, 3, 4, 5, "ongoing")
 
 
 def load_epics(folder: pathlib.Path = BACKLOG) -> list[dict]:
@@ -51,6 +55,11 @@ def index(epics: list[dict]) -> dict[str, tuple[dict, dict, dict]]:
     return stories
 
 
+def phase(feature: dict, story: dict):
+    """A story's delivery phase: its own when it differs from its feature's, otherwise the feature's."""
+    return story.get("phase", feature.get("phase"))
+
+
 def validate(stories: dict[str, tuple[dict, dict, dict]], order: dict) -> list[str]:
     """Every problem with the backlog or the order, as one line each; empty when both are valid."""
     problems = []
@@ -61,10 +70,17 @@ def validate(stories: dict[str, tuple[dict, dict, dict]], order: dict) -> list[s
     wave_ids = [w.get("id") for w in order["waves"]]
     if len(set(wave_ids)) != len(wave_ids):
         problems.append(f"wave ids repeat: {wave_ids}")
+    last = None
     for w in order["waves"]:
         missing = [key for key in ("id", "title", "why") if not w.get(key)]
         if missing:
             problems.append(f"wave {w.get('id')!r} has no {', '.join(missing)}")
+        if w.get("phase") not in PHASES:
+            problems.append(f"wave {w.get('id')!r}: phase {w.get('phase')!r} is not one of {', '.join(map(str, PHASES))}")
+        elif w["phase"] != "ongoing":
+            if last is not None and w["phase"] < last[1]:
+                problems.append(f"wave {w['id']!r} is phase {w['phase']}, after {last[0]!r} in phase {last[1]}")
+            last = (w["id"], w["phase"])
     titled = {int(n) for n in order.get("issues") or {}}
     places = [(w.get("id"), item) for w in order["waves"] for item in w.get("items") or []]
     places += [(key, item) for key in ISSUE_LISTS for item in order.get(key) or []]
@@ -85,6 +101,11 @@ def validate(stories: dict[str, tuple[dict, dict, dict]], order: dict) -> list[s
             problems.append(f"{item!r} ({where}) is neither a story id nor '#N'")
         elif item not in stories:
             problems.append(f"{item} ({where}) is not in docs/backlog/E*.yaml")
+        else:
+            wave_phase = next(w.get("phase") for w in order["waves"] if w.get("id") == where)
+            story_phase = phase(stories[item][1], stories[item][2])
+            if story_phase not in (wave_phase, "ongoing"):
+                problems.append(f"{item} ({where}) is phase {story_phase!r}, but {where} is phase {wave_phase!r}")
     for sid, (_, _, story) in stories.items():
         if story.get("status") != "done" and sid not in seen:
             problems.append(f"{sid} is {story.get('status')} but has no place in docs/backlog/order.yaml")
@@ -151,11 +172,13 @@ def render(epics: list[dict], order: dict) -> str:
                    f"| {sum(c.values())} |")
     out += ["", "## Execution order", "",
             "Work the waves from top to bottom, and the items in each wave in the order listed. An item is a story, "
-            "or an open issue that is not a story.", ""]
+            "or an open issue that is not a story. Each wave names its delivery phase (see the epics index): the "
+            "phases run 1 to 5 in order, and the ongoing waves are worked beside them.", ""]
     for wave, rows in rows_by_wave:
         in_wave = [i for i in wave.get("items") or [] if i in stories]      # the open issues are not stories
         done = sum(1 for i in in_wave if stories[i][2]["status"] == "done")
-        out += [f"### {wave['id']}: {_cell(wave['title'])} ({done} of {len(in_wave)} stories done)", "",
+        out += [f"### {wave['id']}: {_cell(wave['title'])} (phase {wave['phase']}, {done} of {len(in_wave)} stories done)",
+                "",
                 _cell(wave["why"]), "",
                 "| # | Item | Status | Title | Epic | Issue |", "|---:|---|---|---|---|---|", *rows, ""]
     if order.get("tooling"):

@@ -5,12 +5,14 @@ status: planned
 goal: Instagram, Facebook Pages, YouTube, TikTok, X; batch review (see docs/design/social-platforms-epic.md and docs/design/video-platforms-and-review.md).
 features:
 - id: F8.1
+  phase: 5
   title: Interface v2
   stories:
   - id: F8.1.S1
     title: Media pipeline and async publish (see docs/issues 15-19)
     status: planned
 - id: F8.2
+  phase: 5
   title: Platforms
   stories:
   - id: F8.2.S1
@@ -41,6 +43,7 @@ features:
     - is_ai_generated is a composer field, never set silently
     - The 30-per-24-hours Page limit is enforced by the quota ledger before sending
 - id: F8.3
+  phase: 5
   title: Review and engagement
   stories:
   - id: F8.3.S1

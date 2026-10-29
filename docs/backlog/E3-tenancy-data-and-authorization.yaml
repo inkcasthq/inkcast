@@ -6,6 +6,7 @@ goal: 'PostgreSQL, organizations and workspaces, and authorization on OpenFGA fr
   deny by default, one enforcement path for web, mobile, REST, MCP and jobs; business state stays in the DB.'
 features:
 - id: F3.0
+  phase: 2
   title: 'Spike: OpenFGA in production'
   stories:
   - id: F3.0.S1
@@ -21,6 +22,7 @@ features:
     acceptance:
     - ADR-0008 accepted or amended
 - id: F3.1
+  phase: 2
   title: PostgreSQL repositories
   stories:
   - id: F3.1.S1
@@ -58,6 +60,7 @@ features:
     status: planned
     change: new
   - id: F3.1.S9
+    phase: 1
     title: 'SQLite stopgap until F3.1.S5: inkcast backup/restore/backups, the backup component (daily CronJob, own volume,
       deny-all network), InkcastBackupMissing, restore runbook, restore drill in CI on kind'
     status: in-progress
@@ -70,6 +73,7 @@ features:
     - The kind CI job backs up, deletes a row, restores and finds the row again
     - No successful backup for 26 h raises InkcastBackupMissing (critical) with a runbook
 - id: F3.2
+  phase: 2
   title: Organizations and workspaces
   stories:
   - id: F3.2.S1
@@ -115,6 +119,7 @@ features:
     status: planned
     change: refined
   - id: F3.2.S6
+    phase: 4
     title: Grant API writes seat_assignments and agency_grants in the same transaction and calls entitlements before billable
       or agency tuples (E5.F5.3.S5, F5.9)
     status: planned
@@ -179,6 +184,7 @@ features:
     - 'No outside enrichment service is called (personal data would leave, and air-gapped installs could not reach it)'
     - 'The type is in GET /api/v1/me/organizations, in the admin portal (E6) and in the signups-by-type KPI (F6.5.S2)'
 - id: F3.3
+  phase: 2
   title: Isolation and audit
   stories:
   - id: F3.3.S1
@@ -199,6 +205,7 @@ features:
     status: planned
     change: new
   - id: F3.3.S5
+    phase: 1
     title: 'Erasure flow (user and organization): owning tables, user-scope KPI rows deleted, member dims tombstoned, outbox
       purged; audited'
     status: done
@@ -211,6 +218,7 @@ features:
     status: planned
     change: new
   - id: F3.3.S7
+    phase: 3
     title: 'Export my data: one JSON bundle of everything Inkcast holds about the person (never credentials or tokens)'
     status: planned
     issue: 61
@@ -221,6 +229,7 @@ features:
       (names and accounts only), token names, scopes and dates, KPI rollups'
     - Tests prove no secret is in the bundle and another account's data never appears
   - id: F3.3.S8
+    phase: 3
     title: 'Export for a cut-off person: an emailed link (7 days, 5 downloads, never past the erasure)'
     status: planned
     issue: 328
@@ -243,6 +252,7 @@ features:
     - 'Tests: another person''s data never appears, expiry at the boundary, the download cap, the POST-only download,
       the email-age rule, and erasure removes the links'
   - id: F3.3.S9
+    phase: 3
     title: 'Legal hold: an operator stops one person''s erasure, audited'
     status: planned
     issue: 329
@@ -259,6 +269,7 @@ features:
       inkcast_identity_accounts{state="legal_hold"} counts them'
     - 'Tests: every erasure path refused while held, the release, the audit'
   - id: F3.3.S10
+    phase: 3
     title: 'Import an export bundle into a new account: posts and schedules become drafts, nothing is sent'
     status: planned
     issue: 333
@@ -278,6 +289,7 @@ features:
     change: 'new 2026-10-28; the organization half of F3.3.S5 (issue #65 built the user half); needs E3''s organizations
       (F3.2.S1)'
 - id: F3.11
+  phase: 2
   title: Envelope encryption of stored credentials
   stories:
   - id: F3.11.S1
@@ -291,12 +303,14 @@ features:
       KeyProvider; today one Fernet key derived from INKCAST_SECRET_KEY encrypts them (docs/architecture.md)'
     - A key rotation is tested, and a copy of the database alone yields no usable secret
 - id: F3.4
+  phase: 5
   title: Bring your own platform app credentials per workspace
   stories:
   - id: F3.4.S1
     title: Per-workspace OAuth app credentials for platforms
     status: planned
 - id: F3.5
+  phase: 2
   title: Authorization model as code
   stories:
   - id: F3.5.S1
@@ -380,6 +394,7 @@ features:
       inkcast_authz_duration_seconds{op,engine}; authz.denied and authz.error carry user, relation and object ids only'
     - InkcastAuthzErrors pages on sustained engine errors, with a runbook section
 - id: F3.7
+  phase: 2
   title: One enforcement path, deny by default
   stories:
   - id: F3.7.S1
@@ -403,6 +418,7 @@ features:
     status: planned
     change: new
 - id: F3.8
+  phase: 2
   title: Relationship lifecycle
   stories:
   - id: F3.8.S1
@@ -432,6 +448,7 @@ features:
     status: planned
     change: new
 - id: F3.9
+  phase: 1
   title: OpenFGA operations
   stories:
   - id: F3.9.S1
@@ -445,14 +462,17 @@ features:
     - environments/production sets INKCAST_AUTHZ_ENGINE=openfga and the INKCAST_FGA_* settings; until then it refuses
       to start (INKCAST_AUTHZ_ALLOW_LOCAL=false), by design
   - id: F3.9.S2
+    phase: 2
     title: NetworkPolicy (only Inkcast services reach OpenFGA); credentials from the secrets store
     status: planned
     change: new
   - id: F3.9.S3
+    phase: 2
     title: 'kind CI: end-to-end suite split with INKCAST_AUTHZ_ENGINE=openfga'
     status: planned
     change: new
   - id: F3.9.S4
+    phase: 2
     title: 'Runbooks: model rollout and rollback, store backup and restore, drift'
     status: planned
     change: new
@@ -539,6 +559,7 @@ features:
     - 'Proven on kind: a fresh install, an image change that re-runs the migration, a database outage longer than 30
       minutes that self-heals; and on OpenShift Local with /inkcast-crc'
 - id: F3.10
+  phase: 2
   title: 'Backing services: Valkey and PostgreSQL in the cluster'
   stories:
   - id: F3.10.S1
