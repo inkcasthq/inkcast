@@ -5,16 +5,19 @@
 # admits only Keycloak to it. In this namespace because a kustomization's `namespace:` renames every object it
 # renders: nothing here can live in environments/staging or environments/production.
 #
-# Applied once, in any order with the environments (README, Hosted §2): env-secrets (#323) writes
+# Applied once, before or after the environments (README, Hosted §2). The Keycloak CR must exist. The operator
+# creates each import Job only after a replica of its StatefulSet is ready. env-secrets (#323) writes
 # `inkcast-<side>-realm` here (keys identity-client-secret and sync-client-secret) and the same values into
 # `inkcast-secrets` in the environment's namespace (oidc-client-secret and keycloak-sync-secret). The import Job
-# reads the Secret through spec.placeholders, each an environment entry of its pod (optional: false): applied before
-# the Secret exists, the pod waits in CreateContainerConfigError and runs once the Secret appears, with no restart of
-# the server (#343, measured: docs/research/realm-import-before-secret-2026-10.md); no secret value is in Git. An
-# import creates its realm once and never changes it (`kc.sh import --override=false`). Change a realm that has people
-# through the admin console or API, and the realm file in the same pull request. Deleting a realm deletes its accounts,
-# and the user sync then treats each person as deleted, so delete and re-import only a realm with no accounts to keep.
-# The imports stay: their Jobs are the import's log, and a re-apply changes nothing.
+# reads the Secret through spec.placeholders. Each placeholder is an environment entry of its pod (optional: false).
+# A missing Secret, or a missing key, keeps the container in CreateContainerConfigError. The kubelet retries it until
+# the Secret holds every named key. The Secret must hold the intended values before the container starts. A later
+# change to the Secret does not repair an imported realm. The server is not restarted (#343, measured:
+# docs/research/realm-import-before-secret-2026-10.md). No secret value is in Git. An import creates its realm once
+# and never changes it (`kc.sh import --override=false`). Change a realm that has people through the admin console or
+# API, and the realm file in the same pull request. Deleting a realm deletes its accounts, and the user sync then
+# treats each person as deleted. Delete and re-import only a realm with no accounts to keep. The imports stay: their
+# Jobs are the import's log, and a re-apply changes nothing.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: keycloak
