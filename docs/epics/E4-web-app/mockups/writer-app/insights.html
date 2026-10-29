@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Inkcast web app</title>
+<style>
+body{margin:0}
+.ik-cols{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}
+@media (max-width:640px){.ik-user{display:none!important}.ik-actions button,.ik-actions a{flex:1 1 auto}}
+</style>
+</head>
+<body>
+<div style="font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #1A1D21; background: #F6F7F9; min-height: 100vh; width: 100%">
+  <header data-component="app-header" data-dataset="me" style="background: #FFFFFF; border-bottom: 1px solid #E3E5E8">
+    <div style="max-width: 1440px; margin: 0 auto; padding: 14px 24px 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; justify-content: space-between">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">
+          <div style="width: 32px; height: 32px; border-radius: 8px; background: #1D4ED8; display: flex; align-items: center; justify-content: center">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
+          </div>
+          <div style="display: flex; flex-direction: column">
+            <span style="font-size: 18px; font-weight: 600">Inkcast</span>
+            <span style="font-size: 12px; color: #555E6B">Write once, publish everywhere</span>
+          </div>
+          <span style="font-size: 12px; font-weight: 500; color: #8A4B00; background: #FFF4E5; border: 1px solid #F5C98B; border-radius: 999px; padding: 3px 10px">Sample data · mockup</span>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+          <div data-component="segmented" data-dataset="themes" role="group" aria-label="Theme" style="display: flex; border: 1px solid #CDD1D6; border-radius: 8px; overflow: hidden">
+            
+              <button aria-pressed="true" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; background: #1D4ED8; color: #FFFFFF; min-height: 36px; cursor: pointer">Light</button>
+            
+              <button aria-pressed="false" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; background: transparent; color: #1A1D21; min-height: 36px; cursor: pointer">Dark</button>
+            
+              <button aria-pressed="false" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; background: transparent; color: #1A1D21; min-height: 36px; cursor: pointer">Auto</button>
+            
+          </div>
+          <div class="ik-user" style="display: flex; align-items: center; gap: 8px">
+            <span aria-hidden="true" style="width: 32px; height: 32px; border-radius: 50%; background: #EEF2FF; color: #1E3A8A; font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: center">SW</span>
+            <span style="display: flex; flex-direction: column; font-size: 13px"><span style="font-weight: 500">Sam Writer</span><span style="font-size: 12px; color: #555E6B">sam@example.com</span></span>
+          </div>
+          <a href="/api/redoc" style="font-size: 13px; color: #1D4ED8; min-height: 36px; display: flex; align-items: center">API reference</a>
+          <a href="/logout" style="font-size: 13px; color: #1D4ED8; min-height: 36px; display: flex; align-items: center">Sign out</a>
+        </div>
+      </div>
+      
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+          <span style="font-size: 12px; color: #555E6B">Period</span>
+          <div role="group" aria-label="Period" data-component="segmented" data-dataset="ranges" style="display: flex; border: 1px solid #CDD1D6; border-radius: 8px; overflow-x: auto; max-width: 100%">
+            
+              <button aria-pressed="false" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; border-left: 0; background: transparent; color: #1A1D21; min-height: 36px; white-space: nowrap; cursor: pointer">7 days</button>
+            
+              <button aria-pressed="true" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; border-left: 1px solid #CDD1D6; background: #1D4ED8; color: #FFFFFF; min-height: 36px; white-space: nowrap; cursor: pointer">30 days</button>
+            
+              <button aria-pressed="false" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; border-left: 1px solid #CDD1D6; background: transparent; color: #1A1D21; min-height: 36px; white-space: nowrap; cursor: pointer">45 days</button>
+            
+              <button aria-pressed="false" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; border-left: 1px solid #CDD1D6; background: transparent; color: #1A1D21; min-height: 36px; white-space: nowrap; cursor: pointer">60 days</button>
+            
+              <button aria-pressed="false" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; border-left: 1px solid #CDD1D6; background: transparent; color: #1A1D21; min-height: 36px; white-space: nowrap; cursor: pointer">90 days</button>
+            
+          </div>
+          <span style="font-size: 12px; color: #555E6B">The last 30 days, your posts</span>
+        </div>
+      
+      <nav aria-label="Sections" style="display: flex; gap: 2px; overflow-x: auto">
+        
+          <button aria-current="false" style="font: inherit; font-size: 14px; font-weight: 400; color: #555E6B; background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 10px 14px; white-space: nowrap; cursor: pointer; min-height: 44px; display: flex; align-items: center; gap: 6px">Posts<span style="font-size: 12px; font-weight: 600; border-radius: 999px; padding: 1px 7px; background: #FDEFE3; color: #7C2D12">3</span></button>
+        
+          <button aria-current="false" style="font: inherit; font-size: 14px; font-weight: 400; color: #555E6B; background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 10px 14px; white-space: nowrap; cursor: pointer; min-height: 44px; display: flex; align-items: center; gap: 6px">Compose</button>
+        
+          <button aria-current="false" style="font: inherit; font-size: 14px; font-weight: 400; color: #555E6B; background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 10px 14px; white-space: nowrap; cursor: pointer; min-height: 44px; display: flex; align-items: center; gap: 6px">Connections<span style="font-size: 12px; font-weight: 600; border-radius: 999px; padding: 1px 7px; background: #FDEFE3; color: #7C2D12">1</span></button>
+        
+          <button aria-current="false" style="font: inherit; font-size: 14px; font-weight: 400; color: #555E6B; background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 10px 14px; white-space: nowrap; cursor: pointer; min-height: 44px; display: flex; align-items: center; gap: 6px">Git publishing</button>
+        
+          <button aria-current="false" style="font: inherit; font-size: 14px; font-weight: 400; color: #555E6B; background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 10px 14px; white-space: nowrap; cursor: pointer; min-height: 44px; display: flex; align-items: center; gap: 6px">Tokens</button>
+        
+          <button aria-current="page" style="font: inherit; font-size: 14px; font-weight: 600; color: #1A1D21; background: transparent; border: 0; border-bottom: 2px solid #1D4ED8; padding: 10px 14px; white-space: nowrap; cursor: pointer; min-height: 44px; display: flex; align-items: center; gap: 6px">Insights</button>
+        
+          <button aria-current="false" style="font: inherit; font-size: 14px; font-weight: 400; color: #555E6B; background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 10px 14px; white-space: nowrap; cursor: pointer; min-height: 44px; display: flex; align-items: center; gap: 6px">API</button>
+        
+      </nav>
+    </div>
+  </header>
+
+  <main style="max-width: 1440px; margin: 0 auto; padding: 20px 24px 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px">
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+      <section aria-label="Totals" data-component="kpi-tiles" data-dataset="insights" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px">
+        
+          <div style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; min-width: 0">
+            <span style="font-size: 13px; color: #555E6B">Published</span>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: clamp(22px, 2.4vw, 28px); font-weight: 500; color: #14532D">10</span>
+            <span style="font-size: 12px; color: #555E6B">accepted by a platform, drafts included</span>
+          </div>
+        
+          <div style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; min-width: 0">
+            <span style="font-size: 13px; color: #555E6B">Publish success</span>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: clamp(22px, 2.4vw, 28px); font-weight: 500; color: #1A1D21">83%</span>
+            <span style="font-size: 12px; color: #555E6B">published ÷ (published + failed + unconfirmed)</span>
+          </div>
+        
+          <div style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; min-width: 0">
+            <span style="font-size: 13px; color: #555E6B">On time</span>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: clamp(22px, 2.4vw, 28px); font-weight: 500; color: #1A1D21">86%</span>
+            <span style="font-size: 12px; color: #555E6B">scheduled sends within 2 minutes of their time</span>
+          </div>
+        
+          <div style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; min-width: 0">
+            <span style="font-size: 13px; color: #555E6B">Files synced</span>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: clamp(22px, 2.4vw, 28px); font-weight: 500; color: #1A1D21">58</span>
+            <span style="font-size: 12px; color: #555E6B">Git publishing results, every action</span>
+          </div>
+        
+      </section>
+      <section aria-label="Posts published per day" data-component="time-series" data-dataset="kpis" style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px">
+        <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px">
+          <div style="display: flex; flex-direction: column; gap: 4px">
+            <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #1D4ED8">Output</span>
+            <h2 style="margin: 0; font-size: 16px; font-weight: 600">Posts published per day</h2>
+          </div>
+          <div style="display: flex; gap: 16px; font-size: 13px; color: #555E6B">
+            <span style="display: flex; align-items: center; gap: 6px"><span style="width: 12px; height: 12px; border-radius: 3px; background: #6D5DF0"></span>DEV</span><span style="display: flex; align-items: center; gap: 6px"><span style="width: 12px; height: 12px; border-radius: 3px; background: #059669"></span>Medium</span>
+          </div>
+        </div>
+        <div style="overflow-x: auto">
+          <div style="display: flex; align-items: flex-end; gap: 3px; height: 180px; min-width: 300px; border-bottom: 1px solid #E3E5E8; padding-top: 8px">
+            
+              <div title="Sep 28: DEV 0, Medium 0" style="flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%">
+                <div style="flex: 1 1 0; background: #6D5DF0; border-radius: 3px 3px 0 0; height: 0px"></div>
+                <div style="flex: 1 1 0; background: #059669; border-radius: 3px 3px 0 0; height: 0px"></div>
+              </div>
+            
+              <div title="Sep 29: DEV 0, Medium 0" style="flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%">
+                <div style="flex: 1 1 0; background: #6D5DF0; border-radius: 3px 3px 0 0; height: 0px"></div>
+                <div style="flex: 1 1 0; background: #059669; border-radius: 3px 3px 0 0; height: 0px"></div>
+              </div>
+            
+              <div title="Sep 30: DEV 0, Medium 0" style="flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%">
+                <div style="flex: 1 1 0; background: #6D5DF0; border-radius: 3px 3px 0 0; height: 0px"></div>
+                <div style="flex: 1 1 0; background: #059669; border-radius: 3px 3px 0 0; height: 0px"></div>
+              </div>
+            
+              <div title="Oct 1: DEV 0, Medium 0" style="flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%">
+                <div style="flex: 1 1 0; background: #6D5DF0; border-radius: 3px 3px 0 0; height: 0px"></div>
+                <div style="flex: 1 1 0; background: #059669; border-radius: 3px 3px 0 0; height: 0px"></div>
+              </div>
+            
+              <div title="Oct 2: DEV 0, Medium 0" style="flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%">
+                <div style="flex: 1 1 0; background: #6D5DF0; border-radius: 3px 3px 0 0; height: 0px"></div>
+                <div style="flex: 1 1 0; background: #059669; border-radius: 3px 3px 0 0; height: 0px"></div>
+              </div>
+            
+              <div title="Oct 3: DEV 1, Medium 1" style="flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%">
+                <div style="flex: 1 1 0; background: #6D5DF0; border-radius: 3px 3px 0 0; height: 164px"></div>
+                <div style="flex: 1 1 0; background: #059669; border-radius: 3px 3px 0 0; height: 164px"></div>
+              </div>
+            
+              <div title="Oct 4: DEV 0, Medium 0" style="flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%">
+                <div style="flex: 1 1 0; background: #6D5DF0; border-radius: 3px 3px 0 0; height: 0px"></div>
+                <div style="flex: 1 1 0; background: #059669; border-radius: 3px 3px 0 0; height: 0px"></div>
+              </div>
+            
+              <div title="Oct 5: DEV 0, Medium 0" style="flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%">
+                <div style="flex: 1 1 0; background: #6D5DF0; border-radius: 3px 3px 0 0; height: 0px"></div>
+                <div style="flex: 1 1 0; background: #059669; border-radius: 3px 3px 0 0; height: 0px"></div>
+              </div>
+            
+              <div title="Oct 6: DEV 0, Medium 0" style="flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%">
+                <div style="flex: 1 1 0; background: #6D5DF0; border-radius: 3px 3px 0 0; height: 0px"></div>
+                <div style="flex: 1 1 0; background: #059669; border-radius: 3px 3px 0 0; height: 0px"></div>
+              </div>
+            
+              <div title="Oct 7: DEV 0, Medium 0" style="flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%">
+                <div style="flex: 1 1 0; background: #6D5DF0; border-radius: 3px 3px 0 0; height: 0px"></div>
+                <div style="flex: 1 1 0; background: #059669; border-radius: 3px 3px 0 0; height: 0px"></div>
+              </div>
+            
+              <div title="Oct 8: DEV 0, Medium 0" style="flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%">
+                <div style="flex: 1 1 0; background: #6D5DF0; border-radius: 3px 3px 0 0; height: 0px"></div>
+                <div style="flex: 1 1 0; background: #059669; border-radius: 3px 3px 0 0; height: 0px"></div>
+              </div>
+            
+              <div title="Oct 9: DEV 0, Medium 0" style="flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%">
+                <div style="flex: 1 1 0; background: #6D5DF0; border-radius: 3px 3px 0 0; height: 0px"></div>
+                <div style="flex: 1 1 0; background: #059669; border-radius: 3px 3px 0 0; height: 0px"></div>
+              </div>
+            
+              <div title="Oct 10: DEV 1, Medium 0" style="flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%">
+                <div style="flex: 1 1 0; background: #6D5DF0; border-radius: 3px 3px 0 0; height: 164px"></div>
+                <div style="flex: 1 1 0; background: #059669; border-radius: 3px 3px 0 0; height: 0px"></div>
+              </div>
+            
+              <div title="Oct 11: DEV 0, Medium 0" style="flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%">
+                <div style="flex: 1 1 0; background: #6D5DF0; border-radius: 3px 3px 0 0; height: 0px"></div>
+                <div style="flex: 1 1 0; background: #059669; border-radius: 3px 3px 0 0; height: 0px"></div>
+              </div>
+            
+              <div title="Oct 12: DEV 0, Medium 0" style="flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%">
+                <div style="flex: 1 1 0; background: #6D5DF0; border-radius: 3px 3px 0 0; height: 0px"></div>
+                <div style="flex: 1 1 0; background: #059669; border-radius: 3px 3px 0 0; height: 0px"></div>
+              </div>
+            
+              <div title="Oct 13: DEV 0, Medium 0" style="flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%">
+                <div style="flex: 1 1 0; background: #6D5DF0; border-radius: 3px 3px 0 0; height: 0px"></div>
+                <div style="flex: 1 1 0; background: #059669; border-radius: 3px 3px 0 0; height: 0px"></div>
+              </div>
+            
+              <div title="Oct 14: DEV 0, Medium 1" style="flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%">
+                <div style="flex: 1 1 0; background: #6D5DF0; border-radius: 3px 3px 0 0; height: 0px"></div>
+                <div style="flex: 1 1 0; background: #059669; border-radius: 3px 3px 0 0; height: 164px"></div>
+              </div>
+            
+              <div title="Oct 15: DEV 1, Medium 0" style="flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%">
+                <div style="flex: 1 1 0; background: #6D5DF0; border-radius: 3px 3px 0 0; height: 164px"></div>
+                <div style="flex: 1 1 0; background: #059669; border-radius: 3px 3px 0 0; height: 0px"></div>
+              </div>
+            
+              <div title="Oct 16: DEV 0, Medium 0" style="flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%">
+                <div style="flex: 1 1 0; background: #6D5DF0; border-radius: 3px 3px 0 0; height: 0px"></div>
+                <div style="flex: 1 1 0; background: #059669; border-radius: 3px 3px 0 0; height: 0px"></div>
+              </div>
+            
+              <div title="Oct 17: DEV 1, Medium 1" style="flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%">
+                <div style="flex: 1 1 0; background: #6D5DF0; border-radius: 3px 3px 0 0; height: 164px"></div>
+                <div style="flex: 1 1 0; background: #059669; border-radius: 3px 3px 0 0; height: 164px"></div>
+              </div>
+            
+              <div title="Oct 18: DEV 0, Medium 0" style="flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%">
+                <div style="flex: 1 1 0; background: #6D5DF0; border-radius: 3px 3px 0 0; height: 0px"></div>
+                <div style="flex: 1 1 0; background: #059669; border-radius: 3px 3px 0 0; height: 0px"></div>
+              </div>
+            
+              <div title="Oct 19: DEV 0, Medium 0" style="flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%">
+                <div style="flex: 1 1 0; background: #6D5DF0; border-radius: 3px 3px 0 0; height: 0px"></div>
+                <div style="flex: 1 1 0; background: #059669; border-radius: 3px 3px 0 0; height: 0px"></div>
+              </div>
+            
+              <div title="Oct 20: DEV 0, Medium 0" style="flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%">
+                <div style="flex: 1 1 0; background: #6D5DF0; border-radius: 3px 3px 0 0; height: 0px"></div>
+                <div style="flex: 1 1 0; background: #059669; border-radius: 3px 3px 0 0; height: 0px"></div>
+              </div>
+            
+              <div title="Oct 21: DEV 0, Medium 0" style="flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%">
+                <div style="flex: 1 1 0; background: #6D5DF0; border-radius: 3px 3px 0 0; height: 0px"></div>
+                <div style="flex: 1 1 0; background: #059669; border-radius: 3px 3px 0 0; height: 0px"></div>
+              </div>
+            
+              <div title="Oct 22: DEV 1, Medium 0" style="flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%">
+                <div style="flex: 1 1 0; background: #6D5DF0; border-radius: 3px 3px 0 0; height: 164px"></div>
+                <div style="flex: 1 1 0; background: #059669; border-radius: 3px 3px 0 0; height: 0px"></div>
+              </div>
+            
+              <div title="Oct 23: DEV 0, Medium 0" style="flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%">
+                <div style="flex: 1 1 0; background: #6D5DF0; border-radius: 3px 3px 0 0; height: 0px"></div>
+                <div style="flex: 1 1 0; background: #059669; border-radius: 3px 3px 0 0; height: 0px"></div>
+              </div>
+            
+              <div title="Oct 24: DEV 0, Medium 0" style="flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%">
+                <div style="flex: 1 1 0; background: #6D5DF0; border-radius: 3px 3px 0 0; height: 0px"></div>
+                <div style="flex: 1 1 0; background: #059669; border-radius: 3px 3px 0 0; height: 0px"></div>
+              </div>
+            
+              <div title="Oct 25: DEV 1, Medium 1" style="flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%">
+                <div style="flex: 1 1 0; background: #6D5DF0; border-radius: 3px 3px 0 0; height: 164px"></div>
+                <div style="flex: 1 1 0; background: #059669; border-radius: 3px 3px 0 0; height: 164px"></div>
+              </div>
+            
+              <div title="Oct 26: DEV 0, Medium 0" style="flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%">
+                <div style="flex: 1 1 0; background: #6D5DF0; border-radius: 3px 3px 0 0; height: 0px"></div>
+                <div style="flex: 1 1 0; background: #059669; border-radius: 3px 3px 0 0; height: 0px"></div>
+              </div>
+            
+              <div title="Oct 27: DEV 0, Medium 0" style="flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%">
+                <div style="flex: 1 1 0; background: #6D5DF0; border-radius: 3px 3px 0 0; height: 0px"></div>
+                <div style="flex: 1 1 0; background: #059669; border-radius: 3px 3px 0 0; height: 0px"></div>
+              </div>
+            
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 12px; color: #555E6B; padding-top: 6px; min-width: 300px">
+            <span>Sep 28</span><span>Oct 5</span><span>Oct 13</span><span>Oct 20</span><span>Oct 27</span>
+          </div>
+        </div>
+      </section>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px">
+        
+          <section data-component="bar-list" data-dataset="insights" style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0">
+            <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #1D4ED8">Reliability</span>
+            <h2 style="margin: 0; font-size: 16px; font-weight: 600">Publish success, per platform</h2>
+            
+              <div style="display: flex; flex-direction: column; gap: 4px">
+                <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 13px"><span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 50%; background: #6D5DF0; flex: none"></span>DEV</span><span style="font-family: 'IBM Plex Mono', monospace; color: #555E6B; white-space: nowrap">86% · 6 of 7</span></div>
+                <div style="height: 8px; background: #EEF0F3; border-radius: 4px"><div style="height: 8px; border-radius: 4px; background: #6D5DF0; width: 86%"></div></div>
+              </div>
+            
+              <div style="display: flex; flex-direction: column; gap: 4px">
+                <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 13px"><span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 50%; background: #059669; flex: none"></span>Medium</span><span style="font-family: 'IBM Plex Mono', monospace; color: #555E6B; white-space: nowrap">80% · 4 of 5</span></div>
+                <div style="height: 8px; background: #EEF0F3; border-radius: 4px"><div style="height: 8px; border-radius: 4px; background: #059669; width: 80%"></div></div>
+              </div>
+            
+            <span style="font-size: 12px; color: #555E6B">Failed and unconfirmed sends count against it.</span>
+          </section>
+        
+          <section data-component="bar-list" data-dataset="insights" style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0">
+            <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #1D4ED8">Timing</span>
+            <h2 style="margin: 0; font-size: 16px; font-weight: 600">On time, per platform</h2>
+            
+              <div style="display: flex; flex-direction: column; gap: 4px">
+                <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 13px"><span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 50%; background: #6D5DF0; flex: none"></span>DEV</span><span style="font-family: 'IBM Plex Mono', monospace; color: #555E6B; white-space: nowrap">100% · 4 of 4</span></div>
+                <div style="height: 8px; background: #EEF0F3; border-radius: 4px"><div style="height: 8px; border-radius: 4px; background: #6D5DF0; width: 100%"></div></div>
+              </div>
+            
+              <div style="display: flex; flex-direction: column; gap: 4px">
+                <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 13px"><span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 50%; background: #059669; flex: none"></span>Medium</span><span style="font-family: 'IBM Plex Mono', monospace; color: #555E6B; white-space: nowrap">67% · 2 of 3</span></div>
+                <div style="height: 8px; background: #EEF0F3; border-radius: 4px"><div style="height: 8px; border-radius: 4px; background: #059669; width: 67%"></div></div>
+              </div>
+            
+            <span style="font-size: 12px; color: #555E6B">Within two minutes of the time you set.</span>
+          </section>
+        
+          <section data-component="bar-list" data-dataset="insights" style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0">
+            <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #1D4ED8">Git publishing</span>
+            <h2 style="margin: 0; font-size: 16px; font-weight: 600">Sync results, by action</h2>
+            
+              <div style="display: flex; flex-direction: column; gap: 4px">
+                <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 13px"><span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 50%; background: #0F766E; flex: none"></span>create</span><span style="font-family: 'IBM Plex Mono', monospace; color: #555E6B; white-space: nowrap">8</span></div>
+                <div style="height: 8px; background: #EEF0F3; border-radius: 4px"><div style="height: 8px; border-radius: 4px; background: #0F766E; width: 14%"></div></div>
+              </div>
+            
+              <div style="display: flex; flex-direction: column; gap: 4px">
+                <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 13px"><span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 50%; background: #0284C7; flex: none"></span>update</span><span style="font-family: 'IBM Plex Mono', monospace; color: #555E6B; white-space: nowrap">5</span></div>
+                <div style="height: 8px; background: #EEF0F3; border-radius: 4px"><div style="height: 8px; border-radius: 4px; background: #0284C7; width: 9%"></div></div>
+              </div>
+            
+              <div style="display: flex; flex-direction: column; gap: 4px">
+                <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 13px"><span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 50%; background: #475569; flex: none"></span>unchanged</span><span style="font-family: 'IBM Plex Mono', monospace; color: #555E6B; white-space: nowrap">41</span></div>
+                <div style="height: 8px; background: #EEF0F3; border-radius: 4px"><div style="height: 8px; border-radius: 4px; background: #475569; width: 71%"></div></div>
+              </div>
+            
+              <div style="display: flex; flex-direction: column; gap: 4px">
+                <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 13px"><span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 50%; background: #A16207; flex: none"></span>stale</span><span style="font-family: 'IBM Plex Mono', monospace; color: #555E6B; white-space: nowrap">1</span></div>
+                <div style="height: 8px; background: #EEF0F3; border-radius: 4px"><div style="height: 8px; border-radius: 4px; background: #A16207; width: 2%"></div></div>
+              </div>
+            
+              <div style="display: flex; flex-direction: column; gap: 4px">
+                <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 13px"><span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 50%; background: #DB2777; flex: none"></span>skipped</span><span style="font-family: 'IBM Plex Mono', monospace; color: #555E6B; white-space: nowrap">2</span></div>
+                <div style="height: 8px; background: #EEF0F3; border-radius: 4px"><div style="height: 8px; border-radius: 4px; background: #DB2777; width: 3%"></div></div>
+              </div>
+            
+              <div style="display: flex; flex-direction: column; gap: 4px">
+                <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 13px"><span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 50%; background: #C2410C; flex: none"></span>failed</span><span style="font-family: 'IBM Plex Mono', monospace; color: #555E6B; white-space: nowrap">1</span></div>
+                <div style="height: 8px; background: #EEF0F3; border-radius: 4px"><div style="height: 8px; border-radius: 4px; background: #C2410C; width: 2%"></div></div>
+              </div>
+            
+            <span style="font-size: 12px; color: #555E6B">"unchanged" is a file Inkcast left alone: nothing was sent.</span>
+          </section>
+        
+      </div>
+      <section aria-label="Posts by status and platform" data-component="heat-grid" data-dataset="insights" style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+        <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #1D4ED8">Where they ended up</span>
+        <h2 style="margin: 0; font-size: 16px; font-weight: 600">Posts by status and platform</h2>
+        <span style="font-size: 12px; color: #555E6B">Posts that changed in the period; a post scheduled for later counts as scheduled now.</span>
+        <div style="overflow-x: auto">
+          <div style="display: grid; grid-template-columns: 140px repeat(2, minmax(96px, 1fr)); gap: 4px; min-width: 360px; font-size: 13px">
+            <span style="position: sticky; left: 0; background: #FFFFFF"></span>
+            <span style="color: #555E6B; padding: 4px 8px; display: flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #6D5DF0"></span>DEV</span><span style="color: #555E6B; padding: 4px 8px; display: flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #059669"></span>Medium</span>
+            
+              <span style="position: sticky; left: 0; background: #FFFFFF; padding: 8px; color: #1A1D21">published</span>
+              <span style="background: #1E3A8A; color: #FFFFFF; border-radius: 6px; padding: 8px; font-family: 'IBM Plex Mono', monospace; text-align: center">5</span><span style="background: #1E3A8A; color: #FFFFFF; border-radius: 6px; padding: 8px; font-family: 'IBM Plex Mono', monospace; text-align: center">4</span>
+            
+              <span style="position: sticky; left: 0; background: #FFFFFF; padding: 8px; color: #1A1D21">draft</span>
+              <span style="background: #E8EEFC; color: #1A1D21; border-radius: 6px; padding: 8px; font-family: 'IBM Plex Mono', monospace; text-align: center">1</span><span style="background: #F6F7F9; color: #555E6B; border-radius: 6px; padding: 8px; font-family: 'IBM Plex Mono', monospace; text-align: center">0</span>
+            
+              <span style="position: sticky; left: 0; background: #FFFFFF; padding: 8px; color: #1A1D21">scheduled</span>
+              <span style="background: #3B66D6; color: #FFFFFF; border-radius: 6px; padding: 8px; font-family: 'IBM Plex Mono', monospace; text-align: center">3</span><span style="background: #E8EEFC; color: #1A1D21; border-radius: 6px; padding: 8px; font-family: 'IBM Plex Mono', monospace; text-align: center">1</span>
+            
+              <span style="position: sticky; left: 0; background: #FFFFFF; padding: 8px; color: #1A1D21">failed</span>
+              <span style="background: #F6F7F9; color: #555E6B; border-radius: 6px; padding: 8px; font-family: 'IBM Plex Mono', monospace; text-align: center">0</span><span style="background: #E8EEFC; color: #1A1D21; border-radius: 6px; padding: 8px; font-family: 'IBM Plex Mono', monospace; text-align: center">1</span>
+            
+              <span style="position: sticky; left: 0; background: #FFFFFF; padding: 8px; color: #1A1D21">unconfirmed</span>
+              <span style="background: #E8EEFC; color: #1A1D21; border-radius: 6px; padding: 8px; font-family: 'IBM Plex Mono', monospace; text-align: center">1</span><span style="background: #F6F7F9; color: #555E6B; border-radius: 6px; padding: 8px; font-family: 'IBM Plex Mono', monospace; text-align: center">0</span>
+            
+              <span style="position: sticky; left: 0; background: #FFFFFF; padding: 8px; color: #1A1D21">recovering</span>
+              <span style="background: #E8EEFC; color: #1A1D21; border-radius: 6px; padding: 8px; font-family: 'IBM Plex Mono', monospace; text-align: center">1</span><span style="background: #F6F7F9; color: #555E6B; border-radius: 6px; padding: 8px; font-family: 'IBM Plex Mono', monospace; text-align: center">0</span>
+            
+              <span style="position: sticky; left: 0; background: #FFFFFF; padding: 8px; color: #1A1D21">cancelled</span>
+              <span style="background: #F6F7F9; color: #555E6B; border-radius: 6px; padding: 8px; font-family: 'IBM Plex Mono', monospace; text-align: center">0</span><span style="background: #E8EEFC; color: #1A1D21; border-radius: 6px; padding: 8px; font-family: 'IBM Plex Mono', monospace; text-align: center">1</span>
+            
+          </div>
+        </div>
+      </section>
+    
+
+    
+  </main>
+</div>
+</body>
+</html>

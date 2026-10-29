@@ -19,8 +19,9 @@ features:
   - id: F4.1.S4
     title: 'Mockup: the writer web app (Posts, Compose, Connections, Git sync, Tokens, Insights, API), approved before UI
       code'
-    status: planned
-    change: 'issue #347; new 2026-10-28; first in order: the mockup gates F4.1.S1, F4.2 and every screen build (ADR-0004)'
+    status: done
+    change: 'issue #347; new 2026-10-28; first in order: the mockup gates F4.1.S1, F4.2 and every screen build (ADR-0004);
+      approved by the owner 2026-10-29'
     acceptance:
     - 'One app artboard to the mockup standard (docs/tooling/mockup-standard.md, target react-ts), with a tab per screen,
       tablet (820 px) and phone (390 px) frames and a theme tokens sheet, under docs/epics/E4-web-app/mockups/source/'

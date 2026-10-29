@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Inkcast web app</title>
+<style>
+body{margin:0}
+.ik-cols{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}
+@media (max-width:640px){.ik-user{display:none!important}.ik-actions button,.ik-actions a{flex:1 1 auto}}
+</style>
+</head>
+<body>
+<div style="font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #1A1D21; background: #F6F7F9; min-height: 100vh; width: 100%">
+  <header data-component="app-header" data-dataset="me" style="background: #FFFFFF; border-bottom: 1px solid #E3E5E8">
+    <div style="max-width: 1440px; margin: 0 auto; padding: 14px 24px 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; justify-content: space-between">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">
+          <div style="width: 32px; height: 32px; border-radius: 8px; background: #1D4ED8; display: flex; align-items: center; justify-content: center">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
+          </div>
+          <div style="display: flex; flex-direction: column">
+            <span style="font-size: 18px; font-weight: 600">Inkcast</span>
+            <span style="font-size: 12px; color: #555E6B">Write once, publish everywhere</span>
+          </div>
+          <span style="font-size: 12px; font-weight: 500; color: #8A4B00; background: #FFF4E5; border: 1px solid #F5C98B; border-radius: 999px; padding: 3px 10px">Sample data · mockup</span>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+          <div data-component="segmented" data-dataset="themes" role="group" aria-label="Theme" style="display: flex; border: 1px solid #CDD1D6; border-radius: 8px; overflow: hidden">
+            
+              <button aria-pressed="true" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; background: #1D4ED8; color: #FFFFFF; min-height: 36px; cursor: pointer">Light</button>
+            
+              <button aria-pressed="false" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; background: transparent; color: #1A1D21; min-height: 36px; cursor: pointer">Dark</button>
+            
+              <button aria-pressed="false" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; background: transparent; color: #1A1D21; min-height: 36px; cursor: pointer">Auto</button>
+            
+          </div>
+          <div class="ik-user" style="display: flex; align-items: center; gap: 8px">
+            <span aria-hidden="true" style="width: 32px; height: 32px; border-radius: 50%; background: #EEF2FF; color: #1E3A8A; font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: center">SW</span>
+            <span style="display: flex; flex-direction: column; font-size: 13px"><span style="font-weight: 500">Sam Writer</span><span style="font-size: 12px; color: #555E6B">sam@example.com</span></span>
+          </div>
+          <a href="/api/redoc" style="font-size: 13px; color: #1D4ED8; min-height: 36px; display: flex; align-items: center">API reference</a>
+          <a href="/logout" style="font-size: 13px; color: #1D4ED8; min-height: 36px; display: flex; align-items: center">Sign out</a>
+        </div>
+      </div>
+      
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+          <span style="font-size: 12px; color: #555E6B">Period</span>
+          <div role="group" aria-label="Period" data-component="segmented" data-dataset="ranges" style="display: flex; border: 1px solid #CDD1D6; border-radius: 8px; overflow-x: auto; max-width: 100%">
+            
+              <button aria-pressed="false" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; border-left: 0; background: transparent; color: #1A1D21; min-height: 36px; white-space: nowrap; cursor: pointer">7 days</button>
+            
+              <button aria-pressed="true" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; border-left: 1px solid #CDD1D6; background: #1D4ED8; color: #FFFFFF; min-height: 36px; white-space: nowrap; cursor: pointer">30 days</button>
+            
+              <button aria-pressed="false" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; border-left: 1px solid #CDD1D6; background: transparent; color: #1A1D21; min-height: 36px; white-space: nowrap; cursor: pointer">45 days</button>
+            
+              <button aria-pressed="false" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; border-left: 1px solid #CDD1D6; background: transparent; color: #1A1D21; min-height: 36px; white-space: nowrap; cursor: pointer">60 days</button>
+            
+              <button aria-pressed="false" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; border-left: 1px solid #CDD1D6; background: transparent; color: #1A1D21; min-height: 36px; white-space: nowrap; cursor: pointer">90 days</button>
+            
+          </div>
+          <span style="font-size: 12px; color: #555E6B">Posts from the last 30 days and the next 90</span>
+        </div>
+      
+      <nav aria-label="Sections" style="display: flex; gap: 2px; overflow-x: auto">
+        
+          <button aria-current="page" style="font: inherit; font-size: 14px; font-weight: 600; color: #1A1D21; background: transparent; border: 0; border-bottom: 2px solid #1D4ED8; padding: 10px 14px; white-space: nowrap; cursor: pointer; min-height: 44px; display: flex; align-items: center; gap: 6px">Posts<span style="font-size: 12px; font-weight: 600; border-radius: 999px; padding: 1px 7px; background: #FDEFE3; color: #7C2D12">3</span></button>
+        
+          <button aria-current="false" style="font: inherit; font-size: 14px; font-weight: 400; color: #555E6B; background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 10px 14px; white-space: nowrap; cursor: pointer; min-height: 44px; display: flex; align-items: center; gap: 6px">Compose</button>
+        
+          <button aria-current="false" style="font: inherit; font-size: 14px; font-weight: 400; color: #555E6B; background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 10px 14px; white-space: nowrap; cursor: pointer; min-height: 44px; display: flex; align-items: center; gap: 6px">Connections<span style="font-size: 12px; font-weight: 600; border-radius: 999px; padding: 1px 7px; background: #FDEFE3; color: #7C2D12">1</span></button>
+        
+          <button aria-current="false" style="font: inherit; font-size: 14px; font-weight: 400; color: #555E6B; background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 10px 14px; white-space: nowrap; cursor: pointer; min-height: 44px; display: flex; align-items: center; gap: 6px">Git publishing</button>
+        
+          <button aria-current="false" style="font: inherit; font-size: 14px; font-weight: 400; color: #555E6B; background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 10px 14px; white-space: nowrap; cursor: pointer; min-height: 44px; display: flex; align-items: center; gap: 6px">Tokens</button>
+        
+          <button aria-current="false" style="font: inherit; font-size: 14px; font-weight: 400; color: #555E6B; background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 10px 14px; white-space: nowrap; cursor: pointer; min-height: 44px; display: flex; align-items: center; gap: 6px">Insights</button>
+        
+          <button aria-current="false" style="font: inherit; font-size: 14px; font-weight: 400; color: #555E6B; background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 10px 14px; white-space: nowrap; cursor: pointer; min-height: 44px; display: flex; align-items: center; gap: 6px">API</button>
+        
+      </nav>
+    </div>
+  </header>
+
+  <main style="max-width: 1440px; margin: 0 auto; padding: 20px 24px 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px">
+
+    
+      <section aria-label="Posts at a glance" data-component="kpi-tiles" data-dataset="posts" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px">
+        
+          <div style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; min-width: 0">
+            <span style="font-size: 13px; color: #555E6B">Coming up</span>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: clamp(22px, 2.4vw, 28px); font-weight: 500; color: #1A1D21">4</span>
+            <span style="font-size: 12px; color: #555E6B">scheduled in the next 90 days</span>
+          </div>
+        
+          <div style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; min-width: 0">
+            <span style="font-size: 13px; color: #555E6B">Published</span>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: clamp(22px, 2.4vw, 28px); font-weight: 500; color: #14532D">10</span>
+            <span style="font-size: 12px; color: #555E6B">in the last 30 days, drafts included</span>
+          </div>
+        
+          <div style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; min-width: 0">
+            <span style="font-size: 13px; color: #555E6B">Need you</span>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: clamp(22px, 2.4vw, 28px); font-weight: 500; color: #7C2D12">3</span>
+            <span style="font-size: 12px; color: #555E6B">failed, unconfirmed or recovering</span>
+          </div>
+        
+          <div style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; min-width: 0">
+            <span style="font-size: 13px; color: #555E6B">At risk</span>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: clamp(22px, 2.4vw, 28px); font-weight: 500; color: #7C2D12">1</span>
+            <span style="font-size: 12px; color: #555E6B">scheduled on a platform that isn't connected</span>
+          </div>
+        
+      </section>
+      
+        <section aria-label="Posts that need you" data-component="callout" style="background: #FDEFE3; border: 1px solid #F5C98B; border-radius: 10px; padding: 14px 18px; display: flex; flex-direction: column; gap: 6px; color: #7C2D12">
+          <strong style="font-size: 14px">3 posts need your decision</strong>
+          <span style="font-size: 13px; line-height: 1.5">Inkcast never sends a post twice on its own. Unconfirmed: the platform's answer was lost; check the platform, then resend or cancel. Recovering: Inkcast is still asking the platform. Failed: read the reason, fix it, publish again.</span>
+        </section>
+      
+      <div role="group" aria-label="Show posts" data-component="segmented" data-dataset="postFilters" style="display: flex; align-self: flex-start; border: 1px solid #CDD1D6; border-radius: 8px; overflow-x: auto; max-width: 100%; background: #FFFFFF">
+        
+          <button aria-pressed="true" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; border-left: 0; background: #1D4ED8; color: #FFFFFF; min-height: 40px; white-space: nowrap; cursor: pointer">All</button>
+        
+          <button aria-pressed="false" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; border-left: 1px solid #CDD1D6; background: transparent; color: #1A1D21; min-height: 40px; white-space: nowrap; cursor: pointer">Need you (3)</button>
+        
+          <button aria-pressed="false" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; border-left: 1px solid #CDD1D6; background: transparent; color: #1A1D21; min-height: 40px; white-space: nowrap; cursor: pointer">Coming up</button>
+        
+          <button aria-pressed="false" style="font: inherit; font-size: 13px; padding: 6px 12px; border: 0; border-left: 1px solid #CDD1D6; background: transparent; color: #1A1D21; min-height: 40px; white-space: nowrap; cursor: pointer">Sent or closed</button>
+        
+      </div>
+      
+        <section aria-label="Scheduled" data-component="row-list" data-dataset="posts" style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+          <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #1D4ED8">Coming up</span>
+          <h2 style="margin: 0; font-size: 16px; font-weight: 600">Scheduled</h2>
+          
+          <div style="display: flex; flex-direction: column">
+            
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 0; border-top: 1px solid #E3E5E8; font-size: 13px">
+                <span style="flex: 3 1 260px; min-width: 0; display: flex; align-items: flex-start; gap: 10px">
+                  <span style="width: 28px; height: 28px; border-radius: 7px; background: #edecfd; display: flex; align-items: center; justify-content: center; flex: none"><span style="width: 10px; height: 10px; border-radius: 50%; background: #6D5DF0"></span></span>
+                  <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+                    <span style="font-weight: 500">Retry-After, read properly</span>
+                    <span style="font-size: 12px; color: #555E6B">DEV · Tue, Oct 27, 10:30 AM · in 30 min</span>
+                    <span style="font-size: 12px; color: #555E6B; line-height: 1.45">DEV is rate-limiting: it asked Inkcast to wait 30 minutes. Attempt 3 goes out in 30 min.</span>
+                  </span>
+                </span>
+                <span style="flex: 1 1 280px; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px">
+                  <span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #EEF2FF; color: #1E3A8A">scheduled</span>
+                  <span class="ik-actions" style="display: flex; flex-wrap: wrap; gap: 8px">
+                    
+                      <button style="font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px; border: 1px solid #7F1D1D; background: transparent; color: #7F1D1D; min-height: 36px; cursor: pointer">Cancel</button>
+                    
+                    
+                  </span>
+                </span>
+              </div>
+            
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 0; border-top: 1px solid #E3E5E8; font-size: 13px">
+                <span style="flex: 3 1 260px; min-width: 0; display: flex; align-items: flex-start; gap: 10px">
+                  <span style="width: 28px; height: 28px; border-radius: 7px; background: #edecfd; display: flex; align-items: center; justify-content: center; flex: none"><span style="width: 10px; height: 10px; border-radius: 50%; background: #6D5DF0"></span></span>
+                  <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+                    <span style="font-weight: 500">Notes on retry budgets</span>
+                    <span style="font-size: 12px; color: #555E6B">DEV · Wed, Oct 28, 4:00 AM · in 18 h</span>
+                    
+                  </span>
+                </span>
+                <span style="flex: 1 1 280px; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px">
+                  <span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #EEF2FF; color: #1E3A8A">scheduled</span>
+                  <span class="ik-actions" style="display: flex; flex-wrap: wrap; gap: 8px">
+                    
+                      <button style="font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px; border: 1px solid #7F1D1D; background: transparent; color: #7F1D1D; min-height: 36px; cursor: pointer">Cancel</button>
+                    
+                    
+                  </span>
+                </span>
+              </div>
+            
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 0; border-top: 1px solid #E3E5E8; font-size: 13px">
+                <span style="flex: 3 1 260px; min-width: 0; display: flex; align-items: flex-start; gap: 10px">
+                  <span style="width: 28px; height: 28px; border-radius: 7px; background: #e1f2ed; display: flex; align-items: center; justify-content: center; flex: none"><span style="width: 10px; height: 10px; border-radius: 50%; background: #059669"></span></span>
+                  <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+                    <span style="font-weight: 500">Notes on retry budgets</span>
+                    <span style="font-size: 12px; color: #555E6B">Medium · Wed, Oct 28, 4:00 AM · in 18 h</span>
+                    <span style="font-size: 12px; color: #7C2D12; line-height: 1.45">Medium isn't connected: at its time this post is skipped unless you connect Medium.</span>
+                  </span>
+                </span>
+                <span style="flex: 1 1 280px; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px">
+                  <span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #EEF2FF; color: #1E3A8A">scheduled</span>
+                  <span class="ik-actions" style="display: flex; flex-wrap: wrap; gap: 8px">
+                    
+                      <button style="font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px; border: 1px solid #7F1D1D; background: transparent; color: #7F1D1D; min-height: 36px; cursor: pointer">Cancel</button>
+                    
+                    
+                  </span>
+                </span>
+              </div>
+            
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 0; border-top: 1px solid #E3E5E8; font-size: 13px">
+                <span style="flex: 3 1 260px; min-width: 0; display: flex; align-items: flex-start; gap: 10px">
+                  <span style="width: 28px; height: 28px; border-radius: 7px; background: #edecfd; display: flex; align-items: center; justify-content: center; flex: none"><span style="width: 10px; height: 10px; border-radius: 50%; background: #6D5DF0"></span></span>
+                  <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+                    <span style="font-weight: 500">Weekly links #42</span>
+                    <span style="font-size: 12px; color: #555E6B">DEV · Fri, Oct 30, 4:00 AM · in 3 days</span>
+                    
+                  </span>
+                </span>
+                <span style="flex: 1 1 280px; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px">
+                  <span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #EEF2FF; color: #1E3A8A">scheduled</span>
+                  <span class="ik-actions" style="display: flex; flex-wrap: wrap; gap: 8px">
+                    
+                      <button style="font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px; border: 1px solid #7F1D1D; background: transparent; color: #7F1D1D; min-height: 36px; cursor: pointer">Cancel</button>
+                    
+                    
+                  </span>
+                </span>
+              </div>
+            
+          </div>
+        </section>
+      
+        <section aria-label="Sent, waiting on you, or closed" data-component="row-list" data-dataset="posts" style="background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+          <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #1D4ED8">Recent</span>
+          <h2 style="margin: 0; font-size: 16px; font-weight: 600">Sent, waiting on you, or closed</h2>
+          
+          <div style="display: flex; flex-direction: column">
+            
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 0; border-top: 1px solid #E3E5E8; font-size: 13px">
+                <span style="flex: 3 1 260px; min-width: 0; display: flex; align-items: flex-start; gap: 10px">
+                  <span style="width: 28px; height: 28px; border-radius: 7px; background: #edecfd; display: flex; align-items: center; justify-content: center; flex: none"><span style="width: 10px; height: 10px; border-radius: 50%; background: #6D5DF0"></span></span>
+                  <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+                    <span style="font-weight: 500">Shipping on Fridays</span>
+                    <span style="font-size: 12px; color: #555E6B">DEV · Tue, Oct 27, 9:48 AM · 12 min ago</span>
+                    <span style="font-size: 12px; color: #7C2D12; line-height: 1.45">The send was interrupted. Inkcast is asking DEV whether it arrived. Cancel it if you don't want it.</span>
+                  </span>
+                </span>
+                <span style="flex: 1 1 280px; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px">
+                  <span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #FDEFE3; color: #7C2D12">recovering</span>
+                  <span class="ik-actions" style="display: flex; flex-wrap: wrap; gap: 8px">
+                    
+                      <button style="font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px; border: 1px solid #7F1D1D; background: transparent; color: #7F1D1D; min-height: 36px; cursor: pointer">Cancel</button>
+                    
+                    
+                  </span>
+                </span>
+              </div>
+            
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 0; border-top: 1px solid #E3E5E8; font-size: 13px">
+                <span style="flex: 3 1 260px; min-width: 0; display: flex; align-items: flex-start; gap: 10px">
+                  <span style="width: 28px; height: 28px; border-radius: 7px; background: #edecfd; display: flex; align-items: center; justify-content: center; flex: none"><span style="width: 10px; height: 10px; border-radius: 50%; background: #6D5DF0"></span></span>
+                  <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+                    <span style="font-weight: 500">Testing time in Python</span>
+                    <span style="font-size: 12px; color: #555E6B">DEV · Tue, Oct 27, 7:00 AM · 3 h ago</span>
+                    <span style="font-size: 12px; color: #7C2D12; line-height: 1.45">DEV's answer to the send was lost. It may or may not have published it. Check DEV first, then resend or cancel it.</span>
+                  </span>
+                </span>
+                <span style="flex: 1 1 280px; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px">
+                  <span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #FDEFE3; color: #7C2D12">unconfirmed</span>
+                  <span class="ik-actions" style="display: flex; flex-wrap: wrap; gap: 8px">
+                    
+                      <button style="font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px; border: 1px solid #1D4ED8; background: #1D4ED8; color: #FFFFFF; min-height: 36px; cursor: pointer">Resend</button>
+                    
+                      <button style="font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px; border: 1px solid #7F1D1D; background: transparent; color: #7F1D1D; min-height: 36px; cursor: pointer">Cancel</button>
+                    
+                    
+                  </span>
+                </span>
+              </div>
+            
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 0; border-top: 1px solid #E3E5E8; font-size: 13px">
+                <span style="flex: 3 1 260px; min-width: 0; display: flex; align-items: flex-start; gap: 10px">
+                  <span style="width: 28px; height: 28px; border-radius: 7px; background: #e1f2ed; display: flex; align-items: center; justify-content: center; flex: none"><span style="width: 10px; height: 10px; border-radius: 50%; background: #059669"></span></span>
+                  <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+                    <span style="font-weight: 500">A small guide to SQLite WAL</span>
+                    <span style="font-size: 12px; color: #555E6B">Medium · Mon, Oct 26, 8:00 AM · 1 day ago</span>
+                    <span style="font-size: 12px; color: #7F1D1D; line-height: 1.45">Medium says: the title is too long (100 characters at most). Fix it and publish it again from Compose.</span>
+                  </span>
+                </span>
+                <span style="flex: 1 1 280px; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px">
+                  <span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #FDECEC; color: #7F1D1D">failed</span>
+                  <span class="ik-actions" style="display: flex; flex-wrap: wrap; gap: 8px">
+                    
+                    
+                  </span>
+                </span>
+              </div>
+            
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 0; border-top: 1px solid #E3E5E8; font-size: 13px">
+                <span style="flex: 3 1 260px; min-width: 0; display: flex; align-items: flex-start; gap: 10px">
+                  <span style="width: 28px; height: 28px; border-radius: 7px; background: #edecfd; display: flex; align-items: center; justify-content: center; flex: none"><span style="width: 10px; height: 10px; border-radius: 50%; background: #6D5DF0"></span></span>
+                  <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+                    <span style="font-weight: 500">Why we built an agent</span>
+                    <span style="font-size: 12px; color: #555E6B">DEV · Sun, Oct 25, 8:00 AM · 2 days ago</span>
+                    
+                  </span>
+                </span>
+                <span style="flex: 1 1 280px; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px">
+                  <span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #E7F6EC; color: #14532D">published</span>
+                  <span class="ik-actions" style="display: flex; flex-wrap: wrap; gap: 8px">
+                    
+                    <a href="https://dev.to/samwriter/why-we-built-an-agent-4k2p" style="font-size: 13px; color: #1D4ED8; min-height: 36px; display: flex; align-items: center; padding: 0 4px">Open on DEV</a>
+                  </span>
+                </span>
+              </div>
+            
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 0; border-top: 1px solid #E3E5E8; font-size: 13px">
+                <span style="flex: 3 1 260px; min-width: 0; display: flex; align-items: flex-start; gap: 10px">
+                  <span style="width: 28px; height: 28px; border-radius: 7px; background: #e1f2ed; display: flex; align-items: center; justify-content: center; flex: none"><span style="width: 10px; height: 10px; border-radius: 50%; background: #059669"></span></span>
+                  <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+                    <span style="font-weight: 500">Why we built an agent</span>
+                    <span style="font-size: 12px; color: #555E6B">Medium · Sun, Oct 25, 8:00 AM · 2 days ago</span>
+                    
+                  </span>
+                </span>
+                <span style="flex: 1 1 280px; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px">
+                  <span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #E7F6EC; color: #14532D">published</span>
+                  <span class="ik-actions" style="display: flex; flex-wrap: wrap; gap: 8px">
+                    
+                    <a href="https://medium.com/@samwriter/why-we-built-an-agent-9f1c" style="font-size: 13px; color: #1D4ED8; min-height: 36px; display: flex; align-items: center; padding: 0 4px">Open on Medium</a>
+                  </span>
+                </span>
+              </div>
+            
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 0; border-top: 1px solid #E3E5E8; font-size: 13px">
+                <span style="flex: 3 1 260px; min-width: 0; display: flex; align-items: flex-start; gap: 10px">
+                  <span style="width: 28px; height: 28px; border-radius: 7px; background: #edecfd; display: flex; align-items: center; justify-content: center; flex: none"><span style="width: 10px; height: 10px; border-radius: 50%; background: #6D5DF0"></span></span>
+                  <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+                    <span style="font-weight: 500">On idempotency keys</span>
+                    <span style="font-size: 12px; color: #555E6B">DEV · Thu, Oct 22, 10:00 AM · 5 days ago</span>
+                    
+                  </span>
+                </span>
+                <span style="flex: 1 1 280px; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px">
+                  <span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #E7F6EC; color: #14532D">draft</span>
+                  <span class="ik-actions" style="display: flex; flex-wrap: wrap; gap: 8px">
+                    
+                    <a href="https://dev.to/samwriter/on-idempotency-keys-temp-slug-77" style="font-size: 13px; color: #1D4ED8; min-height: 36px; display: flex; align-items: center; padding: 0 4px">Open on DEV</a>
+                  </span>
+                </span>
+              </div>
+            
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 0; border-top: 1px solid #E3E5E8; font-size: 13px">
+                <span style="flex: 3 1 260px; min-width: 0; display: flex; align-items: flex-start; gap: 10px">
+                  <span style="width: 28px; height: 28px; border-radius: 7px; background: #e1f2ed; display: flex; align-items: center; justify-content: center; flex: none"><span style="width: 10px; height: 10px; border-radius: 50%; background: #059669"></span></span>
+                  <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+                    <span style="font-weight: 500">An early launch note</span>
+                    <span style="font-size: 12px; color: #555E6B">Medium · Mon, Oct 19, 2:00 AM · 8 days ago</span>
+                    
+                  </span>
+                </span>
+                <span style="flex: 1 1 280px; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px">
+                  <span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #FAFBFC; color: #555E6B">cancelled</span>
+                  <span class="ik-actions" style="display: flex; flex-wrap: wrap; gap: 8px">
+                    
+                    
+                  </span>
+                </span>
+              </div>
+            
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 0; border-top: 1px solid #E3E5E8; font-size: 13px">
+                <span style="flex: 3 1 260px; min-width: 0; display: flex; align-items: flex-start; gap: 10px">
+                  <span style="width: 28px; height: 28px; border-radius: 7px; background: #edecfd; display: flex; align-items: center; justify-content: center; flex: none"><span style="width: 10px; height: 10px; border-radius: 50%; background: #6D5DF0"></span></span>
+                  <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+                    <span style="font-weight: 500">Small diffs, fast reviews</span>
+                    <span style="font-size: 12px; color: #555E6B">DEV · Sat, Oct 17, 4:00 PM · 10 days ago</span>
+                    
+                  </span>
+                </span>
+                <span style="flex: 1 1 280px; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px">
+                  <span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #E7F6EC; color: #14532D">published</span>
+                  <span class="ik-actions" style="display: flex; flex-wrap: wrap; gap: 8px">
+                    
+                    <a href="https://dev.to/samwriter/small-diffs-fast-reviews1a" style="font-size: 13px; color: #1D4ED8; min-height: 36px; display: flex; align-items: center; padding: 0 4px">Open on DEV</a>
+                  </span>
+                </span>
+              </div>
+            
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 0; border-top: 1px solid #E3E5E8; font-size: 13px">
+                <span style="flex: 3 1 260px; min-width: 0; display: flex; align-items: flex-start; gap: 10px">
+                  <span style="width: 28px; height: 28px; border-radius: 7px; background: #e1f2ed; display: flex; align-items: center; justify-content: center; flex: none"><span style="width: 10px; height: 10px; border-radius: 50%; background: #059669"></span></span>
+                  <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+                    <span style="font-weight: 500">Small diffs, fast reviews</span>
+                    <span style="font-size: 12px; color: #555E6B">Medium · Sat, Oct 17, 4:00 PM · 10 days ago</span>
+                    
+                  </span>
+                </span>
+                <span style="flex: 1 1 280px; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px">
+                  <span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #E7F6EC; color: #14532D">published</span>
+                  <span class="ik-actions" style="display: flex; flex-wrap: wrap; gap: 8px">
+                    
+                    <a href="https://medium.com/@samwriter/small-diffs-fast-reviews2b" style="font-size: 13px; color: #1D4ED8; min-height: 36px; display: flex; align-items: center; padding: 0 4px">Open on Medium</a>
+                  </span>
+                </span>
+              </div>
+            
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 0; border-top: 1px solid #E3E5E8; font-size: 13px">
+                <span style="flex: 3 1 260px; min-width: 0; display: flex; align-items: flex-start; gap: 10px">
+                  <span style="width: 28px; height: 28px; border-radius: 7px; background: #edecfd; display: flex; align-items: center; justify-content: center; flex: none"><span style="width: 10px; height: 10px; border-radius: 50%; background: #6D5DF0"></span></span>
+                  <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+                    <span style="font-weight: 500">Measure, don't guess</span>
+                    <span style="font-size: 12px; color: #555E6B">DEV · Wed, Oct 14, 10:00 PM · 13 days ago</span>
+                    
+                  </span>
+                </span>
+                <span style="flex: 1 1 280px; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px">
+                  <span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #E7F6EC; color: #14532D">published</span>
+                  <span class="ik-actions" style="display: flex; flex-wrap: wrap; gap: 8px">
+                    
+                    <a href="https://dev.to/samwriter/measure-dont-guess-2b8e" style="font-size: 13px; color: #1D4ED8; min-height: 36px; display: flex; align-items: center; padding: 0 4px">Open on DEV</a>
+                  </span>
+                </span>
+              </div>
+            
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 0; border-top: 1px solid #E3E5E8; font-size: 13px">
+                <span style="flex: 3 1 260px; min-width: 0; display: flex; align-items: flex-start; gap: 10px">
+                  <span style="width: 28px; height: 28px; border-radius: 7px; background: #e1f2ed; display: flex; align-items: center; justify-content: center; flex: none"><span style="width: 10px; height: 10px; border-radius: 50%; background: #059669"></span></span>
+                  <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+                    <span style="font-weight: 500">Measure, don't guess</span>
+                    <span style="font-size: 12px; color: #555E6B">Medium · Wed, Oct 14, 12:00 PM · 13 days ago</span>
+                    
+                  </span>
+                </span>
+                <span style="flex: 1 1 280px; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px">
+                  <span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #E7F6EC; color: #14532D">published</span>
+                  <span class="ik-actions" style="display: flex; flex-wrap: wrap; gap: 8px">
+                    
+                    <a href="https://medium.com/@samwriter/measure-dont-guess-c41a" style="font-size: 13px; color: #1D4ED8; min-height: 36px; display: flex; align-items: center; padding: 0 4px">Open on Medium</a>
+                  </span>
+                </span>
+              </div>
+            
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 0; border-top: 1px solid #E3E5E8; font-size: 13px">
+                <span style="flex: 3 1 260px; min-width: 0; display: flex; align-items: flex-start; gap: 10px">
+                  <span style="width: 28px; height: 28px; border-radius: 7px; background: #edecfd; display: flex; align-items: center; justify-content: center; flex: none"><span style="width: 10px; height: 10px; border-radius: 50%; background: #6D5DF0"></span></span>
+                  <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+                    <span style="font-weight: 500">Reading a flame graph</span>
+                    <span style="font-size: 12px; color: #555E6B">DEV · Sat, Oct 10, 4:00 PM · 17 days ago</span>
+                    
+                  </span>
+                </span>
+                <span style="flex: 1 1 280px; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px">
+                  <span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #E7F6EC; color: #14532D">published</span>
+                  <span class="ik-actions" style="display: flex; flex-wrap: wrap; gap: 8px">
+                    
+                    <a href="https://dev.to/samwriter/reading-a-flame-graph1a" style="font-size: 13px; color: #1D4ED8; min-height: 36px; display: flex; align-items: center; padding: 0 4px">Open on DEV</a>
+                  </span>
+                </span>
+              </div>
+            
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 0; border-top: 1px solid #E3E5E8; font-size: 13px">
+                <span style="flex: 3 1 260px; min-width: 0; display: flex; align-items: flex-start; gap: 10px">
+                  <span style="width: 28px; height: 28px; border-radius: 7px; background: #edecfd; display: flex; align-items: center; justify-content: center; flex: none"><span style="width: 10px; height: 10px; border-radius: 50%; background: #6D5DF0"></span></span>
+                  <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+                    <span style="font-weight: 500">Feature flags without regret</span>
+                    <span style="font-size: 12px; color: #555E6B">DEV · Sat, Oct 3, 4:00 PM · 24 days ago</span>
+                    
+                  </span>
+                </span>
+                <span style="flex: 1 1 280px; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px">
+                  <span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #E7F6EC; color: #14532D">published</span>
+                  <span class="ik-actions" style="display: flex; flex-wrap: wrap; gap: 8px">
+                    
+                    <a href="https://dev.to/samwriter/feature-flags-without-regret1a" style="font-size: 13px; color: #1D4ED8; min-height: 36px; display: flex; align-items: center; padding: 0 4px">Open on DEV</a>
+                  </span>
+                </span>
+              </div>
+            
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 0; border-top: 1px solid #E3E5E8; font-size: 13px">
+                <span style="flex: 3 1 260px; min-width: 0; display: flex; align-items: flex-start; gap: 10px">
+                  <span style="width: 28px; height: 28px; border-radius: 7px; background: #e1f2ed; display: flex; align-items: center; justify-content: center; flex: none"><span style="width: 10px; height: 10px; border-radius: 50%; background: #059669"></span></span>
+                  <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+                    <span style="font-weight: 500">Feature flags without regret</span>
+                    <span style="font-size: 12px; color: #555E6B">Medium · Sat, Oct 3, 4:00 PM · 24 days ago</span>
+                    
+                  </span>
+                </span>
+                <span style="flex: 1 1 280px; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px">
+                  <span style="font-size: 12px; border-radius: 4px; padding: 2px 8px; background: #E7F6EC; color: #14532D">published</span>
+                  <span class="ik-actions" style="display: flex; flex-wrap: wrap; gap: 8px">
+                    
+                    <a href="https://medium.com/@samwriter/feature-flags-without-regret2b" style="font-size: 13px; color: #1D4ED8; min-height: 36px; display: flex; align-items: center; padding: 0 4px">Open on Medium</a>
+                  </span>
+                </span>
+              </div>
+            
+          </div>
+        </section>
+      
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+  </main>
+</div>
+</body>
+</html>
