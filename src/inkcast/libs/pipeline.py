@@ -43,6 +43,16 @@ def _named(url: str | None, remote_id: str | None) -> str:
     if url and remote_id:
         return f"{url} (id {remote_id})"
     return url or f"id {remote_id}"
+
+
+def _edited(platform: Platform, url: str | None = None, remote_id: str | None = None) -> str:
+    """The note on a post whose send's success found it changed meanwhile (#392): what the platform has, and how the
+    change reaches it. ``Publisher.update`` settles it, and only it."""
+    return (f"The post was changed while this send was out, so {platform.name} has it as it was sent. "
+            + ("The next sync sends the change as an update." if "update" in platform.capabilities else
+               f"{platform.name} doesn't let Inkcast edit posts: update it by hand: {_named(url, remote_id)}."))
+
+
 RECOVERY_MAX = 24 * 3600  # seconds a post stays 'recovering' before it is unconfirmed: INKCAST_PUBLISH_RECOVERY_MAX_HOURS's default
 
 
@@ -278,10 +288,7 @@ class Publisher:
         # with a note, and the file's entry sees the edit at the next sync: sent as an update where the platform edits
         # posts, reported as stale (update it by hand) where it doesn't. Never a second post, and never dropped.
         sent = prepared.to_dict()
-        edited = (f"The post was changed while this send was out, so {platform.name} has it as it was sent. "
-                  + ("The next sync sends the change as an update." if "update" in platform.capabilities else
-                     f"{platform.name} doesn't let Inkcast edit posts: update it by hand: "
-                     f"{_named(result.url, result.remote_id)}."))
+        edited = _edited(platform, result.url, result.remote_id)
 
         written, before = self.store.record_success(
             post_id, held=held, status=status, result_url=result.url, remote_id=result.remote_id, sent=sent,
@@ -357,8 +364,14 @@ class Publisher:
                            f"plug-in: {exc}", prepared=prepared)
         status = result.status if result.status in ("draft", "unlisted") else "published"
         if post_id:  # a PUT's answer that names no URL (a 204) keeps the post's: the post is where it was (#214)
+            # The update that sends an edit made while a send was out settles that edit's note only (#392): the success
+            # that wrote it may have noted a second copy beside it (#214), which is the person's to check.
+            notes = list(result.notes)
+            held = ((self.store.get_post(post_id) or {}).get("error") or "").split("; ")
+            if _edited(platform) in held:
+                notes = [n for n in held if n != _edited(platform)] + notes
             self.store.update_post(post_id, status=status, title=prepared.title, payload=json.dumps(prepared.to_dict()),
-                                   error="; ".join(result.notes) or None, **({"result_url": result.url} if result.url else {}))
+                                   error="; ".join(notes) or None, **({"result_url": result.url} if result.url else {}))
         self._count(platform.id, "updated")
         return Outcome(platform.id, status, post_id=post_id, url=result.url, notes=result.notes, prepared=prepared,
                        remote_id=result.remote_id or remote_id)
