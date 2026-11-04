@@ -290,12 +290,16 @@ class FindingAResendIsRefusedBeforeAnythingIsCancelledWhileDisconnected(Harness)
         self.assertEqual((self.status(old_id), len(self.posts()), self.platform.sent, self.platform.verified),
                          ("unconfirmed", 1, [], 1))
 
-    def test_a_platform_that_cannot_be_asked_just_now_does_not_block_the_decision(self):
-        """Only a refusal blocks: a rate-limited check (a 429 on the account lookup) lets the send say what happens."""
+    def test_a_platform_that_cannot_be_asked_just_now_refuses_the_decision_for_now(self):
+        """A rate-limited check (a 429 on the account lookup) refuses the resend too, before anything is cancelled: the
+        send would very likely get the same 429, and a resend's send is never queued (#445; it let the send say what
+        happens before)."""
         old_id = self.unconfirmed()
         self.platform.verify_answer = PlatformError("Findable rate limit hit.", retryable=True, retry_after=60)
-        info = asyncio.run(self.service.resend(self.user, old_id))
-        self.assertEqual((info.status, self.platform.verified, self.platform.sent), ("published", 1, ["t"]))
+        with self.assertRaises(ServiceError) as caught:
+            asyncio.run(self.service.resend(self.user, old_id))
+        self.assertEqual((caught.exception.status, caught.exception.code), (409, "platform_unavailable"))
+        self.assertEqual((self.status(old_id), self.platform.verified, self.platform.sent), ("unconfirmed", 1, []))
 
 
 # ---- 5. the 409 for a retried resend names the new post --------------------------------------------------------------

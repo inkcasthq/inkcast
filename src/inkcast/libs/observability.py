@@ -67,6 +67,10 @@ EVENTS: dict[str, tuple[str, str]] = {
                                              "rate-limited or unreachable); it stays 'recovering' and is checked again."),
     "publish.recovery.capped": ("warning", "A post 'recovering' for INKCAST_PUBLISH_RECOVERY_MAX_HOURS, the platform never "
                                            "saying whether it arrived, is unconfirmed for a person: never sent late on its own."),
+    "publish.recovery.failed": ("error", "One post's recovery could not be made (its credentials sealed under a previous "
+                                         "INKCAST_SECRET_KEY, a payload this version can't read; post id and platform, with "
+                                         "the traceback); it stays 'recovering' for the next stuck pass, and the pass went "
+                                         "on to the rows after it. Counted as inkcast_publish_total{status=\"recovery_failed\"}."),
     "publish.second_copy": ("warning", "A post may be on its platform twice: a send taken over as stuck succeeded after "
                                        "another worker re-sent it, or after a lookup recorded another post. The post's "
                                        "error names both copies, or the attempt that may have made one; a person checks "

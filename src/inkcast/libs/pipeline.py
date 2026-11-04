@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from .platforms import Account, Platform, PlatformError, Prepared
+from .platforms.base import wait_text
 from .config import RetryPolicy
 from .db import Store
 from .db.posts import backfill
@@ -37,6 +38,13 @@ from .events import DomainEvent
 log = logging.getLogger(__name__)
 
 STUCK_AFTER = 600  # a post 'publishing' for longer than this was interrupted (the HTTP timeout is 30 s)
+
+
+def _sentence(text: str) -> str:
+    """``text`` ended as a sentence, so the next one reads apart: "Could not reach X: [Errno 61] Connection refused"
+    has no full stop of its own (#445)."""
+    text = text.rstrip()
+    return text if text.endswith((".", "!", "?")) else f"{text}."
 
 
 def _named(url: str | None, remote_id: str | None) -> str:
@@ -73,6 +81,13 @@ def _lost(platform: Platform) -> str:
 class Disconnected(PlatformError):
     """A resend refused before anything is cancelled: the platform isn't connected, or refused the stored credentials
     (#234). The message names the reconnect step."""
+
+
+class Unavailable(PlatformError):
+    """A resend refused before anything is cancelled: the platform couldn't be asked just now whether it still accepts
+    the stored credentials (a retryable error on ``verify``: rate-limited, unreachable), so the send would very likely
+    fail the same way, and a resend's send is never queued (#445). The message names when to try again: the platform's
+    Retry-After when it gave one."""
 
 
 class AlreadyResent(PlatformError):
@@ -585,7 +600,22 @@ class Publisher:
 
     async def run_due(self, now: float | None = None) -> list[Outcome]:
         now = now or time.time()
-        outcomes = [await self.recover(row, now) for row in self.store.claim_stuck(older_than=now - STUCK_AFTER, now=now)]
+        outcomes = []
+        for row in self.store.claim_stuck(older_than=now - STUCK_AFTER, now=now):
+            try:
+                outcomes.append(await self.recover(row, now))
+            except sqlite3.Error:
+                raise  # the store, not this row: the next row's write would fail the same way, so the tick stops
+            except Exception:
+                # One row whose recovery can't even be made (its credentials sealed under another INKCAST_SECRET_KEY,
+                # which ``confirm`` reads outside its guard; a payload this version can't read) must not end the pass
+                # for every row claimed after it, other people's posts included, for the whole of the cap (#446). The
+                # row stays 'recovering', with its clock, and is taken again at the next stuck pass; past the cap
+                # ``recover`` ends it. Counted and logged by post id, so an alert can name a row that keeps failing.
+                log.exception("Post %s on %s: its recovery could not be made; left for the next stuck pass", row["id"],
+                              row["platform"], extra={"event": "publish.recovery.failed", "post_id": row["id"],
+                                                      "platform": row["platform"]})
+                self._count(row["platform"], "recovery_failed")
         for row in self.store.claim_due_posts(now):
             if not self.store.renew_claim(row["id"], row["attempts"]):
                 continue  # another worker took it over as stuck while this batch was being sent: it is theirs now
@@ -602,9 +632,18 @@ class Publisher:
                 self.store.update_post(row["id"], status="failed", error=f"Platform plug-in {row['platform']!r} is not installed.",
                                        events=self._event("post.failed", row["id"], row["user_id"], row["platform"], reason="plugin"))
                 continue
-            prepared = Prepared.from_dict(json.loads(row["payload"]))
-            outcomes.append(await self._send(row["id"], row["user_id"], platform, prepared, row["attempts"], scheduled=True,
-                                             lag=lag, held=row["attempts"]))
+            try:
+                prepared = Prepared.from_dict(json.loads(row["payload"]))
+                outcomes.append(await self._send(row["id"], row["user_id"], platform, prepared, row["attempts"],
+                                                 scheduled=True, lag=lag, held=row["attempts"]))
+            except sqlite3.Error:
+                raise  # the store, not this post: as in recovery, the tick stops
+            except Exception:
+                # Raised outside the send's own guard (credentials sealed under another INKCAST_SECRET_KEY, a payload this
+                # version can't read): the post stays claimed, so recovery takes it after STUCK_AFTER, as when the tick
+                # stopped here, and the batch's other posts, other people's too, are sent now (#446).
+                log.exception("Post %s on %s could not be sent; left for recovery", row["id"], row["platform"],
+                              extra={"post_id": row["id"], "platform": row["platform"]})
         return outcomes
 
     async def run_forever(self, interval: float, stop: asyncio.Event, housekeeping: Any = None,
@@ -684,9 +723,10 @@ class Publisher:
         (its first reply lost) is told the post the first one made (``AlreadyResent``, #234). Refused too, before
         anything is cancelled, while the platform isn't connected or refuses the stored credentials (``verify``, the
         check a connect makes): the old post would be cancelled for a new one that fails at once, and the decision
-        consumed (``Disconnected``, naming the reconnect, #234). A credentials check that can't be made just now (a
-        429) blocks nothing: the send says what happens. A retryable failure of the send is reported, not queued: the
-        person is there to try again."""
+        consumed (``Disconnected``, naming the reconnect, #234). A check that can't be made just now (a 429, unreachable)
+        refuses it too, for now (``Unavailable``, naming the platform's Retry-After, #445): the send would very likely
+        fail the same way, and a resend's send is never queued. A retryable failure of the send is reported, not
+        queued: the person is there to try again."""
         row = self.store.get_post(post_id)
         if not row or row["user_id"] != user_id:
             raise PlatformError(f"No post {post_id!r}.")
@@ -704,6 +744,12 @@ class Publisher:
             except PlatformError as exc:
                 if not exc.retryable:
                     raise Disconnected(f"{exc} Post {post_id} was not resent and is still unconfirmed. {reconnect}") from exc
+                # A check that can't be made just now (a 429, unreachable): the send would very likely fail the same
+                # way, and a resend's send is never queued, so the old post would be cancelled for a new one that fails
+                # at once (#445). Refused instead, for now: the wait is the platform's Retry-After, when it gave one,
+                # in the words its own 429 uses, so a reply that quotes both states one wait.
+                raise Unavailable(f"{_sentence(str(exc))} Post {post_id} was not resent and is still unconfirmed: "
+                                  f"resend it {wait_text(exc.retry_after)}.") from exc
             # Read again: a disconnect while verify was out would cancel the old post for a new one that fails at once.
             connected = self.store.get_credentials(user_id, platform.id)
         if not connected:

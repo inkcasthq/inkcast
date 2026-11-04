@@ -316,8 +316,8 @@ def post_main(command: str, argv: list[str]) -> int:
     as waiting for one (``POST /api/v1/posts/{id}/resend`` and ``.../cancel``, a ``posts:write`` token). The reply is
     the post: for a resend the new one (published, or failed, unconfirmed or recovering in its turn: exit 1, and the
     first post is cancelled either way); for a cancel the cancelled one, with its note when it may already be on the
-    platform. The API's refusals (409: not unconfirmed, resent already, the platform not connected; 404) are exit 1
-    with the message; a token short of the scope is exit 2."""
+    platform. The API's refusals (409: not unconfirmed, resent already, the platform not connected or not answering
+    just now; 404) are exit 1 with the message; a token short of the scope is exit 2."""
     prog = f"inkcast {command}"
     parser = argparse.ArgumentParser(prog=prog, description={
         "resend": "Send an unconfirmed post again, now, as one new post; the old one is cancelled. Check the platform "
