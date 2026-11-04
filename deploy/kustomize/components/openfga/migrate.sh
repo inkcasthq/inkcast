@@ -54,8 +54,10 @@ export PGAPPNAME=openfga-migrate PGCONNECT_TIMEOUT=10
 # tests/test_review_openfga_migrate.py.
 export PGOPTIONS="-c tcp_keepalives_idle=20 -c tcp_keepalives_interval=5 -c tcp_keepalives_count=3 -c client_connection_check_interval=2s"
 # psql's URI, less the password, which goes to PGPASSWORD percent-decoded as libpq decodes it (the header says why).
+# Split where libpq and pgx split: the userinfo ends at the first `@` before any `/`, so a raw `?` or `#` is part of
+# the password (fe-connect.c conninfo_uri_parse_options at REL_18_6; pgconn/parse_url.go at v5.11.0).
 db_uri="$OPENFGA_DATASTORE_URI"
-if [[ "$db_uri" =~ ^([^:/?#]+://[^:@/?#]*):([^@/?#]*)@(.*)$ ]]; then
+if [[ "$db_uri" =~ ^([^:/?#]+://[^:@/]*):([^@/]*)@(.*)$ ]]; then
   encoded="${BASH_REMATCH[2]//%/\\x}"
   printf -v PGPASSWORD '%b' "$encoded"
   export PGPASSWORD
