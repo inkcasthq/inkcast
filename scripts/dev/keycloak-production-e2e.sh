@@ -27,6 +27,14 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 source "$ROOT/scripts/versions.env"
 k="${KUBECTL:-kubectl}"
 ns=keycloak
+# A kind cluster only: the overlay renders CR `keycloak` in namespace `keycloak`, the lab's RHBK CR's name and
+# namespace, and applied there it would replace the lab's database and hostname (review of #391, K9). kind names its
+# contexts kind-<cluster>.
+context="$($k config current-context 2>/dev/null || true)"
+case "$context" in
+  kind-*) echo "kubectl context: $context" ;;
+  *) echo "refusing: the current kubectl context is '${context}', not a kind cluster (kind-*); this proof must never reach the lab" >&2; exit 1 ;;
+esac
 work="$(mktemp -d)"
 PIDS=()
 cleanup() { for p in "${PIDS[@]:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null || true; done; rm -rf "$work"; }

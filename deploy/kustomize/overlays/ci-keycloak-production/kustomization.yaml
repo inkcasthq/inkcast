@@ -1,3 +1,8 @@
+# NEVER apply this overlay to the lab or to any cluster that is not a kind cluster. It renders the Keycloak CR
+# `keycloak` in namespace `keycloak`: the lab's RHBK CR's own name and namespace. Applied there it would replace the
+# lab's database settings, hostname and certificate with this overlay's, on a Keycloak that serves other realms
+# (issue #386, out of scope). scripts/dev/keycloak-production-e2e.sh refuses any kubectl context but a kind one.
+#
 # Used only by CI (kind): the production Keycloak component (E9.F9.1.S3, issue #386) in the namespace the lab uses,
 # `keycloak`, where the dev Keycloak of deploy/keycloak also runs in the kind job (different names, no overlap; the
 # upstream operator's ClusterRoleBinding binds its ServiceAccount in `keycloak`, kubernetes/kubernetes.yml at 26.6.4).
