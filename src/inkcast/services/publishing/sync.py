@@ -137,7 +137,8 @@ class GitSync:
         if not standing:
             return ""
         return (" The last valid version of this file keeps its scheduled post, unchanged: " + "; ".join(standing)
-                + ". Fix the file before then to change it, or cancel the post (inkcast_cancel, or POST /api/v1/posts/{id}/cancel).")
+                + ". Fix the file before then to change it, or cancel the post (inkcast_cancel, or "
+                "POST /api/v1/posts/{id}/cancel).")
 
     async def _one(self, user_id: str, req: SyncRequest, path: str, story, platform: Platform,
                    prepared: Prepared) -> SyncResult:
@@ -238,7 +239,8 @@ class GitSync:
             if req.dry_run:  # what the real run does: a removed time is a "now" post, published by the sync (ADR-0015)
                 if story.publish_at is None:
                     return SyncResult(**base, action="update", status="preview", post_id=post["id"], preview=prepared.preview,
-                                      message="Would cancel the scheduled post and publish now: the file's publish_at was removed.")
+                                      message="Would cancel the scheduled post and publish now: the file's publish_at "
+                                              "was removed.")
                 return SyncResult(**base, action="update", status="scheduled", post_id=post["id"], preview=prepared.preview,
                                   message="Would re-schedule with the new content.")
             # Ours to replace now: hold it as a claim, or a concurrent sync sees the cancelled post and creates one too.

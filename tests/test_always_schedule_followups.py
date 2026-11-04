@@ -168,7 +168,8 @@ class FindingAnImportDoesNotDelayAPromisedPost(Followups):
         later_import = [self.post(run_at=t0 - 400 * DAY, created_at=t0 - 10) for _ in range(BATCH)]
         earlier_import = [self.post(run_at=t0 - DAY, created_at=t0 - 20) for _ in range(5)]
         self.tick(t0)
-        self.assertEqual({self.status(i) for i in earlier_import}, {"published"}, "made 20 s ago: ahead of the import made 10 s ago")
+        self.assertEqual({self.status(i) for i in earlier_import}, {"published"},
+                         "made 20 s ago: ahead of the import made 10 s ago")
         self.assertEqual(sum(self.status(i) == "published" for i in later_import), BATCH - 5)
 
 
