@@ -262,7 +262,11 @@ class Platform(ABC):
                 f"published. Check {self.name} before trying again.", uncertain=True)
         if response.status_code >= 300:
             # A redirect (the client never follows one): the request did not reach the API we meant, so nothing was
-            # published and nothing will change on a retry. Definite, whatever the body says (#173).
+            # published and nothing will change on a retry. Definite, whatever the body says (#173). A 301 or 302 too:
+            # RFC 9110 §15.4.2 and §15.4.3 say the resource is elsewhere and the client re-requests there (even as a
+            # GET), not that the server acted; only a 303 is the answer to an acted-on POST (above). Neither DEV (Forem
+            # renders 201 with the article) nor Medium (201 with a data envelope) redirects after a create; a 301/302
+            # from them is a wrong API URL, which this error names (#214, item 3).
             where = response.headers.get("Location")
             raise PlatformError(
                 f"{self.name} redirected the request ({response.status_code}"
