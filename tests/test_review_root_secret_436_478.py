@@ -15,6 +15,7 @@ import pathlib
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import textwrap
 import unittest
@@ -121,14 +122,14 @@ STUB = textwrap.dedent('''\
 ''')
 
 
-@unittest.skipUnless(shutil.which("kubectl") and shutil.which("python3"), "the stub answers JSONPath with kubectl")
+@unittest.skipUnless(shutil.which("kubectl"), "the stub answers JSONPath with kubectl")
 class DrillAgainstAStub(unittest.TestCase):
     def setUp(self):
         self.dir = pathlib.Path(tempfile.mkdtemp(prefix="r478-drill-"))
         self.addCleanup(shutil.rmtree, self.dir, ignore_errors=True)
         (self.dir / "kubeconfig").write_text("")
         stub = self.dir / "oc"
-        stub.write_text(STUB)
+        stub.write_text(STUB.replace("#!/usr/bin/env python3", f"#!{sys.executable}", 1))   # this test's own interpreter
         stub.chmod(0o755)
         self.tmp = self.dir / "tmp"
         self.tmp.mkdir()
@@ -155,7 +156,7 @@ class DrillAgainstAStub(unittest.TestCase):
 
     def drill(self, scenario: str) -> subprocess.CompletedProcess:
         env = {**os.environ, "KUBECTL": str(self.dir / "oc"), "STUB_DIR": str(self.dir), "STUB_SCENARIO": scenario,
-               "TMPDIR": str(self.tmp)}
+               "TMPDIR": str(self.tmp), "INKCAST_PYTHON": sys.executable}
         done = subprocess.run(["bash", str(DRILL), NS], capture_output=True, text=True, env=env, timeout=120)
         for value in VALUES.values():
             self.assertNotIn(value, done.stdout + done.stderr, "no value is ever printed")

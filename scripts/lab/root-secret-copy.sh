@@ -31,6 +31,10 @@
 # scripts/ops/root-secret-drill.sh, run by a person after the owner's yes.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+# The checkout's virtual environment (CONTRIBUTING.md), never the host's python3: macOS ships 3.9. INKCAST_PYTHON
+# names another interpreter (CI and the tests pass their own).
+py="${INKCAST_PYTHON:-$ROOT/.venv/bin/python}"
+[ -x "$py" ] || { echo "no Python at $py: create the checkout's venv first (python3.14 -m venv .venv && .venv/bin/pip install -e ., CONTRIBUTING.md), or set INKCAST_PYTHON" >&2; exit 2; }
 k="${KUBECTL:-oc}"
 adp=openshift-adp
 store_ns=inkcast-seaweedfs
@@ -76,7 +80,7 @@ $k apply -k "$ROOT/deploy/kustomize/shared/oadp-operator"
 # The InstallPlan whose CSVs are exactly the pinned one. A plan that carries the pinned CSV beside another (a
 # catalog's bundle of upgrades) is named and stops the script: approving it would install what the pin never named.
 plan_for_csv() {
-  $k -n "$adp" get installplan -o json 2>/dev/null | python3 -c '
+  $k -n "$adp" get installplan -o json 2>/dev/null | "$py" -c '
 import json, sys
 wanted = sys.argv[1]
 for plan in json.load(sys.stdin).get("items", []):
@@ -84,7 +88,7 @@ for plan in json.load(sys.stdin).get("items", []):
     if names == [wanted]:
         print(plan["metadata"]["name"]); break
     if wanted in names:
-        name = plan["metadata"]["name"]   # bound first: Python before 3.12 (the lab host has 3.9) refuses a nested quote in an f-string
+        name = plan["metadata"]["name"]
         sys.stderr.write(f"InstallPlan {name} carries {wanted} beside {[n for n in names if n != wanted]}: not approved. Approve by hand what you mean, or wait for a plan of the pinned version alone.\n"); sys.exit(3)' "$csv"
 }
 # A refusal (status 3) stops the script here: in a condition (`until`) `set -e` ignores it, and the wait would run
@@ -180,7 +184,7 @@ step "6. one backup from the staging Schedule, and its objects in the bucket"
 backup="inkcast-staging-root-secret-$(date -u +%Y%m%d%H%M%S)"
 # As `velero backup create --from-schedule`: the Schedule's template is the Backup's spec, its labels are copied,
 # velero.io/schedule-name is set (pkg/builder/backup_builder.go FromSchedule at v1.17.0).
-$k -n "$adp" get schedules.velero.io inkcast-staging-root-secret -o json | python3 -c '
+$k -n "$adp" get schedules.velero.io inkcast-staging-root-secret -o json | "$py" -c '
 import json, sys
 schedule = json.load(sys.stdin)
 labels = dict(schedule["metadata"].get("labels", {}))

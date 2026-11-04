@@ -25,6 +25,11 @@
 #
 # No value is printed by any step: hashes, names, counts and phases only.
 set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+# The checkout's virtual environment (CONTRIBUTING.md), never the host's python3: macOS ships 3.9. INKCAST_PYTHON
+# names another interpreter (CI and the tests pass their own).
+py="${INKCAST_PYTHON:-$ROOT/.venv/bin/python}"
+[ -x "$py" ] || { echo "no Python at $py: create the checkout's venv first (python3.14 -m venv .venv && .venv/bin/pip install -e ., CONTRIBUTING.md), or set INKCAST_PYTHON" >&2; exit 2; }
 ns="${1:?usage: root-secret-drill.sh <inkcast-staging|inkcast-prod>}"
 k="${KUBECTL:-oc}"
 adp="${VELERO_NAMESPACE:-openshift-adp}"
@@ -72,7 +77,7 @@ wait_for() {
 field() { $k -n "$1" get "$2" -o "jsonpath=$3" 2>/dev/null || true; }
 # "key hash12" per data key of a Secret read as JSON on stdin, sorted; never a value.
 hashes() {
-  python3 -c '
+  "$py" -c '
 import base64, hashlib, json, sys
 for key, value in sorted(json.load(sys.stdin).get("data", {}).items()):
     print(key, hashlib.sha256(base64.b64decode(value)).hexdigest()[:12])'
@@ -99,7 +104,7 @@ step "1. the safety copy, on this host only ($work, mode 600, removed at the end
 $k -n "$ns" get secret "$secret" -o json > "$work/copy.json"
 hashes < "$work/copy.json" > "$work/before"
 # What a create takes back (no resourceVersion, uid or owner): the type, the name, the labels and the data.
-python3 -c '
+"$py" -c '
 import json, sys
 secret = json.load(sys.stdin)
 meta = secret["metadata"]
@@ -113,7 +118,7 @@ echo "a marker sealed by the server with the key it mounts"
 
 step "2. a backup from Schedule $schedule"
 backup="$schedule-$stamp"
-$k -n "$adp" get schedules.velero.io "$schedule" -o json | python3 -c '
+$k -n "$adp" get schedules.velero.io "$schedule" -o json | "$py" -c '
 import json, sys
 schedule = json.load(sys.stdin)
 labels = dict(schedule["metadata"].get("labels", {}))
@@ -143,7 +148,7 @@ $k -n "$ns" delete secret "$secret"
 
 step "4. the restore, limited to secrets carrying $label_key=true in $ns"
 restore="$backup-restore"
-python3 -c '
+"$py" -c '
 import json, sys
 print(json.dumps({"apiVersion": "velero.io/v1", "kind": "Restore",
                   "metadata": {"name": sys.argv[1], "namespace": sys.argv[2]},

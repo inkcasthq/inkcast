@@ -12,6 +12,7 @@ import pathlib
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -57,12 +58,12 @@ class Stubbed(unittest.TestCase):
 
     def stub(self, name: str, body: str) -> None:
         path = self.dir / "bin" / name
-        path.write_text("#!/usr/bin/env python3\nimport json, os, pathlib, sys\n" + body)
+        path.write_text(f"#!{sys.executable}\nimport json, os, pathlib, sys\n" + body)
         path.chmod(0o755)
 
     def bash(self, script: str, env: dict[str, str], timeout: float = 30) -> subprocess.CompletedProcess:
-        env = {**os.environ, **env, "PATH": f"{self.dir / 'bin'}:{os.environ['PATH']}", "STUB_DIR": str(self.dir)}
-        return subprocess.run(["bash", "-c", "set -euo pipefail\n" + script], capture_output=True, text=True, env=env,
+        env = {**os.environ, **env, "PATH": f"{self.dir / 'bin'}:{os.environ['PATH']}", "STUB_DIR": str(self.dir), "INKCAST_PYTHON": sys.executable}
+        return subprocess.run(["bash", "-c", "set -euo pipefail\npy=\"$INKCAST_PYTHON\"\n" + script], capture_output=True, text=True, env=env,
                               timeout=timeout)
 
 

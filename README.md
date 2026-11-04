@@ -163,6 +163,7 @@ oc -n keycloak get keycloakrealmimports                          # each import w
 oc -n inkcast-staging rollout status deploy/inkcast --timeout=15m   # the authz-model init container, then Ready
 bash scripts/dev/shared-db-proof.sh                              # proves the isolation: pg_hba, the policy, owners, ghcr-pull
 bash scripts/lab/root-secret-copy.sh                             # the root Secret's copy: OADP, the lab's store, one backup proven (ADR-0020)
+# both scripts/lab and scripts/ops run Python from the checkout's .venv (below), never the host's python3; INKCAST_PYTHON names another
 ```
 
 The proof sends no password and prints none. It checks five things:

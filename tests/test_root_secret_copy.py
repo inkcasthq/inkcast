@@ -21,6 +21,8 @@ import pathlib
 import re
 import shutil
 import subprocess
+import sys
+import tempfile
 import unittest
 
 import yaml
@@ -374,11 +376,11 @@ class Scripts(unittest.TestCase):
     def test_the_install_approves_only_a_plan_of_the_pinned_csv_alone(self):
         """Review concern C6 of PR #478: an InstallPlan can carry several CSVs; approving one that carries the
         pinned version beside another installs what the pin never named. The selector, run as the script runs it."""
-        code = re.search(r"plan_for_csv\(\) \{\n.*?python3 -c '(.*?)' \"\$csv\"\n\}", INSTALL.read_text(), re.S).group(1)
+        code = re.search(r"plan_for_csv\(\) \{\n.*?\"\$py\" -c '(.*?)' \"\$csv\"\n\}", INSTALL.read_text(), re.S).group(1)
 
         def select(plans: list[list[str]]) -> subprocess.CompletedProcess:
             items = [{"metadata": {"name": f"install-{i}"}, "spec": {"clusterServiceVersionNames": names}} for i, names in enumerate(plans)]
-            return subprocess.run(["python3", "-c", code, "oadp-operator.v1.6.2"], input=json.dumps({"items": items}),
+            return subprocess.run([sys.executable, "-c", code, "oadp-operator.v1.6.2"], input=json.dumps({"items": items}),
                                   capture_output=True, text=True)
         exact = select([["oadp-operator.v1.6.2"]])
         self.assertEqual((exact.returncode, exact.stdout.strip()), (0, "install-0"))
@@ -420,6 +422,22 @@ class Scripts(unittest.TestCase):
                 self.assertTrue(path.read_text().startswith(f"#!/{'usr/bin/env bash' if shell == 'bash' else 'bin/sh'}\n# SPDX-License-Identifier"))
         self.assertTrue(INSTALL.stat().st_mode & 0o111, "executable")
         self.assertTrue(DRILL.stat().st_mode & 0o111, "executable")
+
+    def test_the_scripts_run_python_from_the_checkout_s_venv_and_stop_without_it(self):
+        """The host's python3 is not the project's (macOS ships 3.9): every call goes through the checkout's .venv,
+        or INKCAST_PYTHON, and a missing interpreter stops the script before it calls the cluster."""
+        for path, args in ((INSTALL, []), (DRILL, ["inkcast-staging"])):
+            with self.subTest(script=path.name):
+                self.assertIsNone(re.search(r"(?m)^[^#]*\bpython3 ", path.read_text()), "a bare python3")
+                calls = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory())) / "calls"
+                stub = calls.with_name("oc")
+                stub.write_text(f"#!/bin/sh\necho \"$*\" >> {calls}\n")
+                stub.chmod(0o755)
+                done = subprocess.run(["bash", str(path), *args], capture_output=True, text=True, timeout=30,
+                                      env={**os.environ, "KUBECTL": str(stub), "INKCAST_PYTHON": "/nonexistent/python"})
+                self.assertEqual(done.returncode, 2, done.stderr)
+                self.assertIn("no Python at /nonexistent/python", done.stderr)
+                self.assertFalse(calls.exists(), "the cluster was called before the interpreter was checked")
 
 
 class Documented(unittest.TestCase):
