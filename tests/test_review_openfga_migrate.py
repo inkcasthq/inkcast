@@ -87,10 +87,15 @@ class MigrateScript(unittest.TestCase):
             raise AssertionError(f"{statement}: {done.stderr}")
         return done.stdout.strip()
 
-    def migrate_command(self, uri: str = URI, connect_timeout: str = "20") -> list[str]:
+    @staticmethod
+    def migrate_env(uri: str = URI, connect_timeout: str = "20") -> list[str]:
+        """The init container's environment (deployment.yaml), as docker's -e arguments."""
         env = {"OPENFGA_DATASTORE_ENGINE": "postgres", "OPENFGA_DATASTORE_URI": uri, "OPENFGA_LOG_FORMAT": "json",
                "OPENFGA_TIMEOUT": "5s", "CONNECT_TIMEOUT": connect_timeout}
-        return ["docker", "exec", *[f"-e{k}={v}" for k, v in env.items()], self.container, "bash", "/tmp/migrate.sh"]
+        return [f"-e{k}={v}" for k, v in env.items()]
+
+    def migrate_command(self, uri: str = URI, connect_timeout: str = "20") -> list[str]:
+        return ["docker", "exec", *self.migrate_env(uri, connect_timeout), self.container, "bash", "/tmp/migrate.sh"]
 
     def migrate(self, **kwargs) -> tuple[int, str]:
         done = subprocess.run(self.migrate_command(**kwargs), capture_output=True, text=True, timeout=300)
@@ -173,6 +178,52 @@ class MigrateScript(unittest.TestCase):
                 self.assertEqual(code, 1, log)
                 self.assertIn("no database after 1 s", log)
                 self.assertNotIn(PASSWORD, log)
+
+    def test_a_killed_runner_leaves_no_statement_running_without_the_lock(self):
+        """A pod deleted while it migrates: SIGTERM ends bash, PID 1, at once (measured: exit 143 in under a second)
+        and the kubelet kills the rest. The lock goes with psql's session, but OpenFGA's own backend keeps running
+        its statement, here 006's CREATE INDEX CONCURRENTLY, with no lock and no client, until it next talks to
+        that client; the next runner's repair then races it. PostgreSQL checks a session's client while a statement
+        runs when the session asks (client_connection_check_interval)."""
+        self.assertMigrated()
+        self.sql("DELETE FROM goose_db_version WHERE version_id = 6")
+        self.sql("DROP INDEX idx_user_lookup")
+        # An open snapshot: 006's concurrent build waits for it, as a large table keeps a build running.
+        snapshot = subprocess.Popen(["docker", "exec", self.container, "psql", "-h", "/tmp", "-U", "postgres", "-d", "openfga",
+                                     "-c", "BEGIN ISOLATION LEVEL REPEATABLE READ; SELECT count(*) FROM goose_db_version;"
+                                     " SELECT pg_sleep(60); COMMIT;"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        end_snapshot = ("SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity"
+                        " WHERE query LIKE '%pg_sleep(60)%' AND pid <> pg_backend_pid()")
+        self.addCleanup(snapshot.wait, 60)
+        self.addCleanup(self.sql, end_snapshot)
+        time.sleep(1)
+        # The runner as a pod runs it: migrate.sh as PID 1 of its own container, in the database's network namespace.
+        postgres, openfga = pinned_images()
+        runner = f"{self.container}-runner"
+        subprocess.run(["docker", "create", "--name", runner, "--network", f"container:{self.container}",
+                        "--mount", f"type=image,source={openfga},target=/opt/openfga", *self.migrate_env(),
+                        postgres, "bash", "/tmp/migrate.sh"], check=True, capture_output=True)
+        self.addCleanup(subprocess.run, ["docker", "rm", "-f", runner], capture_output=True, timeout=60)
+        subprocess.run(["docker", "cp", str(SCRIPT), f"{runner}:/tmp/migrate.sh"], check=True, capture_output=True)
+        subprocess.run(["docker", "start", runner], check=True, capture_output=True)
+        building = "SELECT count(*) FROM pg_stat_progress_create_index"
+        for _ in range(80):
+            if self.sql(building) == "1":
+                break
+            time.sleep(0.25)
+        self.assertEqual(self.sql(building), "1", "006's build never started")
+        subprocess.run(["docker", "kill", "-s", "TERM", runner], check=True, capture_output=True)   # as the kubelet does
+        running = "SELECT count(*) FROM pg_stat_activity WHERE application_name = 'openfga-migrate' AND state = 'active'"
+        killed = time.monotonic()
+        while self.sql(running) != "0" and time.monotonic() - killed < 10:
+            time.sleep(0.5)
+        self.assertEqual(self.sql("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND granted"), "0")
+        self.assertEqual(self.sql(running), "0", "a migration statement still runs 10 s after its runner was killed, without the lock")
+        self.sql(end_snapshot)
+        log = self.assertMigrated()   # the next run, in one go: the repair drops the invalid index, 006 builds it
+        self.assertIn("repair: idx_user_lookup is INVALID", log)
+        self.assertEqual(self.sql("SELECT indisvalid FROM pg_index WHERE indexrelid = to_regclass('idx_user_lookup')"), "t")
+        self.assertEqual(self.sql("SELECT count(*) FROM goose_db_version WHERE version_id = 6"), "1")
 
 
 @unittest.skipIf(UNAVAILABLE, UNAVAILABLE)

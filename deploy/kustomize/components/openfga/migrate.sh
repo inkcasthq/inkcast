@@ -47,8 +47,11 @@ lock_key="${LOCK_KEY:-1473304569}"
 export PGAPPNAME=openfga-migrate PGCONNECT_TIMEOUT=10
 # Server-side keepalives on these sessions: a runner cut off without a FIN (a node partition) holds the lock until the
 # server finds it gone, after the OS's 7200 s of idle with tcp_keepalives_idle 0, PostgreSQL's and CloudNativePG's
-# default; with these, in about 35 s (tests/test_review_openfga_migrate.py measures both).
-export PGOPTIONS="-c tcp_keepalives_idle=20 -c tcp_keepalives_interval=5 -c tcp_keepalives_count=3"
+# default; with these, in about 35 s. And a client check while a statement runs: a killed pod's lock goes with psql's
+# session at once, but OpenFGA's backend would run its statement on (006's CREATE INDEX CONCURRENTLY: as long as the
+# table takes) without the lock. OpenFGA's pgx reads PGOPTIONS too (pgconn/config.go at v5.11.0). The proofs are
+# tests/test_review_openfga_migrate.py.
+export PGOPTIONS="-c tcp_keepalives_idle=20 -c tcp_keepalives_interval=5 -c tcp_keepalives_count=3 -c client_connection_check_interval=2s"
 # psql's URI, less the password, which goes to PGPASSWORD percent-decoded as libpq decodes it (the header says why).
 db_uri="$OPENFGA_DATASTORE_URI"
 if [[ "$db_uri" =~ ^([^:/?#]+://[^:@/?#]*):([^@/?#]*)@(.*)$ ]]; then
