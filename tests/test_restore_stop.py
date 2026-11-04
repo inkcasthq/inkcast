@@ -22,6 +22,7 @@ import threading
 import time
 import unittest
 
+from fakes import logging_restored
 from inkcast.libs.db import Store
 from inkcast.libs.db.backup import COPY_PAGES, RestoreStopped, restore_backup, take_backup
 
@@ -191,6 +192,7 @@ class ARestoreCommandSignalled(_Restore):
     def test_the_handlers_do_not_outlive_the_command(self):
         # A test runner or a shell calling restore_main in-process keeps its own SIGINT (KeyboardInterrupt) after.
         from inkcast.launcher import main
+        logging_restored(self)
         before = signal.getsignal(signal.SIGINT), signal.getsignal(signal.SIGTERM)
         with self.assertRaises(SystemExit):
             main(["restore", str(self.backup), "--database", str(self.db), "--force"])
