@@ -261,8 +261,10 @@ def setup_logging(fmt: str, level: str = "INFO", service: str = "inkcast") -> No
     root = logging.getLogger()
     root.handlers[:] = [handler]
     root.setLevel(level.upper())
-    # Never log request URLs with query strings at INFO (they can carry OAuth codes).
+    # Never log request URLs with query strings at INFO (they can carry OAuth codes), nor, at DEBUG, httpcore2's copy
+    # of every response's headers (Set-Cookie values: the consent and deletion cookies through the Gateway).
     logging.getLogger("httpx2").setLevel(logging.WARNING)
+    logging.getLogger("httpcore2").setLevel(logging.WARNING)
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
 
