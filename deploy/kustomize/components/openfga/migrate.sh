@@ -22,7 +22,8 @@
 #      on one PostgreSQL never wait on each other);
 #   3. repair what an interrupted 006 leaves: `idx_user_lookup` INVALID is dropped, and goose's version-6 rows go
 #      when that index is invalid or missing, so that `openfga migrate` applies 006 again (goose up.go:99-106 at
-#      v3.28.0 plans every file above the table's highest version). Nothing else is touched: no tuple, no model;
+#      v3.28.0 plans every file above the table's highest version). Not once a version above 6 is recorded: goose
+#      then refuses a 6 missing below it on every run (up.go:77-90). Nothing else is touched: no tuple, no model;
 #   4. `openfga migrate`, its version discovery and every migration, while the session holds the lock, idle;
 #   5. release the lock. A session that died meanwhile (the database restarted) fails this run, and the kubelet runs
 #      it again from step 1. What `openfga migrate` did between the loss and the retry ran without the lock: the
@@ -105,6 +106,13 @@ query "SELECT (to_regclass('idx_user_lookup') IS NOT NULL
               (to_regclass('idx_user_lookup') IS NULL)::text,
               (to_regclass('goose_db_version') IS NOT NULL)::text"
 IFS='|' read -r idx_invalid idx_missing versioned <<< "$reply"
+if [ "$versioned" = true ] && { [ "$idx_invalid" = true ] || [ "$idx_missing" = true ]; }; then
+  query "SELECT EXISTS (SELECT 1 FROM goose_db_version WHERE version_id > 6)"
+  if [ "$reply" = t ]; then
+    log "repair: skipped: idx_user_lookup is invalid or missing, but goose records a version above 6, so 006 cannot run again"
+    idx_invalid=false idx_missing=false
+  fi
+fi
 if [ "$idx_invalid" = true ]; then
   log "repair: idx_user_lookup is INVALID (an interrupted 006), dropping it so that 006 builds it again"
   query "DROP INDEX CONCURRENTLY idx_user_lookup"
