@@ -33,8 +33,9 @@
 # PGPASSWORD, because a process's argv is readable by every user of the node (/proc/<pid>/cmdline, mode 0444; `ps`)
 # while its environment is its own (environ, 0400), and because libpq quotes a URI it cannot parse in the errors the
 # wait for the database logs; otherwise they name the host, the port and the user. The URI itself is never echoed.
-# OpenFGA does print a URI that Go's net/url refuses, password included ("invalid database uri: parse ...", a raw `|`
-# in the password, measured with v1.22.0), so the Secret's URI must be percent-encoded, as RFC 3986 requires.
+# OpenFGA gets the same URI less its password, with the password in OPENFGA_DATASTORE_PASSWORD (step 4): it parses
+# the URI with Go's net/url and prints one it refuses, password included (a raw `|` in the password, which libpq
+# accepts: "invalid database uri: parse ...: net/url: invalid userinfo", measured with v1.22.0; issue #410).
 # The lab's e2e proofs are scripts/dev/openfga-recovery-e2e.sh.
 set -euo pipefail
 : "${OPENFGA_DATASTORE_URI:?OPENFGA_DATASTORE_URI is not set: the Secret openfga-db-app, key uri}"
@@ -147,10 +148,14 @@ if [ "$versioned" = true ] && { [ "$idx_invalid" = true ] || [ "$idx_missing" = 
 fi
 
 # 4. The migration, while the session idles with the lock. A statement first, so a session already lost never
-# lets OpenFGA start; OpenFGA's own exit code is the run's.
+# lets OpenFGA start; OpenFGA's own exit code is the run's. OpenFGA gets psql's URI, less the password, and the
+# password on its own: `--datastore-password`, OPENFGA_DATASTORE_PASSWORD, "overwrite the password in the connection
+# string" (cmd/migrate/migrate.go:42 at v1.22.0). It parses the URI with Go's net/url before that override
+# (pkg/storage/migrate/migrate.go:80-94) and prints a URI it refuses, password included (#410); the override it
+# encodes itself (url.UserPassword), so the password reaches pgx whatever it holds. Empty when the URI had none.
 query "SELECT format('lock held by pid %s, running openfga migrate', pg_backend_pid())"
 log "$reply"
-if "$OPENFGA_BINARY" migrate; then :; else
+if OPENFGA_DATASTORE_URI="$db_uri" OPENFGA_DATASTORE_PASSWORD="${PGPASSWORD-}" "$OPENFGA_BINARY" migrate; then :; else
   code=$?
   log "openfga migrate exited ${code}: this run fails, the kubelet starts it again"
   exit "$code"
