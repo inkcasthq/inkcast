@@ -19,7 +19,10 @@
   backup taken before a person's erasure holds their rows and not the record of it, and that record is what lets
   the server erase them again when it next opens the store (``Store.reapply_erasures``). So are their
   ``user_erasure_aliases`` (issue #113), and the log line counts both. Erasures that only the replaced database knew
-  of, when that database is lost too, are the one case this cannot cover; the runbook says so.
+  of, when that database is lost too, are the one case this cannot cover; the runbook says so. A restore stops
+  before its swap, with ``RestoreStopped``, when its caller's ``stop`` is set (``restore_main`` sets it on SIGTERM
+  and Ctrl-C: ``inkcast`` is PID 1 in the image, where a signal without a handler is dropped) or the clock passes
+  ``not_after`` (restore.sh's own deadline); past its last check the swap goes through whatever arrives (#128).
 
 A backup is as sensitive as the database: platform credentials inside are encrypted with INKCAST_SECRET_KEY (keep
 the key, or the backup can't be used, and never store the two together), and tokens are stored only as hashes.
@@ -37,6 +40,7 @@ import logging
 import os
 import pathlib
 import sqlite3
+import threading
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -52,10 +56,26 @@ ASIDE = ".before-restore-"  # <db>.before-restore-<time>: the database a restore
 STAMP = "%Y%m%dT%H%M%SZ"    # the UTC time in every copy's name: names sort by time, and say which day a copy is from
 FRESH_HEARTBEAT_SECONDS = 120
 DEFAULT_KEEP = 14           # days; the CronJob's INKCAST_BACKUP_KEEP and Config.backup_keep say the same
+COPY_PAGES = 1024           # a restore copies its backup in steps of this many pages (4 MiB), and can stop between two
 
 
 class BackupError(Exception):
     """A backup or restore that must not count: the reason, in one sentence."""
+
+
+class RestoreStopped(BackupError):
+    """A restore that stopped before its swap, asked to (SIGTERM, Ctrl-C) or past its deadline: the current database
+    is as it was, and the staging copy is gone."""
+
+
+def _check_stop(stop: threading.Event | None, not_after: float | None) -> None:
+    """Raise ``RestoreStopped`` once ``stop`` is set or the clock (the real one, not a caller's ``now``) has passed
+    ``not_after``. Called between two steps of the copy and once more just before the swap: a stop lands within one
+    step, and never after the swap has begun (issue #128)."""
+    if stop is not None and stop.is_set():
+        raise RestoreStopped("a stop was requested before the swap: nothing was replaced.")
+    if not_after is not None and time.time() > not_after:
+        raise RestoreStopped(f"the deadline ({_stamp(not_after)}) passed before the swap: nothing was replaced.")
 
 
 @dataclass(frozen=True)
@@ -307,13 +327,16 @@ def _erasure_aliases(conn: sqlite3.Connection) -> list[tuple[str, str]]:
         raise
 
 
-def restore_backup(path: pathlib.Path, database: pathlib.Path, *, force: bool = False,
-                   now: float | None = None) -> pathlib.Path | None:
-    """Put ``path`` in place of ``database``. Returns where the previous database was moved, if there was one."""
+def restore_backup(path: pathlib.Path, database: pathlib.Path, *, force: bool = False, now: float | None = None,
+                   stop: threading.Event | None = None, not_after: float | None = None) -> pathlib.Path | None:
+    """Put ``path`` in place of ``database``. Returns where the previous database was moved, if there was one.
+    ``stop`` set, or the clock past ``not_after`` (seconds since the epoch), ends the restore before its swap with
+    ``RestoreStopped`` (see ``_check_stop``). A restore that stops or fails once the staging copy exists removes it;
+    only a kill leaves it (issue #404)."""
     database.parent.mkdir(parents=True, exist_ok=True)
     incoming = database.with_name(f".{database.name}.restoring")
     with _one_restore(incoming):
-        return _restore(path, database, incoming, force=force, now=now)
+        return _restore(path, database, incoming, force=force, now=now, stop=stop, not_after=not_after)
 
 
 @contextlib.contextmanager
@@ -342,8 +365,8 @@ def _one_restore(incoming: pathlib.Path) -> Iterator[None]:
         os.close(fd)
 
 
-def _restore(path: pathlib.Path, database: pathlib.Path, incoming: pathlib.Path, *, force: bool,
-             now: float | None) -> pathlib.Path | None:
+def _restore(path: pathlib.Path, database: pathlib.Path, incoming: pathlib.Path, *, force: bool, now: float | None,
+             stop: threading.Event | None, not_after: float | None) -> pathlib.Path | None:
     now = now or time.time()
     manifest = verify_backup(path)
     age = _heartbeat_age(database, now)
@@ -353,35 +376,35 @@ def _restore(path: pathlib.Path, database: pathlib.Path, incoming: pathlib.Path,
     taken = database.with_name(f"{database.name}{ASIDE}{_stamp(now)}")     # the name the swap below will use
     if taken.exists():                                  # a restore this very second: refused before any copy (#202)
         raise BackupError(f"{taken.name} is already there: a restore ran this second; try again in a second.")
-    old_umask = os.umask(0o027)
     try:
-        src, dst = sqlite3.connect(f"file:{path}?mode=ro", uri=True), sqlite3.connect(incoming)
+        old_umask = os.umask(0o027)
         try:
-            src.backup(dst)
+            src, dst = sqlite3.connect(f"file:{path}?mode=ro", uri=True), sqlite3.connect(incoming)
+            try:
+                src.backup(dst, pages=COPY_PAGES, progress=lambda *_: _check_stop(stop, not_after))
+            finally:
+                dst.close()
+                src.close()
         finally:
-            dst.close()
-            src.close()
-    finally:
-        os.umask(old_umask)
-    if _integrity(incoming) != "ok" or _row_counts(incoming) != manifest.get("rows", _row_counts(incoming)):
-        incoming.unlink(missing_ok=True)
-        raise BackupError("The restored copy doesn't match the backup; the current database was not touched.")
-    try:
+            os.umask(old_umask)
+        if _integrity(incoming) != "ok" or _row_counts(incoming) != manifest.get("rows", _row_counts(incoming)):
+            raise BackupError("The restored copy doesn't match the backup; the current database was not touched.")
         carried, aliases = _carry_erasures(database, incoming)     # after the copy is checked, before it is swapped in
+        if carried or aliases:
+            log.info("Carried %d erasure record(s) and %d alias(es) from the current database into the restored copy: "
+                     "the server erases those people again when it starts", carried, aliases,
+                     extra={"event": "restore.erasures.carried", "rows": carried, "aliases": aliases})
+        _check_stop(stop, not_after)                        # the last check: from here the swap goes through
+        aside = None
+        if database.exists():
+            aside = database.with_name(f"{database.name}{ASIDE}{_stamp(now)}")   # ages out: aside_copies, take_backup
+            os.link(database, aside)                        # a second name: the old file stays at its path until replaced
+            for extra in ("-wal", "-shm"):                  # the old WAL belongs to the old file, never the restored one
+                side = database.with_name(database.name + extra)
+                if side.exists():
+                    side.replace(aside.with_name(aside.name + extra))
+        incoming.replace(database)                          # one rename: a kill leaves the old database or the new one
     except BaseException:
-        incoming.unlink(missing_ok=True)
+        incoming.unlink(missing_ok=True)                    # whatever stopped or failed the restore, nothing is staged
         raise
-    if carried or aliases:
-        log.info("Carried %d erasure record(s) and %d alias(es) from the current database into the restored copy: the "
-                 "server erases those people again when it starts", carried, aliases,
-                 extra={"event": "restore.erasures.carried", "rows": carried, "aliases": aliases})
-    aside = None
-    if database.exists():
-        aside = database.with_name(f"{database.name}{ASIDE}{_stamp(now)}")   # ages out: aside_copies, take_backup
-        os.link(database, aside)                        # a second name: the old file stays at its path until replaced
-        for extra in ("-wal", "-shm"):                  # the old WAL belongs to the old file, never the restored one
-            side = database.with_name(database.name + extra)
-            if side.exists():
-                side.replace(aside.with_name(aside.name + extra))
-    incoming.replace(database)                          # one rename: a kill leaves the old database or the new one
     return aside

@@ -208,11 +208,14 @@ ALERTS: tuple[Alert, ...] = (
     Alert("InkcastIdentitySyncBreakerOpen", "max(inkcast_identity_sync_breaker_open) > 0", "critical",
           "The Keycloak user sync holds a mass deletion or disabling for an operator",
           "A reconcile found at least INKCAST_KEYCLOAK_BREAKER_MIN people, and more than INKCAST_KEYCLOAK_BREAKER_PERCENT "
-          "of those it read, gone from Keycloak (404 User not found) or disabled in it (enabled: false) at once. Nobody "
+          "of those it read, gone from Keycloak (404 User not found) or disabled in it (enabled: false) at once; or the "
+          "admin-events passes of one reconcile interval found that many, of the people known, by USER admin events (a "
+          "scripted mass deletion or disabling). Nobody "
           "is cut off or erased and no grace period starts until an operator decides; the disabled have lost their OAuth "
           "tokens and their personal access tokens are refused, not revoked. A Keycloak restored from an older backup, the "
           "issuer pointing at the wrong Keycloak, or a user-storage provider switched off (its people answer 404, or "
-          "disabled when it imports) all look like this. Check Keycloak, then `inkcast identity confirm-deletions --pass "
+          "disabled when it imports) all look like this, and so does a script run with an administrator's token. Check "
+          "Keycloak, then `inkcast identity confirm-deletions --pass "
           "<id>` (Keycloak is right: the gone are cut off, the disabled lose their personal access tokens) or "
           "`dismiss-deletions` (Keycloak was wrong, and is fixed: the disabled's tokens work again); the "
           "identity.sync.breaker.tripped log line and `inkcast identity trips` name the pass.",

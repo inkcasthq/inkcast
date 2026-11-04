@@ -6,9 +6,46 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, StringConstraints, model_validator
+from pydantic import BaseModel, Field, StringConstraints, ValidationError, model_validator
+from pydantic_core import InitErrorDetails, PydanticCustomError
 
-from ..content.story import SCHEDULE_HORIZON_DAYS
+from ..content.story import SCHEDULE_HORIZON_DAYS, lone_surrogate
+
+
+class Input(BaseModel):
+    """A request body (REST) or a tool's arguments (MCP). No text in it, at any depth, holds an unpaired surrogate
+    (``story.lone_surrogate``): `"\\ud800"` in the JSON is a str Python's parser accepts and no UTF-8 encoder takes,
+    so the response was a 500, or the post unconfirmed when the request to the platform failed (#130). Checked before
+    the fields are, and reported as a validation error at the text's path: `title`, `tags.1`, `destinations.medium`,
+    `files.0.markdown`. A key is named when it is short plain text, else `[key]`, as pydantic names one."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_lone_surrogates(cls, data: Any) -> Any:
+        problems: list[InitErrorDetails] = []
+
+        def walk(value: Any, loc: tuple[str | int, ...]) -> None:
+            if len(loc) > 32:
+                # No field keeps text this deep (`files.0.markdown` is 3): the fields refuse or ignore it. json.loads
+                # builds a body thousands deep in a few KB, which a walk without this bound recursed into (a 500).
+                return
+            if isinstance(value, str):
+                if why := lone_surrogate(value):
+                    problems.append(InitErrorDetails(type=PydanticCustomError("lone_surrogate", why), loc=loc, input=value))
+            elif isinstance(value, dict):
+                for key, item in value.items():
+                    walk(key, loc + ("[key]",))
+                    walk(item, loc + (key if isinstance(key, str) and key.isprintable() and len(key) <= 80 else "[key]",))
+            elif isinstance(value, (list, tuple)):
+                for i, item in enumerate(value):
+                    walk(item, loc + (i,))
+            elif isinstance(value, BaseModel):  # built in code (the MCP tools' SyncFile): its fields, by name
+                walk(dict(value), loc)
+
+        walk(data, ())
+        if problems:
+            raise ValidationError.from_exception_data(cls.__name__, problems)
+        return data
 
 
 class ErrorBody(BaseModel):
@@ -56,7 +93,7 @@ class DestinationInfo(BaseModel):
     url: str | None = None
 
 
-class PublishRequest(BaseModel):
+class PublishRequest(Input):
     markdown: str = Field(description="Full markdown text of the story, including optional YAML front matter.")
     platforms: list[str] | None = Field(None, description="Platform ids. Defaults to front matter `platforms`, then all connected.")
     title: str | None = None
@@ -112,7 +149,7 @@ class PostInfo(BaseModel):
 # ---- personal access tokens (IdentityService) --------------------------------------------
 
 
-class TokenCreate(BaseModel):
+class TokenCreate(Input):
     name: str = Field(min_length=1, max_length=80, description="What the token is for, e.g. `blog repo CI`.")
     scopes: list[str] = Field(min_length=1, description="Scopes, e.g. `[\"stories:sync\"]`. See the API description.")
     # 366 is the absolute ceiling. The server applies its own policy where the token is made: omitted means its
@@ -152,7 +189,7 @@ class SyncFile(BaseModel):
                                        "request's), e.g. the raw URL of the file's directory at this commit.")
 
 
-class SyncRequest(BaseModel):
+class SyncRequest(Input):
     source: str = Field(min_length=1, max_length=300,
                         description="Stable id of the repository, e.g. `github.com/acme/blog`. Ledger entries are keyed by it.")
     ref: str | None = Field(None, max_length=300, description="Commit or ref being synced, for the record.")

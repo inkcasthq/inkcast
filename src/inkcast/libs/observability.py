@@ -71,6 +71,9 @@ EVENTS: dict[str, tuple[str, str]] = {
                                        "another worker re-sent it, or after a lookup recorded another post. The post's "
                                        "error names both copies, or the attempt that may have made one; a person checks "
                                        "the platform, keeps one and removes the other."),
+    "publish.edited_meanwhile": ("warning", "Git sync changed a post in place while its send was still out, and that send "
+                                            "succeeded: the platform has the post as it was sent, the post says so, and "
+                                            "the next sync sends the change as an update, or reports the file stale."),
     "auth.login.refused": ("warning", "A sign-in was refused by the allow-list, role or password check."),
     "cache.backend.unavailable": ("warning", "Redis/Valkey did not answer; rate limits are per replica until it is back."),
     "outbox.consumer.failed": ("warning", "An event sink failed on a batch; the cursor stayed and the batch is retried."),
@@ -86,7 +89,7 @@ EVENTS: dict[str, tuple[str, str]] = {
                                        "dismissed): their PATs work again."),
     "identity.erasure.orphans_swept": ("warning", "Housekeeping removed rows written for people in the instant of their "
                                                   "erasure, before the write-time guard refused such writes (rows and tables, "
-                                                  "counts only); once per database, not a new deletion, no audit row."),
+                                                  "counts only); once per table, not a new deletion, no audit row."),
     "identity.user.deleted": ("warning", "A person's account is gone (deleted by them, or in Keycloak and past the grace "
                                          "period): every row of theirs was erased (ids and counts only)."),
     "identity.erasure.reapplied": ("warning", "A restore brought back rows of a person erased before; they were erased again at "
@@ -109,10 +112,11 @@ EVENTS: dict[str, tuple[str, str]] = {
     "identity.sync.pass.ended": ("warning", "A sync pass ended early, a success for what it did: its budget of reads about "
                                             "people with no answer was used (the stage and the count only); what it did "
                                             "not reach waits for the next pass or reconcile."),
-    "identity.sync.breaker.tripped": ("critical", "A reconcile found too many people gone from Keycloak or disabled in it at "
-                                                  "once (pass id and counts); nobody is cut off or erased, the disabled "
-                                                  "keep their PATs refused, until an operator confirms or dismisses the "
-                                                  "pass with inkcast identity."),
+    "identity.sync.breaker.tripped": ("critical", "A reconcile, or the admin-events passes of one reconcile interval, found "
+                                                  "too many people gone from Keycloak or disabled in it at once (pass id, "
+                                                  "which pass and counts); nobody is cut off or erased, the disabled keep "
+                                                  "their PATs refused, until an operator confirms or dismisses the pass "
+                                                  "with inkcast identity."),
     "identity.sync.breaker.held": ("warning", "The breaker is still open (pass id, how many people are held, gone and "
                                               "disabled); every pass says so until the pass is resolved."),
     "identity.sync.breaker.confirmed": ("warning", "An operator confirmed a pass (audit: pass id, who, how many applied by "
@@ -136,6 +140,8 @@ EVENTS: dict[str, tuple[str, str]] = {
                                          "rotation, went into the restored copy, so the server erases those people again "
                                          "at start-up (counts only)."),
     "restore.refused": ("warning", "A restore did not run: the backup failed its checks, or the server was still running."),
+    "restore.stopped": ("warning", "A restore stopped before its swap, asked to (SIGTERM, Ctrl-C) or past its deadline; the "
+                                   "current database was not touched and nothing was left staged."),
 }
 
 # ---- the public route templates ---------------------------------------------------------------

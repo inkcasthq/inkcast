@@ -3,13 +3,15 @@
 """`inkcast backup` and `inkcast restore`: the SQLite database, until PostgreSQL brings its own backups (E3).
 
     inkcast backup  [--database PATH] [--to DIR] [--keep N]
-    inkcast restore (BACKUP | --latest DIR) [--database PATH] [--force]
+    inkcast restore (BACKUP | --latest DIR) [--database PATH] [--force] [--not-after EPOCH]
     inkcast backups [--to DIR]                      # list, newest last, with size and checksum
 
 The database defaults to INKCAST_DATABASE, the directory to INKCAST_BACKUP_DIR (or ./backups). A backup runs while
-the server serves; a restore refuses while the server is running (stop it first). Exit status: 0 done, 1 failed,
-2 bad usage. Each outcome is one log line with an event (`backup.done`, `backup.failed`, `restore.done`,
-`restore.refused`). Runbook: docs/runbooks/backup-restore.md.
+the server serves; a restore refuses while the server is running (stop it first). A restore asked to stop (SIGTERM,
+Ctrl-C) or past `--not-after` (the deadline restore.sh passes) stops before its swap and says so; `inkcast` is PID 1
+in the image, where a SIGTERM without a handler is dropped, so the handler is set before anything else (#128). Exit
+status: 0 done, 1 failed, 2 bad usage. Each outcome is one log line with an event (`backup.done`, `backup.failed`,
+`restore.done`, `restore.refused`, `restore.stopped`). Runbook: docs/runbooks/backup-restore.md.
 """
 
 from __future__ import annotations
@@ -18,11 +20,15 @@ import argparse
 import logging
 import os
 import pathlib
+import signal
+import sqlite3
 import sys
+import threading
 
 from . import __version__
 from .libs.config import ConfigError, backup_keep_from, backup_keep_problems
-from .libs.db.backup import BackupError, list_backups, restore_backup, take_backup, verify_backup
+from .libs.db.backup import (BackupError, RestoreStopped, list_backups, restore_backup, take_backup,
+                             verify_backup)
 from .libs.secrets.checks import backup_keep_warning
 from .libs.observability import setup_logging
 
@@ -86,6 +92,24 @@ def backup_main(argv: list[str]) -> int:
 
 
 def restore_main(argv: list[str]) -> int:
+    # The handler first, before the arguments are even read: a signal only sets the flag, which restore_backup reads
+    # between two steps of its copy and once more before its swap, so a stop lands within a step and never half-way
+    # through the swap. The previous handlers come back after: a caller in the same process keeps its Ctrl-C.
+    stop = threading.Event()
+    previous = {}
+    try:
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            previous[sig] = signal.signal(sig, lambda *_: stop.set())
+    except ValueError:                                     # not the main thread: no handler, and the flag stays unset
+        pass
+    try:
+        return _restore(argv, stop)
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+
+
+def _restore(argv: list[str], stop: threading.Event) -> int:
     database, _ = _defaults()
     parser = argparse.ArgumentParser(prog="inkcast restore", description="Replace the database with a backup.")
     which = parser.add_mutually_exclusive_group(required=True)
@@ -93,6 +117,9 @@ def restore_main(argv: list[str]) -> int:
     which.add_argument("--latest", type=pathlib.Path, metavar="DIR", help="the newest backup in DIR")
     parser.add_argument("--database", type=pathlib.Path, default=database)
     parser.add_argument("--force", action="store_true", help="restore even though the server's heartbeat is fresh")
+    parser.add_argument("--not-after", type=float, default=None, metavar="EPOCH",
+                        help="stop rather than swap after this time (seconds since the epoch, on this clock): "
+                             "restore.sh passes the end of its own wait")
     args = parser.parse_args(argv)
     _logging()
     path = args.backup
@@ -103,8 +130,11 @@ def restore_main(argv: list[str]) -> int:
             return 1
         path = found[-1]
     try:
-        aside = restore_backup(path, args.database, force=args.force)
-    except (BackupError, OSError) as exc:
+        aside = restore_backup(path, args.database, force=args.force, stop=stop, not_after=args.not_after)
+    except RestoreStopped as exc:
+        log.error("Restore stopped: %s", exc, extra={"event": "restore.stopped", "backup": str(path)})
+        return 1
+    except (BackupError, OSError, sqlite3.Error) as exc:     # sqlite3.Error: a full volume, before any swap
         log.error("Restore refused: %s", exc, extra={"event": "restore.refused", "backup": str(path)})
         return 1
     log.info("Restored %s into %s%s", path.name, args.database,

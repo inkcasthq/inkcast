@@ -34,6 +34,13 @@ class TupleConflict(ValueError):
     """A write of a tuple that exists, or a delete of one that doesn't (OpenFGA's rule); nothing was changed."""
 
 
+class NoSuchUser(ValueError):
+    """A write of a tuple for a ``user:`` subject who has no ``users`` row (erased, or never there): the owner guard
+    (libs/db/erasure.py, issue #196) ignores such a row where it is written, so the whole write is refused instead, as
+    a write is applied whole or not at all (issue #219); nothing was changed. OpenFGA would accept it: its tuples are
+    not in the erasure's database, and removing them there is the reconciler's job (E3.F3.8.S3, docs/authorization.md)."""
+
+
 class AuthzRepo(Database):
     def authz_users_of(self, obj: str, relation: str) -> list[str]:
         rows = self._all("SELECT subject FROM authz_tuples WHERE object = ? AND relation = ? ORDER BY subject",
@@ -45,7 +52,9 @@ class AuthzRepo(Database):
         return [r["object"] for r in rows]
 
     def authz_write(self, writes: Iterable[Triple] = (), deletes: Iterable[Triple] = ()) -> None:
-        """All or nothing, in one transaction. Deletes first, so a request may replace a tuple it also removes."""
+        """All or nothing, in one transaction. Deletes first, so a request may replace a tuple it also removes. A tuple
+        for a ``user:`` subject with no ``users`` row refuses the whole write (``NoSuchUser``): the guard would otherwise
+        skip that one row while the rest landed."""
         now = time.time()
         with self._tx() as c:
             for user, relation, obj in deletes:
@@ -54,10 +63,12 @@ class AuthzRepo(Database):
                     raise TupleConflict(f"cannot delete a tuple which does not exist: {user} {relation} {obj}")
             for user, relation, obj in writes:
                 try:
-                    c.execute("INSERT INTO authz_tuples VALUES (?, ?, ?, ?, ?)",
-                              (user, relation, obj, obj.partition(":")[0], now))
+                    landed = c.execute("INSERT INTO authz_tuples VALUES (?, ?, ?, ?, ?)",
+                                       (user, relation, obj, obj.partition(":")[0], now)).rowcount
                 except sqlite3.IntegrityError:
                     raise TupleConflict(f"cannot write a tuple which already exists: {user} {relation} {obj}") from None
+                if landed != 1:                 # the guard ignored it: a person with no users row (no id in the message)
+                    raise NoSuchUser(f"cannot write a tuple for a user who has no account: {relation} {obj}")
 
     def authz_read(self, user: str | None = None, relation: str | None = None, obj: str | None = None,
                    type_: str | None = None) -> list[Triple]:

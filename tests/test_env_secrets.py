@@ -23,7 +23,7 @@ from unittest import mock
 import httpx2
 
 from inkcast import env_secrets
-from inkcast.env_secrets import Layout, connect, env_secrets_main
+from inkcast.env_secrets import RUNBOOK, Layout, Stored, connect, decide, env_secrets_main
 from inkcast.libs.config import load_config
 from inkcast.libs.secrets import run_checks
 
@@ -134,9 +134,9 @@ class EnvSecretsCase(unittest.TestCase):
     def namespace(self, name: str) -> None:
         (self.root / "namespace").write_text(name + "\n")
 
-    def run_main(self) -> tuple[int, str, str]:
+    def run_main(self, *argv: str) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()
-        code = env_secrets_main([], root=self.root, environ={}, connect=lambda environ, root: self.kube.client(),
+        code = env_secrets_main(list(argv), root=self.root, environ={}, connect=lambda environ, root: self.kube.client(),
                                 out=out, err=err)
         self.assert_no_value(out.getvalue() + err.getvalue())
         return code, out.getvalue(), err.getvalue()
@@ -465,6 +465,138 @@ class BothSides(EnvSecretsCase):
         self.assertEqual(self.kube.writes(), [])
 
 
+class RepairOnly(EnvSecretsCase):
+    """The CronJob's mode, ``--repair-only`` (the owner's decision on PR #423, issue #342): a side that survives is
+    copied to the side that is lost; a value absent on every side is never made anew, since a running environment
+    would be cut off from it (a new secret-key makes every sealed credential unreadable, a new fga-api-token is
+    refused by the running OpenFGA, a new role password is set on the role at once); the run names what is lost and
+    the runbook, writes the copies it can, and exits 1 so the Job shows Failed. Without the mode every case here
+    fails: argparse refuses the flag, and decide() has no such parameter."""
+
+    def seed_everything(self) -> None:
+        """An environment in agreement, as a run leaves it."""
+        self.seed_db_pair("staging", "c3" * 24)
+        self.kube.seed("keycloak", "inkcast-staging-realm", **{"identity-client-secret": "I" * 32, "sync-client-secret": "S" * 32})
+        self.kube.seed("inkcast-staging", "inkcast-secrets", **{"secret-key": "k" * 64, "fga-api-token": "f" * 64,
+                       "oidc-client-secret": "I" * 32, "keycloak-sync-secret": "S" * 32})
+
+    def test_inkcast_secrets_deleted_fails_naming_its_two_root_values_and_writes_nothing(self):
+        self.seed_everything()
+        del self.kube.objects[("inkcast-staging", "inkcast-secrets")]
+        code, out, err = self.run_main("--repair-only")
+        self.assertEqual(code, 1)
+        self.assertEqual(self.kube.writes(), [], "not even the client secrets the realm still holds: never half-made")
+        self.assertIn("inkcast-staging/inkcast-secrets is absent: secret-key and fga-api-token are held nowhere else and lost", err)
+        self.assertIn("rollout restart deploy/openfga", err)
+        self.assertIn(RUNBOOK, err)
+        self.assertIn("Nothing was made anew (--repair-only)", err)
+        for value in ("k" * 64, "f" * 64):
+            self.assertNotIn(value, out + err, "the deleted Secret's values are not known, and not printed")
+        self.assertNotIn("every generated Secret is present", out)
+
+    def test_both_role_sides_deleted_fails_naming_the_pair_and_writes_nothing(self):
+        self.seed_everything()
+        del self.kube.objects[("inkcast-db", "inkcast-pg-openfga-staging")]
+        del self.kube.objects[("inkcast-staging", "openfga-db-app")]
+        code, out, err = self.run_main("--repair-only")
+        self.assertEqual(code, 1)
+        self.assertEqual(self.kube.writes(), [])
+        self.assertIn("inkcast-db/inkcast-pg-openfga-staging and inkcast-staging/openfga-db-app are both absent: "
+                      "role openfga_staging's password is lost", err)
+        self.assertIn(RUNBOOK, err)
+        self.assertNotIn("c3" * 24, out + err)
+
+    def test_one_role_side_deleted_is_copied_back_and_the_run_succeeds(self):
+        for gone, kept in (("inkcast-db", "inkcast-pg-openfga-staging"), ("inkcast-staging", "openfga-db-app")), \
+                          (("inkcast-staging", "openfga-db-app"), ("inkcast-db", "inkcast-pg-openfga-staging")):
+            with self.subTest(gone="/".join(gone)):
+                self.kube = FakeKube()
+                self.seed_everything()
+                del self.kube.objects[gone]
+                code, out, err = self.run_main("--repair-only")
+                self.assertEqual(code, 0, err)
+                self.assertEqual(self.kube.writes(), [("POST", *gone)])
+                self.assertEqual(self.kube.values(*gone)["password"], "c3" * 24)
+                self.assertIn(f"from {'/'.join(kept)}", out)
+                self.assertIn("every generated Secret is present and in agreement", out)
+
+    def test_a_lost_value_does_not_block_the_pairs_that_can_be_copied(self):
+        """Repair what can be repaired, and still exit 1: the pairs are independent, and each copy is decided on the
+        side that survives, so a copy made beside a refusal never leaves two sides that disagree."""
+        self.seed_everything()
+        del self.kube.objects[("inkcast-db", "inkcast-pg-openfga-staging")]    # a copy from openfga-db-app
+        del self.kube.objects[("keycloak", "inkcast-staging-realm")]           # a copy of both clients from inkcast-secrets
+        del self.kube.objects[("inkcast-staging", "inkcast-secrets")]["data"]["secret-key"]   # lost: held nowhere else
+        code, out, err = self.run_main("--repair-only")
+        self.assertEqual(code, 1)
+        self.assertEqual(self.kube.writes(), [("POST", "inkcast-db", "inkcast-pg-openfga-staging"),
+                                              ("POST", "keycloak", "inkcast-staging-realm")])
+        self.assertEqual(self.kube.values("inkcast-db", "inkcast-pg-openfga-staging")["password"], "c3" * 24)
+        self.assertEqual(self.kube.values("keycloak", "inkcast-staging-realm"),
+                         {"identity-client-secret": "I" * 32, "sync-client-secret": "S" * 32})
+        self.assertIn("inkcast-staging/inkcast-secrets lacks secret-key: secret-key is held nowhere else and lost", err)
+        self.assertNotIn("secret-key", self.kube.values("inkcast-staging", "inkcast-secrets"))
+        self.assertIn("from inkcast-staging/openfga-db-app", out)
+
+    def test_a_secret_that_would_be_created_with_a_lost_value_is_left_absent(self):
+        """The realm Secret gone, and one client lost on both sides: the other client could be copied into a new
+        realm Secret, but a half-made Secret would be what a restore then collides with. It is left absent."""
+        self.seed_everything()
+        del self.kube.objects[("keycloak", "inkcast-staging-realm")]
+        del self.kube.objects[("inkcast-staging", "inkcast-secrets")]["data"]["keycloak-sync-secret"]
+        code, out, err = self.run_main("--repair-only")
+        self.assertEqual(code, 1)
+        self.assertEqual(self.kube.writes(), [])
+        self.assertIn("keycloak/inkcast-staging-realm sync-client-secret and inkcast-staging/inkcast-secrets "
+                      "keycloak-sync-secret are both absent: the client's secret is lost", err)
+
+    def test_decide_names_every_lost_value_in_one_run_and_writes_nothing(self):
+        layout = self.layout()
+        only_unrelated = Stored({"github-client-secret": "G" * 40}, "7")   # inkcast-secrets exists, holds none of its keys
+        plan = decide(layout, {layout.db_role: None, layout.db_app: None, layout.realm: None, layout.app: only_unrelated},
+                      repair_only=True)
+        self.assertEqual((plan.writes, plan.problems), ([], []))
+        self.assertEqual(len(plan.lost), 4, plan.lost)   # the role's password, the two clients, the two root values
+        for name in ("inkcast-pg-openfga-staging", "identity-client-secret", "sync-client-secret", "secret-key", "fga-api-token"):
+            self.assertIn(name, "\n".join(plan.lost))
+        self.assertEqual(plan.kept, ["inkcast-staging/inkcast-secrets: kept (github-client-secret)"])
+        without = decide(layout, {layout.db_role: None, layout.db_app: None, layout.realm: None, layout.app: only_unrelated})
+        self.assertEqual(without.lost, [], "without the mode, the init container's run, everything is made")
+        self.assertEqual(len(without.writes), 4)
+
+    def test_a_fresh_side_is_a_bring_up_not_a_loss(self):
+        """Nothing exists yet: the init container has not succeeded, and the CronJob's tick must say that, not
+        report four values lost. Still exit 1, still nothing written."""
+        code, out, err = self.run_main("--repair-only")
+        self.assertEqual(code, 1)
+        self.assertEqual(self.kube.writes(), [])
+        self.assertIn("no generated Secret of inkcast-staging exists yet: the init container env-secrets", err)
+        self.assertIn("logs deploy/openfga -c env-secrets", err)
+        self.assertNotIn("lost", err)
+
+    def test_a_problem_still_means_nothing_written_and_nothing_reported_lost(self):
+        """A pair that disagrees is a problem before anything else: the all-or-nothing rule holds in this mode too."""
+        self.seed_everything()
+        self.kube.seed("keycloak", "inkcast-staging-realm", **{"identity-client-secret": "X" * 32, "sync-client-secret": "S" * 32})
+        del self.kube.objects[("inkcast-db", "inkcast-pg-openfga-staging")]
+        del self.kube.objects[("inkcast-staging", "openfga-db-app")]
+        code, out, err = self.run_main("--repair-only")
+        self.assertEqual(code, 1)
+        self.assertEqual(self.kube.writes(), [])
+        self.assertIn("disagree", err)
+        self.assertIn("Nothing was written.", err)
+        self.assertNotIn("is lost", err)
+
+    def test_without_the_flag_the_deleted_secret_is_made_anew(self):
+        self.seed_everything()
+        del self.kube.objects[("inkcast-staging", "inkcast-secrets")]
+        code, out, err = self.run_main()
+        self.assertEqual(code, 0, err)
+        self.assertEqual(set(self.kube.values("inkcast-staging", "inkcast-secrets")),
+                         {"secret-key", "fga-api-token", "oidc-client-secret", "keycloak-sync-secret"})
+        self.assertIn("secret-key (generated)", out)
+
+
 class Races(EnvSecretsCase):
     """Two pods of the environment starting at once (a rollout's surge, a restart): a write that loses (409) starts
     over from the reads, and both end on the winner's values."""
@@ -609,6 +741,14 @@ class InCluster(unittest.TestCase):
                 launcher.main(["env-secrets"])
         self.assertEqual(done.exception.code, 0)
         called.assert_called_once_with([])
+
+    def test_the_launcher_passes_the_cronjob_s_flag_through(self):
+        from inkcast import launcher
+        with mock.patch.object(env_secrets, "env_secrets_main", return_value=1) as called:
+            with self.assertRaises(SystemExit) as done:
+                launcher.main(["env-secrets", "--repair-only"])
+        self.assertEqual(done.exception.code, 1, "a lost value fails the Job")
+        called.assert_called_once_with(["--repair-only"])
 
 
 def self_signed_pem() -> str:
