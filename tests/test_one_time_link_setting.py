@@ -254,12 +254,14 @@ class IssuedLinksKeepTheirLifetime(unittest.TestCase):
         hour, five = by_hand(one_time_link_minutes=60), by_hand(one_time_link_minutes=5)
         made = 1_800_000_000.0
         with clock(made):
-            publishing = InkcastService(store, platforms, Publisher(store, platforms), hour.public_url, hour.one_time_link_seconds)
+            publishing = InkcastService(store, platforms, Publisher(store, platforms), hour.public_url,
+                                        hour.one_time_link_seconds)
             connect = ticket_of(publishing.connect_link(user, "devto").url, "/connect/")
             delete = ticket_of(deletion_link(hour, store, user).url, "/account/delete/")
         lowered = made + 5 * 60 + 1                      # the setting is 5 now; the hour's links are past that
         with clock(lowered):
-            publishing = InkcastService(store, platforms, Publisher(store, platforms), five.public_url, five.one_time_link_seconds)
+            publishing = InkcastService(store, platforms, Publisher(store, platforms), five.public_url,
+                                        five.one_time_link_seconds)
             fresh_connect = ticket_of(publishing.connect_link(user, "medium").url, "/connect/")
             fresh_delete = ticket_of(deletion_link(five, store, user).url, "/account/delete/")
             self.assertIsNotNone(store.get_ticket(connect), "the connect link issued under an hour still opens")
