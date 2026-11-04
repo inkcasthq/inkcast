@@ -52,6 +52,15 @@ def docker_ready() -> str:
 UNAVAILABLE = docker_ready()
 
 
+class TheHarnessRuns(unittest.TestCase):
+    """Where the harness is required (CI's kind job, scripts/dev/openfga-migration-harness.sh, issue #422), a harness that
+    cannot run fails here: every test below would skip, and a change to migrate.sh that breaks them would pass."""
+
+    @unittest.skipUnless(os.environ.get("INKCAST_MIGRATE_HARNESS") == "required", "the harness is not required here")
+    def test_docker_and_both_pinned_images_are_present(self):
+        self.assertEqual(UNAVAILABLE, "")
+
+
 @unittest.skipIf(UNAVAILABLE, UNAVAILABLE)
 class MigrateScript(unittest.TestCase):
     container = f"inkcast-review-374-{os.getpid()}"
