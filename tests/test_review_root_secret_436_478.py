@@ -12,6 +12,7 @@ import base64
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import tempfile
@@ -199,6 +200,15 @@ class DrillAgainstAStub(unittest.TestCase):
         self.assertEqual((kept / "put-back.json").stat().st_mode & 0o777, 0o600)
         self.assertIn(str(kept / "put-back.json"), done.stderr, "the drill names the copy and the command")
         self.assertIn("replace", done.stderr)
+
+
+class RunbookBlocks(unittest.TestCase):
+    def test_no_fenced_block_of_the_runbook_is_empty(self):
+        """Step 1's commands are the ones the drill runs: a fenced block with no command in it is a command lost."""
+        text = (ROOT / "docs" / "runbooks" / "env-secrets.md").read_text()
+        blocks = re.findall(r"^ *```[a-z]*\n(.*?)^ *```$", text, flags=re.M | re.S)
+        self.assertTrue(blocks)
+        self.assertEqual([b for b in blocks if not b.strip()], [], "an empty ```bash block in docs/runbooks/env-secrets.md")
 
 
 if __name__ == "__main__":

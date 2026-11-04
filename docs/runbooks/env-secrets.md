@@ -57,9 +57,6 @@ The pairs that can be copied are copied in that same run; a Secret that would be
 
    The kinds are written in full (`backups.velero.io`, `restores.velero.io`): on the lab `oc get backup` resolves to CloudNativePG's `backups.postgresql.cnpg.io` first, and answers "not found" for a Velero backup.
 
-   ```bash
-   ```
-
    With the `velero` command instead: `velero restore create --from-backup <latest> --include-resources secrets --selector inkcast.io/root-secret=true --include-namespaces $NS -n openshift-adp`. The value is the one the pods hold, so nothing restarts; the restored Secret carries the label, so the next copy holds it. Then step 3: the CronJob's next run (or the Job there) exits 0 and says every Secret is in agreement, and a sealed credential still reads. `scripts/ops/root-secret-drill.sh $NS` does all of it in order (a safety copy on your host, mode 600, removed at the end, or put back if the drill stops after the deletion; a backup; the deletion; the restore; the comparison of every value by SHA-256; the run; every stored credential unsealed inside the server's pod with the key it mounts): run it on staging after any change to the copy, and never on an environment whose copy you have not seen `Completed`. A copy kept by hand (`oc get secret ... -o yaml`, somewhere safe) is put back with `oc -n $NS apply -f <the file>`; the Schedule copies no other Secret: `inkcast-db/...` and `keycloak/...` are pairs, which the CronJob copies from the side that survives, and a pair lost on both sides is step 2.
 
 2. **No copy: make new values, and accept what that costs.** The init container makes them: `oc -n $NS rollout restart deploy/openfga` (the CronJob never will). Then, per value:
