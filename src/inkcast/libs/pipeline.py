@@ -646,6 +646,8 @@ class Publisher:
         platform = self.platforms.get(row["platform"])
         if platform is None:
             raise PlatformError(f"Platform plug-in {row['platform']!r} is not installed.")
+        if row["status"] != "unconfirmed":  # before the connection: a retried resend is told the post the first made
+            raise self._not_resendable(post_id, row)
         reconnect = (f"Reconnect {platform.name} (inkcast_connect, or POST /api/v1/platforms/{platform.id}/connect-link), "
                      f"then resend post {post_id}.")
         connected = self.store.get_credentials(user_id, platform.id)
@@ -667,12 +669,17 @@ class Publisher:
                   *self._event("post.resent", post_id, user_id, platform.id, new_post_id=new_id)]
         if not self.store.resend_post(post_id, user_id, new_id=new_id, note=note, events=events,
                                       on_created=functools.partial(on_created, platform.id) if on_created else None):
-            current = self.store.get_post(post_id) or row
-            message = f"Post {post_id} is {current['status']}; only unconfirmed posts can be resent."
-            if current.get("resent_as"):
-                made = self.store.get_post(current["resent_as"])
-                raise AlreadyResent(f"{message} It was resent as post {current['resent_as']}, which is "
-                                    f"{made['status'] if made else 'gone'}: follow that one.", current["resent_as"])
-            raise PlatformError(message)
+            raise self._not_resendable(post_id, self.store.get_post(post_id) or row)
         prepared = Prepared.from_dict(json.loads(row["payload"]))
         return await self._send(new_id, user_id, platform, prepared, attempts=1, held=0)
+
+    def _not_resendable(self, post_id: str, current: dict[str, Any]) -> PlatformError:
+        """Why ``current`` can't be resent: it isn't 'unconfirmed'. One resent already names the post that resend made
+        (``AlreadyResent``), whatever the platform's connection is now, so a client whose first reply was lost follows
+        it instead of publishing by hand (#234)."""
+        message = f"Post {post_id} is {current['status']}; only unconfirmed posts can be resent."
+        if current.get("resent_as"):
+            made = self.store.get_post(current["resent_as"])
+            return AlreadyResent(f"{message} It was resent as post {current['resent_as']}, which is "
+                                 f"{made['status'] if made else 'gone'}: follow that one.", current["resent_as"])
+        return PlatformError(message)

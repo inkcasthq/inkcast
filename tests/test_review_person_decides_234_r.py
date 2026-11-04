@@ -181,3 +181,20 @@ class FindingADisconnectDuringTheCredentialsCheckStillRefusesTheResend(Harness):
         self.assertEqual((caught.exception.status, caught.exception.code), (409, "not_connected"))
         self.assertEqual((self.status(old_id), len(self.posts()), self.platform.sent), ("unconfirmed", 1, []),
                          "the old post was cancelled for a new one that failed at once")
+
+
+class FindingARetriedResendWhileDisconnectedNamesTheNewPost(Harness):
+    def test_a_resend_retried_after_a_disconnect_is_told_the_post_the_first_one_made(self):
+        """The first resend went through (its reply lost); the platform is disconnected before the client retries. The
+        connection is checked before the post's status, so the retry is told "post ... was not resent and is still
+        unconfirmed", which is false, and not the post the first resend made (#234 item 5): a client acting on it may
+        publish by hand, a second copy."""
+        old_id = self.unconfirmed()
+        first = asyncio.run(self.service.resend(self.user, old_id))
+        self.assertEqual(first.status, "published")
+        self.store.delete_credentials(self.user, self.platform.id)
+        with self.assertRaises(ServiceError) as caught:
+            asyncio.run(self.service.resend(self.user, old_id))
+        self.assertNotIn("still unconfirmed", caught.exception.message, "the reply says the resent post is unconfirmed")
+        self.assertEqual((caught.exception.status, caught.exception.code, caught.exception.extra),
+                         (409, "not_resendable", {"post_id": first.id}))
