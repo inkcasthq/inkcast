@@ -28,9 +28,13 @@ CREATE TABLE IF NOT EXISTS idempotency (
 );
 """
 
+# ``replaces``: the post a Git sync's claim replaces (cancelled in the claim's transaction), until the claim has a post
+# of its own: a run that fails before then leaves it for the re-run, which keeps that post's creation (#280).
+COLUMNS = (("ledger", "replaces", "TEXT"),)
+
 CLAIM_TTL = 600  # a 'syncing' claim older than this was left by a crash and may be taken over
 
-FIELDS = ("content_hash", "post_id", "remote_id", "url", "status", "message")
+FIELDS = ("content_hash", "post_id", "remote_id", "url", "status", "message", "replaces")
 
 
 class LedgerRepo(Database):
@@ -57,7 +61,7 @@ class LedgerRepo(Database):
         row = {"user_id": user_id, "source": source, "path": path, "platform": platform,
                **{k: current.get(k) for k in FIELDS}, **fields, "synced_at": time.time()}
         c.execute("INSERT OR REPLACE INTO ledger (user_id, source, path, platform, content_hash, post_id, remote_id,"
-                  " url, status, message, synced_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                  " url, status, message, replaces, synced_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                   tuple(row[k] for k in ("user_id", "source", "path", "platform", *FIELDS, "synced_at")))
         return row
 
@@ -100,8 +104,11 @@ class LedgerRepo(Database):
             # before posts were recorded) has nothing to decide, and an edited file takes it over, as after a cancel.
             if row["status"] in ("syncing", "failed", "missing", "cancelled") or \
                     (row["status"] == "unconfirmed" and row["post_id"] is None):
-                # No post until the claim makes its own: a claim cut off before that is taken over (sync._one).
-                c.execute("UPDATE ledger SET status = 'syncing', content_hash = ?, post_id = NULL, synced_at = ? WHERE"
+                # No post until the claim makes its own: a claim cut off before that is taken over (sync._one). An
+                # entry that had a post of its own replaced nothing any more; one that never got one (a replace that
+                # failed before its row) keeps the post it replaces for the sync taking it over (#280).
+                c.execute("UPDATE ledger SET status = 'syncing', content_hash = ?, post_id = NULL, synced_at = ?,"
+                          " replaces = CASE WHEN post_id IS NULL THEN replaces ELSE NULL END WHERE"
                           " user_id = ? AND source = ? AND path = ? AND platform = ?",
                           (content_hash, now, user_id, source, path, platform))
                 return True

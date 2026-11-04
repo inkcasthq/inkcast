@@ -163,7 +163,11 @@ class GitSync:
         changed = entry is not None and entry["content_hash"] != digest
         if entry is None or entry["status"] in ("failed", "syncing", "missing") or \
                 (entry["status"] == "cancelled" and changed):
-            return await self._create(user_id, req, path, story, platform, prepared, digest, entry)
+            # A replace that failed before its post existed left its claim naming the post it replaced, and no post of
+            # its own: the replacement made now keeps that post's creation as the replace run would have (#280).
+            replaced = self.store.get_post(entry["replaces"]) if entry and entry["replaces"] and not entry["post_id"] else None
+            return await self._create(user_id, req, path, story, platform, prepared, digest, entry,
+                                      created_at=self._creation_kept(replaced, story) if replaced else None)
 
         schedule_changed = False
         if post and post["status"] == "scheduled":  # not sent yet: the schedule time matters too
@@ -199,14 +203,17 @@ class GitSync:
             # The claim is written in the cancel's transaction (#224): a claim that fails rolls the cancel back, so the
             # entry is never left on a post the author didn't cancel, which the next sync would follow and never send.
             # The claim names no post until its own exists (on_record): stopped before that, it is taken over, never
-            # followed to the cancelled one. Through the publisher's store, as on_record: ``c`` is its connection.
+            # followed to the cancelled one; it names the post it replaces, so a run that fails before its own post
+            # exists leaves the re-run what it needs to keep that post's creation (#280). Through the publisher's
+            # store, as on_record: ``c`` is its connection.
             # Only while the scheduler still hasn't tried it: a claim since this sync read it (every send counts one)
             # left it waiting for its retry, changed in place and never replaced (ADR-0017), or unconfirmed, the
             # person's to decide (#226). Raising here rolls the cancel back.
             def claim(c: sqlite3.Connection) -> None:
                 if c.execute("SELECT attempts FROM posts WHERE id = ?", (post["id"],)).fetchone()["attempts"] != post["attempts"]:
                     raise PlatformError("The scheduler tried the post during this sync.")
-                self.publisher.store.put_entry_in(c, user_id, src, path, pid, status="syncing", post_id=None)
+                self.publisher.store.put_entry_in(c, user_id, src, path, pid, status="syncing", post_id=None,
+                                                  replaces=post["id"])
 
             try:
                 self.publisher.cancel(user_id, post["id"], also=claim)
@@ -216,11 +223,8 @@ class GitSync:
             # The replacement is scheduled at the time the file asks for, as written: passed or under SCHEDULE_LEAD
             # away, it is due at once, as a scheduled post the scheduler retries under its policy, never a "now" post
             # sent early and never retried (#187, ADR-0015). Only a file whose publish_at was removed sends now.
-            # Only the content changed, and the scheduler hasn't tried the post: the replacement keeps its schedule, so
-            # it keeps its creation too, and a post the scheduler is behind on stays as late as it is (ADR-0015).
-            kept = post["created_at"] if not schedule_changed and not post["attempts"] else None
             return await self._create(user_id, req, path, story, platform, prepared, digest, entry, replace=True,
-                                      created_at=kept)
+                                      created_at=self._creation_kept(post, story))
 
         if post and post["status"] == "recovering":
             # Its send was interrupted and the platform has not said whether it arrived, so it is neither replaced
@@ -253,6 +257,16 @@ class GitSync:
                              remote_id=o.remote_id or entry["remote_id"], message=None)
         return SyncResult(**base, action="update", status=o.status, post_id=entry["post_id"], url=o.url or entry["url"],
                           message="; ".join(o.notes) or None)
+
+    @staticmethod
+    def _creation_kept(post: dict, story) -> float | None:
+        """The ``created_at`` a replacement of the scheduled ``post`` keeps: the post's own when only the content changed,
+        so that the replacement keeps its schedule and its creation too, and a post the scheduler is behind on stays as
+        late as it is (ADR-0015); none when the file moved the schedule, or the scheduler has tried the post."""
+        wanted = story.publish_at.timestamp() if story.publish_at else None
+        if post["attempts"] or wanted is None or abs(post["run_at"] - wanted) >= 1:
+            return None
+        return post["created_at"]
 
     async def _edit_waiting(self, user_id: str, req: SyncRequest, path: str, platform: Platform, prepared: Prepared,
                             digest: str, post: dict, story) -> SyncResult:
@@ -324,7 +338,7 @@ class GitSync:
                     self.store.put_entry(user_id, src, path, pid, status="failed", content_hash=digest, message=o.message)
                 return SyncResult(**base, action="failed" if o.status == "failed" else "skipped", message=o.message)
             self.store.put_entry(user_id, src, path, pid, content_hash=digest, post_id=o.post_id, status=o.status,
-                                 url=o.url, remote_id=o.remote_id,
+                                 url=o.url, remote_id=o.remote_id, replaces=None,
                                  message=o.message if o.status in ("unconfirmed", "scheduled") else None)
         except Exception:
             self._after_error(user_id, src, path, pid, digest, made.get("post_id"), said)
@@ -425,7 +439,7 @@ class GitSync:
             self.store.put_entry(user_id, src, path, pid, status="failed", message=said or "internal error")
             return
         self.store.put_entry(user_id, src, path, pid, content_hash=digest, post_id=post["id"], status=post["status"],
-                             url=post["result_url"], remote_id=post["remote_id"],
+                             url=post["result_url"], remote_id=post["remote_id"], replaces=None,
                              message=said or "Internal error after the post was made; its status says what became of it.")
 
     def _resolve(self, user_id: str, src: str, path: str, platform: Platform, entry: dict, o: Outcome | None) -> dict | None:
