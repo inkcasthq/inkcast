@@ -48,9 +48,11 @@
 # Two instances (`instances`, Keycloak's `replicas`), discovering each other through the database (the default
 # `jdbc-ping` stack in Keycloak 26). Resources: the operator's defaults are 1700Mi requested and 2Gi limited
 # (application.properties); Keycloak's sized blueprint requests 1250M and limits 2250M per pod. 1Gi requested and
-# 2Gi limited here: on kind two pods with two realms imported measured well under 1Gi each
-# (scripts/dev/keycloak-production-e2e.sh prints the usage). No ServiceAccount token: the server never calls the
-# Kubernetes API (`automountServiceAccountToken`, KeycloakSpec; the operator's default is true).
+# 2Gi limited here, from a measurement on kind (scripts/dev/keycloak-production-e2e.sh prints the cgroup's
+# memory.current): with both lab realms imported the two pods held 644 and 689 MiB (465 and 511 MiB anonymous, the
+# rest the file cache of the augmented distribution), and a pod peaked at 1024 MiB during its start. The JVM sizes
+# its heap from the limit (Keycloak's default -XX:MaxRAMPercentage=70). No ServiceAccount token: the server never
+# calls the Kubernetes API (`automountServiceAccountToken`, KeycloakSpec; the operator's default is true).
 #
 # Pod Security: the operator sets no securityContext on its pods (none in operator/src/main at 26.6.4). On OpenShift
 # the restricted-v2 SCC supplies one, as for the lab's Keycloak; on plain Kubernetes under Pod Security "restricted"

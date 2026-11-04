@@ -171,9 +171,8 @@ class ComponentFiles(unittest.TestCase):
         self.assertEqual(set(patch["spec"]), {"hostname", "unsupported"})
         pod = patch["spec"]["unsupported"]["podTemplate"]["spec"]
         self.assertEqual(pod["securityContext"], {"runAsNonRoot": True, "seccompProfile": {"type": "RuntimeDefault"}})
-        (container,) = pod["containers"]
-        self.assertEqual(container, {"name": "keycloak", "securityContext": {"allowPrivilegeEscalation": False,
-                                                                             "capabilities": {"drop": ["ALL"]}}})
+        (container,) = pod["containers"]     # unnamed: the operator names its first container and warns on any name given
+        self.assertEqual(container, {"securityContext": {"allowPrivilegeEscalation": False, "capabilities": {"drop": ["ALL"]}}})
         namespace = one(load(OVERLAY / "namespace.yaml"), "Namespace", "keycloak")
         dev = one(load(ROOT / "deploy" / "keycloak" / "keycloak.yaml"), "Namespace", "keycloak")
         self.assertEqual(namespace["metadata"]["labels"], dev["metadata"]["labels"], "one object, applied by both")
