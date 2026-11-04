@@ -7,16 +7,18 @@
 # as environments/staging composes it (overlays/ci-env-secrets: OpenFGA on the shared database, components/
 # env-secrets, no Secret made by anyone). Each proof fails the script:
 #
-#   1. fresh: none of the four Secrets exists; one apply; OpenFGA (its migrate Job against the shared database with
-#      the generated password, the server with the generated preshared key) and Inkcast (the mounted inkcast-secrets)
-#      come up; the three pairs agree; the init container's log holds no value;
+#   1. fresh: none of the four Secrets exists; one apply; OpenFGA (its init container migrate against the shared
+#      database with the generated password, the server with the generated preshared key) and Inkcast (the mounted
+#      inkcast-secrets) come up; the three pairs agree; the init container's log holds no value;
 #  1b. staging's account is denied a create of production's Secrets, or of any other name, in inkcast-db and keycloak
 #      (a server-side dry run, as that account), and admitted for its own;
 #   2. the namespace rebuilt (deleted, applied again): the role's password and both client secrets come back the
 #      same, copied from inkcast-db and keycloak, and OpenFGA connects with them;
 #   3. the shared sides lost: the next start of OpenFGA's pod copies them back from the app namespace;
-#   4. a disagreement: the new pod's init container fails naming the pair, with no value in its log, and the previous
-#      pod keeps serving; once the wrong key is removed, the kubelet's own retry finishes the rollout, with no apply;
+#   4. a disagreement: the new pod's init container fails naming the pair, with no value in its log; OpenFGA's
+#      Deployment is `strategy: Recreate` (PR #374), so the previous pod is already gone and OpenFGA is unavailable
+#      while the new pod is held; once the wrong key is removed, the kubelet's own retry finishes the rollout, with
+#      no apply;
 #   5. both sides of the role's password lost: the next pod start makes a new pair and that same pod's OpenFGA
 #      connects with it, with no restart after.
 #
@@ -137,10 +139,9 @@ else:
 PY
 check() { python3 "$work/check.py" "$@"; }
 
-up() {  # the environment applied and serving: OpenFGA on the shared database, its migrate Job, Inkcast
+up() {  # the environment applied and serving: OpenFGA on the shared database (env-secrets, then migrate, in its pod), Inkcast
   $k apply -k "$ROOT/deploy/kustomize/overlays/ci-env-secrets"
   $k -n "$ns" rollout status deploy/openfga --timeout=600s
-  $k -n "$ns" wait --for=condition=complete job/openfga-migrate --timeout=600s
   $k -n "$ns" rollout status deploy/inkcast --timeout=300s
 }
 serving() {  # OpenFGA answers with the key from inkcast-secrets and refuses without it; Inkcast is ready on its files
@@ -265,9 +266,12 @@ case "$named" in
   *) echo "the init container's log does not name the pair" >&2; exit 1 ;;
 esac
 case "$named" in *disagrees-on-purpose*) echo "the log holds the test value" >&2; exit 1 ;; esac
+# `strategy: Recreate` (components/openfga/deployment.yaml, the owner's decision on PR #374) ends the previous pod
+# before the new one starts, so a held new pod is an outage until the wrong key is removed: the cost of Recreate,
+# stated here rather than hidden.
 available="$($k -n "$ns" get deploy openfga -o jsonpath='{.status.availableReplicas}')"
-[ "$available" = 1 ] || { echo "OpenFGA has $available available replicas while the new pod is held" >&2; exit 1; }
-echo "the previous pod keeps serving ($available available) while the new one is held"
+[ "${available:-0}" = 0 ] || { echo "OpenFGA has $available available replicas while the new pod is held: Recreate should have ended the previous pod" >&2; exit 1; }
+echo "the previous pod is gone (Recreate) and OpenFGA is unavailable (${available:-0} available) while the new one is held"
 $k -n keycloak patch secret inkcast-staging-realm --type json -p '[{"op":"remove","path":"/data/identity-client-secret"}]'
 $k -n "$ns" rollout status deploy/openfga --timeout=600s   # no apply: the kubelet's retry of the init container
 check agree

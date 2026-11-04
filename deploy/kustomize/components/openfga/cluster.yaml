@@ -1,6 +1,7 @@
 # OpenFGA's own PostgreSQL, run by CloudNativePG (ADR-0014). The operator creates the database and its owner, and
-# the Secret `openfga-db-app` with the connection URI (`uri`), which the Job and the server read: no credential is
-# written here. One instance suits CI, OpenShift Local and a small self-host; production patches `instances: 3`.
+# the Secret `openfga-db-app` with the connection URI (`uri`), which the init container migrate and the server read:
+# no credential is written here. One instance suits CI, OpenShift Local and a small self-host; production patches
+# `instances: 3`.
 #
 # The operator makes the pods fit Pod Security "restricted" and the restricted-v2 SCC itself (read-only root
 # filesystem, every capability dropped, RuntimeDefault seccomp; a fixed uid on Kubernetes, the namespace's on

@@ -1,0 +1,162 @@
+# scripts/dev/openfga-recovery-e2e.sh all (E3.F3.9.S8, issue #337; the review of PR #374), recorded 2026-11-04 on kind
+# v0.33.0 (node v1.37.0, containerd 2.3.4), CloudNativePG 1.30.1, OpenFGA v1.22.0, PostgreSQL 18.6 (the Cluster's pinned
+# image, also the init container's), the ci-openfga overlay of this commit. The configured outage is 1860 s; the database
+# was away from 09:45:00Z to 10:20:13Z (the sampling loop runs in 300 s steps). In `overlap` the outside holder is a
+# superuser session, so the waiting runners, as the openfga role, print its pid and application_name from
+# pg_stat_activity and not its client address or start time ("(psql, , since )"). Verbatim output follows.
+== race: two pods migrate one fresh database at the same time (2026-11-04T09:39:12Z)
+namespace "inkcast-openfga" deleted
+deployment.apps/openfga scaled
+Waiting for deployment "openfga" rollout to finish: 0 of 2 updated replicas are available...
+Waiting for deployment "openfga" rollout to finish: 1 of 2 updated replicas are available...
+deployment "openfga" successfully rolled out
+-- openfga-5949c96b74-6zpqb: started 2026-11-04T09:39:29Z, finished 2026-11-04T09:39:50Z, restarts 0, found revision 6
+2026-11-04T09:39:30Z migrate: waiting for the database (attempt 1): psql: error: connection to server at "openfga-db-rw.inkcast-openfga" (10.96.116.172), port 5432 failed: Connection refused
+2026-11-04T09:39:50Z migrate: database reachable (4 failed attempts); taking the migration lock 1473304569
+2026-11-04T09:39:50Z migrate: migration lock taken by pid 176 at 2026-11-04 09:39:50.176875+00
+2026-11-04T09:39:50Z migrate: lock held by pid 176, running openfga migrate
+{"level":"info","timestamp":1793785190.2011902,"msg":"db info","build.version":"v1.22.0","build.commit":"a38d5d0f65a964b6030e0b1afd2a831f62309159","current version":6}
+{"level":"info","timestamp":1793785190.2012212,"msg":"running all migrations","build.version":"v1.22.0","build.commit":"a38d5d0f65a964b6030e0b1afd2a831f62309159"}
+{"level":"info","timestamp":1793785190.2015064,"msg":"migration done","build.version":"v1.22.0","build.commit":"a38d5d0f65a964b6030e0b1afd2a831f62309159"}
+2026-11-04T09:39:50Z migrate: migration lock released by pid 176 at 2026-11-04 09:39:50.205798+00
+2026-11-04T09:39:50Z migrate: done
+-- openfga-5949c96b74-zgcs4: started 2026-11-04T09:39:28Z, finished 2026-11-04T09:39:50Z, restarts 0, found revision 0
+2026-11-04T09:39:30Z migrate: waiting for the database (attempt 1): psql: error: connection to server at "openfga-db-rw.inkcast-openfga" (10.96.116.172), port 5432 failed: Connection refused
+2026-11-04T09:39:50Z migrate: database reachable (4 failed attempts); taking the migration lock 1473304569
+2026-11-04T09:39:50Z migrate: migration lock taken by pid 173 at 2026-11-04 09:39:50.104316+00
+2026-11-04T09:39:50Z migrate: lock held by pid 173, running openfga migrate
+{"level":"info","timestamp":1793785190.132415,"msg":"db info","build.version":"v1.22.0","build.commit":"a38d5d0f65a964b6030e0b1afd2a831f62309159","current version":0}
+{"level":"info","timestamp":1793785190.1324496,"msg":"running all migrations","build.version":"v1.22.0","build.commit":"a38d5d0f65a964b6030e0b1afd2a831f62309159"}
+{"level":"info","timestamp":1793785190.1483684,"msg":"migration done","build.version":"v1.22.0","build.commit":"a38d5d0f65a964b6030e0b1afd2a831f62309159"}
+2026-11-04T09:39:50Z migrate: migration lock released by pid 173 at 2026-11-04 09:39:50.152199+00
+2026-11-04T09:39:50Z migrate: done
+-- goose_db_version on the primary (id, version_id, is_applied, tstamp):
+1|0|t|2026-11-04 09:39:50.129424
+2|1|t|2026-11-04 09:39:50.136653
+3|2|t|2026-11-04 09:39:50.142421
+4|3|t|2026-11-04 09:39:50.143051
+5|4|t|2026-11-04 09:39:50.143922
+6|5|t|2026-11-04 09:39:50.145005
+7|6|t|2026-11-04 09:39:50.14814
+7 rows, 7 distinct versions, newest applied row at version 6, highest 6; idx_user_lookup valid: t; idx_reverse_lookup_user present: f
+both pods Ready on revision 6; back to one replica
+deployment.apps/openfga scaled
+deployment "openfga" successfully rolled out
+PASS race: two init containers migrated the same fresh database at once, one row per version, and both pods serve on one schema revision
+== overlap: two runners held behind the lock taken from outside, then serialised (2026-11-04T09:39:55Z)
+namespace "inkcast-openfga" deleted
+-- the migration lock 1473304569 held from outside by pid 169 for 45 s; two pods started at 2026-11-04T09:40:52Z
+both init containers wait on the holder (polling pg_try_advisory_lock, idle in between: 2 sessions, 0 blocked on a lock), goose table present: f
+-- the holder's session ended at 2026-11-04T09:41:37Z
+Waiting for deployment "openfga" rollout to finish: 0 of 2 updated replicas are available...
+Waiting for deployment "openfga" rollout to finish: 1 of 2 updated replicas are available...
+deployment "openfga" successfully rolled out
+-- openfga-5949c96b74-fxtr8: found revision 0
+2026-11-04T09:40:53Z migrate: waiting for the database (attempt 1): psql: error: connection to server at "openfga-db-rw.inkcast-openfga" (10.96.159.34), port 5432 failed: Connection refused
+2026-11-04T09:40:58Z migrate: database reachable (1 failed attempts); taking the migration lock 1473304569
+2026-11-04T09:40:58Z migrate: waiting for the migration lock, held by pid 169 (psql, , since )
+2026-11-04T09:41:28Z migrate: waiting for the migration lock, held by pid 169 (psql, , since )
+2026-11-04T09:41:40Z migrate: migration lock taken by pid 186 at 2026-11-04 09:41:40.428467+00
+2026-11-04T09:41:40Z migrate: lock held by pid 186, running openfga migrate
+{"level":"info","timestamp":1793785300.456037,"msg":"db info","build.version":"v1.22.0","build.commit":"a38d5d0f65a964b6030e0b1afd2a831f62309159","current version":0}
+{"level":"info","timestamp":1793785300.4560792,"msg":"running all migrations","build.version":"v1.22.0","build.commit":"a38d5d0f65a964b6030e0b1afd2a831f62309159"}
+{"level":"info","timestamp":1793785300.4686193,"msg":"migration done","build.version":"v1.22.0","build.commit":"a38d5d0f65a964b6030e0b1afd2a831f62309159"}
+2026-11-04T09:41:40Z migrate: migration lock released by pid 186 at 2026-11-04 09:41:40.471371+00
+2026-11-04T09:41:40Z migrate: done
+-- openfga-5949c96b74-g7nct: found revision 6
+2026-11-04T09:40:53Z migrate: waiting for the database (attempt 1): psql: error: connection to server at "openfga-db-rw.inkcast-openfga" (10.96.159.34), port 5432 failed: Connection refused
+2026-11-04T09:40:58Z migrate: database reachable (1 failed attempts); taking the migration lock 1473304569
+2026-11-04T09:40:58Z migrate: waiting for the migration lock, held by pid 169 (psql, , since )
+2026-11-04T09:41:28Z migrate: waiting for the migration lock, held by pid 169 (psql, , since )
+2026-11-04T09:41:43Z migrate: migration lock taken by pid 187 at 2026-11-04 09:41:43.43826+00
+2026-11-04T09:41:43Z migrate: lock held by pid 187, running openfga migrate
+{"level":"info","timestamp":1793785303.4636679,"msg":"db info","build.version":"v1.22.0","build.commit":"a38d5d0f65a964b6030e0b1afd2a831f62309159","current version":6}
+{"level":"info","timestamp":1793785303.4637055,"msg":"running all migrations","build.version":"v1.22.0","build.commit":"a38d5d0f65a964b6030e0b1afd2a831f62309159"}
+{"level":"info","timestamp":1793785303.4639883,"msg":"migration done","build.version":"v1.22.0","build.commit":"a38d5d0f65a964b6030e0b1afd2a831f62309159"}
+2026-11-04T09:41:43Z migrate: migration lock released by pid 187 at 2026-11-04 09:41:43.466435+00
+2026-11-04T09:41:43Z migrate: done
+serialised: openfga-5949c96b74-fxtr8 released the lock 2967 ms before openfga-5949c96b74-g7nct took it
+-- goose_db_version on the primary (id, version_id, is_applied, tstamp):
+1|0|t|2026-11-04 09:41:40.452881
+2|1|t|2026-11-04 09:41:40.458129
+3|2|t|2026-11-04 09:41:40.463129
+4|3|t|2026-11-04 09:41:40.463925
+5|4|t|2026-11-04 09:41:40.464603
+6|5|t|2026-11-04 09:41:40.46544
+7|6|t|2026-11-04 09:41:40.46842
+7 rows, 7 distinct versions, newest applied row at version 6, highest 6; idx_user_lookup valid: t; idx_reverse_lookup_user present: f
+deployment.apps/openfga scaled
+deployment "openfga" successfully rolled out
+PASS overlap: two runners held behind the lock were serialised, the first migrated the empty database and the second found revision 6, one row per version
+== repair: an INVALID idx_user_lookup with version 6 recorded is repaired before the migration (2026-11-04T09:41:50Z)
+deployment "openfga" successfully rolled out
+DROP INDEX
+-- before: idx_user_lookup valid: f, version-6 rows: 1, tuples: 0
+Waiting for deployment "openfga" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "openfga" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "openfga" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "openfga" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "openfga" rollout to finish: 0 of 1 updated replicas are available...
+deployment "openfga" successfully rolled out
+2026-11-04T09:41:52Z migrate: database reachable (0 failed attempts); taking the migration lock 1473304569
+2026-11-04T09:41:52Z migrate: migration lock taken by pid 330 at 2026-11-04 09:41:52.287455+00
+2026-11-04T09:41:52Z migrate: repair: idx_user_lookup is INVALID (an interrupted 006), dropping it so that 006 builds it again
+2026-11-04T09:41:52Z migrate: repair: version 6 is recorded without a valid idx_user_lookup, removing its rows so that 006 is applied again
+2026-11-04T09:41:52Z migrate: lock held by pid 330, running openfga migrate
+{"level":"info","timestamp":1793785312.3237302,"msg":"db info","build.version":"v1.22.0","build.commit":"a38d5d0f65a964b6030e0b1afd2a831f62309159","current version":5}
+{"level":"info","timestamp":1793785312.3237736,"msg":"running all migrations","build.version":"v1.22.0","build.commit":"a38d5d0f65a964b6030e0b1afd2a831f62309159"}
+{"level":"info","timestamp":1793785312.3300195,"msg":"migration done","build.version":"v1.22.0","build.commit":"a38d5d0f65a964b6030e0b1afd2a831f62309159"}
+2026-11-04T09:41:52Z migrate: migration lock released by pid 330 at 2026-11-04 09:41:52.335344+00
+2026-11-04T09:41:52Z migrate: done
+-- goose_db_version on the primary (id, version_id, is_applied, tstamp):
+1|0|t|2026-11-04 09:41:40.452881
+2|1|t|2026-11-04 09:41:40.458129
+3|2|t|2026-11-04 09:41:40.463129
+4|3|t|2026-11-04 09:41:40.463925
+5|4|t|2026-11-04 09:41:40.464603
+6|5|t|2026-11-04 09:41:40.46544
+8|6|t|2026-11-04 09:41:52.329317
+7 rows, 7 distinct versions, newest applied row at version 6, highest 6; idx_user_lookup valid: t; idx_reverse_lookup_user present: f
+PASS repair: the invalid idx_user_lookup was dropped with its version-6 rows, 006 was applied again, and the index is valid
+== outage: the database away 1860 s while a rollout is pending (2026-11-04T09:41:58Z)
+deployment "openfga" successfully rolled out
+-- hibernating the Cluster (the pods removed, the volume kept)
+database pods gone at 2026-11-04T09:45:00Z; PVCs kept: persistentvolumeclaim/openfga-db-1 
+-- a rollout while the database is away: the new pod's init container migrate cannot connect
+2026-11-04T09:50:00Z +300s: openfga-5bbcf46d4d-8xf5p Pending, migrate restarts 0, state {"running":{"startedAt":"2026-11-04T09:45:01Z"}}
+2026-11-04T09:55:01Z +601s: openfga-5bbcf46d4d-8xf5p Pending, migrate restarts 0, state {"running":{"startedAt":"2026-11-04T09:45:01Z"}}
+2026-11-04T10:00:01Z +901s: openfga-5bbcf46d4d-8xf5p Pending, migrate restarts 1, state {"running":{"startedAt":"2026-11-04T09:55:03Z"}}
+2026-11-04T10:05:01Z +1201s: openfga-5bbcf46d4d-8xf5p Pending, migrate restarts 1, state {"running":{"startedAt":"2026-11-04T09:55:03Z"}}
+2026-11-04T10:10:01Z +1501s: openfga-5bbcf46d4d-8xf5p Pending, migrate restarts 2, state {"running":{"startedAt":"2026-11-04T10:05:05Z"}}
+2026-11-04T10:15:01Z +1801s: openfga-5bbcf46d4d-8xf5p Pending, migrate restarts 2, state {"running":{"startedAt":"2026-11-04T10:05:05Z"}}
+2026-11-04T10:20:01Z +2101s: openfga-5bbcf46d4d-8xf5p Pending, migrate restarts 3, state {"running":{"startedAt":"2026-11-04T10:15:07Z"}}
+-- deployment after 1860 s without a database:
+Available=False (MinimumReplicasUnavailable) 2026-11-04T09:45:00Z
+Progressing=False (ProgressDeadlineExceeded) 2026-11-04T09:55:01Z
+-- rehydrating the Cluster at 2026-11-04T10:20:02Z; nothing applied, nothing deleted
+database Ready at 2026-11-04T10:20:13Z
+-- openfga-5bbcf46d4d-8xf5p Ready at 2026-11-04T10:20:18Z: 5 s after the database came back, migrate restarts 3, found revision 6
+2026-11-04T10:15:07Z migrate: waiting for the database (attempt 1): psql: error: connection to server at "openfga-db-rw.inkcast-openfga" (10.96.159.34), port 5432 failed: Connection refused
+2026-11-04T10:15:37Z migrate: waiting for the database (attempt 7): psql: error: connection to server at "openfga-db-rw.inkcast-openfga" (10.96.159.34), port 5432 failed: Connection refused
+2026-11-04T10:16:07Z migrate: waiting for the database (attempt 13): psql: error: connection to server at "openfga-db-rw.inkcast-openfga" (10.96.159.34), port 5432 failed: Connection refused
+2026-11-04T10:16:37Z migrate: waiting for the database (attempt 19): psql: error: connection to server at "openfga-db-rw.inkcast-openfga" (10.96.159.34), port 5432 failed: Connection refused
+2026-11-04T10:17:08Z migrate: waiting for the database (attempt 25): psql: error: connection to server at "openfga-db-rw.inkcast-openfga" (10.96.159.34), port 5432 failed: Connection refused
+2026-11-04T10:17:38Z migrate: waiting for the database (attempt 31): psql: error: connection to server at "openfga-db-rw.inkcast-openfga" (10.96.159.34), port 5432 failed: Connection refused
+2026-11-04T10:18:08Z migrate: waiting for the database (attempt 37): psql: error: connection to server at "openfga-db-rw.inkcast-openfga" (10.96.159.34), port 5432 failed: Connection refused
+2026-11-04T10:18:38Z migrate: waiting for the database (attempt 43): psql: error: connection to server at "openfga-db-rw.inkcast-openfga" (10.96.159.34), port 5432 failed: Connection refused
+2026-11-04T10:19:08Z migrate: waiting for the database (attempt 49): psql: error: connection to server at "openfga-db-rw.inkcast-openfga" (10.96.159.34), port 5432 failed: Connection refused
+2026-11-04T10:19:38Z migrate: waiting for the database (attempt 55): psql: error: connection to server at "openfga-db-rw.inkcast-openfga" (10.96.159.34), port 5432 failed: Connection refused
+2026-11-04T10:20:08Z migrate: waiting for the database (attempt 61): psql: error: connection to server at "openfga-db-rw.inkcast-openfga" (10.96.159.34), port 5432 failed: Connection refused
+2026-11-04T10:20:13Z migrate: database reachable (61 failed attempts); taking the migration lock 1473304569
+2026-11-04T10:20:13Z migrate: migration lock taken by pid 128 at 2026-11-04 10:20:13.562409+00
+2026-11-04T10:20:13Z migrate: lock held by pid 128, running openfga migrate
+{"level":"info","timestamp":1793787613.6774275,"msg":"db info","build.version":"v1.22.0","build.commit":"a38d5d0f65a964b6030e0b1afd2a831f62309159","current version":6}
+{"level":"info","timestamp":1793787613.6777294,"msg":"running all migrations","build.version":"v1.22.0","build.commit":"a38d5d0f65a964b6030e0b1afd2a831f62309159"}
+{"level":"info","timestamp":1793787613.6785054,"msg":"migration done","build.version":"v1.22.0","build.commit":"a38d5d0f65a964b6030e0b1afd2a831f62309159"}
+2026-11-04T10:20:13Z migrate: migration lock released by pid 128 at 2026-11-04 10:20:13.681498+00
+2026-11-04T10:20:13Z migrate: done
+Available=True (MinimumReplicasAvailable) 2026-11-04T10:20:17Z
+Progressing=True (NewReplicaSetAvailable) 2026-11-04T10:20:17Z
+PASS outage: after 1860 s without a database the pending pod's init container was retried by the kubelet and the pod became Ready 5 s after the database returned, with no apply and no delete
+PASS: all (2026-11-04T10:20:18Z)
+== exit 0 after 2466 s
