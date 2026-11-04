@@ -13,7 +13,7 @@ This runbook keeps that file safe.
 | What | Where |
 |---|---|
 | Daily backup | The `backup` component, on by default in the OpenShift, Kubernetes and CI overlays: CronJob `inkcast-backup`, 03:17 UTC |
-| Copies kept | 14, on the separate volume `inkcast-backups` (`INKCAST_BACKUP_KEEP`). A person who deletes their account is erased from the database at once, but a backup taken before that still holds their data until it ages out, within this many days; the deletion pages tell them so, with this number, so the server reads `INKCAST_BACKUP_KEEP` too (set it in the shared ConfigMap when the CronJob's value changes) |
+| Retention | `INKCAST_BACKUP_KEEP` days (14), on the separate volume `inkcast-backups`: a backup that many days old or older is removed by the next good backup. By age, not by count, so a backup taken by hand evicts no daily copy, and the first good backup after days without one removes everything that old at once; the days without one are the alert's. A person who deletes their account is erased from the database at once, but a backup taken before that still holds their data until it ages out, within this many days; the deletion pages tell them so, with this number, so the server reads `INKCAST_BACKUP_KEEP` too (set it in the shared ConfigMap when the CronJob's value changes) |
 | Alert | [InkcastBackupMissing](alerts.md#inkcastbackupmissing): no successful backup for 26 hours (critical) |
 | Drill | `scripts/ops/backup-drill.sh`, run by CI on kind for every change |
 | Recovery point | Up to 24 hours (one backup a day); take one before any risky change |
@@ -27,7 +27,7 @@ The copy only counts if all of these hold:
 2. it is renamed into place from a temporary name;
 3. a manifest is written beside it (`inkcast-<time>.json`, with the size, SHA-256 and the row count of every table).
 
-Retention removes the oldest copies, and only after a good backup. A failed backup removes nothing.
+Retention removes the copies `INKCAST_BACKUP_KEEP` or more days old (the day in the file's name, UTC), and only after a good backup. A failed backup removes nothing, so while the CronJob fails the older copies stay: that is what [InkcastBackupMissing](alerts.md#inkcastbackupmissing) reports, and the first good backup removes them.
 
 **A backup is as sensitive as the database.** Platform credentials inside it are encrypted with `INKCAST_SECRET_KEY`, so the backup is useless without that key, and the two must never be stored together. Files are written `0640`, and the backup pod has no network at all (its NetworkPolicy denies everything).
 

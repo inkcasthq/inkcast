@@ -238,7 +238,8 @@ class BackupCommand(unittest.TestCase):
         environ = {**{k: v for k, v in os.environ.items() if k != BACKUP_KEEP}, **env}
 
         def fake_take_backup(database, directory, *, keep, version):
-            return mock.Mock(name="backup", manifest={"size": 1, "sha256": "0" * 64, "rows": {"users": 0}})
+            return mock.Mock(name="backup", manifest={"size": 1, "sha256": "0" * 64, "rows": {"users": 0}},
+                             removed_backups=0, removed_copies=0)
 
         with mock.patch.dict("os.environ", environ, clear=True), mock.patch.object(backup, "take_backup", fake_take_backup), \
                 mock.patch.object(backup, "_logging", lambda: None), redirect_stderr(io.StringIO()), \

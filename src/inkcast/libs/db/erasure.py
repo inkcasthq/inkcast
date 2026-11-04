@@ -9,7 +9,7 @@ a new table with a ``user_id`` column (or another user-keyed column) fails the b
 ``user_erasures`` is the audit record: a salted hash of the user id (HMAC-SHA256 under a key derived from
 INKCAST_SECRET_KEY, so the id can be checked against the record but not read from it), the time, and the
 counts. Nothing else about the person survives in the database. Copies in backups do, until they age out
-(INKCAST_BACKUP_KEEP daily copies), and a restore brings them back: ``reapply_erasures`` (issue #94), run by every
+(INKCAST_BACKUP_KEEP days), and a restore brings them back: ``reapply_erasures`` (issue #94), run by every
 process when it opens the store, erases again anyone whose hash is in ``user_erasures`` but who has rows. The
 restore carries the audit rows of the database it replaces into the restored one (libs/db/backup.py), which is
 what makes that possible: a backup taken before the erasure holds the rows and not the record. Each person's hash

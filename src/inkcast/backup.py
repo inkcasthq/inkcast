@@ -56,8 +56,9 @@ def backup_main(argv: list[str]) -> int:
     parser.add_argument("--database", type=pathlib.Path, default=database)
     parser.add_argument("--to", type=pathlib.Path, default=directory, help="directory for the backups")
     parser.add_argument("--keep", type=_keep, default=None, metavar="N",
-                        help="how many backups to keep, 1 or more (oldest removed first, only after a good backup); "
-                             "INKCAST_BACKUP_KEEP, or 14, when not given; above 35 warns, as the server does")
+                        help="how many days to keep a backup, 1 or more (a backup that many days old or older is removed, "
+                             "only after a good backup); INKCAST_BACKUP_KEEP, or 14, when not given; above 35 warns, as "
+                             "the server does")
     args = parser.parse_args(argv)
     setting = "--keep" if args.keep is not None else "INKCAST_BACKUP_KEEP"
     if args.keep is None:
@@ -75,9 +76,10 @@ def backup_main(argv: list[str]) -> int:
     except (BackupError, OSError) as exc:
         log.error("Backup failed: %s", exc, extra={"event": "backup.failed", "database": str(args.database)})
         return 1
-    log.info("Backup %s: %d bytes, sha256 %s, %d tables", b.name, b.manifest["size"], b.manifest["sha256"][:12],
-             len(b.manifest["rows"]), extra={"event": "backup.done", "backup": b.name, "size": b.manifest["size"],
-                                              "rows": sum(b.manifest["rows"].values())})
+    log.info("Backup %s: %d bytes, sha256 %s, %d tables; removed %d backup(s) %d or more days old", b.name,
+             b.manifest["size"], b.manifest["sha256"][:12], len(b.manifest["rows"]), b.removed_backups, args.keep,
+             extra={"event": "backup.done", "backup": b.name, "size": b.manifest["size"],
+                    "rows": sum(b.manifest["rows"].values()), "removed_backups": b.removed_backups})
     return 0
 
 

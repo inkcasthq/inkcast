@@ -39,10 +39,10 @@ class Backups(unittest.TestCase):
         self.addCleanup(conn.close)
         self.assertEqual(conn.execute("PRAGMA journal_mode").fetchone()[0], "delete")
 
-    def test_retention_keeps_the_newest_and_a_failure_removes_nothing(self):
+    def test_retention_keeps_the_newest_days_and_a_failure_removes_nothing(self):
         start = time.time()
         for i in range(3):
-            take_backup(self.db, self.backups, keep=2, now=start + i)
+            take_backup(self.db, self.backups, keep=2, now=start + i * 86400)     # one a day: the oldest ages out
         names = [p.name for p in list_backups(self.backups)]
         self.assertEqual(len(names), 2)
         self.assertEqual(names, sorted(names))

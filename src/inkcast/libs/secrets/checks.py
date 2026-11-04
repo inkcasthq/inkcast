@@ -419,13 +419,13 @@ def _check_backup_keep(ctx: _Ctx) -> Check:
 
 
 def backup_keep_warning(keep: int, setting: str = "INKCAST_BACKUP_KEEP") -> str | None:
-    """The backup-keep warning for ``keep`` daily copies, or None within BACKUP_KEEP_WARN: the check's detail, and what
+    """The backup-keep warning for ``keep`` days, or None within BACKUP_KEEP_WARN: the check's detail, and what
     ``inkcast backup`` logs when ``--keep`` (``setting``) or the variable says more (#157)."""
     if keep <= BACKUP_KEEP_WARN:
         return None
     return (f"{setting}={keep}: a deleted person's data stays in backups for {keep} days, more than the {BACKUP_KEEP_WARN} "
-            "the deletion pages should promise. Keep fewer daily copies (the default is 14), the same for the CronJob and "
-            "the server.")
+            "the deletion pages should promise. Keep backups fewer days (the default is 14), the same for the CronJob "
+            "and the server.")
 
 
 def _check_database_file(ctx: _Ctx) -> Check:

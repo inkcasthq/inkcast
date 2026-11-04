@@ -5,8 +5,10 @@
 * ``take_backup``: a consistent copy while the server keeps serving, through SQLite's online backup API (it copies
   a snapshot, WAL included; a plain file copy of a live WAL database can be torn). The copy is checked with
   ``PRAGMA integrity_check`` before it counts, written under a temporary name and renamed into place, and
-  described by a manifest beside it (size, SHA-256, row counts per table). Old backups beyond ``keep`` are removed,
-  oldest first; a failed backup never removes anything.
+  described by a manifest beside it (size, SHA-256, row counts per table). Backups ``keep`` or more days older than
+  the one just taken are removed (by age, not by count, issue #112: an extra backup on the same day evicts no daily
+  copy, and the first good backup after days without one removes everything that old at once); a failed backup never
+  removes anything, so the alert on a missed backup (InkcastBackupMissing) covers the days in between.
 * ``verify_backup``: the checksum against the manifest, then the integrity check.
 * ``restore_backup``: verifies first, refuses while the scheduler's heartbeat is fresh (the server is still running),
   and never deletes the current database: it is moved aside as ``<db>.before-restore-<time>`` with its WAL files.
@@ -18,8 +20,8 @@
 
 A backup is as sensitive as the database: platform credentials inside are encrypted with INKCAST_SECRET_KEY (keep
 the key, or the backup can't be used, and never store the two together), and tokens are stored only as hashes.
-Files are written 0640. Until they age out (``keep`` daily copies, INKCAST_BACKUP_KEEP), backups hold an erased
-person's data too; the deletion pages say so.
+Files are written 0640. Until they age out (``keep`` days, INKCAST_BACKUP_KEEP), backups hold an erased person's
+data too; the deletion pages say so.
 """
 
 from __future__ import annotations
@@ -40,8 +42,9 @@ log = logging.getLogger(__name__)
 
 PREFIX = "inkcast-"
 SUFFIX = ".db"
+STAMP = "%Y%m%dT%H%M%SZ"    # the UTC time in every copy's name: names sort by time, and say which day a copy is from
 FRESH_HEARTBEAT_SECONDS = 120
-DEFAULT_KEEP = 14           # daily copies; the CronJob's INKCAST_BACKUP_KEEP and Config.backup_keep say the same
+DEFAULT_KEEP = 14           # days; the CronJob's INKCAST_BACKUP_KEEP and Config.backup_keep say the same
 
 
 class BackupError(Exception):
@@ -52,10 +55,43 @@ class BackupError(Exception):
 class Backup:
     path: pathlib.Path
     manifest: dict
+    removed_backups: int = 0    # backups ``keep`` or more days older than this one, removed once it was good
 
     @property
     def name(self) -> str:
         return self.path.name
+
+
+def _stamp(now: float) -> str:
+    return datetime.fromtimestamp(now, timezone.utc).strftime(STAMP)
+
+
+def _stamped(text: str) -> datetime | None:
+    """The time a copy's name carries, or None for a name that carries none: retention leaves such a file alone."""
+    try:
+        return datetime.strptime(text, STAMP).replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def _aged_out(stamp: datetime, now: float, keep: int) -> bool:
+    """Whether a copy from ``stamp`` is ``keep`` or more days old on the day of ``now``. Days are UTC dates, so the
+    daily backup removes the one taken ``keep`` days earlier whatever the minutes between the two runs, an extra
+    backup on the same day evicts nothing, and the copy just taken (``keep`` is 1 or more) is never removed."""
+    today = datetime.fromtimestamp(now, timezone.utc).date()
+    return (today - stamp.date()).days >= keep
+
+
+def _prune_backups(directory: pathlib.Path, keep: int, now: float) -> int:
+    """Remove the backups in ``directory`` that are ``keep`` or more days old, with their manifests; how many went."""
+    removed = 0
+    for old in list_backups(directory):
+        stamp = _stamped(old.name[len(PREFIX):-len(SUFFIX)])
+        if stamp is not None and _aged_out(stamp, now, keep):
+            old.unlink(missing_ok=True)
+            _manifest_path(old).unlink(missing_ok=True)
+            removed += 1
+    return removed
 
 
 def _sha256(path: pathlib.Path) -> str:
@@ -102,7 +138,8 @@ def take_backup(database: pathlib.Path, directory: pathlib.Path, *, keep: int = 
     if keep < 1:
         raise BackupError("keep must be at least 1.")
     directory.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.fromtimestamp(now or time.time(), timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    now = now or time.time()
+    stamp = _stamp(now)
     target = directory / f"{PREFIX}{stamp}{SUFFIX}"
     if target.exists():
         raise BackupError(f"{target.name} already exists; one backup per second at most.")
@@ -138,10 +175,9 @@ def take_backup(database: pathlib.Path, directory: pathlib.Path, *, keep: int = 
         raise
     finally:
         os.umask(old_umask)
-    for old in list_backups(directory)[:-keep]:         # retention, oldest first, only after a good backup
-        old.unlink(missing_ok=True)
-        _manifest_path(old).unlink(missing_ok=True)
-    return Backup(target, manifest)
+    # Retention, only after a good backup: by age, so the promise "within keep days" holds from the first good backup
+    # after any run of failed ones, and a backup taken by hand evicts no daily copy.
+    return Backup(target, manifest, removed_backups=_prune_backups(directory, keep, now))
 
 
 def verify_backup(path: pathlib.Path) -> dict:
