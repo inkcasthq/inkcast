@@ -8,10 +8,11 @@ import asyncio
 import time
 import unittest
 
-from inkcast.libs.pipeline import STUCK_AFTER
+from inkcast.libs.db import Store
+from inkcast.libs.pipeline import STUCK_AFTER, Publisher
 from inkcast.libs.platforms import PlatformError
 
-from test_review_publishing_214 import Harness
+from test_review_publishing_214 import Harness, answering
 
 DAY = 24 * 3600
 
@@ -67,6 +68,31 @@ class FindingALateSuccessIsLostWhenTheReSendNeverTookEffect(Harness):
         post = self.store.get_post(post_id)
         self.assertEqual((post["status"], post["result_url"]), ("published", "https://findable/1"),
                          "the person has no URL to remove the post by (#216)")
+
+
+class FindingAnEmptyAnswerToAnUpdateErasesThePostsURL(unittest.TestCase):
+    """Item 2's other half: ``Publisher.update`` (Git sync's edit of a published post, a PUT) wrote ``result_url=None``
+    when the answer named no URL. A 204 is a PUT's own success (RFC 9110 §15.3.5: "the action has been successfully
+    applied", its example a PUT), so the update is right to read it as done; but the post's known URL was erased from
+    the row (the ledger kept it: ``o.url or entry["url"]``), and the person's list showed a published post with none."""
+
+    def test_a_204_or_an_empty_body_to_an_update_keeps_the_posts_url(self):
+        for status, body in ((204, b""), (200, b"{}")):
+            (devto, _medium), requests = answering(status, body)
+            with self.subTest(status=status, body=body):
+                store = Store(":memory:", "k" * 40)
+                self.addCleanup(store.close)
+                user = store.upsert_user("local:on-call", "on-call", None, None)["id"]
+                store.save_credentials(user, devto.id, {"api_key": "k"}, {"id": "1", "name": "on-call"})
+                prepared = devto.prepare({"title": "t"}, "Body.")
+                post_id = store.create_post(group_id="g", user_id=user, platform=devto.id, title="t",
+                                            status="publishing", run_at=time.time(), payload=prepared.to_dict())
+                store.update_post(post_id, status="published", result_url="https://dev.to/on-call/t", remote_id="7")
+                outcome = asyncio.run(Publisher(store, {devto.id: devto}).update(user, post_id, devto, prepared, "7"))
+                post = store.get_post(post_id)
+                self.assertEqual((requests[-1].method, outcome.status, outcome.remote_id), ("PUT", "published", "7"))
+                self.assertEqual((post["status"], post["result_url"], post["remote_id"]),
+                                 ("published", "https://dev.to/on-call/t", "7"), "the post's URL was erased")
 
 
 if __name__ == "__main__":
