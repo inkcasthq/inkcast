@@ -249,11 +249,13 @@ class Publisher:
         # Only at this send's own attempt count (``held``). A success is the truth about this request, so it is written
         # over whatever the post became at that count while the send was out past STUCK_AFTER: taken over as stuck,
         # cancelled (the post is out, and the person needs its URL to remove it: #216). Once another worker has re-sent
-        # the post (an attempt on), the row is that send's, as it is for the failure writes above: this answer must not
-        # replace its outcome, nor undo its send in flight (#214). The caller is told what the post is now
+        # the post (an attempt on) and that send is out or has answered, the row is that send's: this answer must not
+        # replace its outcome, nor undo its send in flight (#214). A re-send that certainly never took effect (queued
+        # again, 'failed', or cancelled while it waited) leaves this success the only copy, so it is written: the
+        # retry would post it twice (``unless_resent_since``). Otherwise the caller is told what the post is now
         # (``_as_now``), and the answer is logged: its URL or id is the only record of a copy the post no longer names.
         written = self.store.update_post(post_id, status=status, result_url=result.url, remote_id=result.remote_id,
-                                         error="; ".join(result.notes) or None, if_attempts=held,
+                                         error="; ".join(result.notes) or None, unless_resent_since=held,
                                          events=self._event("post.published", post_id, user_id, platform.id, status=status,
                                                             scheduled=scheduled, attempts=attempts,
                                                             lag_seconds=round(lag, 3) if lag is not None else None))
