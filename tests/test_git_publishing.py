@@ -147,14 +147,14 @@ class GitPublishing(Harness):
         before = len(self.fakes.devto_articles)
         # The first request holds the key and is still running (held: the reservation's owner, a token, #416).
         other = store.reserve_idempotency_key(user_id, "k-race", "someone-else-running")
-        self.assertIsInstance(other, str)
+        self.assertIsInstance(other, float)
         busy = self.call("POST", "/api/v1/stories:sync", json=body, headers={"Idempotency-Key": "k-race"})
         self.assertEqual(busy.status_code, 422)                       # a different request under the same key
         self.assertTrue(store.release_idempotency_key(user_id, "k-race", other))
         # Now the real first request: reserve it as the server would, and a twin arrives meanwhile.
         fingerprint = hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
         owner = store.reserve_idempotency_key(user_id, "k-race", fingerprint)
-        self.assertIsInstance(owner, str)
+        self.assertIsInstance(owner, float)
         twin = self.call("POST", "/api/v1/stories:sync", json=body, headers={"Idempotency-Key": "k-race"})
         self.assertEqual((twin.status_code, twin.json()["error"]), (409, "idempotency_key_in_use"))
         self.assertEqual(len(self.fakes.devto_articles), before)      # the twin ran nothing

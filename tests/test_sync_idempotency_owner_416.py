@@ -185,10 +185,10 @@ class TheReservationNamesItsOwner(unittest.TestCase):
 
     def test_release_and_complete_match_the_owner(self):
         owner = self.store.reserve_idempotency_key(self.uid, "k", "h")
-        self.assertIsInstance(owner, str)
-        self.assertFalse(self.store.release_idempotency_key(self.uid, "k", "someone-else"))
+        self.assertIsInstance(owner, float)
+        self.assertFalse(self.store.release_idempotency_key(self.uid, "k", owner + 1))
         self.assertEqual(self.store.reserve_idempotency_key(self.uid, "k", "h"), ("h", ""), "still pending, still held")
-        self.assertFalse(self.store.complete_idempotency_key(self.uid, "k", "someone-else", '{"theirs": 1}'))
+        self.assertFalse(self.store.complete_idempotency_key(self.uid, "k", owner + 1, '{"theirs": 1}'))
         self.assertEqual(self.store.reserve_idempotency_key(self.uid, "k", "h"), ("h", ""))
         self.assertTrue(self.store.complete_idempotency_key(self.uid, "k", owner, '{"mine": 1}'))
         self.assertEqual(self.store.reserve_idempotency_key(self.uid, "k", "h"), ("h", '{"mine": 1}'))
@@ -204,7 +204,7 @@ class TheReservationNamesItsOwner(unittest.TestCase):
         with mock.patch("inkcast.libs.db.ledger.time",
                         SimpleNamespace(time=lambda: now + self.store.IDEMPOTENCY_PENDING_SECONDS + 1)):
             twin = self.store.reserve_idempotency_key(self.uid, "k", "h")
-            self.assertIsInstance(twin, str)
+            self.assertIsInstance(twin, float)
             self.assertNotEqual(twin, first)
             self.assertFalse(self.store.release_idempotency_key(self.uid, "k", first))
             self.assertFalse(self.store.complete_idempotency_key(self.uid, "k", first, '{"first": 1}'))
@@ -216,32 +216,29 @@ class TheReservationNamesItsOwner(unittest.TestCase):
         """Issue #196's case, kept: the write is refused by the owner guard, and the request runs as if it held the key."""
         self.store.erase_user(self.uid)
         owner = self.store.reserve_idempotency_key(self.uid, "k", "h")
-        self.assertIsInstance(owner, str)
+        self.assertIsInstance(owner, float)
         self.assertFalse(self.store.complete_idempotency_key(self.uid, "k", owner, "{}"))
         self.assertFalse(self.store.release_idempotency_key(self.uid, "k", owner))
 
 
-class ADatabaseFromBeforeTheColumn(unittest.TestCase):
-    def test_the_owner_column_is_added_on_open_and_an_old_pending_row_is_nobody_s(self):
+class ARowThePreviousReleaseWrote(unittest.TestCase):
+    def test_an_old_pending_row_is_nobody_s(self):
         directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, directory, ignore_errors=True)
         path = directory + "/inkcast.db"
         old = Store(path, KEY)
         uid = old.upsert_user("oidc:https://kc/realms/i#writer", "writer", None, None)["id"]
         old.close()
+        created = time.time()
         with sqlite3.connect(path) as c:
-            c.execute("ALTER TABLE idempotency DROP COLUMN owner")
-            c.execute("INSERT INTO idempotency VALUES (?, 'k-old', 'h', '', ?)", (uid, time.time()))   # pending, from before
+            c.execute("INSERT INTO idempotency VALUES (?, 'k-old', 'h', '', ?)", (uid, created))   # pending, from before
         store = Store(path, KEY)
         self.addCleanup(store.close)
-        self.assertIn("owner", {r["name"] for r in store._all("PRAGMA table_info(idempotency)")})
-        self.assertEqual(store._one("SELECT owner FROM idempotency WHERE key = 'k-old'")["owner"], "")
         self.assertEqual(store.reserve_idempotency_key(uid, "k-old", "h"), ("h", ""), "held until it expires")
-        with self.assertRaises(ValueError):                                 # '' names no reservation: refused, never matched
-            store.release_idempotency_key(uid, "k-old", "")
+        self.assertFalse(store.release_idempotency_key(uid, "k-old", created + 1))   # no request of this release holds it
         with mock.patch("inkcast.libs.db.ledger.time",
                         SimpleNamespace(time=lambda: time.time() + store.IDEMPOTENCY_PENDING_SECONDS + 1)):
-            self.assertIsInstance(store.reserve_idempotency_key(uid, "k-old", "h"), str, "then taken over")
+            self.assertIsInstance(store.reserve_idempotency_key(uid, "k-old", "h"), float, "then taken over")
 
 
 if __name__ == "__main__":
