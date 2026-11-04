@@ -123,6 +123,15 @@ class FindingADraftIsNotAPublishedSendsArticle(Lookup):
         self.assertEqual((found.remote_id, found.status), ("1001", "draft"))
 
 
+class FindingAnUnreadableAnswerIsNotMissing(Lookup):
+    """A 2xx that is not DEV's list (an object, an empty body) says nothing about the article: can't tell."""
+
+    def test_an_answer_that_is_not_a_list_cannot_tell(self):
+        for answer in ({"error": "odd"}, None):
+            with self.subTest(answer=answer):
+                self.assert_cannot_tell(self.find(answer)[0])
+
+
 class FindingTheSyncAsksAboutWhatWasSent(unittest.TestCase):
     """Git sync's check of an unconfirmed post (#213, #226) asked DEV about the file as it is now. Once the person
     edits the file, the article the uncertain send made has other content, and the check could no longer find it: the
@@ -152,7 +161,6 @@ class FindingTheSyncAsksAboutWhatWasSent(unittest.TestCase):
                          "the article the send made was not found: the post is left to a person")
         self.assertEqual((edited.action, dev.puts), ("update", [("/api/articles/2001", "Edited.\n")]))
         self.assertEqual(dev.posts[1:], [], "posted again")
-
 
 
 if __name__ == "__main__":

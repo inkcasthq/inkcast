@@ -181,10 +181,13 @@ class DevtoPlatform(Platform):
         article = prepared.payload["article"]
         title, body = article["title"], article["body_markdown"].strip()
         canonical = (article.get("canonical_url") or "").strip() or None
-        mine = await self.request("GET", "/articles/me/all", headers=self._headers(creds), params={"per_page": LOOKUP_PAGE}) or []
+        mine = await self.request("GET", "/articles/me/all", headers=self._headers(creds), params={"per_page": LOOKUP_PAGE})
+        if not isinstance(mine, list):  # an empty body, or not DEV's list: it says nothing of the article, so not missing
+            return PublishResult(url=None, remote_id=None, status="published",
+                                 notes=["DEV can't say which article is this post: its answer was not a list of articles."])
         same: list[dict[str, Any]] = []
         unsure: list[str] = []
-        for a in mine if isinstance(mine, list) else []:
+        for a in mine:
             same_title = a.get("title") == title
             same_canonical = canonical is not None and (a.get("canonical_url") or "").strip() == canonical
             theirs = a.get("body_markdown")

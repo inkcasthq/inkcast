@@ -136,8 +136,8 @@ class FindingWhatCannotBeToldIsLeftToThePerson(Lookup):
                              {"canonical_url": "https://blog.example/hello"})
         self.assertIsNone(found)
 
-    def test_an_answer_without_a_list_is_missing_and_an_article_without_an_id_names_nothing(self):
-        self.assertIsNone(self.find({"error": "odd"})[0])
+    def test_an_answer_without_a_list_cannot_tell_and_an_article_without_an_id_names_nothing(self):
+        self.assert_cannot_tell(self.find({"error": "odd"})[0], "not a list")
         found, _ = self.find([{**article(1001, "Hello", "Body."), "id": None}])
         self.assertEqual((found.url, found.remote_id), ("https://dev.to/on-call/hello-1001", None))
 
