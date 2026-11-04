@@ -204,7 +204,7 @@ class GitSync:
                 return SyncResult(**base, action="skipped", status="unconfirmed", post_id=entry["post_id"], message=(
                     f"The last publish to {platform.name} may or may not have gone through, and {platform.name} couldn't "
                     f"be asked just now ({checked.message}). The next sync will ask again."))
-            if post is not None and (checked is None or checked.status == "missing"):
+            if post is not None and (checked is None or checked.status in ("missing", "unconfirmed")):
                 # The entry points at an unconfirmed post (an uncertain answer to its send, or recovery capped at
                 # INKCAST_PUBLISH_RECOVERY_MAX_HOURS): a person decides, by resending or cancelling it. The sync never
                 # creates it again, whatever the platform says (#226): "missing" could be a lookup that lags the post,
@@ -484,11 +484,14 @@ class GitSync:
 
     @staticmethod
     def _decision(platform: Platform, post_id: str, checked: Outcome | None, dry_run: bool = False) -> str:
-        """What the sync says of a file whose post is unconfirmed: the person decides (#226)."""
+        """What the sync says of a file whose post is unconfirmed: the person decides (#226), told what the platform
+        said: it can't be checked, it couldn't be asked just now, it can't say which post is this one (its reason, with
+        the ids it names, #428), or it isn't there."""
         said = (f"this dry run didn't ask {platform.name}" if dry_run
                 else f"{platform.name} can't be checked automatically" if checked is None
                 else f"{platform.name} couldn't be asked just now ({checked.message}); the next sync asks again"
-                if checked.status == "unavailable" else f"{platform.name} says it isn't there")
+                if checked.status == "unavailable" else (checked.message or "").rstrip(".")
+                if checked.status == "unconfirmed" else f"{platform.name} says it isn't there")
         return (f"The last publish to {platform.name} may or may not have gone through, and {said}. Inkcast never publishes "
                 f"it again on its own: check {platform.name}, then resend post {post_id} (inkcast_resend, or POST "
                 f"/api/v1/posts/{post_id}/resend) to send it as it was, or cancel it (inkcast_cancel, or POST "
@@ -523,10 +526,11 @@ class GitSync:
 
     def _resolve(self, user_id: str, src: str, path: str, platform: Platform, entry: dict, o: Outcome | None) -> dict | None:
         """Resolve an unconfirmed entry from what the platform said (``Publisher.confirm``): published → record it;
-        missing → the post failed and the entry 'missing', so a fresh create follows (an entry with no post is left
-        as it is: the edit of its file decides, #444, ``_one``); None → can't tell. The post is written only while it is still 'unconfirmed': a person may have cancelled or resent it
-        while the lookup was out, and then the entry follows what they decided (#226)."""
-        if o is None:
+        missing → the post failed and the entry 'missing', so a fresh create follows (an entry with no post is left as
+        it is: the edit of its file decides, #444, ``_one``); None, or the platform unable to say which post is this
+        one (``unconfirmed``, #428) → can't tell. The post is written only while it is still 'unconfirmed': a person
+        may have cancelled or resent it while the lookup was out, and then the entry follows what they decided (#226)."""
+        if o is None or o.status == "unconfirmed":
             return None
         if o.status == "missing":
             if not entry["post_id"]:
