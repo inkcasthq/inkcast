@@ -81,5 +81,17 @@ class AFinalDoubleStarIsNeverTheFileItself(Repo):
                 self.assertEqual(reported, collected)
 
 
+class APatternEndingInASlashListsNoFile(Repo):
+    """``posts/**/`` and ``posts/*/`` list directories only, so ``collect`` sends no file for them; ``PurePosixPath``
+    dropped the slash, and ``posts/**/`` reported every removed file under ``posts``."""
+
+    PATTERNS = ("posts/**/", "posts/*/", "**/", "posts/sub/", "posts/*/.", "posts/**/*.md")
+
+    def test_removed_since_reports_what_collect_listed(self):
+        for pattern, (collected, reported) in self.removed(list(self.PATTERNS)).items():
+            with self.subTest(pattern=pattern):
+                self.assertEqual(reported, collected)
+
+
 if __name__ == "__main__":
     unittest.main()
