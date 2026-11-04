@@ -25,6 +25,10 @@ class Input(BaseModel):
         problems: list[InitErrorDetails] = []
 
         def walk(value: Any, loc: tuple[str | int, ...]) -> None:
+            if len(loc) > 32:
+                # No field keeps text this deep (`files.0.markdown` is 3): the fields refuse or ignore it. json.loads
+                # builds a body thousands deep in a few KB, which a walk without this bound recursed into (a 500).
+                return
             if isinstance(value, str):
                 if why := lone_surrogate(value):
                     problems.append(InitErrorDetails(type=PydanticCustomError("lone_surrogate", why), loc=loc, input=value))
