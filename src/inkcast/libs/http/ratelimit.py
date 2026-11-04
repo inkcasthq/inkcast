@@ -14,8 +14,9 @@ real abuse pressure add the limit at the edge (Gateway API / the ingress) too.
     Route("/register", limited(endpoint, limiter, "register"), methods=["POST"])
 
 ``limited`` accepts a Starlette endpoint function or an ASGI app (the MCP SDK's routes are the latter)
-and answers ``429 application/problem+json`` with ``Retry-After`` when the bucket is empty. Reads
-(GET/HEAD/OPTIONS) are never limited.
+and answers ``429 application/problem+json`` with ``Retry-After`` when the bucket is empty. Reads are
+limited only where a route asks for it (``{"GET"}``), and a HEAD counts as the GET it is: Starlette answers HEAD on
+every GET route with the same handler (issue #400).
 """
 
 from __future__ import annotations
@@ -101,7 +102,7 @@ class RateLimiter:
 
 def limited(endpoint: Any, limiter: RateLimiter, name: str, methods: set[str] = WRITE_METHODS) -> Callable:
     """Wrap a Starlette endpoint function or an ASGI app so requests with these ``methods`` obey ``limiter``
-    (writes by default; pass ``{"GET"}`` for a GET that creates state, like /tokens/new)."""
+    (writes by default; pass ``{"GET"}`` for a GET that creates state, like /tokens/new: its HEAD is counted too)."""
     app = request_response(endpoint) if inspect.isfunction(endpoint) or inspect.ismethod(endpoint) else endpoint
     return _Guarded(app, limiter, name, methods)
 
@@ -113,7 +114,10 @@ class _Guarded:
         self.app, self.limiter, self.name, self.methods = app, limiter, name, methods
 
     async def __call__(self, scope: dict[str, Any], receive: Callable, send: Callable) -> None:
-        if scope["type"] == "http" and scope.get("method") in self.methods:
+        method = scope.get("method")
+        if method == "HEAD":        # the GET's handler runs, so it costs what the GET costs (RFC 9110 §9.3.2; issue #400)
+            method = "GET"
+        if scope["type"] == "http" and method in self.methods:
             client = (scope.get("client") or ("", 0))[0]
             wait = await self.limiter.check(self.name, client)
             if wait:
