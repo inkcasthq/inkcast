@@ -5,12 +5,18 @@
 1. A retry on a refused day trusted today's copy without reading it: a copy that no longer matches its manifest's
    checksum (changed after it was taken) was returned, ``copied=False``, and the day was left with no good copy.
 2. The schedule test's cron reader took ``*/01`` for a restricted field; robfig/cron v3.0.1 (the Kubernetes CronJob
-   controller's ParseStandard) takes it for a star, which makes the two day fields combine by AND, not OR."""
+   controller's ParseStandard) takes it for a star, which makes the two day fields combine by AND, not OR.
+3. The schedule test read the keep from the ConfigMap only; ``inkcast backup`` takes ``--keep`` in the CronJob's args
+   (abbreviated too) and INKCAST_BACKUP_KEEP in its env over it, so a weekly schedule with ``--keep 7`` passed the test
+   and is refused on every run."""
 
+import copy
+import shutil
 import unittest
 
 import test_471_backup_refusals as t471
 from test_backup_clock import JUMP, KEEP, FiveDailyBackups
+from test_openfga_component import one, render
 
 from inkcast.libs.db.backup import BackupError, list_backups, take_backup, verify_backup
 
@@ -37,6 +43,24 @@ class TheCronReaderAgainstRobfig(unittest.TestCase):
         # robfig/cron v3.0.1 parser.go getRange: "*" keeps its star bit unless the step, read as a number, is above 1.
         self.assertEqual(t471.run_days("17 3 */01 * 0"), t471.run_days("17 3 * * 0"), "weekly, as robfig reads it")
         self.assertEqual(t471.run_days("17 3 8 * */01"), t471.run_days("17 3 8 * *"), "the 8th, as robfig reads it")
+
+
+@unittest.skipUnless(shutil.which("kubectl"), "kubectl renders the kustomizations (CI's test job has it)")
+class AKeepTheCronJobSetsItself(unittest.TestCase):
+    def test_a_keep_in_the_cronjob_s_args_or_env_fails_the_binding(self):
+        docs = render("environments/staging")
+        spec = one(docs, "CronJob", "inkcast-backup")["spec"]
+        spec["schedule"] = "17 3 * * 0"                         # weekly: 7 days between two runs
+        self.assertEqual(t471.refusal(docs), "", "keep 14 from the ConfigMap: every weekly run prunes")
+        for args, env in ((["--keep", "7"], []), (["--kee=7"], []), (["--k", "7"], []),
+                          ([], [{"name": "INKCAST_BACKUP_KEEP", "value": "7"}])):
+            with self.subTest(args=args, env=env):
+                changed = copy.deepcopy(docs)
+                (container,) = one(changed, "CronJob", "inkcast-backup")["spec"]["jobTemplate"]["spec"]["template"][
+                    "spec"]["containers"]
+                container["args"] += args
+                container["env"] += env
+                self.assertTrue(t471.refusal(changed), "inkcast backup runs with keep 7: every weekly run is refused")
 
 
 if __name__ == "__main__":

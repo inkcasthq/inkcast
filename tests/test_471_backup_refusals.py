@@ -84,8 +84,15 @@ def run_days(schedule: str) -> list[date]:
 
 def refusal(docs: list[dict]) -> str:
     """What retention says on the run after the longest gap of the backup CronJob in ``docs``, with the keep its
-    ConfigMap gives it (as ``inkcast backup`` reads it): "" when that run may prune, as every run then may."""
+    ConfigMap gives it (as ``inkcast backup`` reads it): "" when that run may prune, as every run then may. A keep the
+    CronJob sets itself, ``--keep`` in its args (or argparse's abbreviation of it) or INKCAST_BACKUP_KEEP in its env,
+    comes before the ConfigMap's, so it fails: the one value is the ConfigMap's (#112)."""
     cronjob = one(docs, "CronJob", "inkcast-backup")
+    (container,) = cronjob["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"]
+    own = [a for a in container.get("args", []) if a.startswith("--k")] + \
+          [e["name"] for e in container.get("env", []) if e["name"] == "INKCAST_BACKUP_KEEP"]
+    if own:
+        return f"the CronJob sets the keep its runs use itself ({', '.join(own)}), not through the ConfigMap"
     keep = backup_keep_from(one(docs, "ConfigMap", "inkcast-config")["data"])
     schedule = cronjob["spec"]["schedule"]
     days = run_days(schedule)
