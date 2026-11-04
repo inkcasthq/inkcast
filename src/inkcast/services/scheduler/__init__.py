@@ -52,7 +52,7 @@ def housekeeping(ctx: Context) -> None:
     """Every HOUSEKEEPING_EVERY (``housekeeping_if_due``): the outbox cursors matched to the code's consumers
     (``sync_consumers``); expired grants and tickets, then domain events and hourly KPI buckets past the configured
     retention (INKCAST_OUTBOX_RETENTION_DAYS, INKCAST_KPI_HOURLY_RETENTION_DAYS; F1.10.S3, issue #91); and, once per
-    database, the rows left by writes in the instant of an erasure before the guard refused them (issue #196), logged
+    table, the rows left by writes in the instant of an erasure before the guard refused them (issue #196), logged
     as counts only: no new erasure, and no audit row."""
     sync_consumers(ctx)
     ctx.store.purge_expired(ctx.config.retention)

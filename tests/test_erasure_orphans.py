@@ -38,7 +38,7 @@ import httpx2
 from inkcast.launcher import build, resolve
 from inkcast.libs.auth import TokenVerifier
 from inkcast.libs.config import Config, RetentionPolicy
-from inkcast.libs.db import Store
+from inkcast.libs.db import NoSuchUser, Store
 from inkcast.libs.db.erasure import OWNERS, USER_TABLES, owner_guards, user_hash
 from inkcast.libs.events import DomainEvent
 from inkcast.libs.http.app import compose
@@ -108,7 +108,11 @@ def write_as_the_request_would(store: Store, user_id: str, other: str) -> dict:
     out["applied"] = store.apply("evt-late", time.time(), [
         Increment("posts_published", "user", user_id, {"platform": "fake"}),
         Increment("posts_published", "platform", "fake", {"platform": "fake"})])
-    store.authz_write([(f"user:{user_id}", "owner", "organization:late")])
+    try:
+        store.authz_write([(f"user:{user_id}", "owner", "organization:late")])
+        out["tuple"] = None
+    except ValueError as exc:                   # refused whole, never skipped row by row (issue #219)
+        out["tuple"] = exc
     store.enqueue(DomainEvent("post.cancelled", user_id=user_id, subject="pst_late", attrs={"platform": "fake"}))
     out["pass"] = store.record_breaker_trip(time.time(), 2, 2, [(user_id, 1.0), (other, 1.0)])
     return out
@@ -158,12 +162,13 @@ class WritesAfterTheErasure(TwoConnections):
         self.assertEqual(self.api.connected_accounts(ada), {})
         self.assertEqual([r["user_id"] for r in self.api.claim_due_posts(time.time())], [bob], "nothing of hers to claim")
         # No caller took the refusal as a failure: the event counts as applied (its platform rollup is kept, hers
-        # is not), the idempotency key reads as held by this request, the tuple write raised nothing, and the
-        # breaker pass holds bob.
+        # is not), the idempotency key reads as held by this request, and the breaker pass holds bob. The one write
+        # refused as a whole rather than row by row is the tuple's: all or nothing (issue #219).
         self.assertTrue(made["applied"])
         self.assertEqual(self.api.read("posts_published", "day", "user", ada, 0, time.time() + 1), [])
         self.assertTrue(self.api.read("posts_published", "day", "platform", "fake", 0, time.time() + 1))
         self.assertIsNone(made["idempotency"])
+        self.assertIsInstance(made["tuple"], NoSuchUser)
         self.assertEqual([p["user_id"] for p in self.api.breaker_trip_people(made["pass"])], [bob])
         self.assertEqual(rows_of(self.api, bob), {**before, "sync_breaker_people": before["sync_breaker_people"] + 1})
         self.assertIsNotNone(self.api.find_api_token(bob_pat))

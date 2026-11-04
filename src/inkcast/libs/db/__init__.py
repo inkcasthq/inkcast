@@ -28,7 +28,7 @@ from __future__ import annotations
 from ..config import RetentionPolicy
 from ..secrets import Sealer, SecretValue, derive_key, new_secret, token_hash
 from . import authz, erasure, identity, kpi, ledger, outbox, posts, vault
-from .authz import AuthzRepo, TupleConflict
+from .authz import AuthzRepo, NoSuchUser, TupleConflict
 from .database import Database
 from .erasure import ErasureRepo
 from .identity import IdentityRepo
@@ -64,5 +64,5 @@ class Store(IdentityRepo, VaultRepo, PostsRepo, LedgerRepo, OutboxRepo, KpiRepo,
         self.purge_kpis(retention.kpi_hourly_seconds)
 
 
-__all__ = ["AuthzRepo", "Database", "ErasureRepo", "IdentityRepo", "KpiRepo", "LedgerRepo", "OutboxRepo", "PostsRepo",
-           "Sealer", "Store", "TupleConflict", "VaultRepo", "new_secret", "token_hash"]
+__all__ = ["AuthzRepo", "Database", "ErasureRepo", "IdentityRepo", "KpiRepo", "LedgerRepo", "NoSuchUser", "OutboxRepo",
+           "PostsRepo", "Sealer", "Store", "TupleConflict", "VaultRepo", "new_secret", "token_hash"]

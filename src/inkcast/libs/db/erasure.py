@@ -33,8 +33,9 @@ So every table in ``USER_TABLES`` refuses a row whose person has no ``users`` ro
 ``BEFORE INSERT`` trigger per table (and one on an update of the owning column), generated from ``OWNERS`` and
 installed at every open (``install_owner_guards``), that ignores the row inside the write's own transaction. The
 scheduler's claims look at ``users`` too. The rows such writes left in a database from before the guard are removed by
-housekeeping (``sweep_orphans``), once per database, with no second audit row: the record of the erasure is the one
-already there, as it is for ``reapply_erasures``.
+housekeeping (``sweep_orphans``), once per table, with no second audit row: the record of the erasure is the one
+already there, as it is for ``reapply_erasures``. Two releases open one database during an upgrade or a rollback, so a
+release drops a guard only on a table it knows, and sweeps a table once whatever release marked the others (issue #219).
 
 A team KPI names its member in a dim, not its scope (``kpi_rollups.dims``, at workspace or org scope; libs/kpi/rollup.py),
 so the condition for ``kpi_rollups`` reaches those rows too (issue #212). They are not deleted outright: ``_delete_person``
@@ -120,7 +121,13 @@ OWNERS: tuple[tuple[str, str, str, str | None], ...] = tuple(
       for dim in PERSON_DIMS),                                                              # the tombstone names nobody
     ("authz_tuples", "subject", "substr({row}.subject, 6)", "{row}.subject LIKE 'user:%'"),       # after 'user:'
 )
-ORPHANS_SWEPT = "erasure.orphans_swept"     # sync_state: the sweep of rows from before the guard is done here
+ORPHANS_SWEPT = "erasure.orphans_swept"     # sync_state: the tables whose rows from before the guard are swept (a JSON list)
+# What a marker from before the list ("1", written from PR #208 up to this release) covers: the tables every one of those
+# releases had, so a table added to OWNERS since is not among them and is swept once (issue #219). A literal on purpose:
+# derived from OWNERS it would cover every table ever added.
+_SWEPT_BY_THE_OLD_MARKER = frozenset({"posts", "outbox", "ledger", "idempotency", "credentials", "connect_tickets", "tokens",
+                                      "auth_codes", "pending_auth", "api_tokens", "sync_breaker_people", "kpi_rollups",
+                                      "authz_tuples"})
 _GUARD = "owner_guard_"                     # what every trigger of the guard is named after
 
 
@@ -292,42 +299,62 @@ class ErasureRepo(Database):
     ORPHAN_BATCH = 1000     # rows the sweep deletes per transaction: the write lock is held for a batch, not a table
 
     def install_owner_guards(self) -> int:
-        """The write-time guard (``owner_guards``) in this database: every trigger it lacks is created, and one from an
-        earlier shape of the body (the same prefix, another digest) is dropped once its replacement is in place, so
-        there is never a moment without one. Run at every open (``Store``); each statement commits on its own, so a
-        start cut short leaves the ones done and the next open does the rest, and two processes opening at once each
-        find what the other did (``IF NOT EXISTS``, ``IF EXISTS``). A guard lives in the database, so a process from
-        before it is bound as soon as one process installs it. Once in place it costs one read of the schema and no
-        write. How many triggers were created or dropped."""
+        """The write-time guard (``owner_guards``) in this database: every trigger it lacks is created, and one this
+        release did not generate (another shape of the body, so another digest) is dropped once its own is in place, so
+        there is never a moment without one, but only on a table this release knows (``OWNERS``; the table is read from
+        the schema, ``sqlite_master.tbl_name``, not parsed out of the name). On a table both releases guard the last
+        opener's shape wins, so a rollback, or a pod of the previous image restarting during an upgrade, re-installs its
+        own; a guard on a table only a newer release knows is left alone, since dropping it would leave that table
+        unguarded until a newer pod opened (issue #219). The reverse, a table taken out of ``OWNERS``, takes a schema
+        change (it no longer holds a person's rows): dropping the table takes its guards with it, and SQLite refuses to
+        drop the owning column while a guard reads it, so that release drops the guard by name, knowing the table; until
+        then the guard keeps the rule every release before it kept. Run at every open (``Store``); each statement
+        commits on its own, so a start cut short leaves the ones done and the next open does the rest, and two
+        processes opening at once each find what the other did (``IF NOT EXISTS``, ``IF EXISTS``). A guard lives in the
+        database, so a process from before it is bound as soon as one process installs it. Once in place it costs one
+        read of the schema and no write. How many triggers were created or dropped."""
         wanted = dict(owner_guards())
+        known = {owner[0] for owner in OWNERS}
         changed = 0
         with self._lock:
-            have = {r["name"] for r in self._conn.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'trigger' AND substr(name, 1, ?) = ?", (len(_GUARD), _GUARD))}
+            have = {r["name"]: r["tbl_name"] for r in self._conn.execute(
+                "SELECT name, tbl_name FROM sqlite_master WHERE type = 'trigger' AND substr(name, 1, ?) = ?",
+                (len(_GUARD), _GUARD))}
             for name, statement in wanted.items():
                 if name not in have:
                     self._conn.execute(statement)
                     changed += 1
-            for name in sorted(have - set(wanted)):
+            for name in sorted(name for name, table in have.items() if name not in wanted and table in known):
                 self._conn.execute(f"DROP TRIGGER IF EXISTS {name}")
                 changed += 1
         return changed
 
+    def _swept_tables(self) -> set[str]:
+        """The tables the sweep is done with in this database: those the marker lists, those of the release that wrote
+        a marker from before the list, none without a marker."""
+        row = self._one("SELECT value FROM sync_state WHERE name = ?", ORPHANS_SWEPT)
+        if row is None:
+            return set()
+        return set(_SWEPT_BY_THE_OLD_MARKER) if row["value"] == "1" else set(json.loads(row["value"]))
+
     def sweep_orphans(self) -> dict[str, int]:
         """Remove the rows of people who have no ``users`` row from every table in ``OWNERS``: what a request that
         authenticated in the instant of an erasure wrote into a database from before the guard (issue #196). Once per
-        database (``sync_state`` remembers; a restore of a backup from before the sweep is swept again, and clearing
-        the row runs it once more), in the one process that runs housekeeping, never at start-up: it reads every
-        user-keyed table. ``ORPHAN_BATCH`` rows at a time, found without the lock and deleted under it with the
-        condition checked again there, each batch its own transaction, so the lock is held for a batch and a run cut
-        short leaves the rest to the next. No audit row: the record of each erasure is the one already there. A team
-        KPI row naming such a member goes outright, not into the tombstone: it was written after the erasure had folded
-        the person's totals, as a row the guard now refuses (issue #212). The rows removed per table, for the tables
-        that had any; {} once done."""
-        if self._one("SELECT 1 FROM sync_state WHERE name = ?", ORPHANS_SWEPT) is not None:
+        table (``sync_state`` lists the tables swept, so a table added to ``OWNERS`` later is swept once on a database
+        already marked, issue #219; a restore of a backup from before the sweep is swept again, and clearing the row
+        runs it once more), in the one process that runs housekeeping, never at start-up: it reads every user-keyed
+        table. ``ORPHAN_BATCH`` rows at a time, found without the lock and deleted under it with the condition checked
+        again there, each batch its own transaction, so the lock is held for a batch and a run cut short leaves the
+        rest to the next; a batch another process deleted first is not the end of the table, the next read says what
+        is left. No audit row: the record of each erasure is the one already there. A team KPI row naming such a member
+        goes outright, not into the tombstone: it was written after the erasure had folded the person's totals, as a
+        row the guard now refuses (issue #212). The rows removed per table, for the tables that had any; {} once done."""
+        done = self._swept_tables()
+        tables = [table for table in dict.fromkeys(owner[0] for owner in OWNERS) if table not in done]
+        if not tables:
             return {}
         swept: dict[str, int] = {}
-        for table in dict.fromkeys(owner[0] for owner in OWNERS):   # each table once: its condition covers every way
+        for table in tables:                                        # each table once: its condition covers every way
             condition = orphan_condition(table, table)
             while True:
                 ids = [r[0] for r in self._all(f"SELECT rowid FROM {table} WHERE {condition} LIMIT ?", self.ORPHAN_BATCH)]
@@ -336,11 +363,10 @@ class ErasureRepo(Database):
                 with self._tx() as c:
                     n = c.execute(f"DELETE FROM {table} WHERE rowid IN ({', '.join('?' * len(ids))}) AND {condition}",
                                   ids).rowcount
-                if n == 0:                      # another sweep got there first: nothing left of this batch
-                    break
-                swept[table] = swept.get(table, 0) + n
+                if n:                           # none: another process took this batch first; the next read says what is left
+                    swept[table] = swept.get(table, 0) + n
         self._exec("INSERT INTO sync_state VALUES (?, ?, ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value,"
-                   " updated_at = excluded.updated_at", ORPHANS_SWEPT, "1", time.time())
+                   " updated_at = excluded.updated_at", ORPHANS_SWEPT, json.dumps(sorted(done | set(tables))), time.time())
         return swept
 
 
