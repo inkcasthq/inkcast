@@ -4,18 +4,22 @@
 
 * Backups are removed by age, not by count (item 3): a copy dated ``keep`` or more days before the backup being taken
   goes, after that backup is good, however long the CronJob failed in between; an extra backup on the same day evicts
-  no daily recovery point. The alert on a missed backup, ``InkcastBackupMissing``, is what covers the days in between."""
+  no daily recovery point. The alert on a missed backup, ``InkcastBackupMissing``, is what covers the days in between.
+* The copy a restore leaves beside the database (``inkcast.db.before-restore-<time>``, item 1) ages out by the same
+  rule, with its WAL files, at the next good backup; a file whose name carries no time is never touched. The runbook
+  says so."""
 
 import logging
 import pathlib
 import shutil
+import sqlite3
 import tempfile
 import unittest
 from datetime import datetime, timezone
 
 from inkcast.libs.alerting import ALERTS
 from inkcast.libs.db import Store
-from inkcast.libs.db.backup import BackupError, list_backups, take_backup
+from inkcast.libs.db.backup import BackupError, aside_copies, list_backups, restore_backup, take_backup
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RUNBOOK = ROOT / "docs" / "runbooks" / "backup-restore.md"
@@ -75,14 +79,39 @@ class Retention(unittest.TestCase):
         take_backup(self.db, self.backups, keep=1, now=DAY0 + 400 * DAY)
         self.assertTrue(odd.exists())
 
+    def test_a_restore_s_copy_of_the_replaced_database_ages_out_with_the_backups(self):
+        b = take_backup(self.db, self.backups, keep=2, now=DAY0)
+        self.store.close()
+        aside = restore_backup(b.path, self.db, now=DAY0 + 3600)
+        self.assertEqual(aside_copies(self.db), [aside])
+        for extra in ("-wal", "-shm"):                      # the WAL files a restore moves aside with a file left mid-write
+            aside.with_name(aside.name + extra).write_bytes(b"")
+        by_hand = self.db.with_name("inkcast.db.before-restore-by-hand")   # no time in the name: never touched
+        by_hand.write_bytes(b"")
+        kept = take_backup(self.db, self.backups, keep=2, now=DAY0 + DAY)
+        self.assertEqual((kept.removed_backups, kept.removed_copies), (0, 0))
+        self.assertTrue(aside.exists(), "a day old: within keep days")
+        gone = take_backup(self.db, self.backups, keep=2, now=DAY0 + 2 * DAY)
+        self.assertEqual((gone.removed_backups, gone.removed_copies), (1, 1))
+        self.assertFalse(aside.exists())
+        for extra in ("-wal", "-shm"):
+            self.assertFalse(aside.with_name(aside.name + extra).exists(), f"the copy's {extra} file went with it")
+        self.assertTrue(by_hand.exists())
+        self.assertEqual(aside_copies(self.db), [])
+        restored = sqlite3.connect(self.db)
+        self.addCleanup(restored.close)
+        self.assertEqual(restored.execute("SELECT COUNT(*) FROM users").fetchone()[0], 1, "the database itself is untouched")
+
     def test_the_command_logs_what_it_removed(self):
         from inkcast.backup import backup_main
         take_backup(self.db, self.backups, keep=1, now=DAY0 - DAY)
+        self.store.close()
+        restore_backup(list_backups(self.backups)[0], self.db, now=DAY0 - DAY + 60)
         with self.assertLogs("inkcast.backup", logging.INFO) as logs:
             self.assertEqual(backup_main(["--database", str(self.db), "--to", str(self.backups), "--keep", "1"]), 0)
         (done,) = [r for r in logs.records if getattr(r, "event", "") == "backup.done"]
-        self.assertEqual(done.removed_backups, 1)
-        self.assertIn("removed 1 backup(s) 1 or more days old", done.getMessage())
+        self.assertEqual((done.removed_backups, done.removed_copies), (1, 1))
+        self.assertIn("removed 1 backup(s) and 1 pre-restore cop(ies) 1 or more days old", done.getMessage())
 
 
 class TheAlertAndTheRunbook(unittest.TestCase):
@@ -92,6 +121,10 @@ class TheAlertAndTheRunbook(unittest.TestCase):
         self.assertEqual(alert.severity, "critical")
         self.assertIn('kube_cronjob_status_last_successful_time{cronjob="inkcast-backup"} > 26 * 3600', alert.expr)
         self.assertIn("InkcastBackupMissing", RUNBOOK.read_text())
+
+    def test_the_runbook_says_the_restore_s_copy_ages_out(self):
+        (line,) = [line for line in RUNBOOK.read_text().splitlines() if "inkcast.db.before-restore-<time>" in line]
+        self.assertIn("INKCAST_BACKUP_KEEP", line, "the copy a restore leaves ages out within the same days")
 
 
 if __name__ == "__main__":

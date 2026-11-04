@@ -76,10 +76,12 @@ def backup_main(argv: list[str]) -> int:
     except (BackupError, OSError) as exc:
         log.error("Backup failed: %s", exc, extra={"event": "backup.failed", "database": str(args.database)})
         return 1
-    log.info("Backup %s: %d bytes, sha256 %s, %d tables; removed %d backup(s) %d or more days old", b.name,
-             b.manifest["size"], b.manifest["sha256"][:12], len(b.manifest["rows"]), b.removed_backups, args.keep,
+    log.info("Backup %s: %d bytes, sha256 %s, %d tables; removed %d backup(s) and %d pre-restore cop(ies) %d or more "
+             "days old", b.name, b.manifest["size"], b.manifest["sha256"][:12], len(b.manifest["rows"]),
+             b.removed_backups, b.removed_copies, args.keep,
              extra={"event": "backup.done", "backup": b.name, "size": b.manifest["size"],
-                    "rows": sum(b.manifest["rows"].values()), "removed_backups": b.removed_backups})
+                    "rows": sum(b.manifest["rows"].values()), "removed_backups": b.removed_backups,
+                    "removed_copies": b.removed_copies})
     return 0
 
 
