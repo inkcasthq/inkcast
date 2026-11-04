@@ -400,7 +400,8 @@ class NoBearerLinksInLogs(unittest.TestCase):
             handler.setFormatter(formatter)
             handler.addFilter(Redactor())
             logger.addHandler(handler)
-            level, logger.level = logger.level, logging.INFO
+            level = logger.level
+            logger.setLevel(logging.INFO)      # setLevel, never a write to .level: it clears the isEnabledFor memo (#159)
             try:
                 with TestClient(app, base_url=cfg.public_url) as c:
                     self.assertEqual(c.get(f"/connect/{ticket}").status_code, 200)

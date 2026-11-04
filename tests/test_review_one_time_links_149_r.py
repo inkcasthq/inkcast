@@ -6,12 +6,12 @@ sign-in redirect is ready. One class per finding."""
 import asyncio
 import contextlib
 import io
-import logging
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import httpx2
+from fakes import logging_restored
 
 from inkcast.libs.observability import setup_logging
 
@@ -37,15 +37,7 @@ class DebugLogsKeepNoCookies(unittest.TestCase):
     consent cookie with the pending id beside it in Location is what /auth/consent asks of the browser that signed in."""
 
     def setUp(self):
-        root = logging.getLogger()
-        saved = (root.handlers[:], root.level,
-                 {n: logging.getLogger(n).level for n in ("httpx2", "httpcore2", "uvicorn.access")})
-
-        def restore():
-            root.handlers[:], root.level = saved[0], saved[1]
-            for name, level in saved[2].items():
-                logging.getLogger(name).setLevel(level)
-        self.addCleanup(restore)
+        logging_restored(self)                  # setup_logging below rewires the root logger for the process (#159)
         server = HTTPServer(("127.0.0.1", 0), _Upstream)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         self.addCleanup(server.server_close)

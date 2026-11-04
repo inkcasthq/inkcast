@@ -29,6 +29,7 @@ import time
 import unittest
 
 import httpx2
+from fakes import logging_restored
 
 from inkcast.libs.config import Config, ConfigError, load_config
 from inkcast.libs.db import Store
@@ -77,6 +78,7 @@ class Scenario(unittest.TestCase):
     the real metrics registry so the gauge can be read as Prometheus would."""
 
     def setUp(self):
+        logging_restored(self)                  # ``operator`` runs the CLI in-process: setup_logging rewires root (#159)
         self.kc = Keycloak()
         self.database = os.path.join(tempfile.mkdtemp(), "inkcast.db")
         self.store = Store(self.database, KEY)
