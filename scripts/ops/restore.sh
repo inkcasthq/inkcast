@@ -102,6 +102,18 @@ await_end() {
   done
 }
 
+# The stop, run by the pod's own python: a SIGTERM to PID 1 once it has a handler for it (SigCgt in /proc/1/status),
+# waiting up to 5 s for that. One sent in the restore's first half-second, while it imports, would be dropped as the
+# kubelet's is, and the restore the operator asked to stop would go on and swap (measured on kind).
+stop_restore='import os, signal, time
+def caught():
+    with open("/proc/1/status") as status:
+        return int(status.read().split("SigCgt:")[1].split()[0], 16) >> (signal.SIGTERM - 1) & 1
+end = time.monotonic() + 5
+while not caught() and time.monotonic() < end:
+    time.sleep(0.05)
+os.kill(1, signal.SIGTERM)'
+
 stop_job() {
   # Stop the Job and say what became of the database, from the restore's own log, then delete the Job with its pod
   # (foreground cascade: the Job goes only after its pod has) and confirm nothing of it is left. Returns 1 if a pod
@@ -112,7 +124,7 @@ stop_job() {
     # ignores one after (then it says it swapped). Sent through the pod's own python: `inkcast` is PID 1, which
     # drops the kubelet's SIGTERM until the handler is up, and a deleted pod takes its log, the evidence, with it.
     echo "Asking the restore to stop, then up to $stop_wait s for job $job to end."
-    if $k -n "$ns" exec "job/$job" -- python -c 'import os, signal; os.kill(1, signal.SIGTERM)'; then
+    if $k -n "$ns" exec "job/$job" -- python -c "$stop_restore"; then
       await_end "$stop_wait" || echo "Job $job did not end within $stop_wait s." >&2
     else
       echo "Could not signal the restore (its pod may not have started): deleting the job." >&2
