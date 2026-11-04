@@ -47,8 +47,11 @@ COLUMNS = (("posts", "recovering_since", "REAL"), ("posts", "requested_at", "REA
 
 
 def backfill(row: Mapping[str, Any]) -> bool:
-    """Whether a post row was made after its time (``PostsRepo._BACKFILL``): a backfill, measured by no deadline (ADR-0019)."""
-    return float(row["created_at"]) > float(row["run_at"])
+    """Whether a post row was made after its time (``PostsRepo._BACKFILL``): a backfill, measured by no deadline (ADR-0019).
+    Its time is the one asked for, ``requested_at``, which a retry or recovery's re-send keeps while it moves ``run_at``
+    past the creation; a post asked for now, or a row from before the column, has none, and its ``run_at`` stands."""
+    asked = row["run_at"] if row["requested_at"] is None else row["requested_at"]
+    return float(row["created_at"]) > float(asked)
 
 
 class PostsRepo(Database):
@@ -277,7 +280,8 @@ class PostsRepo(Database):
     # A post made after its time is a backfill: a Git file dated in the past (ADR-0015), a time moved into the past. It
     # is due at once, claimed after every post whose time has come, and measured by no deadline, because it has no time
     # to be on time for (ADR-0019). The rest were made before their time: promises, sent at it and measured from it.
-    _BACKFILL = "created_at > run_at"
+    # Its time is the one asked for (``backfill``): a retry's run_at, after the creation, never makes it a promise.
+    _BACKFILL = "created_at > COALESCE(requested_at, run_at)"
 
     def claim_due_posts(self, now: float, limit: int = 20) -> list[dict[str, Any]]:
         """Atomically move due scheduled posts to 'publishing' and return them: every promise whose time has come first,
