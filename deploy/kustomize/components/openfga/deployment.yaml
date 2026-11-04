@@ -38,8 +38,10 @@
 # has changed. The cost is downtime at every rollout, from the old pod's end to the new server's readiness:
 # measured by scripts/dev/openfga-e2e.sh (step 5) in CI, and documented in docs/authorization.md §8. Kubernetes
 # guarantees this order for upgrades only, not for a manual deletion or a ReplicaSet's replacement
-# (deployment.md "Recreate Deployment"): that is what the lock is for. `rollingUpdate: null` clears the
-# RollingUpdate settings an earlier apply left on the object, which the API refuses next to Recreate.
+# (deployment.md "Recreate Deployment"): that is what the lock is for. Over an object an earlier apply left with
+# RollingUpdate, the client-side `oc apply -k` the README uses replaces the strategy whole (its retainKeys patch
+# strategy), with or without `rollingUpdate: null`; a server-side apply refuses the change either way, as the API
+# refuses rollingUpdate next to Recreate (measured on kind v1.37.0 in the review of #374).
 #
 # Ports (pkg/server/config/config.go, DefaultConfig): HTTP 8080 (the API and /healthz, which answers without a key),
 # gRPC 8081, Prometheus 2112. /healthz is NOT_SERVING until the schema is current (pkg/storage/sqlcommon/sqlcommon.go,

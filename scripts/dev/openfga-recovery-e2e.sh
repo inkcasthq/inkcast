@@ -139,7 +139,7 @@ race() {
   echo "both pods Ready on revision 6; back to one replica"
   $k -n "$ns" scale deploy/openfga --replicas=1
   $k -n "$ns" rollout status deploy/openfga --timeout=300s
-  echo "PASS race: two init containers migrated the same fresh database at once, one row per version, and both pods serve on one schema revision"
+  echo "PASS race: two init containers started on the same fresh database left one row per version, and both pods serve on one schema revision (overlap shows them contend)"
 }
 
 lock_time() {  # lock_time POD taken|released: the clock_timestamp migrate.sh printed, as epoch seconds with fraction
