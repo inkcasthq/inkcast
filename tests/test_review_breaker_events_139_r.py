@@ -102,5 +102,32 @@ class ASpreadBurstOfPeopleAlreadyDisabled(Events):
         self.assertEqual(self.store.events_cutoffs_since(0), 1)
 
 
+class WhatThePRsTestsLeftOpen(Events):
+    """Three mutants of the PR's code that its own tests let through (review of #418): each test kills one."""
+
+    def test_a_person_already_disabled_is_not_counted_again_by_the_look_back(self):
+        people = self.people(20)
+        worker = self.started(30)
+        self.disabled(people[:4], T0 + 31)
+        self.assertEqual(self.tick(worker, T0 + 32)["disabled"], 4, "under the minimum: cut off")
+        self.assertEqual(self.tick(worker, T0 + 62)["disabled"], 0, "read again, nothing new")
+        self.assertEqual(self.trips(), [], "4 read twice is not 8")
+        self.assertEqual(self.store.events_cutoffs_since(0), 4)
+
+    def test_a_pass_that_finds_nobody_new_never_trips_on_the_window_alone(self):
+        people = self.people(100)
+        worker = self.started(30)
+        self.deleted(people[:10], T0 + 31)
+        self.assertEqual(self.tick(worker, T0 + 32)["disabled"], 10, "10 of 100: not above 10 %")
+        for user in people[98:]:                                    # two erased by another path: 10 of 98 known now
+            self.assertTrue(sum(self.store.erase_user(user["id"]).values()))
+        self.assertEqual(self.tick(worker, T0 + 62)["disabled"], 0, "the look-back reads the ten again")
+        self.assertEqual(self.trips(), [], "nobody newly found: no pass to hold")
+
+    def test_the_window_includes_a_pass_exactly_at_its_start(self):
+        self.store.record_events_cutoffs(T0, 5, since=T0 - 600)
+        self.assertEqual(self.store.events_cutoffs_since(T0), 5)
+
+
 if __name__ == "__main__":
     unittest.main()
