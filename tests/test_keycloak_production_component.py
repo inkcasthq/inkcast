@@ -102,7 +102,8 @@ def check_component(case: unittest.TestCase, docs: list[dict], what: str) -> Non
         case.assertNotIn("namespaceSelector", peer, f"{what}: this namespace only")
     case.assertEqual(sorted(p["port"] for p in operator_rule["ports"]), [5432, 8000], what)
     case.assertEqual(operator_rule["from"], [
-        {"namespaceSelector": {"matchLabels": CNPG_OPERATOR_PODS}, "podSelector": {"matchLabels": CNPG_OPERATOR_PODS}},
+        {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "cnpg-system"}},
+         "podSelector": {"matchLabels": CNPG_OPERATOR_PODS}},
         {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "openshift-operators"}},
          "podSelector": {"matchLabels": CNPG_OPERATOR_PODS}},
         {"podSelector": {"matchLabels": {"cnpg.io/cluster": CLUSTER}}},
