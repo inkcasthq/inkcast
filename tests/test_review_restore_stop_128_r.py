@@ -13,15 +13,29 @@ Each class is one finding, and fails on the PR's head (732cf8f):
   first: three of three stopped.
 * ``AJobThatFailedEndsTheWait``: ``kubectl wait --for=condition=complete`` does not end when the Job fails; it runs to
   its timeout. A restore refused in its first second (a bad backup) kept the server at 0 for the whole
-  RESTORE_TIMEOUT (on kind: 61 s for RESTORE_TIMEOUT=60, the Job Failed 2 s in; up to a day with the new bound)."""
+  RESTORE_TIMEOUT (on kind: 61 s for RESTORE_TIMEOUT=60, the Job Failed 2 s in; up to a day with the new bound).
+* ``TheRunbookTellsWhichDatabaseIsInPlace``: the runbook's way to tell, after "its log does not say", read
+  "different inodes mean it did [swap]" of ``inkcast.db`` and the newest ``before-restore`` copy. A restore killed
+  before its swap sets no copy aside, so the newest one is an older restore's, on another inode: the rule then says
+  "replaced" about a database that was not. Only a copy stamped with this restore's time tells."""
 
+import os
 import pathlib
+import shutil
+import sqlite3
 import subprocess
 import sys
+import tempfile
+import threading
 import time
 import unittest
 
+from inkcast.libs.db import Store
+from inkcast.libs.db.backup import RestoreStopped, aside_copies, restore_backup, take_backup
 from test_review_restore_script import _STUB_KUBECTL, _Script
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+RUNBOOK = ROOT / "docs/runbooks/backup-restore.md"
 
 
 def _stub(old: str, new: str) -> str:
@@ -90,6 +104,48 @@ class AJobThatFailedEndsTheWait(_Variant):
         self.assertIn("nothing was replaced", run.out)
         self.assertNotEqual(run.code, 0)
 
+
+def users(path: pathlib.Path) -> int:
+    conn = sqlite3.connect(path)
+    try:
+        return conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    finally:
+        conn.close()
+
+
+class TheRunbookTellsWhichDatabaseIsInPlace(unittest.TestCase):
+    """A data volume with an earlier restore's copy, then a restore that stops before its swap: the database at its
+    path is the old one, yet it and the newest copy are on different inodes."""
+
+    def setUp(self):
+        self.base = pathlib.Path(tempfile.mkdtemp(prefix="review-restore-inode-"))
+        self.addCleanup(shutil.rmtree, self.base, True)
+        self.db = self.base / "data" / "inkcast.db"
+        self.db.parent.mkdir()
+        store = Store(str(self.db), "k" * 40)
+        store.upsert_user("local:owner", "owner", None, None)
+        self.backup = take_backup(self.db, self.base / "backups").path
+        store.upsert_user("local:second", "second", None, None)
+        store.close()
+        self.now = time.time() + 3600
+        self.earlier = restore_backup(self.backup, self.db, now=self.now)       # an earlier restore, its copy kept
+
+    def test_a_stop_before_the_swap_leaves_the_old_database_on_another_inode_than_the_newest_copy(self):
+        stop = threading.Event()
+        stop.set()
+        before = os.stat(self.db).st_ino
+        with self.assertRaises(RestoreStopped):
+            restore_backup(self.backup, self.db, now=self.now + 60, stop=stop)
+        self.assertEqual(os.stat(self.db).st_ino, before, "the stopped restore replaced the database")
+        newest = aside_copies(self.db)[-1]
+        self.assertEqual(newest, self.earlier)                   # no copy of this restore: the newest is the earlier one
+        self.assertNotEqual(os.stat(newest).st_ino, os.stat(self.db).st_ino)   # "different inodes" with no swap
+
+    def test_the_runbook_decides_by_the_copy_of_this_restore_not_the_newest_copy(self):
+        text = " ".join(RUNBOOK.read_text().split())
+        self.assertNotIn("different inodes mean it did", text,
+                         "the runbook reads an older restore's copy as this restore's swap")
+        self.assertIn("stamped at or after the time in the job's name", text)
 
 
 if __name__ == "__main__":
