@@ -111,6 +111,15 @@ def aside_copies(database: pathlib.Path) -> list[pathlib.Path]:
     return sorted(p for p in database.parent.glob(f"{prefix}*") if _stamped(p.name[len(prefix):]) is not None)
 
 
+def _content_time(database: pathlib.Path, now: float) -> float:
+    """When the content of ``database`` is from: ``now``, or for a restore's copy (``<db>.before-restore-<time>``) the
+    time of that restore. A backup of the copy (the runbook's way back to it) is named with that time, so it ages out
+    when the copy would have: the copy holds whoever was erased after the restore (issue #112)."""
+    base, _, rest = database.name.rpartition(ASIDE)
+    stamp = _stamped(rest) if base else None
+    return stamp.timestamp() if stamp else now
+
+
 def _prune_copies(database: pathlib.Path, keep: int, now: float) -> int:
     """Remove the copies restores left beside ``database`` that are ``keep`` or more days old, each with its WAL files
     (the restore moved them aside with it); how many copies went."""
@@ -168,7 +177,10 @@ def take_backup(database: pathlib.Path, directory: pathlib.Path, *, keep: int = 
         raise BackupError("keep must be at least 1.")
     directory.mkdir(parents=True, exist_ok=True)
     now = now or time.time()
-    stamp = _stamp(now)
+    taken = _content_time(database, now)
+    if _aged_out(datetime.fromtimestamp(taken, timezone.utc), now, keep):
+        raise BackupError(f"{database.name} is {keep} or more days old: it has aged out, and a backup of it would too.")
+    stamp = _stamp(taken)
     target = directory / f"{PREFIX}{stamp}{SUFFIX}"
     if target.exists():
         raise BackupError(f"{target.name} already exists; one backup per second at most.")
