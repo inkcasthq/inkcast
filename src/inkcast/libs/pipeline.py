@@ -316,9 +316,9 @@ class Publisher:
             return Outcome(platform.id, "failed", post_id=post_id, message=f"Internal error in the {platform.name} "
                            f"plug-in: {exc}", prepared=prepared)
         status = result.status if result.status in ("draft", "unlisted") else "published"
-        if post_id:
+        if post_id:  # a PUT's answer that names no URL (a 204) keeps the post's: the post is where it was (#214)
             self.store.update_post(post_id, status=status, title=prepared.title, payload=json.dumps(prepared.to_dict()),
-                                   result_url=result.url or None, error="; ".join(result.notes) or None)
+                                   error="; ".join(result.notes) or None, **({"result_url": result.url} if result.url else {}))
         self._count(platform.id, "updated")
         return Outcome(platform.id, status, post_id=post_id, url=result.url, notes=result.notes, prepared=prepared,
                        remote_id=result.remote_id or remote_id)
