@@ -295,9 +295,10 @@ def _routes(ctx: Context) -> list[Route]:
         DELETE_ACCOUNT pass may get there first), so the person always gets the right answer: gone at Keycloak →
         erased (idempotent; counted as via=return only when this visit erased rows) and "deleted"; Keycloak still
         has them → nothing erased, "nothing was deleted" (the record stays for a later confirmation); Keycloak not
-        answering, or a sign-in that landed between its answer and the erasure (#102) → nothing erased, "being
-        finished", the record kept. The deleted and finishing pages say what stays for a while: copies in backups,
-        until they age out (issue #94)."""
+        answering, or a pass elsewhere with newer word about them (#102) → nothing erased, "being finished", the
+        record kept; a sign-in that landed between its answer and the erasure (#102) → nothing erased, "being
+        finished, and signing in again kept the account" (#161), the record kept. The deleted and finishing pages
+        say what stays for a while: copies in backups, until they age out (issue #94)."""
         cookie = request.cookies.get(COOKIE, "")
         req = store.deletion_request_by_cookie(cookie) if cookie else None
         if not req:                              # no cookie, or one no pending deletion matches: nothing to say
@@ -322,8 +323,11 @@ def _routes(ctx: Context) -> list[Route]:
                                  "from your MCP client or the API.")
         if user is not None:
             erase_person(store, ctx.metrics, user, "return")
-            if store.get_user(user["id"]) is not None:           # not as read: a sign-in landed between the 404 and the
-                return finishing                                 # erasure (#102); the sync judges them afresh, the record stays
+            row = store.get_user(user["id"])
+            if row is not None:                                  # not as read: nothing erased (#102); the sync judges them
+                if row["last_login_at"] != user["last_login_at"]:     # afresh, the record stays. A sign-in landed between
+                    return pages.deletion_kept_by_sign_in(config.backup_keep)     # the 404 and the erasure: say so (#161)
+                return finishing                                 # a pass elsewhere had newer word about them
         store.delete_deletion_request(req["id"])
         response = pages.account_deleted(config.backup_keep)
         response.delete_cookie(COOKIE, path="/account")

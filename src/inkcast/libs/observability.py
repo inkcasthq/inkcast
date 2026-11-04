@@ -104,7 +104,8 @@ EVENTS: dict[str, tuple[str, str]] = {
     "identity.sync.breaker.held": ("warning", "The breaker is still open (pass id, how many people are held, gone and "
                                               "disabled); every pass says so until the pass is resolved."),
     "identity.sync.breaker.confirmed": ("warning", "An operator confirmed a pass (audit: pass id, who, how many applied by "
-                                                   "kind and skipped): its people are cut off; the gone start their grace "
+                                                   "kind, marked, cut off elsewhere and skipped): its people are cut off; "
+                                                   "the gone start their grace "
                                                    "period, the disabled lose their PATs."),
     "identity.sync.breaker.dismissed": ("warning", "An operator dismissed a pass (audit: pass id, who, how many released): "
                                                    "nothing was done to the gone, the disabled's PATs work again; the next "

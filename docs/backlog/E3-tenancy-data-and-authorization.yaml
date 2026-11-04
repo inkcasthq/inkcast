@@ -30,6 +30,12 @@ features:
       own database
     status: planned
     change: refined
+    acceptance:
+    - 'The re-checks that SQLite''s single writer (BEGIN IMMEDIATE) makes atomic hold on PostgreSQL: erase_user''s
+      _as_read (libs/db/erasure.py) and rotate_refresh''s select (libs/db/identity.py) read with SELECT ... FOR UPDATE
+      before their DELETEs, in the same transaction; the conditional UPDATEs (disable_user, hold_user, mark_user_deleted,
+      claim_breaker_person) stay one statement each (#102, #161)'
+    - 'tests/test_erasure_recheck.py and tests/test_review_races_161.py pass on PostgreSQL with two connections racing'
   - id: F3.1.S2
     title: Versioned, reversible migrations
     status: planned

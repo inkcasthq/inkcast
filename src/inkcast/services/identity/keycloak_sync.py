@@ -23,8 +23,8 @@ polling (the ADR-0008 option that needs no Keycloak plug-in, so it works air-gap
 
 Each of those acts is decided on a reading of the person that another replica may overtake before the transaction
 starts, so the caller passes the row as it read it and the store re-checks it inside the transaction (issue #102:
-``erase_user`` with the row, ``disable_user`` and ``mark_user_deleted`` with ``last_login_at``): a sign-in handled
-elsewhere in between leaves the person as they are, and the next pass judges them afresh.
+``erase_user`` with the row, ``disable_user``, ``mark_user_deleted`` and ``hold_user`` (#161) with ``last_login_at``):
+a sign-in handled elsewhere in between leaves the person as they are, and the next pass judges them afresh.
 
 A person who is gone (404) or ``enabled: false`` is disabled in Inkcast: every OAuth token, code and personal
 access token is cut off in one transaction (``Store.disable_user``) and the person is marked, which clears at their
@@ -73,9 +73,10 @@ until an operator resolves the pass with ``inkcast identity confirm-deletions --
 their grace period starts then, and the reconcile erases them as the policy says; the disabled are cut off and their
 personal access tokens revoked) or ``dismiss-deletions`` (nothing is done to the gone; the disabled are released and
 their personal access tokens work again; the next reconcile reads everyone again, and trips again if it must). A
-held person Keycloak reports enabled again is released at once, by whichever pass reads them, and leaves the pass. A
-DELETE_ACCOUNT event is never held: the person asked, and the event is specific. Below the thresholds a 404 or an
-``enabled: false`` is acted on as before.
+held person Keycloak reports enabled again is released at once, by whichever pass reads them, and leaves the pass; so
+does a gone one it reports present, even as an operator confirms the pass: the confirmation claims each person
+before it acts, and a release that lands first spares them (#161). A DELETE_ACCOUNT event is never held: the person
+asked, and the event is specific. Below the thresholds a 404 or an ``enabled: false`` is acted on as before.
 """
 
 from __future__ import annotations
@@ -230,9 +231,12 @@ def hold_person(store: Any, user: dict[str, Any], via: str, now: float) -> bool:
     """Hold one person Keycloak reports disabled while the breaker holds a pass (#135): their OAuth tokens, codes and
     pending consents go now (a sign-in restores them, and Keycloak refuses that while they are disabled), their
     personal access tokens are refused but not revoked, until an operator confirms (revoked) or dismisses (work
-    again). Nothing for one already held or cut off. Logs ``identity.user.held`` with the Inkcast id and counts."""
+    again). ``user`` is their row as the caller read it: held only while its ``last_login_at`` is still their last
+    sign-in (#161), as ``cut_off_person``, so a sign-in handled by another replica in between (Keycloak enabled them
+    and let them in) leaves them as they are. True when held now; False when nothing was done (already held or cut
+    off, no such person, or signed in since). Logs ``identity.user.held`` with the Inkcast id and counts."""
     user_id = str(user["id"])
-    cut = store.hold_user(user_id, now)
+    cut = store.hold_user(user_id, now, last_login_at=float(user["last_login_at"]))
     if cut is None:
         return False
     oauth, codes = (int(cut.get(k, 0)) for k in ("oauth_tokens", "codes"))     # counts only, as in cut_off_person
@@ -536,9 +540,8 @@ class KeycloakSync:
                 continue
             self.store.mark_user_present(str(known["id"]))     # Keycloak has them: a running grace period stops
             if state == "active":                      # enabled (again): a hold on them is lifted by this pass (#135)
-                if held:                               # and they leave the pass, as at the reconcile
-                    self.store.release_breaker_people([str(known["id"])])
-                if known.get("held_at") is not None:
+                self.store.release_breaker_people([str(known["id"])])   # and they leave a pass, as at the reconcile:
+                if known.get("held_at") is not None:                    # whatever its status by now (#161)
                     release_person(self.store, str(known["id"]), "event")
             elif held:                                 # disabled while a pass is held: held too, not cut off (#135)
                 hold_person(self.store, known, "event", self.clock())
@@ -584,7 +587,9 @@ class KeycloakSync:
                 self._person_failed(str(user["id"]), "reconcile", exc)
                 continue
             read.append((user, keycloak_id, state))
-            if state != "deleted":
+            if state != "deleted":                   # Keycloak has them: they leave a pass now, pending or claimed by
+                self.store.release_breaker_people(   # an operator since, not after the people still to read (#161)
+                    [str(user["id"])], None if state == "active" else BREAKER_GONE)    # present, still disabled: as gone
                 continue
             try:                                     # their events now, before the people known to hang use the budget
                 if await self.deleted_own_account(keycloak_id):
@@ -598,9 +603,6 @@ class KeycloakSync:
         disabled = [(user, keycloak_id) for user, keycloak_id, state in read if state == "disabled"]
         held = self._breaker(gone, disabled, len(read), untried)
         deferred = held is None                      # the breaker could not count: what it would hold waits (#152)
-        if held:                                     # Keycloak has them again: a confirmation no longer applies to them
-            self.store.release_breaker_people([str(user["id"]) for user, _, state in read if state == "active"])
-            self.store.release_breaker_people([str(user["id"]) for user, _ in disabled], BREAKER_GONE)   # present, still disabled
         for user, keycloak_id, state in read:
             if state == "deleted":
                 continue
@@ -636,10 +638,9 @@ class KeycloakSync:
         return not user or user.get("last_login_at") != listed.get("last_login_at")
 
     def _hold(self, listed: dict[str, Any], via: str) -> bool:
-        """``hold_person`` for a person the reconcile read disabled, unless they signed in since ``listed`` was read
-        (Keycloak let them in: enabled, the one proof) or were erased; nothing for one already held or cut off."""
-        if self._signed_in_since(listed):
-            return False
+        """``hold_person`` for a person the reconcile read disabled, their row as listed before the reads (#102):
+        one who signed in since (Keycloak let them in: enabled, the one proof) or was erased is left as they are, by
+        the hold's own re-check (#161); nothing for one already held or cut off."""
         return hold_person(self.store, listed, via, self.clock())
 
     def _breaker_open(self) -> bool:

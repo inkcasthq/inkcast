@@ -146,3 +146,13 @@ def deletion_finishing(backup_keep: int) -> HTMLResponse:
     return message("Deletion in progress", "Your account deletion is being finished: once the sign-in provider confirms "
                    "the account is gone, Inkcast erases your data within about a minute. After that, nothing of yours "
                    f"remains in Inkcast's database. {_backups_age_out(backup_keep)}")
+
+
+def deletion_kept_by_sign_in(backup_keep: int) -> HTMLResponse:
+    """The visit back when the sign-in provider said the account is gone but a sign-in to it landed meanwhile, so
+    the erasure declined (issue #102): a sign-in is the one proof Inkcast has that the provider still has the person,
+    so nothing is erased on the provider's older word, and the sync asks again (#161)."""
+    return message("Deletion in progress", "Your account deletion is being finished, but you signed in again meanwhile, "
+                   "which kept your account and your data: Inkcast erases nothing while the sign-in provider lets you "
+                   "in. Inkcast asks the provider again within about a minute: if your account is gone there, your data "
+                   f"is erased then; if the provider still has it, nothing is erased. {_backups_age_out(backup_keep)}")

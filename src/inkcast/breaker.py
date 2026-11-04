@@ -15,13 +15,16 @@ person is cut off and marked gone from now, so the reconcile erases them INKCAST
 its next pass with 0; never with off), after reading Keycloak again; a disabled person is cut off and their personal
 access tokens revoked (never erased: Keycloak has them). One who signed in since the pass read them is spared
 (Keycloak let them in: the one proof Inkcast has that it has them), one erased meanwhile (their own DELETE_ACCOUNT
-event) is in no pass any more, and a held person a pass has since read enabled again left the pass then. Dismissing
-does nothing to the gone and releases the disabled, whose personal access tokens work again; the next reconcile reads
-everyone again and trips again if it must. Either is claimed once: a second confirmation, or a dismissal after a
-confirmation, does nothing and says so. Each outcome is one log line, the audit record
-(`identity.sync.breaker.confirmed`, `identity.sync.breaker.dismissed`: the pass id, who, and counts; never a person's
-id), beside the pass's own row (`sync_breaker_trips`: status, time, who). Runs in the IdentityService pod, against the
-same database and INKCAST_SECRET_KEY, while the server serves. Exit status: 0 done, 1 refused, 2 bad usage.
+event) is in no pass any more, and a person a pass has since read present (the gone) or enabled (the disabled) left
+the pass then, even as the confirmation runs: it claims each person before it acts, so a release that lands first
+spares them (#161). Dismissing does nothing to the gone and releases the disabled, whose personal access tokens work
+again; the next reconcile reads everyone again and trips again if it must. Either is claimed once: a second
+confirmation, or a dismissal after a confirmation, does nothing and says so. Each outcome is one log line, the audit
+record (`identity.sync.breaker.confirmed`, `identity.sync.breaker.dismissed`: the pass id, who, and counts, among them
+how many gone people were marked gone but not cut off here, their clock running all the same, and how many disabled
+people another pass cut off meanwhile; never a person's id),
+beside the pass's own row (`sync_breaker_trips`: status, time, who). Runs in the IdentityService pod, against the same
+database and INKCAST_SECRET_KEY, while the server serves. Exit status: 0 done, 1 refused, 2 bad usage.
 """
 
 from __future__ import annotations
@@ -37,7 +40,7 @@ from typing import Any, Callable, Mapping
 
 from .libs.config import ConfigError, load_config
 from .libs.db import Store
-from .libs.db.identity import BREAKER_CONFIRMED, BREAKER_DISABLED, BREAKER_DISMISSED
+from .libs.db.identity import BREAKER_CONFIRMED, BREAKER_DISABLED, BREAKER_DISMISSED, BREAKER_GONE
 from .libs.observability import setup_logging
 from .services.identity.keycloak_sync import cut_off_person, release_person
 
@@ -90,8 +93,11 @@ def _confirm(store: Store, pass_id: str, by: str, now: float) -> int:
                   trip["resolved_by"], extra={"event": "identity.sync.breaker.refused"})
         return 1
     applied = {"gone": 0, "disabled": 0}
-    skipped = 0
+    marked = elsewhere = skipped = 0
     for held in store.breaker_trip_people(pass_id):
+        if not store.claim_breaker_person(pass_id, held["user_id"]):    # a pass read them present or enabled since the
+            skipped += 1                                                # list above: released, so not held (#161)
+            continue
         user = store.get_user(held["user_id"])
         if user is None or user.get("last_login_at") != held["last_login_at"]:
             skipped += 1                   # erased meanwhile, or Keycloak let them in since the pass read them
@@ -103,17 +109,25 @@ def _confirm(store: Store, pass_id: str, by: str, now: float) -> int:
             acted = cut_off_person(store, None, user, "disabled", "confirm", now)      # revokes their PATs; never erased
         else:
             acted = cut_off_person(store, None, user, "deleted", "confirm", now)
-        if acted is None:                              # signed in between the check above and the cut-off (#102)
-            skipped += 1
+        if acted is None:                              # not as read any more, between the check above and the act (#102)
+            row = store.get_user(held["user_id"])      # a gone person's mark may have landed first: then the clock runs
+            if held["kind"] == BREAKER_GONE and row is not None and row.get("deleted_at") is not None:
+                marked += 1                            # a pass since cut them off, or released them (#161)
+            elif held["kind"] == BREAKER_DISABLED and row is not None and row.get("disabled_at") is not None:
+                elsewhere += 1                         # a pass since cut them off: cut off, not by this confirmation
+            else:
+                skipped += 1                           # signed in since (which stops the clock), or erased
             continue
         applied[held["kind"]] += 1
     store.forget_breaker_trip_people(pass_id)
     log.warning("Pass %s confirmed by %s: cut off %d (%d gone, their grace period running from now; %d disabled, their "
-                "personal access tokens revoked); skipped %d (signed in since, enabled again, or erased already)",
-                pass_id, by, sum(applied.values()), applied["gone"], applied["disabled"], skipped,
+                "personal access tokens revoked); marked gone but not cut off here %d (their grace period running from "
+                "now too; a pass since cut them off or released them); disabled and cut off by another pass meanwhile %d; "
+                "skipped %d (signed in since, present or enabled again, or erased already)",
+                pass_id, by, sum(applied.values()), applied["gone"], applied["disabled"], marked, elsewhere, skipped,
                 extra={"event": "identity.sync.breaker.confirmed", "pass_id": pass_id, "by": by,
                        "applied": sum(applied.values()), "gone": applied["gone"], "disabled": applied["disabled"],
-                       "skipped": skipped})
+                       "marked": marked, "elsewhere": elsewhere, "skipped": skipped})
     return 0
 
 

@@ -54,7 +54,8 @@ CREATE TABLE IF NOT EXISTS deletion_requests (
 -- The Keycloak sync's circuit breaker (E9.F9.5.S7, issue #105): one row per reconcile pass that found too many people
 -- gone (404) or disabled (#135) at once (gone and disabled of read), with its status (pending, confirmed, dismissed)
 -- and who resolved it; the people it held are in sync_breaker_people with their kind, with last_login_at as the pass
--- read it (a later sign-in proves Keycloak has them), erased with the person and removed when the pass is resolved.
+-- read it (a later sign-in proves Keycloak has them), erased with the person, removed when a pass reads them present
+-- (whatever the pass's status, #161) and as the pass is resolved (a confirmation claims each person before it acts).
 CREATE TABLE IF NOT EXISTS sync_breaker_trips (
   id TEXT PRIMARY KEY, tripped_at REAL NOT NULL, gone INTEGER NOT NULL, read INTEGER NOT NULL, status TEXT NOT NULL,
   resolved_at REAL, resolved_by TEXT
@@ -160,14 +161,16 @@ class IdentityRepo(Database):
                              (now, user_id)).rowcount
         return {"oauth_tokens": tokens, "personal_access_tokens": pats, "codes": codes}
 
-    def hold_user(self, user_id: str, now: float) -> dict[str, int] | None:
+    def hold_user(self, user_id: str, now: float, last_login_at: float | None = None) -> dict[str, int] | None:
         """The Keycloak sync's breaker holds the person (#135): every OAuth token, code and pending consent goes, in
         one transaction, as ``disable_user`` cuts them (a sign-in restores them, and Keycloak refuses that while the
-        person is disabled); their personal access tokens stay, refused while ``held_at`` is set. Counts of what was
-        cut; None when nothing was done (already held, cut off, or no such person)."""
+        person is disabled); their personal access tokens stay, refused while ``held_at`` is set. With
+        ``last_login_at``, only while that is still their last sign-in (#161), as ``disable_user``: the caller read it
+        when it decided, and a sign-in since, handled by another replica, means Keycloak let them in. Counts of what
+        was cut; None when nothing was done (already held, cut off, no such person, or signed in since)."""
         with self._tx() as c:
-            if c.execute("UPDATE users SET held_at = ? WHERE id = ? AND held_at IS NULL AND disabled_at IS NULL",
-                         (now, user_id)).rowcount != 1:
+            if c.execute("UPDATE users SET held_at = ? WHERE id = ? AND held_at IS NULL AND disabled_at IS NULL"
+                         " AND (? IS NULL OR last_login_at = ?)", (now, user_id, last_login_at, last_login_at)).rowcount != 1:
                 return None
             tokens = c.execute("DELETE FROM tokens WHERE user_id = ?", (user_id,)).rowcount
             codes = c.execute("DELETE FROM auth_codes WHERE user_id = ?", (user_id,)).rowcount
@@ -255,14 +258,24 @@ class IdentityRepo(Database):
         """A resolved pass keeps its counts and status, not the ids."""
         return self._exec("DELETE FROM sync_breaker_people WHERE pass_id = ?", pass_id)
 
+    def claim_breaker_person(self, pass_id: str, user_id: str) -> bool:
+        """A confirmation takes one person out of the pass before it acts on them: True once, for the first caller;
+        False when the pass no longer holds them (released since the pass was listed: a pass read them present or
+        enabled, or they were erased), so the confirmation leaves them as they are. The one write a release and a
+        confirmation race for (#161): whichever lands first wins."""
+        return self._exec("DELETE FROM sync_breaker_people WHERE pass_id = ? AND user_id = ?", pass_id, user_id) == 1
+
     def release_breaker_people(self, user_ids: list[str], kind: str | None = None) -> int:
-        """People a pending pass holds whom Keycloak has again (a reconcile read them as present, or as enabled): the
-        pass no longer holds them, so confirming it does not cut them off. With ``kind``, only the rows of that kind
-        (a person read present but disabled leaves a pass as gone, not as disabled)."""
+        """People a pass holds whom Keycloak has again (a reconcile read them as present, or as enabled): the pass
+        no longer holds them, so confirming it does not cut them off. Whatever the pass's status (#161): a
+        confirmation under way claims each person before it acts (``claim_breaker_person``), so a release that lands
+        first spares them, where one that touched pending passes only was lost once the pass was claimed. With
+        ``kind``, only the rows of that kind (a person read present but disabled leaves a pass as gone, not as
+        disabled). Each id is a look-up on the table's key (pass_id, user_id) over the passes, which are few, never a
+        scan of the table: a pass can hold everyone, and a scan per person held the write lock for seconds."""
         with self._tx() as c:
-            return sum(c.execute("DELETE FROM sync_breaker_people WHERE user_id = ? AND pass_id IN "
-                                 "(SELECT id FROM sync_breaker_trips WHERE status = ?)" + (" AND kind = ?" if kind else ""),
-                                 (user_id, BREAKER_PENDING, *([kind] if kind else []))).rowcount
+            return sum(c.execute("DELETE FROM sync_breaker_people WHERE user_id = ? AND pass_id IN (SELECT id FROM sync_breaker_trips)"
+                                 + (" AND kind = ?" if kind else ""), (user_id, *([kind] if kind else []))).rowcount
                        for user_id in user_ids)
 
     # ---- OAuth clients -------------------------------------------------------
