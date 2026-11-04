@@ -159,8 +159,13 @@ class GitSync:
         # (``record_success``), which is not always what the entry hashed: an edit in place while the post's send was
         # still out (#392). The entry takes the hash of what the platform has, so that edit reads as a change below.
         post = self.store.get_post(entry["post_id"]) if entry and entry["post_id"] else None
-        if post and entry["status"] in ("scheduled", "publishing", "recovering", "unconfirmed") \
-                and post["status"] != entry["status"]:
+        if post and post["status"] != entry["status"] and (
+                entry["status"] in ("scheduled", "publishing", "recovering", "unconfirmed")
+                # A cancel the send outran: the platform has the post, as its success recorded over the cancel (#214),
+                # so the file follows it, and the next sync sends the change the success noted, or reports the file
+                # stale (#427). A cancel that took effect leaves the post 'cancelled' too: not followed, and an edited
+                # file is a new post.
+                or (entry["status"] == "cancelled" and post["status"] in self.store.CONFIRMED)):
             has = {"content_hash": stored_hash(json.loads(post["payload"]))} if post["status"] in self.store.CONFIRMED else {}
             if not self.store.follow_post(user_id, src, path, pid, post["id"], status=post["status"],
                                           url=post["result_url"], remote_id=post["remote_id"], **has):
@@ -229,8 +234,11 @@ class GitSync:
             changed = changed or schedule_changed
 
         if not changed:
-            if entry["message"] and not req.dry_run:  # e.g. a "stale" note, now resolved by reverting the file
-                self.store.put_entry(user_id, src, path, pid, message=None)
+            if not req.dry_run:
+                if entry["message"]:  # e.g. a "stale" note, now resolved by reverting the file
+                    self.store.put_entry(user_id, src, path, pid, message=None)
+                if post and post["status"] in self.store.CONFIRMED:  # the file back to what was sent: nothing owed (#427)
+                    self.publisher.settle_edited(post["id"], platform)
             return SyncResult(**base, action="unchanged", status=entry["status"], post_id=entry["post_id"],
                               url=entry["url"])
 
@@ -284,7 +292,9 @@ class GitSync:
                 f"as a new post, so remove the first copy on {platform.name} if it did arrive."))
 
         if "update" not in platform.capabilities or not entry["remote_id"]:
-            message = (f"Changed since it was published, but {platform.name} doesn't let Inkcast edit posts. "
+            why = (f"{platform.name} doesn't let Inkcast edit posts" if "update" not in platform.capabilities
+                   else f"{platform.name} named no id for the post, which an update needs")   # a 2xx naming only the URL (#427)
+            message = (f"Changed since it was published, but {why}. "
                        f"Update it by hand" + (f": {entry['url']}" if entry["url"] else ".") +
                        " Inkcast won't post it again.")
             if not req.dry_run:
