@@ -159,8 +159,13 @@ class GitSync:
         # (``record_success``), which is not always what the entry hashed: an edit in place while the post's send was
         # still out (#392). The entry takes the hash of what the platform has, so that edit reads as a change below.
         post = self.store.get_post(entry["post_id"]) if entry and entry["post_id"] else None
-        if post and entry["status"] in ("scheduled", "publishing", "recovering", "unconfirmed") \
-                and post["status"] != entry["status"]:
+        if post and post["status"] != entry["status"] and (
+                entry["status"] in ("scheduled", "publishing", "recovering", "unconfirmed")
+                # A cancel the send outran: the platform has the post, as its success recorded over the cancel (#214),
+                # so the file follows it, and the next sync sends the change the success noted, or reports the file
+                # stale (#427). A cancel that took effect leaves the post 'cancelled' too: not followed, and an edited
+                # file is a new post.
+                or (entry["status"] == "cancelled" and post["status"] in self.store.CONFIRMED)):
             has = {"content_hash": stored_hash(json.loads(post["payload"]))} if post["status"] in self.store.CONFIRMED else {}
             if not self.store.follow_post(user_id, src, path, pid, post["id"], status=post["status"],
                                           url=post["result_url"], remote_id=post["remote_id"], **has):
@@ -187,7 +192,7 @@ class GitSync:
                 return SyncResult(**base, action="skipped", status="unconfirmed", post_id=entry["post_id"], message=(
                     f"The last publish to {platform.name} may or may not have gone through, and {platform.name} couldn't "
                     f"be asked just now ({checked.message}). The next sync will ask again."))
-            if post is not None and (checked is None or checked.status == "missing"):
+            if post is not None and (checked is None or checked.status in ("missing", "unconfirmed")):
                 # The entry points at an unconfirmed post (an uncertain answer to its send, or recovery capped at
                 # INKCAST_PUBLISH_RECOVERY_MAX_HOURS): a person decides, by resending or cancelling it. The sync never
                 # creates it again, whatever the platform says (#226): "missing" could be a lookup that lags the post,
@@ -229,8 +234,11 @@ class GitSync:
             changed = changed or schedule_changed
 
         if not changed:
-            if entry["message"] and not req.dry_run:  # e.g. a "stale" note, now resolved by reverting the file
-                self.store.put_entry(user_id, src, path, pid, message=None)
+            if not req.dry_run:
+                if entry["message"]:  # e.g. a "stale" note, now resolved by reverting the file
+                    self.store.put_entry(user_id, src, path, pid, message=None)
+                if post and post["status"] in self.store.CONFIRMED:  # the file back to what was sent: nothing owed (#427)
+                    self.publisher.settle_edited(post["id"], platform)
             return SyncResult(**base, action="unchanged", status=entry["status"], post_id=entry["post_id"],
                               url=entry["url"])
 
@@ -284,7 +292,9 @@ class GitSync:
                 f"as a new post, so remove the first copy on {platform.name} if it did arrive."))
 
         if "update" not in platform.capabilities or not entry["remote_id"]:
-            message = (f"Changed since it was published, but {platform.name} doesn't let Inkcast edit posts. "
+            why = (f"{platform.name} doesn't let Inkcast edit posts" if "update" not in platform.capabilities
+                   else f"{platform.name} named no id for the post, which an update needs")   # a 2xx naming only the URL (#427)
+            message = (f"Changed since it was published, but {why}. "
                        f"Update it by hand" + (f": {entry['url']}" if entry["url"] else ".") +
                        " Inkcast won't post it again.")
             if not req.dry_run:
@@ -459,11 +469,14 @@ class GitSync:
 
     @staticmethod
     def _decision(platform: Platform, post_id: str, checked: Outcome | None, dry_run: bool = False) -> str:
-        """What the sync says of a file whose post is unconfirmed: the person decides (#226)."""
+        """What the sync says of a file whose post is unconfirmed: the person decides (#226), told what the platform
+        said: it can't be checked, it couldn't be asked just now, it can't say which post is this one (its reason, with
+        the ids it names, #428), or it isn't there."""
         said = (f"this dry run didn't ask {platform.name}" if dry_run
                 else f"{platform.name} can't be checked automatically" if checked is None
                 else f"{platform.name} couldn't be asked just now ({checked.message}); the next sync asks again"
-                if checked.status == "unavailable" else f"{platform.name} says it isn't there")
+                if checked.status == "unavailable" else (checked.message or "").rstrip(".")
+                if checked.status == "unconfirmed" else f"{platform.name} says it isn't there")
         return (f"The last publish to {platform.name} may or may not have gone through, and {said}. Inkcast never publishes "
                 f"it again on its own: check {platform.name}, then resend post {post_id} (inkcast_resend, or POST "
                 f"/api/v1/posts/{post_id}/resend) to send it as it was, or cancel it (inkcast_cancel, or POST "
@@ -489,10 +502,11 @@ class GitSync:
 
     def _resolve(self, user_id: str, src: str, path: str, platform: Platform, entry: dict, o: Outcome | None) -> dict | None:
         """Resolve an unconfirmed entry from what the platform said (``Publisher.confirm``): published → record it;
-        missing → allow a fresh create (an entry with no post; one with a post is the person's, ``_one``); None →
-        can't tell. The post is written only while it is still 'unconfirmed': a person may have cancelled or resent it
-        while the lookup was out, and then the entry follows what they decided (#226)."""
-        if o is None:
+        missing → allow a fresh create (an entry with no post; one with a post is the person's, ``_one``); None, or
+        the platform unable to say which post is this one (``unconfirmed``, #428) → can't tell. The post is written only
+        while it is still 'unconfirmed': a person may have cancelled or resent it while the lookup was out, and then the
+        entry follows what they decided (#226)."""
+        if o is None or o.status == "unconfirmed":
             return None
         if o.status == "missing":
             if entry["post_id"]:

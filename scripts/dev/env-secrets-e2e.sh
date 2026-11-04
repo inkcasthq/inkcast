@@ -204,6 +204,27 @@ init_log() {  # the env-secrets container's log of the newest OpenFGA pod, check
   cat "$work/init.log"
   check no-value "$work/init.log"
 }
+init_log_of() {  # pod [--previous]: that attempt's env-secrets log into $work/init.log, from a read that succeeded
+  # The kubelet resolves --previous from its own cached status (pkg/kubelet/kubelet_pods.go:1640,1565-1568 at
+  # v1.37.0) and asks the runtime for that container (kuberuntime_container.go:1308-1311): a dead attempt the
+  # runtime has already removed (one dead container kept per name, pod_container_deletor.go) answers "unable to
+  # retrieve container logs for containerd://..." until the status catches up and names the newer dead attempt,
+  # seconds under CI's load (#435). That one error is retried with a deadline; any other fails the proof at once.
+  local out attempt=1 deadline=$(( $(date +%s) + ${LOG_RETRY_SECONDS:-120} ))
+  until out="$($k -n "$ns" logs -c env-secrets "$@" 2>"$work/init.err")"; do
+    case "$(cat "$work/init.err")" in
+      *"unable to retrieve container logs"*) ;;
+      *) echo "reading the log of $*: $(cat "$work/init.err")" >&2; exit 1 ;;
+    esac
+    if [ "$(date +%s)" -ge "$deadline" ]; then
+      echo "no log of $* after ${attempt} attempts over ${LOG_RETRY_SECONDS:-120} s: $(cat "$work/init.err")" >&2; exit 1
+    fi
+    attempt=$(( attempt + 1 ))
+    sleep "${LOG_RETRY_SLEEP:-2}"
+  done
+  printf '%s\n' "$out" > "$work/init.log"
+  echo "read the log of $* (attempt ${attempt})"
+}
 
 echo "== Prerequisites: the CloudNativePG operator (scripts/dev/openfga-e2e.sh installs it), Keycloak's namespace"
 $k -n cnpg-system rollout status deploy/cnpg-controller-manager --timeout=120s
@@ -283,12 +304,12 @@ for pod in json.load(sys.stdin)["items"]:
 done
 [ -n "$failed" ] || { echo "the init container did not fail on the disagreement within 120 s" >&2; exit 1; }
 # shellcheck disable=SC2086  # "$failed" is the pod's name, then --previous when the failed attempt is the last one
-$k -n "$ns" logs $failed -c env-secrets > "$work/init.log"
+init_log_of $failed
 pair="keycloak/inkcast-staging-realm identity-client-secret and inkcast-staging/inkcast-secrets oidc-client-secret disagree"
 if [ "$failed" = "${failed%% *}" ] && ! grep -qF "$pair" "$work/init.log"; then
   # The retry started between the check and the read, so the log read was the new attempt's, not yet failed. The
   # attempt that failed is now the previous one; every attempt fails on the same disagreement (#387).
-  $k -n "$ns" logs "$failed" -c env-secrets --previous > "$work/init.log"
+  init_log_of "$failed" --previous
 fi
 cat "$work/init.log"
 check no-value "$work/init.log"

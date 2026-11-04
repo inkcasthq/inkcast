@@ -166,7 +166,10 @@ def openapi_document(public_url: str) -> dict[str, Any]:
                             "an unconfirmed post again on its own, and Git sync never creates one again: a file whose "
                             "post is unconfirmed is reported as needing this decision. 409 `not_connected` when the "
                             "platform isn't connected or refuses the stored credentials: nothing is cancelled, and the "
-                            "message names the reconnect step. 409 `not_resendable` when the post is not `unconfirmed` "
+                            "message names the reconnect step. 409 `platform_unavailable` when the platform couldn't be "
+                            "asked just now whether it still accepts them (rate-limited, unreachable): nothing is "
+                            "cancelled, and the message names when to try again, from the platform's Retry-After when "
+                            "it gave one. 409 `not_resendable` when the post is not `unconfirmed` "
                             "(cancelled, or resent already); for a post resent already the body also carries `post_id`, "
                             "the post that resend made, so a client whose first reply was lost can follow it.")},
             "/api/v1/preview": {"post": _op(
