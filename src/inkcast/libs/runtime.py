@@ -120,10 +120,21 @@ def open_store(config: Config) -> Store:
     Every service process runs this once at start-up; it is idempotent, a no-op when nothing matches, and not a new
     deletion (logged with the id and the count, never counted in inkcast_identity_users_deleted_total)."""
     store = Store(config.database_path, config.secret_key)
-    for user_id, counts in store.reapply_erasures().items():
+    reapplied = store.reapply_erasures()
+    for user_id, counts in reapplied.items():
         rows = sum(counts.values())
         log.warning("Inkcast user %s was erased before and came back with a restore: erased %d rows again", user_id, rows,
                     extra={"event": "identity.erasure.reapplied", "user_id": user_id, "rows": rows})
+    # Rows filled with a hash at this open (a restore of a backup from before users.erasure_hash) carry the current
+    # key's hash, and match only records made under it: after a rotation of INKCAST_SECRET_KEY, a person among them
+    # erased before it is not matched, and nothing here can tell (#112). Counts and fixed words only, never a hash.
+    if store.erasure_hashes_filled and (records := store.erasure_record_count()):
+        log.warning("Filled the erasure hash of %d users under the current INKCAST_SECRET_KEY beside %d erasure record(s), "
+                    "%d re-erased: a person among them erased before a rotation of the key is matched by no record and "
+                    "is not re-erased here; the Keycloak sync's first pass erases or cuts off whoever is gone there "
+                    "(runbook: backup and restore)", store.erasure_hashes_filled, records, len(reapplied),
+                    extra={"event": "identity.erasure_hash.filled_with_records", "rows": store.erasure_hashes_filled,
+                           "records": records, "reapplied": len(reapplied)})
     return store
 
 

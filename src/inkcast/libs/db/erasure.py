@@ -18,7 +18,9 @@ not a hash of every user in every process (issue #113); ``backfill_erasure_hashe
 it. The record of an erasure carries the hash stored with the person's row, so the two match whatever key was current
 when each was written: a rotation of INKCAST_SECRET_KEY doesn't stop a restored row from being re-erased (#112). A row
 restored from before the column is filled under the key of the restore instead, so when the two differ the hash under
-the key current at the erasure is kept beside the record (``user_erasure_aliases``, carried by a restore too).
+the key current at the erasure is kept beside the record (``user_erasure_aliases``, carried by a restore too). What
+that cannot cover is a rotation after the record: a row filled now matches no record made before it under another
+key, so a fill beside existing records is logged at start-up (libs/runtime.open_store), with the counts.
 
 Whoever erases decided on a reading of the person (a 404 from Keycloak, a grace period over) that another replica
 may have overtaken by the time the transaction starts, so ``erase_user`` takes the row as the caller read it and
@@ -233,6 +235,10 @@ class ErasureRepo(Database):
         rows = self._all("SELECT user_hash, erased_at, counts FROM user_erasures ORDER BY erased_at, rowid")
         return [{"user_hash": r["user_hash"], "erased_at": float(r["erased_at"]), "counts": json.loads(r["counts"])}
                 for r in rows]
+
+    def erasure_record_count(self) -> int:
+        """How many audit records there are: one count, no hash read."""
+        return int(self._one("SELECT COUNT(*) AS n FROM user_erasures")["n"])
 
     # ---- rows written in the instant of an erasure (issue #196): refused at the write, swept from before ----------
 
