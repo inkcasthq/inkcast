@@ -11,6 +11,7 @@ import time
 
 from inkcast.libs.pipeline import STUCK_AFTER, _lost
 from inkcast.libs.platforms import PlatformError, PublishResult
+from inkcast.services.publishing.usecases import ServiceError
 
 from test_person_decides import Findable, Harness, SyncHarness
 
@@ -146,3 +147,37 @@ class FindingAnEditInPlaceKeepsTheLostNote(SyncHarness):
         post = self.store.get_post(first.post_id)
         self.assertEqual((edited.action, post["status"]), ("update", "published"))
         self.assertIn(lost, post["error"] or "", "the edit in place erased the second-copy flag")
+
+
+# ---- a resend while disconnected (#234 item 4) ---------------------------------------------------------------------
+
+
+class Disconnecting(Findable):
+    """Findable whose ``verify`` lets ``during_verify()`` run while the check is out (the person disconnects the
+    platform in another tab, or the API's other replica does), then answers as the platform does: the key is good."""
+
+    def __init__(self):
+        super().__init__()
+        self.during_verify = None
+
+    async def verify(self, creds):
+        if self.during_verify:
+            hook, self.during_verify = self.during_verify, None
+            hook()
+        return await super().verify(creds)
+
+
+class FindingADisconnectDuringTheCredentialsCheckStillRefusesTheResend(Harness):
+    platform_class = Disconnecting
+
+    def test_a_disconnect_while_verify_is_out_refuses_the_resend_before_anything_is_cancelled(self):
+        """The credentials are read, then ``verify`` goes to the platform (a network round trip), then the old post is
+        cancelled and the new one sent, which reads the credentials again: a disconnect while ``verify`` was out
+        cancelled the old post and failed the new one ("Findable was disconnected."), the case #234 item 4 refuses."""
+        old_id = self.unconfirmed()
+        self.platform.during_verify = lambda: self.store.delete_credentials(self.user, self.platform.id)
+        with self.assertRaises(ServiceError) as caught:
+            asyncio.run(self.service.resend(self.user, old_id))
+        self.assertEqual((caught.exception.status, caught.exception.code), (409, "not_connected"))
+        self.assertEqual((self.status(old_id), len(self.posts()), self.platform.sent), ("unconfirmed", 1, []),
+                         "the old post was cancelled for a new one that failed at once")

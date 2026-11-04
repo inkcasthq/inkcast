@@ -649,14 +649,17 @@ class Publisher:
         reconnect = (f"Reconnect {platform.name} (inkcast_connect, or POST /api/v1/platforms/{platform.id}/connect-link), "
                      f"then resend post {post_id}.")
         connected = self.store.get_credentials(user_id, platform.id)
+        if connected:
+            try:
+                await platform.verify(connected[0])
+            except PlatformError as exc:
+                if not exc.retryable:
+                    raise Disconnected(f"{exc} Post {post_id} was not resent and is still unconfirmed. {reconnect}") from exc
+            # Read again: a disconnect while verify was out would cancel the old post for a new one that fails at once.
+            connected = self.store.get_credentials(user_id, platform.id)
         if not connected:
             raise Disconnected(f"{platform.name} isn't connected: post {post_id} was not resent and is still unconfirmed. "
                                f"{reconnect}")
-        try:
-            await platform.verify(connected[0])
-        except PlatformError as exc:
-            if not exc.retryable:
-                raise Disconnected(f"{exc} Post {post_id} was not resent and is still unconfirmed. {reconnect}") from exc
         new_id = self.store.new_post_id()
         note = (f"Resent by the person as post {new_id}; it may already be on {platform.name} from the first send. Check "
                 f"{platform.name}, and remove the extra copy there if it is.")
