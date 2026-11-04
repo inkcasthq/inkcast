@@ -118,6 +118,8 @@ If a sync fails part-way (the request errors because Inkcast's database was busy
 
 A re-run sends the same request, so the same `Idempotency-Key`, and the server tells the two kinds apart. A result that asked for a re-run (`skipped`: the file held by another sync, its post being sent, or its state changed during the sync; `failed`: the next sync tries again, after you reconnect a platform that refused its key, say) isn't kept for replay: the re-run runs, and a removal whose cancel lost a race cancels the post then. A result with nothing skipped or failed is replayed as it was for 24 hours (`Idempotent-Replayed: true`). Either way nothing is sent twice: the ledger remembers what each run made.
 
+A key is held for 15 minutes from the start of its request. A sync that runs longer than that no longer holds it: the next repeat runs anew instead of being told to retry, and the first run's result isn't kept for replay (its posts hold in the ledger). Each run frees or completes only the reservation it made, so a third repeat is told to retry while the second runs.
+
 ## Any other CI, or your laptop
 
 ```bash
