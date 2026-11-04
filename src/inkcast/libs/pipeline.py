@@ -370,9 +370,12 @@ class Publisher:
         if found is None:
             return Outcome(platform.id, "missing")
         if not found.url and not found.remote_id:
-            # The platform has it, says the plug-in, but nothing names it: no post is recorded as published on that,
-            # from recovery or from Git sync's check (#214), any more than from a send. Can't tell: a person decides.
-            log.warning("Platform %s found an existing post but named neither its URL nor its id", platform.id)
+            # The platform has something, says the plug-in, but nothing names this post: the plug-in could not name
+            # what it found, or could not say which of several is the post (DEV, #396; the reason in its notes). No post
+            # is recorded as published on that, from recovery or from Git sync's check (#214), any more than from a
+            # send. Can't tell: a person decides.
+            log.warning("Platform %s found a post it could not name as this one: %s", platform.id,
+                        "; ".join(found.notes) or "neither its URL nor its id was given")
             return None
         status = found.status if found.status in ("draft", "unlisted") else "published"
         return Outcome(platform.id, status, url=found.url, remote_id=found.remote_id)
