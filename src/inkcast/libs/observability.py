@@ -5,7 +5,8 @@ platform), Prometheus metrics on a separate port that is not exposed publicly.
 
 Redaction has two layers and both run on every line that leaves the process, in every format:
 
-1. patterns (``redact``): things that *look* like Inkcast tokens, bearer headers and ``key=value`` secrets;
+1. patterns (``redact``): things that *look* like Inkcast tokens, bearer headers and ``key=value`` secrets, and the
+   one-time tickets that travel in a path, derived from the route templates (``ROUTE_TEMPLATES``);
 2. registered values (``libs.secrets.REDACTOR``): the exact credentials this process has loaded, in any
    encoding, wherever they ended up: a message, a field, a traceback, a library's error text.
 
@@ -25,7 +26,7 @@ import sys
 import threading
 import time
 from collections import defaultdict
-from typing import Callable
+from typing import Callable, Iterable
 
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -119,12 +120,62 @@ EVENTS: dict[str, tuple[str, str]] = {
     "restore.refused": ("warning", "A restore did not run: the backup failed its checks, or the server was still running."),
 }
 
+# ---- the public route templates ---------------------------------------------------------------
+# Every public route, as its template. Two things derive from this list: the route label of the access metrics
+# (``route_label`` below: a Prometheus label must come from a closed set, and a path is not one) and the redaction of
+# the one-time tickets that travel in a path. tests/test_libs.py checks that every path in the OpenAPI document maps
+# to itself; tests/test_credential_path_redaction.py walks every mounted route and fails on a credential-bearing
+# parameter no template here covers.
+
+ROUTE_TEMPLATES: tuple[str, ...] = (
+    "/mcp",
+    "/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp",
+    "/.well-known/oauth-authorization-server",
+    "/authorize", "/token", "/register", "/revoke",
+    "/auth/login", "/auth/callback", "/auth/consent", "/auth/logout",
+    "/tokens/new",
+    "/account/delete/{ticket}", "/account/return",
+    "/connect/{ticket}",
+    "/api", "/api/docs", "/api/redoc", "/api/openapi.json", "/api/static/{asset}",
+    "/api/v1/me",
+    "/api/v1/tokens", "/api/v1/tokens/{token_id}", "/api/v1/account/deletion-link",
+    "/api/v1/platforms", "/api/v1/platforms/{platform_id}/connect-link",
+    "/api/v1/platforms/{platform_id}/connection", "/api/v1/platforms/{platform_id}/destinations",
+    "/api/v1/posts", "/api/v1/posts/{post_id}/cancel", "/api/v1/posts/{post_id}/resend", "/api/v1/preview",
+    "/api/v1/stories:sync", "/api/v1/ledger",
+    "/api/v1/insights/summary", "/api/v1/insights/kpis",
+    "/livez", "/readyz", "/healthz", "/metrics",
+)
+
+# Path parameters that carry a credential. A one-time ticket is a bearer capability (whoever holds the link acts as
+# the person, issue #149), so each template above that has one becomes a redaction pattern: the ticket is masked
+# wherever the path is logged, in the access log, a rejected request or a traceback, in both log formats, and a new
+# one-time route is masked the day its template is listed. An id ({post_id}, {token_id}) is not a credential and stays.
+CREDENTIAL_PATH_PARAMS: frozenset[str] = frozenset({"ticket"})
+_TICKET = r"[A-Za-z0-9_\-]{8,}"                  # what a ticket looks like (secrets.token_urlsafe); never a short id
+_SEGMENT = r"[^/\s\"']+"                         # a plain path segment, inside a log line: ends at a slash, space or quote
+_PARAM = re.compile(r"(\{[a-z_]+\})")
+
+
+def credential_path_patterns(templates: Iterable[str]) -> list[re.Pattern[str]]:
+    """One pattern per credential-bearing parameter of the templates: the path up to it is kept (group 1) and the
+    credential replaced, so ``/account/delete/{ticket}`` gives ``(/account/delete/)[A-Za-z0-9_\\-]{8,}``. A plain
+    parameter before it matches one segment."""
+    patterns = []
+    for template in templates:
+        parts = _PARAM.split(template)
+        for i, part in enumerate(parts):
+            if part.startswith("{") and part[1:-1] in CREDENTIAL_PATH_PARAMS:
+                prefix = "".join(_SEGMENT if p.startswith("{") else re.escape(p) for p in parts[:i])
+                patterns.append(re.compile("(" + prefix + ")" + _TICKET))
+    return patterns
+
+
 # Bearer secrets Inkcast mints or handles, and the usual ways secrets appear in text.
 _SECRET_PATTERNS = [
     re.compile(r"\b(ink_pat_[A-Za-z0-9]+_)[A-Za-z0-9_\-]{8,}"),
     re.compile(r"\b(ic_(?:at|rt|code)_)[A-Za-z0-9_\-]{8,}"),
-    re.compile(r"(/connect/)[A-Za-z0-9_\-]{8,}"),  # one-time connect tickets travel in the path (access log)
-    re.compile(r"(/account/delete/)[A-Za-z0-9_\-]{8,}"),  # so do one-time account-deletion tickets (issue #149)
+    *credential_path_patterns(ROUTE_TEMPLATES),   # one-time tickets travel in the path: /connect/…, /account/delete/…
     re.compile(r"(?i)\b(bearer\s+)[A-Za-z0-9._~+/\-]{8,}=*"),
     re.compile(r"(?i)\b((?:api[_-]?key|client_secret|password|access_token|refresh_token|code)=)[^&\s\"']+"),
 ]
@@ -216,30 +267,11 @@ def setup_logging(fmt: str, level: str = "INFO", service: str = "inkcast") -> No
 
 
 # ---- route labels for RED metrics ----------------------------------------------------------
-# Prometheus labels must come from a closed set. A request path is not one (ids, tickets, typos), so the
-# access metrics carry the *route template* instead. Every public route is listed here; a path that matches
-# none is labelled "other". tests/test_libs.py checks that every path in the OpenAPI document maps to itself.
+# The access metrics carry the *route template* (``ROUTE_TEMPLATES`` above), never the raw path (ids, tickets,
+# typos); a path that matches none is labelled "other".
 
 _ROUTE_TEMPLATES: tuple[tuple[re.Pattern[str], str], ...] = tuple(
-    (re.compile("^" + re.sub(r"\{[a-z_]+\}", "[^/]+", template) + "$"), template) for template in (
-        "/mcp",
-        "/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp",
-        "/.well-known/oauth-authorization-server",
-        "/authorize", "/token", "/register", "/revoke",
-        "/auth/login", "/auth/callback", "/auth/consent", "/auth/logout",
-        "/tokens/new",
-        "/account/delete/{ticket}", "/account/return",
-        "/connect/{ticket}",
-        "/api", "/api/docs", "/api/redoc", "/api/openapi.json", "/api/static/{asset}",
-        "/api/v1/me",
-        "/api/v1/tokens", "/api/v1/tokens/{token_id}", "/api/v1/account/deletion-link",
-        "/api/v1/platforms", "/api/v1/platforms/{platform_id}/connect-link",
-        "/api/v1/platforms/{platform_id}/connection", "/api/v1/platforms/{platform_id}/destinations",
-        "/api/v1/posts", "/api/v1/posts/{post_id}/cancel", "/api/v1/posts/{post_id}/resend", "/api/v1/preview",
-        "/api/v1/stories:sync", "/api/v1/ledger",
-        "/api/v1/insights/summary", "/api/v1/insights/kpis",
-        "/livez", "/readyz", "/healthz", "/metrics",
-    )
+    (re.compile("^" + _PARAM.sub("[^/]+", template) + "$"), template) for template in ROUTE_TEMPLATES
 )
 _PREFIXES = ("/publishing-api", "/identity-service", "/connector-service", "/insights-service", "/gateway")
 
