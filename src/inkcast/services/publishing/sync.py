@@ -193,6 +193,9 @@ class GitSync:
                 if post is not None:  # the person's to decide meanwhile, like any unconfirmed post (#226)
                     return SyncResult(**base, action="skipped", status="unconfirmed", post_id=post["id"],
                                       message=self._decision(platform, post["id"], checked))
+                if entry["post_id"] is None and entry["content_hash"] == digest:  # no post: the edit decides (#444)
+                    return SyncResult(**base, action="skipped", status="unconfirmed", message=self._edit_to_publish(
+                        platform, f"{platform.name} couldn't be asked just now ({checked.message}); the next sync asks again"))
                 return SyncResult(**base, action="skipped", status="unconfirmed", post_id=entry["post_id"], message=(
                     f"The last publish to {platform.name} may or may not have gone through, and {platform.name} couldn't "
                     f"be asked just now ({checked.message}). The next sync will ask again."))
