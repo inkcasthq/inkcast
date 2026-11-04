@@ -4,21 +4,31 @@
 
 1. The runbook says two ``scheduler.housekeeping.wal_pending`` lines in a row mean the log has kept its bytes for an
 hour or more. Housekeeping runs HOUSEKEEPING_EVERY apart, so a person erased while a reader holds an older snapshot,
-just before a run, is still in the log at that run and at the next: two lines, 30 minutes after the erasure."""
+just before a run, is still in the log at that run and at the next: two lines, 30 minutes after the erasure.
 
+2. ``checkpoint_wal`` says its wait is the caller's thread sleeping, and that async code runs it in a worker thread.
+The scheduler's loop calls housekeeping on the loop itself (``Publisher.run_forever``), and in the ``all`` process
+(deploy/kustomize/base) that loop also serves every request: with a reader holding the log, the loop stood still for
+the whole wait, 251.7 ms in the review's drive at the default WAL_CHECKPOINT_WAIT_MS. Here the wait is WAIT, as in
+tests/test_470_erasure_checkpoint.py, so the loop standing still cannot pass for a race with the default wait."""
+
+import asyncio
 import pathlib
+import threading
 import unittest
 from unittest import mock
 
 from inkcast.libs.db import database
+from inkcast.libs.pipeline import Publisher
 from inkcast.services import scheduler
-from inkcast.services.scheduler import housekeeping_if_due
+from inkcast.services.scheduler import housekeeping, housekeeping_if_due
 from test_erasure_wal import APersonWithContent, context, recorded
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RUNBOOK = ROOT / "docs" / "runbooks" / "backup-restore.md"
 DEFERRED = "scheduler.housekeeping.wal_pending"
 TICK = 20.0                     # the scheduler's default interval: housekeeping runs at the first tick that is due
+WAIT = 2.0
 
 
 class TwoPendingRunsInARow(APersonWithContent):
@@ -52,6 +62,46 @@ class TwoPendingRunsInARow(APersonWithContent):
         self.assertEqual(second, scheduler.HOUSEKEEPING_EVERY + TICK, "the second line, 30 minutes and a tick after her")
         (sentence,) = [s for s in RUNBOOK.read_text().split(". ") if "two in a row" in s]
         self.assertIn("two in a row mean the log has kept its bytes for 30 minutes or more", sentence)
+
+
+class HousekeepingOffTheLoop(APersonWithContent):
+    def test_the_scheduler_s_loop_runs_while_housekeeping_s_checkpoint_waits(self):
+        patch = mock.patch.object(database, "WAL_CHECKPOINT_WAIT_MS", int(WAIT * 1000))
+        patch.start()
+        self.addCleanup(patch.stop)
+        reader = self.pinned_by_a_reader()
+        started, finished, results = threading.Event(), threading.Event(), []
+        real = self.store.checkpoint_wal
+
+        def watched():
+            started.set()
+            try:
+                results.append(real())
+                return results[-1]
+            finally:
+                finished.set()
+        self.store.checkpoint_wal = watched
+        stop = asyncio.Event()
+
+        def once():
+            stop.set()
+            housekeeping(context(self.store))
+
+        async def run():
+            async def meanwhile():                      # another coroutine of the loop: a request, in the "all" process
+                while not started.is_set():
+                    await asyncio.sleep(0.001)
+                await asyncio.sleep(0.01)
+                waiting = not finished.is_set()
+                reader.execute("COMMIT")
+                return waiting
+            other = asyncio.ensure_future(meanwhile())
+            await Publisher(self.store, {}).run_forever(0.01, stop, housekeeping=once)
+            return await other
+
+        self.assertTrue(asyncio.run(run()), "the loop ran while housekeeping's checkpoint waited for the reader")
+        self.assertEqual([busy for busy, _, _ in results], [0], "then it cut the log, once the reader ended")
+        self.assertEqual(self.wal_size(), 0)
 
 
 if __name__ == "__main__":
