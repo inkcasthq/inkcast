@@ -108,7 +108,13 @@ def check_component(case: unittest.TestCase, docs: list[dict], what: str) -> Non
          "podSelector": {"matchLabels": CNPG_OPERATOR_PODS}},
         {"podSelector": {"matchLabels": {"cnpg.io/cluster": CLUSTER}}},
     ], what)
-    for obj in (kc, cluster, policy):
+    # A PodDisruptionBudget keeps one server pod through a node drain (two instances, so a drain or an upgrade may take
+    # one). It selects what the operator's StatefulSet selects (Utils.allInstanceLabels at 26.6.4: the default labels
+    # plus the instance label); the import Job's pods carry app=keycloak-realm-import and are not budgeted.
+    pdb = one(docs, "PodDisruptionBudget", KEYCLOAK_CR)
+    case.assertEqual(pdb["apiVersion"], "policy/v1", what)
+    case.assertEqual(pdb["spec"], {"minAvailable": 1, "selector": {"matchLabels": SERVER_PODS}}, what)
+    for obj in (kc, cluster, policy, pdb):
         case.assertEqual(obj["metadata"]["labels"]["app.kubernetes.io/part-of"], "inkcast", f"{what}: {obj['kind']}")
 
 
@@ -123,8 +129,8 @@ class ComponentFiles(unittest.TestCase):
 
     def test_the_component_renders_what_the_story_asks(self):
         self.assertEqual(self.kustomization["kind"], "Component")
-        self.assertEqual(sorted(self.kustomization["resources"]), ["cluster.yaml", "keycloak.yaml", "networkpolicy.yaml"])
-        self.assertEqual(sorted(d["kind"] for d in self.docs), ["Cluster", "Keycloak", "NetworkPolicy"])
+        self.assertEqual(sorted(self.kustomization["resources"]), ["cluster.yaml", "keycloak.yaml", "networkpolicy.yaml", "pdb.yaml"])
+        self.assertEqual(sorted(d["kind"] for d in self.docs), ["Cluster", "Keycloak", "NetworkPolicy", "PodDisruptionBudget"])
         check_component(self, self.docs, "component")
         kc = one(self.docs, "Keycloak", KEYCLOAK_CR)
         self.assertNotIn("unsupported", kc["spec"], "the Tech Preview pod template is a platform patch (the overlay's), not the component's")
