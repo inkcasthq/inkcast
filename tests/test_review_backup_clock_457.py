@@ -13,7 +13,7 @@ import unittest
 from datetime import datetime, timezone
 
 from inkcast.libs.db import Store
-from inkcast.libs.db.backup import take_backup
+from inkcast.libs.db.backup import list_backups, take_backup
 
 DAY = 86400
 DAY0 = datetime(2026, 11, 1, 3, 17, tzinfo=timezone.utc).timestamp()
@@ -52,6 +52,27 @@ class AClockKeepMinusOneDaysAhead(Base):
         self.assertEqual([r.refused for r in runs], ["", "", ""])
         self.assertEqual([r.removed_backups for r in runs], [0, 1, 1])
         self.assertEqual([p.name for p in backups.glob("inkcast-*.db")], [runs[-1].name])
+
+
+class AClockAYearAheadForTwoRuns(Base):
+    """The PR's stated limit: the second run on the wrong clock finds the first one's copy a day old and removes the
+    real history, the backup the first copy's ``previous`` names included. With the clock right again the two copies
+    must still be handled as the issue asks: they age out with the day they followed, and ``--latest`` never takes them
+    over a copy of a sane day."""
+
+    def test_once_the_clock_is_right_their_copies_age_out_and_are_never_latest(self):
+        keep, year = 14, 365 * DAY
+        backups, runs = self.daily(keep, 5)                                  # days 0 to 4
+        first = take_backup(self.db, backups, keep=keep, now=DAY0 + 5 * DAY + year)
+        second = take_backup(self.db, backups, keep=keep, now=DAY0 + 6 * DAY + year)
+        self.assertTrue(first.refused)
+        self.assertEqual((second.refused, second.removed_backups), ("", 5), "the PR's stated limit, as pinned there")
+        for day in range(7, 7 + keep):                                       # the clock right from day 7
+            now = DAY0 + day * DAY
+            b = take_backup(self.db, backups, keep=keep, now=now)
+            self.assertEqual(list_backups(backups, now=now)[-1].name, b.name, f"day {day}: --latest")
+        self.assertFalse(first.path.exists() or second.path.exists(),
+                         f"day {6 + keep}: {keep} days after day 4, the day both copies followed")
 
 
 if __name__ == "__main__":

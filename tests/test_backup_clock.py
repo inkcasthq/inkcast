@@ -168,9 +168,9 @@ class AGapInBackups(FiveDailyBackups):
 
 
 class ACopyDatedAfterToday(FiveDailyBackups):
-    def test_without_previous_or_with_a_broken_chain_is_left_as_before(self):
-        # A manifest from before this change, and one whose chain leads to a copy that is gone: each copy keeps its own
-        # date, and is left alone until that date plus keep, as before.
+    def test_without_previous_is_left_as_before_and_a_chain_to_a_gone_copy_dates_it_by_that_copy(self):
+        # A manifest from before this change keeps its own date, and is left alone until that date plus keep, as
+        # before. One whose chain leads to a copy that is gone is dated by the stamp it names (review of #457).
         old = take_backup(self.db, self.backups, keep=KEEP, now=JUMP)
         manifest = self.manifest(old.path)
         del manifest["previous"]
@@ -181,8 +181,9 @@ class ACopyDatedAfterToday(FiveDailyBackups):
         broken.path.with_suffix(".json").write_text(json.dumps(manifest))
         for day in range(5, 25):
             take_backup(self.db, self.backups, keep=KEEP, now=DAY0 + day * DAY)
-        self.assertTrue(old.path.exists() and broken.path.exists())
-        self.assertEqual(len(list_backups(self.backups)), 16)                    # days 11 to 24, and the two
+        self.assertTrue(old.path.exists())
+        self.assertFalse(broken.path.exists(), "dated 30 days before DAY0: aged out")
+        self.assertEqual(len(list_backups(self.backups)), 15)                    # days 11 to 24, and the old one
 
 
 if __name__ == "__main__":

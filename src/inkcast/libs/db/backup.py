@@ -134,8 +134,9 @@ def _dated(directory: pathlib.Path, now: float) -> dict[pathlib.Path, datetime]:
     #405), and its real day is at the earliest the day of the backup its run found newest, ``previous`` in its
     manifest; that is the day it is dated by, followed on through manifests while the stamp found is itself after
     today (a clock ahead for several runs). So such a copy ages out as a copy of the day it followed would, not a year
-    on. A chain that ends in a stamp still after today, or in a backup that is gone, leaves the copy dated by the last
-    stamp found: not aged, and left alone."""
+    on. A backup the chain names that is gone still dates it, by the stamp named: a second run on the same wrong clock
+    removes the real history, the first copy's ``previous`` with it. A chain that ends in a stamp still after today,
+    or in no stamp, leaves the copy dated by the last stamp found: not aged, and left alone."""
     today = datetime.fromtimestamp(now, timezone.utc).date()
     stamped = {path.name[len(PREFIX):-len(SUFFIX)]: path for path in directory.glob(f"{PREFIX}*{SUFFIX}")
                if _manifest_path(path).exists() and _stamped(path.name[len(PREFIX):-len(SUFFIX)]) is not None}
@@ -144,10 +145,13 @@ def _dated(directory: pathlib.Path, now: float) -> dict[pathlib.Path, datetime]:
         stamp, link, seen = _stamped(text), path, {text}
         while stamp.date() > today:
             previous = _previous(link)
-            if previous in seen or previous not in stamped:
+            if previous in seen or _stamped(previous) is None:
                 break
             seen.add(previous)
-            link, stamp = stamped[previous], _stamped(previous)
+            stamp = _stamped(previous)
+            if previous not in stamped:
+                break
+            link = stamped[previous]
         dated[path] = stamp
     return dated
 
