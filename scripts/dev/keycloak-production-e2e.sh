@@ -12,11 +12,12 @@
 #   2. both KeycloakRealmImports (inkcast-staging, inkcast-prod) report Done and no error;
 #   3. the realms are rows of the CloudNativePG database, and every connection Keycloak holds to it is TLS;
 #   4. the discovery document of each realm is served over HTTPS with the patched hostname as its issuer;
-#   5. a pod deleted and recreated serves the realm again: the state is in PostgreSQL, not in memory.
+#   5. a pod deleted and recreated serves the realm again: the state is in PostgreSQL, not in memory;
+#   6. the database's NetworkPolicy, enforced by kindnet: a pod with the realm import's labels gets an answer on 5432,
+#      one without them gets none, nor does one with the operator's labels in another namespace.
 #
-# What kind cannot prove: NetworkPolicy enforcement (kindnet enforces none), so the policy is checked as a rendered
-# object by tests/test_keycloak_production_component.py, and the Ingress (no controller). No Secret value is ever
-# printed: the realm Secrets hold random values made here, and the TLS Secret a self-signed certificate made here.
+# What kind cannot prove: the Ingress (no controller). No Secret value is ever printed: the realm Secrets hold random
+# values made here, and the TLS Secret a self-signed certificate made here.
 #
 #   scripts/dev/keycloak-production-e2e.sh    # on a kind cluster, as in the kind CI job (the inkcast image is not
 #                                             # needed); installs CloudNativePG if scripts/dev/openfga-e2e.sh has not
@@ -182,4 +183,36 @@ for _ in $(seq 1 30); do curl -sfk -o /dev/null https://localhost:28444/realms/m
 issuer="$(discovery inkcast-staging 28444)"
 [ "$issuer" = "$hostname/realms/inkcast-staging" ] || { echo "after the restart: issuer $issuer" >&2; exit 1; }
 echo "keycloak-0 recreated, inkcast-staging served by it again"
-echo "PASS: the Keycloak operator and CloudNativePG at their pinned releases, the component under restricted, the CR Ready with two pods on the CloudNativePG database, both realm imports Done, the realms in PostgreSQL over TLS, discovery over HTTPS, and a recreated pod serving them again"
+
+echo "-- 6. the database's NetworkPolicy: 5432 answers the pods it names only"
+image="$($k -n "$ns" get cluster keycloak-db -o jsonpath='{.spec.imageName}')"   # on the node already, has pg_isready
+outsider=keycloak-np-probe   # any namespace may carry the operator's app label; only cnpg-system is named
+$k create namespace "$outsider" --dry-run=client -o yaml | $k apply -f - >/dev/null
+$k label namespace "$outsider" --overwrite app.kubernetes.io/name=cloudnative-pg pod-security.kubernetes.io/enforce=restricted >/dev/null
+probe() {  # probe NAMESPACE NAME LABELS WANT: pg_isready to keycloak-db-rw from a pod so labelled; WANT its exit (0 or 2)
+  $k -n "$1" delete pod "$2" --ignore-not-found --wait=true >/dev/null
+  $k -n "$1" apply -f - >/dev/null <<YAML
+apiVersion: v1
+kind: Pod
+metadata: {name: $2, labels: $3}
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  securityContext: {runAsNonRoot: true, runAsUser: 26, seccompProfile: {type: RuntimeDefault}}
+  containers:
+    - name: probe
+      image: $image
+      command: [sh, -c, 'pg_isready -h keycloak-db-rw.$ns.svc -p 5432 -t 5; echo "exit=\$?"']
+      securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+YAML
+  $k -n "$1" wait --for=jsonpath='{.status.phase}'=Succeeded "pod/$2" --timeout=120s >/dev/null
+  local out; out="$($k -n "$1" logs "$2")"
+  echo "$1/$2: ${out//$'\n'/ }"
+  $k -n "$1" delete pod "$2" --wait=false >/dev/null
+  has "$out" "exit=$4" || { echo "$1/$2: expected pg_isready exit $4" >&2; exit 1; }
+}
+probe "$ns" np-as-realm-import "{app: keycloak-realm-import, app.kubernetes.io/managed-by: keycloak-operator, app.kubernetes.io/instance: keycloak}" 0
+probe "$ns" np-unlabelled "{}" 2
+probe "$outsider" np-as-cnpg-operator "{app.kubernetes.io/name: cloudnative-pg}" 2
+$k delete namespace "$outsider" --wait=false >/dev/null
+echo "PASS: the Keycloak operator and CloudNativePG at their pinned releases, the component under restricted, the CR Ready with two pods on the CloudNativePG database, both realm imports Done, the realms in PostgreSQL over TLS, discovery over HTTPS, a recreated pod serving them again, and the database's NetworkPolicy enforced"
