@@ -76,8 +76,8 @@ class ReRunAfterSkipped(Harness):
         [rerun] = self.cli(repo, "posts/**/*.md")
         self.assertEqual((rerun["action"], rerun["status"]), ("create", "published"), rerun)
         self.assertEqual(len(self.fakes.devto_articles), before + 1)
-        [again] = self.cli(repo, "posts/**/*.md")                                   # and a third run changes nothing
-        self.assertEqual((again["action"], len(self.fakes.devto_articles)), ("unchanged", before + 1))
+        [again] = self.cli(repo, "posts/**/*.md")                                   # a third run: the second's answer,
+        self.assertEqual((again["action"], len(self.fakes.devto_articles)), ("create", before + 1))  # replayed
 
     def test_a_removal_that_lost_its_race_cancels_the_post_on_the_rerun(self):
         """The issue's worst case: the removal found the post being sent and was skipped; no later push lists the path
