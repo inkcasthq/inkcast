@@ -20,6 +20,9 @@ import yaml
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 POLICY = ROOT / "deploy" / "kustomize" / "shared" / "seaweedfs-admission" / "policy.yaml"
 INSTALL = ROOT / "scripts" / "lab" / "root-secret-copy.sh"
+DPA = ROOT / "deploy" / "kustomize" / "shared" / "oadp" / "dpa.yaml"
+ADR = ROOT / "docs" / "adr" / "0020-root-secret-copy-in-its-own-storage-location.md"
+RUNBOOK = ROOT / "docs" / "runbooks" / "env-secrets.md"
 SETUP_ACCOUNT = "system:serviceaccount:inkcast-seaweedfs:seaweedfs-setup"
 
 
@@ -238,6 +241,24 @@ class InstallPlanApproval(Stubbed):
         done = self.approve([["oadp-operator.v1.6.2"]], first_list_fails=True)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn("InstallPlan install-0 approved", done.stdout)
+
+
+
+class DefaultLocationRule(unittest.TestCase):
+    def test_the_documents_say_what_the_dpa_holds_about_the_default_location(self):
+        """The rule (no Velero Backup or Schedule without `storageLocation` while `root-secrets` is the default) is
+        stated where a reader looks. The DPA is shared by every cluster and holds one location; while it does, no
+        document may say production already ships another as the default: E7.F7.6.S2, which adds it, is not done
+        (dpa.yaml: "When E7.F7.6.S2 adds a location ..."; docs/runbooks/backup-restore.md: it "covers" replication)."""
+        locations = yaml.safe_load(DPA.read_text())["spec"]["backupLocations"]
+        for path in (ADR, RUNBOOK, DPA):
+            text = " ".join(path.read_text().split())
+            with self.subTest(document=path.name):
+                self.assertIn("never create a Velero Backup or Schedule", text)
+                self.assertIn("`storageLocation`", text)
+                if len(locations) == 1:
+                    found = re.search(r"(?i)production ships the data backups' location", text)
+                    self.assertIsNone(found, "a second location is stated as shipped while the DPA holds one")
 
 
 if __name__ == "__main__":
