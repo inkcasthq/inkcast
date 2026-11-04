@@ -69,6 +69,9 @@ EVENTS: dict[str, tuple[str, str]] = {
                                        "another worker re-sent it, or after a lookup recorded another post. The post's "
                                        "error names both copies, or the attempt that may have made one; a person checks "
                                        "the platform, keeps one and removes the other."),
+    "publish.edited_meanwhile": ("warning", "Git sync changed a post in place while its send was still out, and that send "
+                                            "succeeded: the platform has the post as it was sent, the post says so, and "
+                                            "the next sync sends the change as an update, or reports the file stale."),
     "auth.login.refused": ("warning", "A sign-in was refused by the allow-list, role or password check."),
     "cache.backend.unavailable": ("warning", "Redis/Valkey did not answer; rate limits are per replica until it is back."),
     "outbox.consumer.failed": ("warning", "An event sink failed on a batch; the cursor stayed and the batch is retried."),
