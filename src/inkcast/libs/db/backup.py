@@ -22,7 +22,9 @@
   of, when that database is lost too, are the one case this cannot cover; the runbook says so. A restore stops
   before its swap, with ``RestoreStopped``, when its caller's ``stop`` is set (``restore_main`` sets it on SIGTERM
   and Ctrl-C: ``inkcast`` is PID 1 in the image, where a signal without a handler is dropped) or the clock passes
-  ``not_after`` (restore.sh's own deadline); past its last check the swap goes through whatever arrives (#128).
+  ``not_after`` (restore.sh's own deadline); past its last check the swap goes through whatever arrives (#128). The
+  copy a restore stages beside the database (``.<db>.restoring``) goes with whatever ends the restore early; only a
+  kill leaves it, and the next backup removes it when no restore holds the data directory's lock (issue #404).
 
 A backup is as sensitive as the database: platform credentials inside are encrypted with INKCAST_SECRET_KEY (keep
 the key, or the backup can't be used, and never store the two together), and tokens are stored only as hashes.
@@ -128,6 +130,44 @@ def _prune_backups(directory: pathlib.Path, keep: int, now: float) -> int:
     return removed
 
 
+def _staging(database: pathlib.Path) -> pathlib.Path:
+    """The copy a restore stages beside ``database`` before its swap: ``.<db>.restoring``."""
+    return database.with_name(f".{database.name}.restoring")
+
+
+def _remove_staging(database: pathlib.Path) -> int:
+    """Remove the staging copy a killed restore left beside ``database`` (``_staging``, with the journal a copy cut
+    short leaves); how many bytes went, 0 when there was none or it was left alone. A restore holds the data
+    directory's lock (``_one_restore``) from before it stages anything until after its swap, and the kernel drops the
+    lock with a killed process, so a staging copy beside a free lock is nobody's: a whole copy of a backup, whoever it
+    holds included, that nothing reads and only the next restore would overwrite (issue #404). One beside a lock a
+    restore holds is that restore's, and is left. A directory the file system cannot lock (NFS) says nothing either
+    way, since the restore ran without the lock too: the copy is left, with a warning. The lock is held for the unlink
+    alone; a restore starting in that instant is refused as a second restore and tries again a second later."""
+    incoming = _staging(database)
+    leftovers = [incoming.with_name(incoming.name + extra) for extra in ("", "-journal", "-wal", "-shm")]
+    if not any(p.exists() for p in leftovers):
+        return 0
+    fd = os.open(database.parent, os.O_RDONLY)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return 0                                    # a restore is running: the staging copy is its
+        except OSError as exc:
+            log.warning("A restore's staging copy %s is beside the database, and the directory cannot be locked to tell "
+                        "whether a restore is running: left as it is (%s)", incoming.name, exc)
+            return 0
+        size = sum(p.stat().st_size for p in leftovers if p.exists())
+        for p in leftovers:
+            p.unlink(missing_ok=True)
+    finally:
+        os.close(fd)
+    log.warning("Removed the staging copy a killed restore left beside the database: %s, %d bytes, no restore running",
+                incoming.name, size, extra={"event": "restore.staging.removed", "bytes": size})
+    return size
+
+
 def aside_copies(database: pathlib.Path) -> list[pathlib.Path]:
     """The copies restores left beside ``database`` (``<db>.before-restore-<time>``), oldest first: the files whose
     name carries a time, not their WAL files, and not a copy someone named by hand."""
@@ -201,6 +241,7 @@ def take_backup(database: pathlib.Path, directory: pathlib.Path, *, keep: int = 
         raise BackupError("keep must be at least 1.")
     directory.mkdir(parents=True, exist_ok=True)
     now = now or time.time()
+    _remove_staging(database)           # a killed restore's copy beside the database: not a copy in the rotation (#404)
     taken = _content_time(database, now)
     if _aged_out(datetime.fromtimestamp(taken, timezone.utc), now, keep):
         raise BackupError(f"{database.name} is {keep} or more days old: it has aged out, and a backup of it would too.")
@@ -334,7 +375,7 @@ def restore_backup(path: pathlib.Path, database: pathlib.Path, *, force: bool = 
     ``RestoreStopped`` (see ``_check_stop``). A restore that stops or fails once the staging copy exists removes it;
     only a kill leaves it (issue #404)."""
     database.parent.mkdir(parents=True, exist_ok=True)
-    incoming = database.with_name(f".{database.name}.restoring")
+    incoming = _staging(database)
     with _one_restore(incoming):
         return _restore(path, database, incoming, force=force, now=now, stop=stop, not_after=not_after)
 

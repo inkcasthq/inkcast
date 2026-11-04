@@ -11,6 +11,16 @@ every connection sets it): an erased person's rows leave no bytes in the file's 
 backup taken after the erasure carries none (issue #112). The image's SQLite is built with it on
 (Debian's ``SQLITE_SECURE_DELETE``); setting it pins that whatever the build, and a benchmark on
 a 41 MB database put the cost at +7 % on an erasure (1.0 to 1.1 ms) and within 2 % elsewhere.
+
+That zeroing reaches the files on disk only through a checkpoint (issue #404). In WAL mode a
+transaction's pages go to the write-ahead log, so after an erasure the database file still holds
+the person's pages until a checkpoint copies the zeroed ones over them, and the log file keeps
+every frame it ever held, the person's included, until it is truncated: a checkpoint lets the
+writer start over at the beginning of the log, it does not cut the file (sqlite.org/wal.html §6),
+and the automatic one runs only once the log holds 1000 pages. ``checkpoint_wal`` runs
+``PRAGMA wal_checkpoint(TRUNCATE)``, which copies every frame and cuts the log to zero bytes
+(sqlite.org/pragma.html#pragma_wal_checkpoint); every erasure runs it, and housekeeping runs it
+again for the cases a reader on an older snapshot held up.
 """
 
 from __future__ import annotations
@@ -19,6 +29,13 @@ import sqlite3
 import threading
 from contextlib import contextmanager
 from typing import Any, Iterator
+
+BUSY_TIMEOUT_MS = 30_000        # how long a statement waits for the write lock
+# How long a checkpoint waits for readers on an older snapshot before it gives up (busy): a statement's snapshot lasts
+# well under a millisecond, a backup's copy seconds, and a checkpoint that cannot complete is run again by housekeeping,
+# so it waits for the first and never for the second. Measured: 269 ms to give up against a held snapshot; 0.7 to 13 ms
+# to copy 0.85 to 27 MB of frames once the reader is gone (PR for #404).
+WAL_CHECKPOINT_WAIT_MS = 250
 
 
 class Database:
@@ -34,7 +51,7 @@ class Database:
         self._conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None, timeout=30)
         self._conn.row_factory = sqlite3.Row
         self._lock = threading.RLock()
-        self._conn.execute("PRAGMA busy_timeout = 30000")
+        self._conn.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
         self._conn.execute("PRAGMA secure_delete = ON")       # deleted content is zeroed, whatever the build (#112)
         self._conn.executescript("PRAGMA journal_mode = WAL;\n" + "\n".join(self.SCHEMAS))
         # Several processes open the same file at once (split mode's pods on a new image), and each would add the
@@ -83,6 +100,23 @@ class Database:
     def ping(self) -> bool:
         self._one("SELECT 1")
         return True
+
+    def checkpoint_wal(self) -> tuple[int, int, int]:
+        """``PRAGMA wal_checkpoint(TRUNCATE)``: every committed page copied into the database file, the file synced,
+        and the write-ahead log cut to zero bytes, so nothing a transaction overwrote (an erased person's rows, #404)
+        stays in either file. Returns the pragma's row, ``(busy, frames, checkpointed)``: ``busy`` is 1 when a reader on
+        an older snapshot kept the log in use for longer than WAL_CHECKPOINT_WAIT_MS, and the log then keeps its frames
+        (``frames`` of them) until a checkpoint completes, which housekeeping runs every HOUSEKEEPING_EVERY. Under this
+        connection's lock, so no thread of this process reads meanwhile; other processes' writers wait while it runs
+        (their busy_timeout), their readers do not (sqlite.org/c3ref/wal_checkpoint_v2.html). Outside a transaction only:
+        the callers run it after their commit."""
+        with self._lock:
+            self._conn.execute(f"PRAGMA busy_timeout = {WAL_CHECKPOINT_WAIT_MS}")
+            try:
+                busy, frames, checkpointed = self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            finally:
+                self._conn.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
+        return int(busy), int(frames), int(checkpointed)
 
     def close(self) -> None:
         with self._lock:
