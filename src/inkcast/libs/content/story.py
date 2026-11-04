@@ -288,7 +288,7 @@ def _as_tags(value: Any, what: str = "tags") -> list[str]:
     for item in items:
         if isinstance(item, dict):
             item = item.get("value") or item.get("label") or ""
-        elif item is not None and not isinstance(item, (str, int, float, date)):
+        if item is not None and not isinstance(item, (str, int, float, date)):  # an item's value too: `{value: [a]}`
             # A nested list, say: str() would make `['a', 'b']` one name, which DEV would post as the tag `ab`.
             raise StoryError(f"{what} must be a list of names or a comma-separated string; {repr(item)[:80]} isn't a name.")
         tag = str(item).strip().lstrip("#").strip()

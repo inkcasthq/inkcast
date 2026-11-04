@@ -4,7 +4,10 @@
 
 1. ``models.Input``'s walk recursed once per level of the raw JSON. ``json.loads`` builds a body thousands of levels
    deep (2000 `[` are 4 KB), so a nested value anywhere in it, an ignored extra key included, raised RecursionError
-   in the validator: 500 on publish, preview and the whole sync, where main answered 200, or 422 for a bad field."""
+   in the validator: 500 on publish, preview and the whole sync, where main answered 200, or 422 for a bad field.
+2. ``_as_tags`` refused a nested list as a tag, but not one inside a `{value: …}` or `{label: …}` item: the item's
+   value skipped the check, so `tags: [{value: [a, b]}]` still became the tag `['a', 'b']`, which DEV posts as `ab`
+   (and `!!binary` the tag `b'hi'`), the wrong state the PR says it ends "everywhere"."""
 
 import asyncio
 import json
@@ -17,6 +20,7 @@ from pydantic import ValidationError
 from fakes import Fakes
 from inkcast.launcher import build, resolve
 from inkcast.libs.config import Config
+from inkcast.libs.content import story as content
 from inkcast.libs.contracts import models
 from inkcast.libs.http.app import compose
 from test_e2e import free_port, serve
@@ -108,6 +112,29 @@ class DeepBodyOverHttp(unittest.TestCase):
                 self.assertEqual(r.status_code, status, r.text[:200])
                 if code:
                     self.assertEqual(r.json()["error"], code)
+
+
+class TagItems(unittest.TestCase):
+    """Finding 2: a `{value: …}` or `{label: …}` tag item holds a name, or the tags are refused, at any level."""
+
+    def test_an_item_whose_value_is_not_a_name_is_refused(self):
+        cases = {  # front matter → the field the refusal names
+            "tags: [{value: [a, b]}, c]\n": "tags must be a list of names or a comma-separated string; ['a', 'b'] isn't a name",
+            "tags: [{label: !!binary aGk=}]\n": "tags must be a list of names or a comma-separated string; b'hi' isn't a name",
+            "devto:\n  tags: [{value: [a, b]}]\n": "devto.tags must be a list of names or a comma-separated string; ['a', 'b']",
+            "devto:\n  keywords: [{label: {x: y}}]\n": "devto.keywords must be a list of names or a comma-separated string",
+        }
+        for extra, expected in cases.items():
+            with self.subTest(extra=extra):
+                with self.assertRaises(content.StoryError) as caught:
+                    content.parse_story(story_md(extra), known_platforms=["devto", "medium"])
+                self.assertIn(expected, str(caught.exception))
+
+    def test_an_item_holding_a_name_is_still_that_name(self):
+        story = content.parse_story(story_md("tags: [{value: x}, {label: y}, {value: ~, label: 2027}, {other: z}]\n"
+                                             "devto:\n  tags: [{value: AI}]\n"), known_platforms=["devto", "medium"])
+        self.assertEqual(story.tags, ["x", "y", "2027"])
+        self.assertEqual(story.for_platform("devto")["tags"], ["AI"])
 
 
 if __name__ == "__main__":
