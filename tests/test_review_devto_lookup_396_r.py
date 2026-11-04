@@ -73,6 +73,21 @@ def drafts(n: int) -> list[dict]:
     return [article(5000 + i, f"Draft {i}", f"Draft body {i}.", published=False) for i in range(n)]
 
 
+class FindingATitleDevNormalisedIsNotMissing(Lookup):
+    """DEV stores the title as ``normalize_title`` makes it: the article has the body sent, under another title."""
+
+    def test_the_article_with_the_body_sent_is_never_missing(self):
+        for sent, listed in (("Python 2 → 3", "Python 2 3"), ("Hello  world", "Hello world")):
+            with self.subTest(sent=sent):
+                found, _ = self.find([article(1002, listed, "Body.\n")], {"title": sent})
+                self.assert_cannot_tell(found, "id 1002", "another title")
+
+    def test_recovery_does_not_send_the_post_again(self):
+        post, dev = recovered([article(1002, "Python 2 3", "Body.\n")], {"title": "Python 2 → 3"})
+        self.assertEqual(dev.posts, [], "sent again: DEV now has the post twice")
+        self.assertEqual((post["status"], post["remote_id"]), ("unconfirmed", None))
+
+
 class FindingADraftIsNotAPublishedSendsArticle(Lookup):
     """An older draft with the post's title and body (the file synced as a draft once, then removed and added back
     published): a send with ``published: true`` makes a published article, so the draft is not its copy."""

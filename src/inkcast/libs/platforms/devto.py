@@ -185,10 +185,13 @@ class DevtoPlatform(Platform):
         for a in mine if isinstance(mine, list) else []:
             same_title = a.get("title") == title
             same_canonical = canonical is not None and (a.get("canonical_url") or "").strip() == canonical
-            if not same_title and not same_canonical:
-                continue
             theirs = a.get("body_markdown")
             same_body = theirs is not None and theirs.strip() == body
+            # Without a canonical URL, the body too: DEV stores the title as it normalises it (characters it doesn't
+            # allow, such as an arrow, become spaces, and whitespace is collapsed), so the post's own article can list
+            # under another title. A canonical URL the send set is stored as sent, and names the article whatever its title.
+            if not same_title and not same_canonical and not (same_body and canonical is None):
+                continue
             differs = ([] if same_title else ["another title"]) \
                 + (["another canonical URL"] if canonical is not None and not same_canonical else []) \
                 + (["other content"] if theirs is not None and not same_body else []) \
