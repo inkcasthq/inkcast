@@ -582,9 +582,18 @@ class Publisher:
                 self.store.update_post(row["id"], status="failed", error=f"Platform plug-in {row['platform']!r} is not installed.",
                                        events=self._event("post.failed", row["id"], row["user_id"], row["platform"], reason="plugin"))
                 continue
-            prepared = Prepared.from_dict(json.loads(row["payload"]))
-            outcomes.append(await self._send(row["id"], row["user_id"], platform, prepared, row["attempts"], scheduled=True,
-                                             lag=lag, held=row["attempts"]))
+            try:
+                prepared = Prepared.from_dict(json.loads(row["payload"]))
+                outcomes.append(await self._send(row["id"], row["user_id"], platform, prepared, row["attempts"],
+                                                 scheduled=True, lag=lag, held=row["attempts"]))
+            except sqlite3.Error:
+                raise  # the store, not this post: as in recovery, the tick stops
+            except Exception:
+                # Raised outside the send's own guard (credentials sealed under another INKCAST_SECRET_KEY, a payload this
+                # version can't read): the post stays claimed, so recovery takes it after STUCK_AFTER, as when the tick
+                # stopped here, and the batch's other posts, other people's too, are sent now (#446).
+                log.exception("Post %s on %s could not be sent; left for recovery", row["id"], row["platform"],
+                              extra={"post_id": row["id"], "platform": row["platform"]})
         return outcomes
 
     async def run_forever(self, interval: float, stop: asyncio.Event, housekeeping: Any = None,
