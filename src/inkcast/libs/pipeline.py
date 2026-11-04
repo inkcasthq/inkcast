@@ -479,7 +479,16 @@ class Publisher:
         since = row.get("recovering_since")
         capped = since is not None and now - float(since) >= self.recovery_max
         prepared = Prepared.from_dict(json.loads(row["payload"]))
-        found = await self.confirm(row["user_id"], platform, prepared)
+        try:
+            found = await self.confirm(row["user_id"], platform, prepared)
+        except Exception:
+            if not capped:
+                raise
+            # Past the cap, a lookup that can't even be made (credentials sealed under another INKCAST_SECRET_KEY:
+            # ``confirm`` reads them outside its guard) must not hold the post 'recovering' for ever, nor every post this
+            # pass claimed after it: it ends as it did before the cap asked, "could not be asked" (#216, #234).
+            log.exception("Post %s on %s: the cap's last lookup could not be made", post_id, platform.id)
+            found = None
 
         # Each answer is written only while the post is still 'recovering' at this pass's attempt count: another worker
         # may have taken it over (a pass longer than STUCK_AFTER), re-queued it and sent it while this lookup was out;

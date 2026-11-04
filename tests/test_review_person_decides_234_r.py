@@ -9,11 +9,12 @@ worker is a second ``Publisher`` on its own connection, run as a task while the 
 import asyncio
 import time
 
+from inkcast.libs.db import Store
 from inkcast.libs.pipeline import STUCK_AFTER, _lost
 from inkcast.libs.platforms import PlatformError, PublishResult
 from inkcast.services.publishing.usecases import ServiceError
 
-from test_person_decides import Findable, Harness, SyncHarness
+from test_person_decides import DAY, Findable, Harness, SyncHarness
 
 
 class Lagging(Findable):
@@ -198,3 +199,35 @@ class FindingARetriedResendWhileDisconnectedNamesTheNewPost(Harness):
         self.assertNotIn("still unconfirmed", caught.exception.message, "the reply says the resent post is unconfirmed")
         self.assertEqual((caught.exception.status, caught.exception.code, caught.exception.extra),
                          (409, "not_resendable", {"post_id": first.id}))
+
+
+# ---- the cap ends a post even when its last lookup can't be made (#234 item 2) ------------------------------------------
+
+
+class FindingTheCapEndsAPostWhoseLastLookupCannotBeMade(Harness):
+    def past_the_cap(self, user_id: str, title: str) -> str:
+        prepared = self.platform.prepare({"title": title}, "Body.")
+        post_id = self.store.create_post(group_id="g", user_id=user_id, platform=self.platform.id, title=title,
+                                         status="recovering", run_at=time.time() - 3 * DAY, payload=prepared.to_dict())
+        self.store._exec("UPDATE posts SET updated_at = updated_at - ?, recovering_since = ? WHERE id = ?",
+                         STUCK_AFTER + 1, time.time() - 2 * DAY, post_id)
+        return post_id
+
+    def test_credentials_that_cannot_be_read_neither_hold_the_post_nor_the_other_persons_posts(self):
+        """The cap marked a post 'unconfirmed' without a lookup, so nothing could hold it past INKCAST_PUBLISH_RECOVERY_
+        MAX_HOURS. It now asks first (#234 item 2), and ``confirm`` reads the stored credentials outside its guard: a
+        person whose credentials can't be decrypted (INKCAST_SECRET_KEY changed: ``Sealer.unseal`` raises RuntimeError)
+        raises out of ``recover``, every pass. The post stays 'recovering' for ever, and every other post the pass
+        claimed after it (another person's, here) is never resolved either."""
+        other_key = Store(self.path, "z" * 40)                                # the key the credentials were sealed with
+        self.addCleanup(other_key.close)
+        stale = self.store.upsert_user("local:stale-key", "stale-key", None, None)["id"]
+        other_key.save_credentials(stale, self.platform.id, {"k": "v"}, {"id": "2", "name": "findable"})
+        held = self.past_the_cap(stale, "held")
+        theirs = self.past_the_cap(self.user, "theirs")
+        self.platform.sent.append("theirs")                                   # the other person's post did arrive
+        outcomes = self.tick()
+        self.assertEqual({o.post_id: o.status for o in outcomes}, {held: "unconfirmed", theirs: "published"})
+        self.assertEqual((self.status(held), self.status(theirs)), ("unconfirmed", "published"))
+        self.assertIn("INKCAST_PUBLISH_RECOVERY_MAX_HOURS", self.store.get_post(held)["error"])
+        self.assertEqual(self.tick(later=2 * DAY), [], "asked or sent again")
