@@ -159,6 +159,18 @@ class Review474(harness.MigrateScript):
                 self.assertNotIn("not-a-secret", log)
                 self.assertEqual(self.sql("SELECT max(version_id) FROM goose_db_version"), "6")
 
+    def test_options_in_the_query_is_refused_before_psql(self):
+        """K8: a URI's options= replaces PGOPTIONS whole, for psql as for pgx (pgconn/config.go mergeSettings at
+        v5.11.0: the URI after the environment), and with it client_connection_check_interval, by which a killed
+        runner's statement ends with its client (measured with psql 18.6: 2s from PGOPTIONS alone, 0 with
+        `options=-c%20work_mem%3D1MB` in the URI). No writer of the Secret sets one: env-secrets writes sslmode=require
+        alone (env_secrets.py, Layout.uri) and CloudNativePG no query at all (pkg/specs/secrets.go at v1.30.1)."""
+        for query in ("options=-c%20work_mem%3D1MB", "opt%69ons=-c%20work_mem%3D1MB"):
+            with self.subTest(query=query):
+                log = self.refused(f"postgres://openfga:{harness.PASSWORD}@127.0.0.1:5432/openfga?sslmode=disable&{query}")
+                self.assertIn("options=", log)
+                self.assertNotIn(harness.PASSWORD, log)
+
 
 def load_tests(loader: unittest.TestLoader, standard_tests: unittest.TestSuite, pattern: str | None) -> unittest.TestSuite:
     """This file's tests only: its classes inherit the harness's own, which run in their module."""
