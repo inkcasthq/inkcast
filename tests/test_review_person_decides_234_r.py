@@ -7,7 +7,14 @@ driven by hooks and asyncio events inside the platform's calls, never by sleeps,
 worker is a second ``Publisher`` on its own connection, run as a task while the first worker's request is held."""
 
 import asyncio
+import contextlib
+import io
+import os
 import time
+import unittest
+from unittest import mock
+
+import httpx2
 
 from inkcast.libs.db import Store
 from inkcast.libs.pipeline import STUCK_AFTER, _lost
@@ -231,3 +238,32 @@ class FindingTheCapEndsAPostWhoseLastLookupCannotBeMade(Harness):
         self.assertEqual((self.status(held), self.status(theirs)), ("unconfirmed", "published"))
         self.assertIn("INKCAST_PUBLISH_RECOVERY_MAX_HOURS", self.store.get_post(held)["error"])
         self.assertEqual(self.tick(later=2 * DAY), [], "asked or sent again")
+
+
+# ---- the CLI's post id is one path segment (#234 item 8) ---------------------------------------------------------------
+
+
+class FindingTheCliSendsThePostIdAsOnePathSegment(unittest.TestCase):
+    def test_a_post_id_holding_a_slash_or_a_hash_cannot_turn_a_resend_into_a_cancel(self):
+        """``inkcast resend <post-id>`` put the id into the path as given: "pst_x/cancel#" made the request
+        ``POST /api/v1/posts/pst_x/cancel`` (the rest is a fragment), so a resend cancelled the post, and "../tokens"
+        left the posts routes. A workflow that passes a post id from its input (a dispatch input, a comment) is
+        driven by whoever writes that input. The id is now one escaped segment: the API answers 404 for it."""
+        from inkcast import cli
+
+        paths: list[str] = []
+
+        def handler(request: httpx2.Request) -> httpx2.Response:
+            paths.append(request.url.raw_path.decode())
+            return httpx2.Response(404, json={"error": "not_found", "message": "No post."})
+
+        def client(base_url: str, token: str) -> httpx2.Client:
+            return httpx2.Client(base_url=base_url, transport=httpx2.MockTransport(handler))
+
+        err = io.StringIO()
+        with mock.patch.dict(os.environ, {"INKCAST_URL": "https://inkcast.example.com", "INKCAST_TOKEN": "ink_pat_test"}), \
+                mock.patch.object(cli, "_client", client), contextlib.redirect_stderr(err):
+            codes = [cli.post_main("resend", [post_id]) for post_id in ("pst_x/cancel#", "../tokens", "pst_x?y")]
+        self.assertEqual(codes, [1, 1, 1])
+        self.assertEqual(paths, ["/api/v1/posts/pst_x%2Fcancel%23/resend", "/api/v1/posts/..%2Ftokens/resend",
+                                 "/api/v1/posts/pst_x%3Fy/resend"], "the post id left its path segment")

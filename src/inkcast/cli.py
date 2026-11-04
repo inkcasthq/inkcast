@@ -38,7 +38,7 @@ import re
 import subprocess
 import sys
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import httpx2
 
@@ -335,7 +335,8 @@ def post_main(command: str, argv: list[str]) -> int:
     url, token = connection
     with _client(url, token) as client:
         try:
-            r = client.post(f"/api/v1/posts/{args.post_id}/{command}")
+            # One path segment, whatever the id holds: "pst_x/cancel#" must not turn a resend into a cancel.
+            r = client.post(f"/api/v1/posts/{quote(args.post_id, safe='')}/{command}")
         except httpx2.HTTPError as exc:
             print(f"{prog}: can't reach {url}: {exc}", file=sys.stderr)
             return 1
