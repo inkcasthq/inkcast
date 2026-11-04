@@ -29,7 +29,9 @@ it), the identity client's secret (identity-client-secret and oidc-client-secret
 - present on both and equal: kept; present on both and different: the run fails naming the pair.
 
 An existing value is never replaced: a Secret that exists gets only the keys it lacks, by a merge patch conditional on
-the resourceVersion read. Everything is read and checked before anything is written, and any problem (a pair that
+the resourceVersion read. inkcast-secrets carries the label ``inkcast.io/root-secret: "true"`` (ROOT_SECRET_LABEL): the
+cluster backup that keeps a copy of it selects by that label (issue #436, ADR-0020), so a run sets it at creation and
+adds it, by the same kind of patch, to a Secret that lacks it. Everything is read and checked before anything is written, and any problem (a pair that
 disagrees, a Secret its consumer could not read) stops the run with nothing written. A write that loses a race to
 another writer (409) starts the run over from the reads, so two pods starting at once end on the same values. A
 crash between two writes leaves one side of a pair, which the next run copies. The output names Secrets and keys,
@@ -69,6 +71,13 @@ SIDES = {"inkcast-staging": "staging", "inkcast-prod": "prod"}
 DB_NAMESPACE, KEYCLOAK_NAMESPACE = "inkcast-db", "keycloak"
 DB_HOST, DB_PORT = "inkcast-pg-rw.inkcast-db.svc", 5432
 PART_OF = {"app.kubernetes.io/part-of": "inkcast"}
+# The label the cluster backup selects (issue #436, ADR-0020): the OADP Schedules in deploy/kustomize/shared/oadp copy
+# the Secrets of each environment that carry it, and nothing else, into a storage location of their own, so a deleted
+# inkcast-secrets is restored instead of every platform being connected again. Set when inkcast-secrets is created,
+# and added by any run that finds it missing (a Secret put back by hand, or made before the label existed), so the
+# next backup holds it. The same key and value are in the Schedules' selector; tests/test_root_secret_copy.py keeps
+# them equal.
+ROOT_SECRET_LABEL = {"inkcast.io/root-secret": "true"}
 # The keys that must agree: (the realm Secret's, inkcast-secrets'), the identity client's then the sync client's.
 CLIENT_PAIRS = (("identity-client-secret", "oidc-client-secret"), ("sync-client-secret", "keycloak-sync-secret"))
 # What a realm client secret must not hold: kc.sh import substitutes the value into the realm's JSON text, so a quote,
@@ -178,6 +187,7 @@ class Stored:
     data: dict[str, str]
     version: str
     unreadable: tuple[str, ...] = ()  # keys whose value is not UTF-8 text
+    labels: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -187,7 +197,8 @@ class Write:
     origins: dict[str, str]  # key -> "generated", "from <ref> <key>" or "the same as <ref> <key>": never a value
     version: str | None = None  # None: create the Secret; else add these keys to the version read
     type: str = "Opaque"
-    labels: dict[str, str] = field(default_factory=lambda: dict(PART_OF))
+    labels: dict[str, str] = field(default_factory=lambda: dict(PART_OF))  # on create: the Secret's labels
+    add_labels: dict[str, str] = field(default_factory=dict)  # on a patch: the labels to add (a merge keeps the rest)
 
 
 class Kube:
@@ -212,10 +223,11 @@ class Kube:
             except (ValueError, UnicodeDecodeError):
                 unreadable.append(key)
         self.seen.update(data.values())
-        return Stored(data, obj["metadata"]["resourceVersion"], tuple(unreadable))
+        return Stored(data, obj["metadata"]["resourceVersion"], tuple(unreadable), dict(obj["metadata"].get("labels") or {}))
 
     def write(self, change: Write) -> bool:
-        """Create the Secret, or add keys to the version read. False when another writer got there first (409)."""
+        """Create the Secret, or add keys (and labels) to the version read. False when another writer got there
+        first (409). A merge patch adds the keys and labels it names and leaves every other one as it is."""
         encoded = {key: base64.b64encode(value.encode()).decode() for key, value in change.values.items()}
         self.seen.update(change.values.values(), encoded.values())
         if change.version is None:
@@ -224,10 +236,14 @@ class Kube:
                 "metadata": {"name": change.ref.name, "labels": change.labels}, "data": encoded})
             verb, done = "create", (200, 201)
         else:
+            patch: dict[str, Any] = {"metadata": {"resourceVersion": change.version}}
+            if change.add_labels:
+                patch["metadata"]["labels"] = change.add_labels
+            if encoded:
+                patch["data"] = encoded
             answer = self.http.patch(
                 f"/api/v1/namespaces/{change.ref.namespace}/secrets/{change.ref.name}",
-                content=json.dumps({"metadata": {"resourceVersion": change.version}, "data": encoded}),
-                headers={"Content-Type": "application/merge-patch+json"})
+                content=json.dumps(patch), headers={"Content-Type": "application/merge-patch+json"})
             verb, done = "patch", (200,)
         if answer.status_code == 409:
             return False
@@ -272,7 +288,8 @@ class Plan:
 def decide(layout: Layout, stored: Mapping[Ref, Stored | None], repair_only: bool = False) -> Plan:
     """What to write, from what is stored: pure, so every case is a unit test. Any problem means no write at all.
     With ``repair_only`` nothing is made anew: each value absent on every side goes to ``plan.lost`` (the writes
-    that copy still happen, and the run fails), and a Secret that would be created with one is left absent."""
+    that copy still happen, and the run fails), and a Secret that would be created with one is left absent. In both
+    modes an inkcast-secrets that lacks ROOT_SECRET_LABEL gets it: a label is a copy's precondition, not a value."""
     plan = Plan()
     lost_in: set[Ref] = set()  # the Secrets a lost value would have been created in: never created half-made
 
@@ -370,6 +387,13 @@ def decide(layout: Layout, stored: Mapping[Ref, Stored | None], repair_only: boo
             f"without one, `oc -n {layout.namespace} rollout restart deploy/openfga` makes new values and every "
             f"platform must be connected again ({RUNBOOK}).")
 
+    # The label the cluster backup selects (ROOT_SECRET_LABEL): on inkcast-secrets from its creation, and added when
+    # the Secret exists without it (or with another value), so the next backup holds it. A repair run adds it too:
+    # a label cuts no pod off anything. Never while a problem stops the run (below): nothing is written then.
+    found = stored[layout.app]
+    app_labels = dict(ROOT_SECRET_LABEL) if found is not None and any(
+        found.labels.get(key) != value for key, value in ROOT_SECRET_LABEL.items()) else {}
+
     if plan.problems:
         return plan
     if repair_only and all(stored[ref] is None for ref in (layout.db_role, layout.db_app, layout.realm, layout.app)):
@@ -390,25 +414,36 @@ def decide(layout: Layout, stored: Mapping[Ref, Stored | None], repair_only: boo
         plan.writes.append(Write(layout.db_app, {"uri": layout.uri(password), "username": layout.role, "password": password},
                                  {"uri": "with that password", "username": layout.role, "password": app_origin}))
     if stored[layout.app] is not None or layout.app not in lost_in:
-        _add(plan, layout.app, stored[layout.app], app_new)
+        _add(plan, layout.app, stored[layout.app], app_new, labels={**PART_OF, **ROOT_SECRET_LABEL}, add_labels=app_labels)
     for ref in (layout.db_role, layout.realm, layout.db_app, layout.app):
         if stored[ref] is not None and ref not in {w.ref for w in plan.writes}:
             plan.kept.append(f"{ref}: kept ({', '.join(sorted(stored[ref].data))})")
     return plan
 
 
-def _add(plan: Plan, ref: Ref, found: Stored | None, new: dict[str, tuple[str, str]]) -> None:
-    """Create the Secret with these keys, or add them to the version read."""
-    if not new:
+def _add(plan: Plan, ref: Ref, found: Stored | None, new: dict[str, tuple[str, str]], *,
+         labels: Mapping[str, str] | None = None, add_labels: Mapping[str, str] | None = None) -> None:
+    """Create the Secret with these keys and ``labels`` (PART_OF alone when not given), or add the keys and
+    ``add_labels`` it lacks to the version read. Nothing to add: no write."""
+    add_labels = {} if found is None else dict(add_labels or {})
+    if not new and not add_labels:
         return
     plan.writes.append(Write(ref, {key: v for key, (v, _) in new.items()}, {key: o for key, (_, o) in new.items()},
-                             version=None if found is None else found.version))
+                             version=None if found is None else found.version,
+                             labels=dict(PART_OF if labels is None else labels), add_labels=add_labels))
 
 
 def describe(change: Write) -> str:
-    """One line per write: the Secret, what was done, and where each key came from. Never a value."""
-    keys = ", ".join(f"{key} ({change.origins[key]})" for key in change.values)
-    return f"{change.ref}: {'created' if change.version is None else 'added'} {keys}"
+    """One line per write: the Secret, what was done, where each key came from, and a label added. Never a value."""
+    parts = []
+    if change.values:
+        keys = ", ".join(f"{key} ({change.origins[key]})" for key in change.values)
+        parts.append(f"{'created' if change.version is None else 'added'} {keys}")
+    labelled = change.add_labels if change.version is not None else {
+        key: value for key, value in change.labels.items() if key in ROOT_SECRET_LABEL}
+    if labelled:
+        parts.append("labelled " + ", ".join(f"{key}={value}" for key, value in labelled.items()))
+    return f"{change.ref}: {'; '.join(parts)}"
 
 
 def ensure(kube: Kube, layout: Layout, say: Callable[[str], None], repair_only: bool = False) -> list[str]:

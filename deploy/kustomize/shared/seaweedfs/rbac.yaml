@@ -1,0 +1,26 @@
+# In the store's own namespace: the setup Job reads the identities file's Secret (the one the chart mounts,
+# values.yaml allInOne.s3.existingConfigSecret), by name, and creates it when it is absent (`create` cannot be
+# limited by name: Kubernetes, "Using RBAC Authorization"). Never `update` or `patch`: an existing credential is
+# kept as it is (setup.sh). Its right in Velero's namespace, the other half of the pair, is shared/seaweedfs-access.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: seaweedfs-setup
+  labels: {app.kubernetes.io/name: seaweedfs-setup, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: root-secret-store}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [seaweedfs-s3-config]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: seaweedfs-setup
+  labels: {app.kubernetes.io/name: seaweedfs-setup, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: root-secret-store}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: seaweedfs-setup}
+subjects:
+  - {kind: ServiceAccount, name: seaweedfs-setup}

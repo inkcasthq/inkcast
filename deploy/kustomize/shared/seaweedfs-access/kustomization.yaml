@@ -1,0 +1,13 @@
+# THE LAB'S STAND-IN (issue #436, ADR-0020): what shared/seaweedfs's setup Job may do in Velero's namespace. The
+# storage location `root-secrets` (shared/oadp/dpa.yaml) reads its credential from the Secret
+# `cloud-credentials-root-secrets` in openshift-adp, and on OpenShift Local that credential is generated in the
+# cluster by the Job in inkcast-seaweedfs, which writes it there: a Role belongs to its namespace, and
+# shared/seaweedfs's `namespace:` would move this one, so it is a kustomization of its own, as shared/keycloak-access
+# is for env-secrets. Applied after shared/oadp-operator (which makes the namespace) and before shared/seaweedfs.
+# Production has none of this: its credential is the cloud's IAM key for the bucket, put in that Secret by the
+# cloud's secrets process.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: openshift-adp
+resources:
+  - rbac.yaml

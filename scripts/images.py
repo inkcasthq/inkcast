@@ -28,8 +28,9 @@ FILES = ["Dockerfile", "deploy/**/*.Dockerfile", "deploy/**/*.yaml", "deploy/**/
 REF = re.compile(r"(?P<name>(?:[a-z0-9][a-z0-9.-]*(?::\d+)?/)?(?:[a-z0-9._-]+/)*[a-z0-9._-]+):(?P<tag>[A-Za-z0-9][A-Za-z0-9._-]*)"
                  r"(?:@(?P<digest>sha256:[0-9a-f]{64}))?")
 # Where a reference can appear: FROM, `image:` (manifests, Compose), `imageName:` (a CloudNativePG Cluster),
-# `reference:` (an image volume, volumes[].image), and a registry-qualified name anywhere (docker run).
-CONTEXT = re.compile(r"^\s*FROM\s+(\S+)|^\s*-?\s*(?:image(?:Name)?|reference):\s*['\"]?([^\s'\"#]+)"
+# `reference:` (an image volume, volumes[].image), `imageOverride:` (a Helm values file pinning a chart's image, such
+# as deploy/kustomize/shared/seaweedfs/values.yaml), and a registry-qualified name anywhere (docker run).
+CONTEXT = re.compile(r"^\s*FROM\s+(\S+)|^\s*-?\s*(?:image(?:Name|Override)?|reference):\s*['\"]?([^\s'\"#]+)"
                      r"|\s((?:quay\.io|docker\.io|gcr\.io|registry\.k8s\.io|mcr\.microsoft\.com)/[^\s'\"]+)")
 OURS = ("inkcast", "inkcast-fakes", "ghcr.io/inkcasthq/")
 

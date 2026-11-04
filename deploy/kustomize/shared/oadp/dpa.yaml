@@ -1,0 +1,69 @@
+# The cluster's DataProtectionApplication: Velero, and the storage location the root Secrets' copies go to.
+#
+# Velero alone. `nodeAgent.enable: false` runs no DaemonSet (file-system backups of volumes are not wanted: a Secret
+# is copied, not a volume; `uploaderType` is the field's required value, unused while disabled). `backupImages:
+# false` deploys no registry for image streams (OADP's default is true when unset: api/v1alpha1, "Default
+# BackupImages behavior when nil to true"). Plugins: `aws` speaks S3 to any S3-compatible store, `openshift` is the
+# operator's own plugin for OpenShift objects (it also keeps a restore from putting back a service-account token
+# Secret, which this never selects). Velero's own requests are cpu 500m and memory 128Mi with no limits
+# (internal/controller/velero.go at oadp-1.6); the lab's node is at half its CPU in requests, and Velero here copies
+# one Secret a day, so podConfig lowers the request; an off-cluster production sets its own.
+#
+# The storage location `root-secrets`, and only it. It is `default: true` because the operator demands a default of
+# the locations it is given (measured on 1.6.2: without one the DPA stays Reconciled=False, "no default
+# backupstoragelocations configured, ensure that one backupstoragelocation has been configured as the default
+# location"). Every Schedule names its location, so the default decides nothing for the copies; it does for anything
+# else: while this is the only location, never create a Velero Backup or Schedule on this cluster without
+# `storageLocation`, or namespace data lands in the key's bucket (docs/runbooks/env-secrets.md says so). When
+# E7.F7.6.S2 adds a location for the SQLite backups' off-cluster copies, that one becomes the default and this one
+# goes `false`, so nothing lands in the root Secrets' bucket by omission. Its credential is the Secret `cloud-credentials-root-secrets`,
+# key `cloud`, an AWS credentials file (`[default]`, aws_access_key_id, aws_secret_access_key: OADP's
+# docs/install_olm.md), which no manifest holds.
+#
+# THE LAB'S STAND-IN, marked: the `config` block points at the in-cluster SeaweedFS of shared/seaweedfs
+# (`s3Url`, `s3ForcePathStyle`: Velero's own MinIO guide, "primarily for local storage services" in the aws
+# plugin's backupstoragelocation.md; `region` is required with path style and any value serves a store that does
+# not check it), and shared/seaweedfs's setup Job generates the credential. That store is in the same cluster as the
+# data: the copy survives a deleted Secret, not the loss of the whole cluster (the runbook says so once). Production
+# sets instead: no `s3Url` (AWS itself, over HTTPS), `region` the bucket's, a bucket of its own encrypted with a KMS
+# key (SSE-KMS; Velero stores a Secret as a manifest, so the bucket's encryption and access policy protect it), and
+# the IAM key for that bucket alone in `cloud-credentials-root-secrets`, made by the cloud's secrets process, never
+# by a Job in the cluster. `checksumAlgorithm` is left at the plugin's default (CRC32): SeaweedFS 4.52 accepted it
+# on the lab (scripts/lab/root-secret-copy.sh's measured run is in the pull request); set it to "" for a store that
+# refuses the x-amz-checksum headers aws-sdk-go-v2 sends.
+apiVersion: oadp.openshift.io/v1alpha1
+kind: DataProtectionApplication
+metadata:
+  name: inkcast
+  labels: {app.kubernetes.io/name: oadp, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: root-secret-copy}
+spec:
+  backupImages: false
+  logFormat: json
+  configuration:
+    velero:
+      defaultPlugins:
+        - openshift
+        - aws
+      podConfig:
+        resourceAllocations:
+          requests: {cpu: 100m, memory: 128Mi}
+          limits: {memory: 512Mi}
+    nodeAgent:
+      enable: false
+      uploaderType: kopia
+  backupLocations:
+    - name: root-secrets
+      velero:
+        provider: aws
+        default: true                 # the operator demands a default; the Schedules name the location anyway
+        credential:
+          name: cloud-credentials-root-secrets
+          key: cloud
+        objectStorage:
+          bucket: inkcast-root-secrets
+          prefix: velero
+        config:                       # the lab's stand-in: an in-cluster S3-compatible store (shared/seaweedfs)
+          region: us-east-1
+          profile: default
+          s3ForcePathStyle: "true"
+          s3Url: http://seaweedfs-all-in-one.inkcast-seaweedfs.svc:8333   # the chart's all-in-one Service (shared/seaweedfs/values.yaml)

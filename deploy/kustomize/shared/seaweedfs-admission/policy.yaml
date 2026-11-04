@@ -1,0 +1,36 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: seaweedfs-setup-creates-its-own
+  labels: {app.kubernetes.io/name: seaweedfs-setup, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: root-secret-store}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - {apiGroups: [""], apiVersions: [v1], operations: [CREATE], resources: [secrets]}
+  matchConditions:   # the setup account alone; every other client is untouched
+    - name: the-setup-account
+      expression: "request.userInfo.username == 'system:serviceaccount:inkcast-seaweedfs:seaweedfs-setup'"
+  validations:
+    - expression: "object.type == 'Opaque'"
+      messageExpression: "'seaweedfs-setup creates Opaque Secrets only, not type ' + string(object.type)"
+      reason: Forbidden
+    - expression: >-
+        (request.namespace == 'openshift-adp' && object.metadata.name == 'cloud-credentials-root-secrets')
+        || (request.namespace == 'inkcast-seaweedfs' && object.metadata.name == 'seaweedfs-s3-config')
+      messageExpression: >-
+        'seaweedfs-setup creates only openshift-adp/cloud-credentials-root-secrets and inkcast-seaweedfs/seaweedfs-s3-config, not '
+        + request.namespace + '/' + object.metadata.name
+      reason: Forbidden
+    - expression: "!has(object.metadata.annotations) || !('kubernetes.io/service-account.name' in object.metadata.annotations)"
+      message: "seaweedfs-setup creates no Secret annotated for a service account"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: seaweedfs-setup-creates-its-own
+  labels: {app.kubernetes.io/name: seaweedfs-setup, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: root-secret-store}
+spec:
+  policyName: seaweedfs-setup-creates-its-own
+  validationActions: [Deny]

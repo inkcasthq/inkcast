@@ -1,0 +1,34 @@
+# THE LAB'S STAND-IN for an off-cluster, KMS-encrypted bucket (issue #436, ADR-0020): an S3-compatible object store
+# in the cluster, in its own namespace, holding the one bucket the storage location `root-secrets` writes to
+# (shared/oadp/dpa.yaml). The store is SeaweedFS installed from its own Helm chart, `seaweedfs` 4.52.0, with the
+# values file beside this one (values.yaml: one pod, one 2Gi claim, one bucket, one identity scoped to that bucket,
+# a NetworkPolicy admitting Velero's pods alone; every value cites the chart). What this kustomization holds is
+# what the chart does not: the namespace, and the Job seaweedfs-setup (setup.sh) that generates the identity's key
+# pair in the cluster and writes it twice, as the identities file the chart mounts and as the credentials file
+# Velero reads: no value in Git, none printed, none ever on a command line, and an existing Secret never changed.
+#
+# The limit this stands in with, stated once in docs/runbooks/env-secrets.md: the store is in the same cluster as
+# the data, so the copy survives a deleted Secret, not the loss of the whole cluster, and the claim is not
+# encrypted. Production points the storage location at an off-cluster bucket encrypted with a KMS key and needs
+# nothing from this directory.
+#
+# In order (scripts/lab/root-secret-copy.sh does it and waits at each step; README, Hosted §2): this kustomization
+# (the namespace, the account, the Job: a Job's template is immutable, so the script removes a finished Job first;
+# a re-run keeps what exists), after shared/oadp-operator (the namespace openshift-adp) and shared/seaweedfs-access
+# (the Job's one right there); then the chart, `helm upgrade --install` of the tgz verified against
+# scripts/versions.env, whose post-install hook creates the bucket; then shared/oadp.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: inkcast-seaweedfs
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - rbac.yaml
+  - setup-job.yaml
+configMapGenerator:
+  # The setup Job's script, one file, mounted read-only; no name hash, as the repository's other ConfigMaps
+  # (components/openfga's migrate.sh): an apply updates it in place for the next run of the Job.
+  - name: seaweedfs-setup
+    options: {disableNameSuffixHash: true}
+    files:
+      - setup.sh

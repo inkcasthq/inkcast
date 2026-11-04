@@ -28,7 +28,36 @@ inkcast env-secrets: Nothing was made anew (--repair-only): what one side still 
 
 The pairs that can be copied are copied in that same run; a Secret that would be created with a lost value (an `inkcast-secrets` holding only the two client secrets the realm still has) is left absent, never half-made, so a restore brings it back whole. Then:
 
-1. **A copy of the Secret exists** (an `oc get secret ... -o yaml` kept somewhere safe; a cluster backup, such as OADP on OpenShift). Put it back: `oc -n $NS apply -f <the file>` (for `inkcast-db/...` or `keycloak/...`, that namespace). The value is the one the pods hold, so nothing restarts; the CronJob's next run copies any key a pair still lacks and exits 0. The repository makes no such copy today: `inkcast backup` copies the SQLite file, and that file is useless without `secret-key` (the backup component says so), so keep a copy of `inkcast-secrets` where the backups' key is kept.
+1. **Restore `inkcast-secrets` from its copy.** The cluster backup keeps one ([ADR-0020](../adr/0020-root-secret-copy-in-its-own-storage-location.md)): the OADP Schedule `inkcast-<side>-root-secret` in `openshift-adp` (`deploy/kustomize/shared/oadp`) copies, every day at 03:47 UTC, the Secrets of `$NS` that carry the label `inkcast.io/root-secret: "true"` (`inkcast env-secrets` sets it on `inkcast-secrets`; nothing else carries it) into the storage location `root-secrets`, a bucket of its own, apart from wherever `inkcast-backups` is copied, and keeps each copy 90 days. On OpenShift Local that location is an in-cluster store (`deploy/kustomize/shared/seaweedfs`, the stand-in for production's off-cluster bucket encrypted with a KMS key), so this copy survives a deleted Secret but not the loss of the whole cluster: the store is in the same cluster as the data. On this cluster `root-secrets` is the only location and so Velero's default: never create a Velero Backup or Schedule there without `storageLocation`, or namespace data lands in the key's bucket (production too, until E7.F7.6.S2 adds the data backups' location as the default and sets `root-secrets` to `default: false`). The latest copy:
+
+   ```bash
+   oc -n openshift-adp get backups.velero.io -l velero.io/schedule-name=inkcast-<side>-root-secret --sort-by=.status.completionTimestamp \
+     -o custom-columns=NAME:.metadata.name,PHASE:.status.phase,ITEMS:.status.progress.itemsBackedUp,COMPLETED:.status.completionTimestamp,EXPIRES:.status.expiration
+   ```
+
+   Take the newest `Completed` one with `ITEMS` 1 (`<latest>` below), and restore it, limited to `secrets` carrying the label in `$NS`. Velero "will never overwrite data that already exists in your cluster" (`existingResourcePolicy: none`), so a Secret a pair still holds, or one made meanwhile, is left as it is. If what was made meanwhile is a new `inkcast-secrets` (OpenFGA's pod started while the Secret was absent, and its init container made one with new values), the restore keeps that new one and the drill's step 5 reports values that differ: delete it (`oc -n $NS delete secret inkcast-secrets`), restore again, then restart the pods (`oc -n $NS rollout restart deploy/openfga deploy/inkcast`) so every process runs on the restored values:
+
+   ```bash
+   oc -n openshift-adp create -f - <<EOF
+   apiVersion: velero.io/v1
+   kind: Restore
+   metadata:
+     name: <latest>-restore
+   spec:
+     backupName: <latest>
+     includedNamespaces: [$NS]
+     includedResources: [secrets]
+     labelSelector: {matchLabels: {inkcast.io/root-secret: "true"}}
+     existingResourcePolicy: none
+     includeClusterResources: false
+     restorePVs: false
+   EOF
+   oc -n openshift-adp get restores.velero.io <latest>-restore -o jsonpath='{.status.phase} errors={.status.errors}{"\n"}'   # Completed errors=
+   ```
+
+   The kinds are written in full (`backups.velero.io`, `restores.velero.io`): on the lab `oc get backup` resolves to CloudNativePG's `backups.postgresql.cnpg.io` first, and answers "not found" for a Velero backup.
+
+   With the `velero` command instead: `velero restore create --from-backup <latest> --include-resources secrets --selector inkcast.io/root-secret=true --include-namespaces $NS -n openshift-adp`. The value is the one the pods hold, so nothing restarts; the restored Secret carries the label, so the next copy holds it. Then step 3: the CronJob's next run (or the Job there) exits 0 and says every Secret is in agreement, and a sealed credential still reads. `scripts/ops/root-secret-drill.sh $NS` does all of it in order (a safety copy on your host, mode 600, removed at the end, or put back if the drill stops after the deletion; a backup; the deletion; the restore; the comparison of every value by SHA-256; the run; every stored credential unsealed inside the server's pod with the key it mounts): run it on staging after any change to the copy, and never on an environment whose copy you have not seen `Completed`. A copy kept by hand (`oc get secret ... -o yaml`, somewhere safe) is put back with `oc -n $NS apply -f <the file>`; the Schedule copies no other Secret: `inkcast-db/...` and `keycloak/...` are pairs, which the CronJob copies from the side that survives, and a pair lost on both sides is step 2.
 
 2. **No copy: make new values, and accept what that costs.** The init container makes them: `oc -n $NS rollout restart deploy/openfga` (the CronJob never will). Then, per value:
    - **the role's password**: nothing more. CloudNativePG sets the new password on the role as soon as the Secret is written (`cnpg.io/reload`), and the restarted pod's OpenFGA connects with it.

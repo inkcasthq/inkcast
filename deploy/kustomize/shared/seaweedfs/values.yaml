@@ -1,0 +1,119 @@
+# THE LAB'S STAND-IN for an off-cluster, KMS-encrypted bucket (issue #436, ADR-0020): SeaweedFS installed from its
+# own Helm chart, `seaweedfs` 4.52.0 from https://seaweedfs.github.io/seaweedfs/helm (the version and the tgz's
+# SHA-256 are in scripts/versions.env; scripts/lab/root-secret-copy.sh verifies the download against it before
+# `helm upgrade --install`). The chart is the open-source repository's k8s/charts/seaweedfs at tag 4.52
+# (Apache-2.0); every value below cites the file and line that reads it. The namespace, the setup Job that generates
+# the identity (and never prints it) and its RBAC are the kustomization beside this file.
+#
+# What this is: one pod (`allInOne`: weed server with master, volume, filer and the S3 gateway in one process), one
+# 2Gi claim, one bucket, one identity scoped to that bucket, reachable from Velero's pods alone. Everything else
+# the chart can start stays off. The security contexts are the chart's own openshift-values.yaml (the restricted
+# SCC: non-root with the uid the namespace assigns, every capability dropped, RuntimeDefault seccomp, a read-only
+# root filesystem with /tmp writable), applied to the all-in-one pod and, through the chart, to its bucket hook.
+
+commonLabels:                     # on every object the chart renders (templates/shared/_helpers.tpl, seaweedfs.commonLabels)
+  app.kubernetes.io/part-of: inkcast
+
+global:
+  seaweedfs:
+    createClusterRole: false      # values.yaml:11; a pod-RW ClusterRole "not exercised by any component" (templates/shared/networkpolicy.yaml:91-94)
+    automountServiceAccountToken: false   # values.yaml:49 -> templates/shared/service-account.yaml:17: the ServiceAccount the pod runs as, below
+    tmpDir:
+      sizeLimit: 64Mi             # values.yaml:28-29: the /tmp emptyDir a read-only root filesystem gets (templates/shared/_helpers.tpl, seaweedfs.tmpDirVolume)
+
+# The image, pinned by digest (scripts/images.py reads `imageOverride:` lines as it reads `image:` lines). The
+# all-in-one pod and the bucket hook both take the master's image (templates/all-in-one/all-in-one-deployment.yaml:88,
+# templates/shared/post-install-bucket-hook.yaml:104 -> templates/shared/_helpers.tpl:223-230, seaweedfs.master.image,
+# which returns master.imageOverride when set). The chart's own image values (image.registry/repository/tag,
+# values.yaml:88-91) compose name:tag and take no digest, so the override is the one place a digest fits.
+master:
+  enabled: false                  # values.yaml:94; "allInOne.enabled does not turn the individual components off" (templates/shared/networkpolicy.yaml:15-17)
+  imageOverride: chrislusf/seaweedfs:4.52@sha256:57877e32bb90073b37dc109b438ba66e84fd5ed9ced5f5c04f56444ef243ce59
+volume:
+  enabled: false                  # values.yaml:376
+filer:
+  enabled: false                  # values.yaml:727
+s3:
+  enabled: false                  # values.yaml:1104: no standalone gateway; the all-in-one pod serves S3 (allInOne.s3 below)
+sftp:
+  enabled: false                  # values.yaml:1395. The chart still renders a Secret seaweedfs-sftp-secret (generated passwords and an
+                                  # SSH host key, kept by helm.sh/resource-policy) whenever allInOne is enabled (templates/sftp/
+                                  # sftp-secret.yaml:1 at 4.52: `or .Values.sftp.enabled .Values.allInOne.enabled`); nothing mounts it
+admin:
+  enabled: false                  # values.yaml:1518: no admin UI
+worker:
+  enabled: false                  # values.yaml:1737
+cosi:
+  enabled: false                  # values.yaml:2160
+
+allInOne:
+  enabled: true                   # values.yaml:1896; templates/all-in-one/all-in-one-deployment.yaml:148-158: weed server -master -volume -filer
+  replicas: 1                     # values.yaml:1899
+  updateStrategy:
+    type: Recreate                # values.yaml:1924-1925: one ReadWriteOnce claim, never two pods on it
+  serviceAccountName: seaweedfs   # values.yaml:2115 -> all-in-one-deployment.yaml:75-77: the chart's account, with no token mounted (global above)
+  # Flags the chart does not expose, appended to the server command (values.yaml:1916, all-in-one-deployment.yaml:306-309),
+  # each read by `weed server` (weed/command/server.go at 4.52): the Iceberg and Lance catalogs off (server.go:180-181,
+  # "0 to disable"), the project's anonymous telemetry off (server.go:117). WebDAV is off unless asked for (server.go:85).
+  extraArgs:
+    - -s3.port.iceberg=0
+    - -s3.port.lance=0
+    - -master.telemetry=false
+  s3:
+    enabled: true                 # values.yaml:1931 -> all-in-one-deployment.yaml:242-244: -s3 -s3.port=8333 (s3.port, values.yaml:1120)
+    enableAuth: true              # values.yaml:1935 -> all-in-one-deployment.yaml:256-258: -s3.config=/etc/sw/s3/seaweedfs_s3_config
+    # The identities file the Job seaweedfs-setup writes (setup.sh): a Secret whose key seaweedfs_s3_config holds the
+    # JSON (values.yaml:1936-1938), mounted whole at /etc/sw/s3 (all-in-one-deployment.yaml:315-319, 456-460). With it
+    # set, the chart renders no s3-secret of its own (templates/s3/s3-secret.yaml:3-4).
+    existingConfigSecret: seaweedfs-s3-config
+    # The bucket, made by the chart's post-install/post-upgrade hook (values.yaml:1945-1957 -> templates/shared/
+    # post-install-bucket-hook.yaml:35-41, 175-185): the hook waits for the master and the filer, lists the buckets
+    # and creates the one that is absent. It mounts the identities Secret (hook:235-238, 274-279), so the Secret
+    # exists before the install: the Job runs first (scripts/lab/root-secret-copy.sh).
+    createBuckets:
+      - name: inkcast-root-secrets
+  data:
+    type: persistentVolumeClaim   # values.yaml:2018 -> templates/all-in-one/all-in-one-pvc.yaml: the claim <release>-all-in-one-data
+    size: 2Gi                     # values.yaml:2021: a copy of the root Secret is kilobytes; room for ninety daily copies many times over
+  resources:                      # values.yaml:2148-2154: the chart's defaults (500m/1Gi, limits 2/2Gi) are a store's, not a lab copying one Secret a day
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {cpu: null, memory: 512Mi}   # null removes the chart's CPU limit from the merge (Helm keeps a default a values file does not name)
+  # openshift-values.yaml (the chart's own file for the restricted SCC), the podSecurityContext and
+  # containerSecurityContext it gives every component, here for the all-in-one pod (all-in-one-deployment.yaml:82-85,
+  # 432-435) and its bucket hook (post-install-bucket-hook.yaml:24-26, 94-96, 268-270). runAsUser is left out on
+  # purpose: "By omitting runAsUser, OpenShift will automatically assign a valid UID from the namespace's allocated
+  # range" (openshift-values.yaml, header).
+  podSecurityContext:
+    enabled: true
+    runAsNonRoot: true
+  containerSecurityContext:
+    enabled: true
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+
+# Who may reach the store (values.yaml:2253-2306 -> templates/shared/networkpolicy.yaml): one policy per rendered
+# component, admitting the release's own pods (the bucket hook among them) on the ports it listens on, plus the
+# rules below for the all-in-one pod alone (networkpolicy.yaml:158, 194: components.<name>.extraIngress): Velero's
+# pods in openshift-adp, on the S3 port, nothing else. Egress stays unrestricted (egress.enabled false,
+# values.yaml:2318: the namespace has no default-deny, and the store makes no connection of its own). The kubelet's
+# probes come from the node, outside NetworkPolicy on OVN-Kubernetes (values.yaml:2303-2305).
+networkPolicy:
+  enabled: true
+  components:
+    seaweedfs-all-in-one:
+      extraIngress:
+        - from:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: openshift-adp
+              podSelector:
+                matchLabels:
+                  app.kubernetes.io/name: velero
+          ports:
+            - protocol: TCP
+              port: 8333

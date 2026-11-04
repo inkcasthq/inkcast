@@ -1,0 +1,21 @@
+# The OADP operator (Red Hat's build of Velero) in its own namespace, openshift-adp, the one its documentation
+# installs it in: the cluster backup that keeps a copy of each lab environment's root Secret (issue #436, ADR-0020).
+# The copy itself, a DataProtectionApplication with Velero alone, its storage location and one Schedule per
+# environment, is deploy/kustomize/shared/oadp, applied once this operator runs.
+#
+# Through OLM, from the redhat-operators catalog, and pinned: `installPlanApproval: Manual` with `startingCSV` names
+# the version this repository was proven with (1.6.2 on OpenShift Local 4.22, the catalog's `stable` channel), so
+# an upgrade is a change to subscription.yaml, never the catalog moving under the lab. OLM then makes one
+# InstallPlan and waits; scripts/lab/root-secret-copy.sh approves the plan that carries that CSV and waits for the
+# CSV to succeed (README, Hosted §2 gives the order). Applied before shared/oadp: the DPA's kind does not exist
+# until the operator has installed it.
+#
+# Not every object here takes `namespace:` the same way: the Namespace is cluster-scoped and kustomize leaves it,
+# the OperatorGroup and Subscription are stamped with it, as shared/inkcast-db's are.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: openshift-adp
+resources:
+  - namespace.yaml
+  - operatorgroup.yaml
+  - subscription.yaml

@@ -1,0 +1,17 @@
+# The operator, pinned. `stable` is the package's one channel on the lab (`oc get packagemanifest redhat-oadp-operator
+# -n openshift-marketplace`); `startingCSV` is the version proven with this repository, and `Manual` approval means
+# OLM installs that version and no other until a person approves a plan: a newer version in the catalog waits as an
+# InstallPlan nobody approved. Bumping it: move startingCSV here, apply, approve the plan (the lab's install script
+# does), and run the drill (scripts/ops/root-secret-drill.sh) before calling it done.
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: redhat-oadp-operator
+  labels: {app.kubernetes.io/name: oadp-operator, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: root-secret-copy}
+spec:
+  channel: stable
+  name: redhat-oadp-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Manual
+  startingCSV: oadp-operator.v1.6.2

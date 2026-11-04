@@ -1,0 +1,13 @@
+# The operator's namespace, the one OADP's documentation uses (its install creates it when it is absent; here it is
+# an object, so an apply is the whole install). Pod Security "restricted" is warned and audited, not enforced: the
+# pods in it are the operator's and Velero's, under the restricted-v2 SCC on OpenShift, and what they declare is the
+# operator's to change with each release; an `enforce` here would make a release's change this repository's outage.
+# The namespaces this repository runs its own pods in enforce it (shared/inkcast-db, shared/seaweedfs).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openshift-adp
+  labels:
+    app.kubernetes.io/part-of: inkcast
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted

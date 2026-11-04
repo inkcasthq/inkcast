@@ -1,0 +1,58 @@
+# One Schedule per environment, in Velero's namespace (a Schedule lives where Velero runs; `includedNamespaces` says
+# whose Secrets it takes). Each copies, from its environment's namespace, the Secrets that carry
+# `inkcast.io/root-secret: "true"` and nothing else: `includedResources: [secrets]` with that `labelSelector`, no
+# cluster-scoped object, no volume (`snapshotVolumes: false`, `defaultVolumesToFsBackup: false`). Velero's resource
+# filtering: "the same selector syntax works on restore", so the restore in docs/runbooks/env-secrets.md names the
+# same label and nothing more comes back. The label's key and value are the code's (src/inkcast/env_secrets.py,
+# ROOT_SECRET_LABEL); tests/test_root_secret_copy.py keeps the two equal.
+#
+# Daily at 03:47 UTC, half an hour after the SQLite backup (components/backup, 03:17): the value never changes on
+# its own (the CronJob never makes a new one), so one copy a day is one copy more than enough, and a copy made
+# by hand is a Backup built from this template (`velero backup create --from-schedule`, or the install script's
+# equivalent with `oc`). A new Schedule's first backup runs at its next cron time, not at creation.
+#
+# `ttl: 2160h0m0s` is 90 days. The bound: a copy must outlive the oldest SQLite backup it has to open, which is
+# INKCAST_BACKUP_KEEP days (14 in environments/staging and environments/production; the test reads each
+# environment's value and fails below it). Six times that, so a Schedule that stops running (Velero down, the
+# location unavailable) leaves eleven weeks to notice before the last copy expires. The GDPR bound on backups
+# (INKCAST_BACKUP_KEEP, the deletion pages) does not apply: the Secret holds keys and no personal data.
+# `useOwnerReferencesInBackup: false`: a Schedule deleted by mistake must not take its backups with it.
+# The labels here reach every Backup made from the Schedule (Velero copies the Schedule's labels when the template
+# has none, pkg/builder/backup_builder.go FromSchedule at v1.17.0, and adds velero.io/schedule-name).
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: inkcast-staging-root-secret
+  labels: {app.kubernetes.io/name: inkcast-root-secret, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: root-secret-copy, inkcast.io/environment: staging}
+spec:
+  schedule: "47 3 * * *"
+  useOwnerReferencesInBackup: false
+  template:
+    includedNamespaces: [inkcast-staging]
+    includedResources: [secrets]
+    labelSelector:
+      matchLabels: {inkcast.io/root-secret: "true"}
+    includeClusterResources: false
+    snapshotVolumes: false
+    defaultVolumesToFsBackup: false
+    storageLocation: root-secrets
+    ttl: 2160h0m0s
+---
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: inkcast-prod-root-secret
+  labels: {app.kubernetes.io/name: inkcast-root-secret, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: root-secret-copy, inkcast.io/environment: prod}
+spec:
+  schedule: "47 3 * * *"
+  useOwnerReferencesInBackup: false
+  template:
+    includedNamespaces: [inkcast-prod]
+    includedResources: [secrets]
+    labelSelector:
+      matchLabels: {inkcast.io/root-secret: "true"}
+    includeClusterResources: false
+    snapshotVolumes: false
+    defaultVolumesToFsBackup: false
+    storageLocation: root-secrets
+    ttl: 2160h0m0s

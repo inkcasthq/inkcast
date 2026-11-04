@@ -1,0 +1,12 @@
+# The store's own namespace: an app namespace, or Velero's, can be deleted without taking the copies. Pod Security
+# "restricted", as shared/inkcast-db: the store's pod and the setup Job's fit it (deployment.yaml, setup-job.yaml).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: inkcast-seaweedfs
+  labels:
+    app.kubernetes.io/part-of: inkcast
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
