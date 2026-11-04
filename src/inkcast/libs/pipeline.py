@@ -446,14 +446,18 @@ class Publisher:
         return Outcome(platform.id, status, post_id=post_id, url=result.url, notes=result.notes, prepared=prepared,
                        remote_id=result.remote_id or remote_id)
 
-    def settle_edited(self, post_id: str, platform: Platform) -> bool:
+    def settle_edited(self, post_id: str, platform: Platform, holds: Callable[[dict[str, Any]], bool]) -> bool:
         """Clear the note that a post was changed while its send was out (``_edited``) once nothing is owed: Git sync
-        found the file back to what was sent (#427). Every other note stays (a second copy, an earlier send's lost
+        found the file back to what was sent (#427), and the post, which records what the platform received, holds the
+        file (``holds(row)``, on the same read as the notes). The file's entry has the hash of what was sent only once
+        it has followed the post: a success landing on a post already confirmed with its copy (such as a lookup's match on
+        less than the whole payload, then that send's late answer) writes the note and the content sent with no follow, and
+        the change the note names is still owed (#473). Every other note stays (a second copy, an earlier send's lost
         answer: the person's to check). Worded from the row's copy and matched by equality, as ``update`` matches it,
         and written only while the row is as read (status, attempts and notes): a note written meanwhile (a second copy,
         ``PostsRepo.record_success``) is never overwritten. True when cleared."""
         row = self.store.get_post(post_id)
-        if row is None:
+        if row is None or not holds(row):
             return False
         held, edited = self.store.notes_of(row), _edited(platform, row["result_url"], row["remote_id"])
         if edited not in held:

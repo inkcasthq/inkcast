@@ -253,7 +253,8 @@ class GitSync:
                 if entry["message"]:  # e.g. a "stale" note, now resolved by reverting the file
                     self.store.put_entry(user_id, src, path, pid, message=None)
                 if post and post["status"] in self.store.CONFIRMED:  # the file back to what was sent: nothing owed (#427)
-                    self.publisher.settle_edited(post["id"], platform)
+                    self.publisher.settle_edited(post["id"], platform,
+                                                 lambda row: stored_hash(json.loads(row["payload"])) == digest)
             return SyncResult(**base, action="unchanged", status=entry["status"], post_id=entry["post_id"],
                               url=entry["url"])
 
