@@ -23,6 +23,9 @@ COMPONENT = ROOT / "deploy" / "kustomize" / "components" / "openfga"
 SCRIPT = COMPONENT / "migrate.sh"
 PASSWORD = "Pw-review-374-not-a-secret"
 URI = f"postgres://openfga:{PASSWORD}@127.0.0.1:5432/openfga?sslmode=disable"
+# A raw `|` in the password (issue #410): outside RFC 3986's userinfo, so Go's net/url refuses the URI, while libpq
+# and pgx (its own parser, as libpq's: pgconn/parse_url.go at v5.11.0) accept it. A hand-written Secret can hold it.
+RAW_PASSWORD = "Pw|410-not-a-secret"
 
 
 def pinned_images() -> tuple[str, str]:
@@ -187,6 +190,55 @@ class MigrateScript(unittest.TestCase):
                 self.assertEqual(code, 1, log)
                 self.assertIn("no database after 1 s", log)
                 self.assertNotIn(PASSWORD, log)
+
+    def test_a_password_net_url_refuses_reaches_no_log_of_the_init_container_or_the_server(self):
+        """Issue #410: `openfga migrate` parses its URI with Go's net/url before it applies any override
+        (pkg/storage/migrate/migrate.go:80-94 at v1.22.0) and prints the URI it refuses, password included ("invalid
+        database uri: parse ...: net/url: invalid userinfo", measured with the pinned image), while libpq and the
+        server's pgx accept the same URI. So a Secret with a raw `|` in the password let psql take the lock and
+        `openfga migrate` fail, logging the password once a run. migrate.sh gives OpenFGA the URI less the password
+        and the password as OPENFGA_DATASTORE_PASSWORD (cmd/migrate/migrate.go:42: "overwrite the password in the
+        connection string"). The server keeps the whole URI and no override: pgx parses on its own and redacts every
+        error (pgconn/errors.go, redactURLPassword, at v5.11.0), and with an override the server parses the URI with
+        net/url too (pkg/storage/postgres/postgres.go:68-72), which does print it (measured)."""
+        _, openfga = pinned_images()
+        self.sql(f"ALTER ROLE openfga PASSWORD '{RAW_PASSWORD}'", "postgres")
+        self.addCleanup(self.sql, f"ALTER ROLE openfga PASSWORD '{PASSWORD}'", "postgres")
+        uri = f"postgres://openfga:{RAW_PASSWORD}@127.0.0.1:5432/openfga?sslmode=disable"
+        code, log = self.migrate(uri=uri)
+        self.assertNotIn(RAW_PASSWORD, log, "the password in the init container's log")
+        self.assertEqual(code, 0, log)
+        self.assertEqual(self.sql("SELECT max(version_id) FROM goose_db_version"), "6")
+        # The URI env-secrets and CloudNativePG write, percent-encoded: decoded for PGPASSWORD, encoded again by OpenFGA.
+        code, log = self.migrate(uri=uri.replace("|", "%7C"))
+        self.assertEqual(code, 0, log)
+        self.assertNotIn(RAW_PASSWORD, log)
+        self.assertIn('"current version":6', log)
+        # The server, from its own image, on the same database with the same URI: serving, its log without the password.
+        server = f"{self.container}-server"
+        env = ["-eOPENFGA_DATASTORE_ENGINE=postgres", "-eOPENFGA_LOG_FORMAT=json"]
+        subprocess.run(["docker", "run", "-d", "--name", server, "--network", f"container:{self.container}",
+                        *env, f"-eOPENFGA_DATASTORE_URI={uri}", openfga, "run"], check=True, capture_output=True, timeout=60)
+        self.addCleanup(subprocess.run, ["docker", "rm", "-f", server], capture_output=True, timeout=60)
+        health = "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2).read().decode())"
+        status = ""
+        for _ in range(60):
+            status = subprocess.run(["docker", "exec", self.container, "python3", "-c", health],
+                                    capture_output=True, text=True, timeout=30).stdout.strip()
+            if "SERVING" in status:
+                break
+            time.sleep(0.5)
+        done = subprocess.run(["docker", "logs", server], capture_output=True, text=True, timeout=60)
+        log = done.stdout + done.stderr
+        self.assertIn('"SERVING"', status, log)
+        self.assertNotIn(RAW_PASSWORD, log, "the password in the server's log")
+        # A token pgx cannot decode: the server refuses the URI and prints it redacted (`openfga:xxxxx@`).
+        bad = f"postgres://openfga:{RAW_PASSWORD}%zz@127.0.0.1:5432/openfga?sslmode=disable"
+        done = subprocess.run(["docker", "run", "--rm", "--network", f"container:{self.container}", *env,
+                               f"-eOPENFGA_DATASTORE_URI={bad}", openfga, "run"], capture_output=True, text=True, timeout=120)
+        self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("openfga:xxxxx@", done.stdout + done.stderr)
+        self.assertNotIn(RAW_PASSWORD, done.stdout + done.stderr, "the password in the server's log")
 
     def test_a_killed_runner_leaves_no_statement_running_without_the_lock(self):
         """A pod deleted while it migrates: SIGTERM ends bash, PID 1, at once (measured: exit 143 in under a second)
