@@ -9,6 +9,10 @@
   schema in autocommit statements, so nothing ordered two opens. Now the change is made under the write lock, after
   reading the schema again there (as the columns are, issue #176): the opens are ordered, and the last one's guard is
   in place.
+* A marker that is neither ``"1"`` nor a JSON list of table names (a JSON object, a string) was read as a list of
+  whatever iterating it gave, so ``{"posts": 1}`` counted ``posts`` as swept and its orphans stayed; one that iterates
+  to something else (``[1]``) failed only after every table had been read and swept, at every housekeeping. Now any
+  other marker is refused before a table is read, naming the marker and what to do.
 """
 
 from __future__ import annotations
@@ -22,8 +26,8 @@ import unittest
 from unittest import mock
 
 from inkcast.libs.db import Store
-from inkcast.libs.db.erasure import OWNERS, ErasureRepo
-from test_erasure_orphans import KEY, PAYLOAD
+from inkcast.libs.db.erasure import ORPHANS_SWEPT, OWNERS, ErasureRepo
+from test_erasure_orphans import KEY, PAYLOAD, orphan, rows_of, seed
 
 
 class RacingOpener:
@@ -79,6 +83,39 @@ class TwoReleasesOpenAtOnce(unittest.TestCase):
                           run_at=time.time(), payload=PAYLOAD)
         self.assertEqual(newer._one("SELECT COUNT(*) AS n FROM posts WHERE user_id = 'usr_nobody'")["n"], 0,
                          "a post for a person with no users row is still refused")
+
+
+class AMarkerOfAnotherForm(unittest.TestCase):
+    def test_is_refused_before_a_table_is_read_and_says_what_to_do(self):
+        for marker in ('{"posts": 1}', '"posts"', "[1]", "", "0", "null"):
+            with self.subTest(marker=marker):
+                store = Store(":memory:", KEY)
+                self.addCleanup(store.close)
+                ada, _ = seed(store, "ada")
+                orphan(store, ada)
+                orphans = rows_of(store, ada)
+                store._exec("INSERT INTO sync_state VALUES (?, ?, ?)", ORPHANS_SWEPT, marker, time.time())
+                statements: list[str] = []
+                store._conn.set_trace_callback(statements.append)
+                with self.assertRaisesRegex(ValueError, f"{ORPHANS_SWEPT} is neither '1' nor a JSON list of table names:"
+                                                        " delete the row"):
+                    store.sweep_orphans()
+                store._conn.set_trace_callback(None)
+                self.assertEqual([s for s in statements if s.startswith(("SELECT rowid", "DELETE", "INSERT"))], [],
+                                 "no table read, nothing deleted, the marker left for the operator")
+                self.assertEqual(rows_of(store, ada), orphans)
+                self.assertEqual(store.get_sync_state(ORPHANS_SWEPT), marker)
+
+    def test_a_list_and_the_old_marker_are_read_as_before(self):
+        store = Store(":memory:", KEY)
+        self.addCleanup(store.close)
+        ada, _ = seed(store, "ada")
+        orphan(store, ada)
+        store._exec("INSERT INTO sync_state VALUES (?, '[\"posts\"]', ?)", ORPHANS_SWEPT, time.time())
+        swept = store.sweep_orphans()
+        self.assertNotIn("posts", swept)
+        self.assertEqual(rows_of(store, ada)["posts"], 1, "posts is listed: not read again")
+        self.assertEqual(store.sweep_orphans(), {})
 
 
 if __name__ == "__main__":

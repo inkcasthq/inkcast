@@ -340,11 +340,21 @@ class ErasureRepo(Database):
 
     def _swept_tables(self) -> set[str]:
         """The tables the sweep is done with in this database: those the marker lists, those of the release that wrote
-        a marker from before the list, none without a marker."""
+        a marker from before the list, none without a marker. Any other marker is refused before a table is read, with
+        what to do about it: read as a list it would count whatever iterating it gives as swept."""
         row = self._one("SELECT value FROM sync_state WHERE name = ?", ORPHANS_SWEPT)
         if row is None:
             return set()
-        return set(_SWEPT_BY_THE_OLD_MARKER) if row["value"] == "1" else set(json.loads(row["value"]))
+        if row["value"] == "1":
+            return set(_SWEPT_BY_THE_OLD_MARKER)
+        try:
+            tables = json.loads(row["value"])
+        except ValueError:
+            tables = None
+        if not isinstance(tables, list) or not all(isinstance(table, str) for table in tables):
+            raise ValueError(f"sync_state {ORPHANS_SWEPT} is neither '1' nor a JSON list of table names: delete the row,"
+                             " and the next housekeeping sweeps every table again")
+        return set(tables)
 
     def sweep_orphans(self) -> dict[str, int]:
         """Remove the rows of people who have no ``users`` row from every table in ``OWNERS``: what a request that
