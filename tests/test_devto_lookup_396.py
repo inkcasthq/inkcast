@@ -162,7 +162,7 @@ class FindingRecoveryLeavesTheDoubtToThePerson(unittest.TestCase):
         post = store.get_post(post_id)
         self.assertEqual((outcome.status, post["status"], post["remote_id"], post["result_url"]),
                          ("unconfirmed", "unconfirmed", None, None), "the older draft was recorded as the post")
-        self.assertIn("can't be checked automatically", post["error"])
+        self.assertIn("id 1001 (other content, another status)", post["error"], "the reason is not on the post (#428)")
         self.assertTrue(any("id 1001" in r.getMessage() and "other content" in r.getMessage() for r in logged.records),
                         "the reason DEV could not tell is not in the log")
 
