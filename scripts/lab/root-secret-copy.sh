@@ -121,19 +121,28 @@ for secret in "$store_ns/seaweedfs-s3-config" "$adp/cloud-credentials-root-secre
     echo "Secret $secret is absent after the Job" >&2; exit 1
   fi
 done
-# The admission policy, proven as that account with server-side dry runs (nothing is created): the token-type Secret
-# that would let the account read Velero's token is denied, an Opaque Secret under another name is denied, and the
-# Opaque credential under its own name is admitted (the answer is then "already exists" or "created (server dry run)",
-# never the policy's refusal).
-probe() {  # namespace name type: the server's answer, as text
-  $k -n "$1" create secret generic "$2" --type="$3" --from-literal=probe=x --as="$setup_account" --dry-run=server -o name 2>&1 || true
+# The admission policy, proven as that account with server-side dry runs (nothing is created). The API validates a
+# Secret before an admission policy sees it, and a service-account-token Secret must carry the account's annotation
+# (measured: without it the API answers "Required value" and the policy never runs), so the token probe carries it,
+# as an attacker's would. Denied: a service-account-token Secret for Velero's account under the credential's name;
+# an Opaque Secret under another name; the credential annotated for a service account. Admitted: the Opaque
+# credential under its own name (the answer is then "already exists" or "created (server dry run)", never the
+# policy's refusal).
+probe() {  # namespace name type [service account to annotate for]: the server's answer to a dry-run create as the setup account
+  local annotations=""
+  if [ -n "${4:-}" ]; then annotations=",\"annotations\":{\"kubernetes.io/service-account.name\":\"$4\"}"; fi
+  printf '{"apiVersion":"v1","kind":"Secret","type":"%s","metadata":{"name":"%s","namespace":"%s"%s},"data":{"probe":"eA=="}}' \
+    "$3" "$2" "$1" "$annotations" | $k create -f - --dry-run=server --as="$setup_account" -o name 2>&1 || true
 }
-said="$(probe "$adp" cloud-credentials-root-secrets kubernetes.io/service-account-token)"
-case "$said" in *"creates Opaque Secrets only"*) echo "admission: a service-account-token Secret as $setup_account is denied" ;;
+said="$(probe "$adp" cloud-credentials-root-secrets kubernetes.io/service-account-token velero)"
+case "$said" in *"creates Opaque Secrets only"*) echo "admission: a service-account-token Secret for velero, as $setup_account, is denied" ;;
   *) echo "admission: a service-account-token Secret as $setup_account was NOT denied: $said" >&2; exit 1 ;; esac
 said="$(probe "$store_ns" some-other-secret Opaque)"
-case "$said" in *"creates only"*) echo "admission: an Opaque Secret under another name as $setup_account is denied" ;;
+case "$said" in *"creates only"*) echo "admission: an Opaque Secret under another name, as $setup_account, is denied" ;;
   *) echo "admission: another name as $setup_account was NOT denied: $said" >&2; exit 1 ;; esac
+said="$(probe "$adp" cloud-credentials-root-secrets Opaque velero)"
+case "$said" in *"no Secret annotated for a service account"*) echo "admission: the credential annotated for a service account, as $setup_account, is denied" ;;
+  *) echo "admission: the annotated credential as $setup_account was NOT denied: $said" >&2; exit 1 ;; esac
 said="$(probe "$adp" cloud-credentials-root-secrets Opaque)"
 case "$said" in *"seaweedfs-setup creates"*) echo "admission: the Opaque credential under its own name was denied: $said" >&2; exit 1 ;;
   *) echo "admission: the Opaque credential under its own name is admitted ($(printf '%s' "$said" | head -n 1 | cut -c1-80))" ;; esac
