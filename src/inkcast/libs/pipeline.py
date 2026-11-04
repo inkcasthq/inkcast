@@ -550,7 +550,22 @@ class Publisher:
 
     async def run_due(self, now: float | None = None) -> list[Outcome]:
         now = now or time.time()
-        outcomes = [await self.recover(row, now) for row in self.store.claim_stuck(older_than=now - STUCK_AFTER, now=now)]
+        outcomes = []
+        for row in self.store.claim_stuck(older_than=now - STUCK_AFTER, now=now):
+            try:
+                outcomes.append(await self.recover(row, now))
+            except sqlite3.Error:
+                raise  # the store, not this row: the next row's write would fail the same way, so the tick stops
+            except Exception:
+                # One row whose recovery can't even be made (its credentials sealed under another INKCAST_SECRET_KEY,
+                # which ``confirm`` reads outside its guard; a payload this version can't read) must not end the pass
+                # for every row claimed after it, other people's posts included, for the whole of the cap (#446). The
+                # row stays 'recovering', with its clock, and is taken again at the next stuck pass; past the cap
+                # ``recover`` ends it. Counted and logged by post id, so an alert can name a row that keeps failing.
+                log.exception("Post %s on %s: its recovery could not be made; left for the next stuck pass", row["id"],
+                              row["platform"], extra={"event": "publish.recovery.failed", "post_id": row["id"],
+                                                      "platform": row["platform"]})
+                self._count(row["platform"], "recovery_failed")
         for row in self.store.claim_due_posts(now):
             if not self.store.renew_claim(row["id"], row["attempts"]):
                 continue  # another worker took it over as stuck while this batch was being sent: it is theirs now
@@ -567,9 +582,18 @@ class Publisher:
                 self.store.update_post(row["id"], status="failed", error=f"Platform plug-in {row['platform']!r} is not installed.",
                                        events=self._event("post.failed", row["id"], row["user_id"], row["platform"], reason="plugin"))
                 continue
-            prepared = Prepared.from_dict(json.loads(row["payload"]))
-            outcomes.append(await self._send(row["id"], row["user_id"], platform, prepared, row["attempts"], scheduled=True,
-                                             lag=lag, held=row["attempts"]))
+            try:
+                prepared = Prepared.from_dict(json.loads(row["payload"]))
+                outcomes.append(await self._send(row["id"], row["user_id"], platform, prepared, row["attempts"],
+                                                 scheduled=True, lag=lag, held=row["attempts"]))
+            except sqlite3.Error:
+                raise  # the store, not this post: as in recovery, the tick stops
+            except Exception:
+                # Raised outside the send's own guard (credentials sealed under another INKCAST_SECRET_KEY, a payload this
+                # version can't read): the post stays claimed, so recovery takes it after STUCK_AFTER, as when the tick
+                # stopped here, and the batch's other posts, other people's too, are sent now (#446).
+                log.exception("Post %s on %s could not be sent; left for recovery", row["id"], row["platform"],
+                              extra={"post_id": row["id"], "platform": row["platform"]})
         return outcomes
 
     async def run_forever(self, interval: float, stop: asyncio.Event, housekeeping: Any = None,
