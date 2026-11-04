@@ -31,7 +31,7 @@ class AFailedSaveLeavesTheLinkGood(Case):
         dev = Dev()
         app, ctx = self.connector_app(dev)
         user, ticket = a_ticket(ctx)
-        ctx.store._exec("CREATE TEMP TRIGGER r46y_refuse BEFORE INSERT ON credentials "
+        ctx.store._exec("CREATE TEMP TRIGGER refuse_the_save BEFORE INSERT ON credentials "
                         "BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END")
         with TestClient(app, base_url=PUBLIC_URL, raise_server_exceptions=False) as c:
             page = c.get(f"/connect/{ticket}").text
@@ -40,7 +40,7 @@ class AFailedSaveLeavesTheLinkGood(Case):
             self.assertEqual(ctx.store.connected_accounts(user), {}, "nothing was stored")
             self.assertIsNotNone(ctx.store.get_ticket(ticket), "so the link was not used up: another try is allowed")
 
-            ctx.store._exec("DROP TRIGGER r46y_refuse")
+            ctx.store._exec("DROP TRIGGER refuse_the_save")
             page = c.get(f"/connect/{ticket}")
             self.assertEqual(page.status_code, 200, "the person reopens the same link")
             done = c.post(f"/connect/{ticket}", data=form_data(page.text, api_key=GOOD_KEY))
