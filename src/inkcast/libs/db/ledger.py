@@ -141,7 +141,8 @@ class LedgerRepo(Database):
         self._exec("DELETE FROM idempotency WHERE created_at < ?", time.time() - self.IDEMPOTENCY_SECONDS)
 
     def release_idempotency_key(self, user_id: str, key: str) -> None:
-        """The request failed before it had a response: free the key so the client can retry with it."""
+        """Free the key so the client can retry with it: the request failed before it had a response, or its response
+        asks for a re-run (a ``skipped`` or ``failed`` result, #290)."""
         self._exec("DELETE FROM idempotency WHERE user_id = ? AND key = ? AND response = ''", user_id, key)
 
     def ledger_status_counts(self, user_id: str) -> dict[str, int]:

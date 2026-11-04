@@ -49,6 +49,27 @@ class ReRunReview(Harness):
         again = self.post(body, key="refused")                                      # nothing failed: replayed
         self.assertEqual((again.headers.get("idempotent-replayed"), len(self.fakes.devto_articles)), ("true", before + 1))
 
+    def test_the_api_reference_says_when_a_reused_key_is_refused(self):
+        """A key freed for a re-run is free: the same key with a different body then runs, where one kept for replay
+        gets 422 ``idempotency_key_reused``. The API reference said 422 always."""
+        source = f"github.com/acme/blog-{self.id()}"
+        skipped = {"source": source, "files": [{"path": "posts/s.md", "markdown": story("Not connected", platforms="[medium]")}]}
+        other = {"source": source, "files": [{"path": "posts/o.md", "markdown": story("Other file", platforms="[medium]")}]}
+        self.assertEqual(self.post(skipped, key="freed").json()["results"][0]["action"], "skipped")
+        self.assertEqual(self.post(other, key="freed").status_code, 200)
+        kept = {"source": source, "files": [{"path": "posts/k.md", "markdown": story("Kept answer", platforms="[devto]")}]}
+        self.assertEqual(self.post(kept, key="kept").json()["results"][0]["action"], "create")
+        self.assertEqual(self.post(other, key="kept").json()["error"], "idempotency_key_reused")
+        described = self.call_openapi()["paths"]["/api/v1/stories:sync"]["post"]["description"]
+        self.assertIn("the same key with a different body gets 422 `idempotency_key_reused` while the first "
+                      "response is kept", described)
+
+    def call_openapi(self) -> dict:
+        async def run():
+            async with httpx2.AsyncClient(timeout=30) as c:
+                return (await c.get(f"{self.base}/api/openapi.json")).json()
+        return asyncio.run(run())
+
 
 if __name__ == "__main__":
     unittest.main()
