@@ -27,10 +27,26 @@ features:
     - The same driver (scripts/dev/oidc_signin.py) is tested against a Keycloak-shaped fake in single and split mode
     - Split mode against the real Keycloak on kind
   - id: F9.1.S3
-    title: Kustomize component for Keycloak (dev) and docs for a production Keycloak on Postgres
-    status: in-progress
-    change: 'dev Kustomize and production notes in PR #14; a production component waits for ADR-0014''s PostgreSQL'
+    title: Keycloak production component on CloudNativePG
     issue: 386
+    status: in-progress
+    change: 'dev Kustomize and production notes in PR #14; the production component, its kind proof and the pinned
+      Keycloak operator built for #386 (F9.1.S3), on the CloudNativePG of F3.9.S5; the lab''s own Keycloak is not moved
+      by it (an owner decision)'
+    acceptance:
+    - 'A component, deploy/kustomize/components/keycloak-production, renders a Keycloak CR (k8s.keycloak.org, the CRD
+      both the RHBK and the upstream operator serve) in production mode (start, never start-dev), 2 instances, hostname,
+      TLS from a Secret, resources, and db on the CloudNativePG Cluster beside it, whose image is pinned by tag@sha256
+      like components/openfga/cluster.yaml; the database credentials are the Secret CloudNativePG generates
+      (<cluster>-app), no Secret made by hand or kept in Git; tests/test_keycloak_production_component.py checks the
+      rendered objects'
+    - A NetworkPolicy admits 5432 from Keycloak's pods only
+    - 'Each upstream behaviour the component relies on is cited from the pinned upstream source: the Keycloak operator''s
+      spec.db and spec.http, and the name and keys of CloudNativePG''s app Secret'
+    - 'Proved on kind in CI (scripts/dev/keycloak-production-e2e.sh): the upstream Keycloak operator at a pinned version
+      installs, Keycloak becomes Ready on the CloudNativePG database, and the realm import from
+      deploy/keycloak/realm-inkcast.json completes'
+    - deploy/keycloak/README.md § Production points at the component
 - id: F9.2
   phase: 2
   title: Self sign-up

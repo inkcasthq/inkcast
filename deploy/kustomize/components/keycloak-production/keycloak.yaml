@@ -1,0 +1,95 @@
+# The Keycloak server, as the Keycloak operator runs it. The contract is the operator's at Keycloak 26.6.4
+# (operator/src/main/java/org/keycloak/operator at that tag; `operator/src/main` is byte-identical at 26.6.7, the
+# build the lab's RHBK carries): k8s.keycloak.org/v2beta1 is the CRD's storage version (Constants.CRDS_VERSION;
+# v2alpha1 is served with the deprecation warning "Please migrate to v2beta1", keycloak-k8s-resources
+# kubernetes/keycloaks.k8s.keycloak.org-v1.yml at 26.6.4). The CR's name, `keycloak`, is the one
+# scripts/gen-realm-imports.py writes into the lab's realm imports (spec.keycloakCRName).
+#
+# Production mode: the operator's container args are `--verbose start` (KeycloakDeploymentDependentResource.
+# createBaseDeployment), never `start-dev`. It appends `--optimized` only for a custom `spec.image`, or when
+# `spec.startOptimized` is true (same method; the operator default kc.operator.keycloak.start-optimized=false,
+# operator/src/main/resources/application.properties). No `spec.image` here: each operator runs its own default
+# server image (RELATED_IMAGE_KEYCLOAK in its Deployment; the Red Hat build on OpenShift), which is not
+# pre-augmented (quarkus/container/Dockerfile at 26.6.4 runs no `kc.sh build`), so `start` augments at each pod start
+# and `--optimized` would fail. A pre-augmented image (operator/scripts/Dockerfile-custom-image: `kc.sh build
+# --db=postgres ...`) with `startOptimized: true` is the operator's own next step, not this story's: it would pin a
+# server image per platform.
+#
+# The database (KeycloakDistConfigurator.configureDatabase: `db` -> KC_DB, `host` -> KC_DB_URL_HOST, `port` ->
+# KC_DB_URL_PORT, `database` -> KC_DB_URL_DATABASE, and each SecretKeySelector an environment entry with a
+# secretKeyRef, OptionMapper.mapOption): the CloudNativePG Cluster of cluster.yaml, through its read-write Service
+# `keycloak-db-rw` and its generated Secret `keycloak-db-app`, keys `username` and `password` (pkg/specs/secrets.go at
+# v1.30.1). Keycloak's own blueprint (docs/guides/high-availability/single-cluster/deploy-keycloak.adoc at 26.6.4)
+# copies that Secret across namespaces; here the Cluster is in the same namespace, so the CR names it directly and
+# no Secret is made by hand. The pool is sized alike in all three (the blueprint: "identical to allow statement
+# caching"); 10 per instance keeps two instances and the import Jobs within PostgreSQL's default max_connections of
+# 100. TLS to the database: `db-url-properties` appends `?sslmode=require` to the driver's URL (DatabaseOptions.
+# DB_URL_PROPERTIES at 26.6.4), and cluster.yaml's pg_hba rejects anything else. Not `db-tls-mode: verify-server`:
+# that needs the CA certificate in a truststore, and the operator mounts a truststore Secret whole
+# (KeycloakDeploymentDependentResource.addTruststores, no `items`), while CloudNativePG's `keycloak-db-ca` Secret
+# holds the CA's private key beside its certificate (pkg/certs/certs.go at v1.30.1, CAPrivateKeyKey = "ca.key"). A
+# CA-only object would be made by hand; a CA from cert-manager (#299) is the way to verification.
+#
+# TLS: `http.tlsSecret` names a kubernetes.io/tls Secret the operator mounts at /mnt/certificates and passes as
+# `https-certificate-file` and `https-certificate-key-file` (KeycloakDistConfigurator.configureHttp, Constants.
+# CERTIFICATES_FOLDER). HTTP stays off (HttpSpec.httpEnabled unset), so the pods answer on 8443 only, and the
+# operator's own NetworkPolicy (on by default, NetworkPolicySpec.networkPolicyEnabled; KeycloakNetworkPolicyDependentResource)
+# admits 8443 and the management port 9000 to the pods and the JGroups ports 7800 and 57800 to the instance's own
+# pods only. The Secret is not in Git and the component does not make it: who issues the certificate is the
+# platform's (cert-manager, or OpenShift's service CA), as `inkcast-secrets` is for the environments.
+#
+# Hostname: `hostname.hostname` becomes KC_HOSTNAME (configureHostname). Keycloak's hostname-strict defaults to true
+# ("If enabled, the 'hostname' option needs to be specified": HostnameV2Options at 26.6.4), so the value is required,
+# and it is the issuer of every realm: there is no value a shared component can know. The one here is reserved as
+# unresolvable (RFC 2606, `.invalid`): a kustomization that forgets to patch it gets a server whose issuer no browser
+# can reach, seen at the first sign-in, instead of a resolvable but wrong one. The CI overlay patches it;
+# tests/test_keycloak_production_component.py checks that every rendered kustomization does.
+#
+# Two instances (`instances`, Keycloak's `replicas`), discovering each other through the database (the default
+# `jdbc-ping` stack in Keycloak 26). Resources: the operator's defaults are 1700Mi requested and 2Gi limited
+# (application.properties); Keycloak's sized blueprint requests 1250M and limits 2250M per pod
+# (docs/guides/high-availability/single-cluster/deploy-keycloak.adoc at 26.6.4). 1250Mi requested and 2Gi limited
+# here. The request covers a start, measured on kind (scripts/dev/keycloak-production-e2e.sh prints the cgroup's
+# memory.current): a pod peaked at 1042 MiB while it augmented the distribution and committed its initial heap, which
+# kc.sh sizes from the limit (JAVA_OPTS_KC_HEAP: -XX:InitialRAMPercentage=50 -XX:MaxRAMPercentage=70 at 26.6.4, so
+# 1Gi committed and up to 1.4Gi of heap under 2Gi); with both lab realms imported the two pods then held 644 and 689
+# MiB (465 and 511 MiB anonymous, the rest the file cache). No ServiceAccount token: the server never calls the
+# Kubernetes API (`automountServiceAccountToken`, KeycloakSpec; the operator's default is true).
+#
+# Pod Security: the operator sets no securityContext on its pods (none in operator/src/main at 26.6.4). On OpenShift
+# the restricted-v2 SCC supplies one, as for the lab's Keycloak; on plain Kubernetes under Pod Security "restricted"
+# the kustomization adds it through `spec.unsupported.podTemplate`, which the operator uses as the basis of the pod
+# template (createBaseDeployment, withNewTemplateLike) and the import Job copies (KeycloakRealmImportJobDependentResource).
+# The CI overlay (overlays/ci-keycloak-production) shows the patch. Not here: the field is Tech Preview
+# (docs/guides/operator/advanced-configuration.adoc, "Unsupported features"), and OpenShift needs none of it.
+#
+# Left to the operator's defaults, on purpose: the Ingress (IngressSpec.ingressEnabled, TLS passthrough to 8443,
+# which OpenShift's ingress-to-route controller turns into a Route to the hostname), and the bootstrap admin, a
+# Secret `keycloak-initial-admin` the operator generates (advanced-configuration.adoc, "Admin Bootstrapping").
+apiVersion: k8s.keycloak.org/v2beta1
+kind: Keycloak
+metadata:
+  name: keycloak
+  labels: {app.kubernetes.io/name: keycloak, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: identity}
+spec:
+  instances: 2
+  automountServiceAccountToken: false
+  db:
+    vendor: postgres
+    host: keycloak-db-rw
+    port: 5432
+    database: keycloak
+    usernameSecret: {name: keycloak-db-app, key: username}
+    passwordSecret: {name: keycloak-db-app, key: password}
+    poolInitialSize: 10
+    poolMinSize: 10
+    poolMaxSize: 10
+  additionalOptions:
+    - {name: db-url-properties, value: "?sslmode=require"}
+  http:
+    tlsSecret: keycloak-tls
+  hostname:
+    hostname: https://keycloak.example.invalid
+  resources:
+    requests: {cpu: 500m, memory: 1250Mi}
+    limits: {memory: 2Gi}

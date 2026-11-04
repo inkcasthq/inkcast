@@ -1,0 +1,69 @@
+# Who may reach Keycloak's PostgreSQL pods (selected by cnpg.io/cluster, the label the operator puts on every
+# instance pod: docs/src/labels_annotations.md at v1.30.1), on the pattern of shared/inkcast-db/networkpolicy.yaml:
+#
+#   - Keycloak's pods, on 5432. The operator labels every server pod app=keycloak,
+#     app.kubernetes.io/managed-by=keycloak-operator (Constants.DEFAULT_LABELS) and app.kubernetes.io/instance=<the
+#     CR's name> (Utils.allInstanceLabels), at Keycloak 26.6.4, operator/src/main/java/org/keycloak/operator. A realm
+#     import Job copies that pod template and relabels it app=keycloak-realm-import, the other two labels kept
+#     (KeycloakRealmImportJobDependentResource.desired: "The Job should not be selected with app=keycloak"); its
+#     `kc.sh import` writes the realm into this database, so it is admitted too. Both carry the instance label of this
+#     CR, `keycloak`: another Keycloak in the namespace would not match.
+#   - The CloudNativePG operator, on 8000 and 5432 ("please ensure the operator can reach every cluster pod on ports
+#     8000 and 5432, and that pods can connect to each other": docs/src/networking.md at v1.30.1; the operator's own
+#     sample, docs/src/samples/networkpolicy-example.yaml, admits exactly those from its namespace and pod label). The
+#     operator's pods carry app.kubernetes.io/name=cloudnative-pg (releases/cnpg-1.30.1.yaml, the Deployment). Two
+#     namespaces are named, so the same component serves both platforms without a patch: `cnpg-system`, where the
+#     release manifest installs the operator (kind, a self-host), and `openshift-operators`, where the lab's
+#     OLM-installed operator runs (shared/inkcast-db/networkpolicy.yaml). Both by kubernetes.io/metadata.name, the
+#     label the API server sets to the namespace's name, as the sample does: any namespace can carry
+#     app.kubernetes.io/name=cloudnative-pg.
+#   - The cluster's own pods, on 5432 and 8000: streaming replication and the instance managers' status calls once
+#     `instances` grows.
+#
+# Nothing else: an Inkcast pod, or any pod in another namespace, cannot open 5432. Metrics (9187) stay closed, no
+# PodMonitor being enabled. The kubelet's probes on 8000 come from the node, outside NetworkPolicy on OVN-Kubernetes
+# (the base policy already relies on that for Inkcast's own probes). Egress is not restricted: the instance manager
+# reports to the Kubernetes API. Keycloak's own pods have the operator's NetworkPolicy (keycloak.yaml, "TLS").
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak-db
+  labels: {app.kubernetes.io/name: keycloak-db, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: identity-db}
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: keycloak-db
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: keycloak
+              app.kubernetes.io/managed-by: keycloak-operator
+              app.kubernetes.io/instance: keycloak
+        - podSelector:
+            matchLabels:
+              app: keycloak-realm-import
+              app.kubernetes.io/managed-by: keycloak-operator
+              app.kubernetes.io/instance: keycloak
+      ports:
+        - {port: 5432, protocol: TCP}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cnpg-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: cloudnative-pg
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openshift-operators
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: cloudnative-pg
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: keycloak-db
+      ports:
+        - {port: 8000, protocol: TCP}
+        - {port: 5432, protocol: TCP}

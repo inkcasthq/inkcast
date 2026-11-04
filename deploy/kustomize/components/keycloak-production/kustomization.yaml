@@ -1,0 +1,29 @@
+# Keycloak in production mode, on its own PostgreSQL run by CloudNativePG (E9.F9.1.S3, issue #386; ADR-0006 for
+# Keycloak, ADR-0014 for the database). What deploy/keycloak/keycloak.yaml is for development (`start-dev`, in-memory,
+# HTTP), this is for a cluster: the Keycloak operator's `Keycloak` CR with `start` on PostgreSQL, two instances behind
+# TLS, and a `Cluster` the CloudNativePG operator runs. Nothing is made by hand: the database credentials are the
+# Secret CloudNativePG generates, and the realm comes in through the `KeycloakRealmImport`s of
+# shared/keycloak-realms (scripts/gen-realm-imports.py), which name this CR (`keycloak`).
+#
+# Two operators are prerequisites, as for components/openfga: CloudNativePG (scripts/versions.env, CNPG_VERSION) and
+# the Keycloak operator (KEYCLOAK_OPERATOR_VERSION there; on OpenShift the Red Hat build of Keycloak Operator serves
+# the same CRD, k8s.keycloak.org). Both must watch the namespace this component renders into; the upstream Keycloak
+# operator watches only its own namespace (QUARKUS_OPERATOR_SDK_CONTROLLERS_*_NAMESPACES=JOSDK_WATCH_CURRENT in
+# keycloak-k8s-resources kubernetes/kubernetes.yml at 26.6.4), so it is installed there.
+#
+# What the kustomization that uses this component supplies, by a patch on the Keycloak CR:
+#   - `spec.hostname.hostname`, the public URL of this Keycloak (keycloak.yaml says why the value here cannot serve);
+#   - on plain Kubernetes under Pod Security "restricted", the pod securityContext (keycloak.yaml, "Pod Security");
+# and, outside Git, a kubernetes.io/tls Secret `keycloak-tls` in the namespace: the server's certificate (keycloak.yaml).
+#
+# Proved on kind by scripts/dev/keycloak-production-e2e.sh (the kind CI job): the operators at their pinned versions,
+# the CR Ready with two pods on the CloudNativePG database, the lab's realm imports Done, the realms in PostgreSQL over
+# TLS, and the discovery document served over HTTPS. The rendered objects are checked by
+# tests/test_keycloak_production_component.py.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - cluster.yaml
+  - keycloak.yaml
+  - networkpolicy.yaml
+  - pdb.yaml                    # one server pod through a drain (review of #391, K3)
