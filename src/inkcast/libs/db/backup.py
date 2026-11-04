@@ -13,8 +13,8 @@
   the newest backup from before today has aged out (``keep`` or more days old; more than one with ``keep`` 1),
   either this clock has jumped that far ahead or no backup succeeded for the whole retention window, and the run
   removes nothing and says so (``Backup.refused``; the command exits 1, so the Job fails and the alert fires). Such a
-  day costs one copy: a run that finds today's copy of the same database there already (the Job's retries) takes
-  none, and is refused the same way (issue #471). A copy a wrong clock dated after today ages out with the day its
+  day costs one copy: a run that finds today's copy of the same database there already, still matching its
+  checksum (the Job's retries), takes none, and is refused the same way (issue #471). A copy a wrong clock dated after today ages out with the day its
   run followed (``previous``), not with its own date (``_dated``).
 * ``verify_backup``: the checksum against the manifest (one that is empty or cannot be read fails, issue #471), then
   the integrity check.
@@ -345,8 +345,8 @@ def take_backup(database: pathlib.Path, directory: pathlib.Path, *, keep: int = 
     newest = max(dated.values(), default=None)      # recorded in the manifest: what this copy's day follows
     refused = _refusal(dated, now, keep)
     if refused:
-        # Every copy of a refused day was taken by a run refused alike (the refusal rests on the days before today), so
-        # another one of the same database, the Job's retry, would only fill the volume: one copy a day (issue #471). A
+        # Today's copy of the same database is a good copy of the day, whether its run was refused or not (keep can
+        # change during the day), so another one, the Job's retry, would only fill the volume: one copy a day (#471). A
         # copy that changed after it was taken (its checksum) is no restore point, so it does not stand for the day.
         today = datetime.fromtimestamp(now, timezone.utc).date()
         for held in sorted((path for path, day in dated.items() if day.date() == today), reverse=True):

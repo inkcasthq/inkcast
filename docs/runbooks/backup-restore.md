@@ -40,6 +40,8 @@ oc -n "$NS" create job inkcast-backup-now --from=cronjob/inkcast-backup
 oc -n "$NS" logs job/inkcast-backup-now        # look for "event": "backup.done"
 ```
 
+On a day whose retention is refused (`backup.retention.refused`, above), a run after the day's first finds that day's copy and takes none: it logs `backup.retention.refused` alone, naming the copy, and exits 1, and rows written since that copy are in no backup until the next day's run (#471). Fix what the refusal names first.
+
 ## List the backups
 
 ```bash

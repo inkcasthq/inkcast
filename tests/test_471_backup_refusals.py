@@ -104,7 +104,7 @@ def refusal(docs: list[dict]) -> str:
     return f"schedule {schedule!r} leaves {gap} days between two runs, INKCAST_BACKUP_KEEP is {keep}: {why}" if why else ""
 
 
-@unittest.skipUnless(shutil.which("kubectl"), "kubectl renders the kustomizations (CI's manifests job has it)")
+@unittest.skipUnless(shutil.which("kubectl"), "kubectl renders the kustomizations (CI's test job has the runner image's)")
 class TheScheduleAgainstKeep(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
