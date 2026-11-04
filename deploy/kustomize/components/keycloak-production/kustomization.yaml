@@ -26,3 +26,4 @@ resources:
   - cluster.yaml
   - keycloak.yaml
   - networkpolicy.yaml
+  - pdb.yaml                    # one server pod through a drain (review of #391, K3)
