@@ -12,9 +12,11 @@
 #     8000 and 5432, and that pods can connect to each other": docs/src/networking.md at v1.30.1; the operator's own
 #     sample, docs/src/samples/networkpolicy-example.yaml, admits exactly those from its namespace and pod label). The
 #     operator's pods carry app.kubernetes.io/name=cloudnative-pg (releases/cnpg-1.30.1.yaml, the Deployment). Two
-#     namespaces are named, so the same component serves both platforms without a patch: `cnpg-system`, which the
-#     release manifest creates with the label app.kubernetes.io/name=cloudnative-pg (kind, a self-host), and
-#     `openshift-operators`, where the lab's OLM-installed operator runs (shared/inkcast-db/networkpolicy.yaml).
+#     namespaces are named, so the same component serves both platforms without a patch: `cnpg-system`, where the
+#     release manifest installs the operator (kind, a self-host), and `openshift-operators`, where the lab's
+#     OLM-installed operator runs (shared/inkcast-db/networkpolicy.yaml). Both by kubernetes.io/metadata.name, the
+#     label the API server sets to the namespace's name, as the sample does: any namespace can carry
+#     app.kubernetes.io/name=cloudnative-pg.
 #   - The cluster's own pods, on 5432 and 8000: streaming replication and the instance managers' status calls once
 #     `instances` grows.
 #
@@ -49,7 +51,7 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              app.kubernetes.io/name: cloudnative-pg
+              kubernetes.io/metadata.name: cnpg-system
           podSelector:
             matchLabels:
               app.kubernetes.io/name: cloudnative-pg
