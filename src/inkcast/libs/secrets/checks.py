@@ -352,7 +352,7 @@ def _check_pat_expiry(ctx: _Ctx) -> Check:
 # F1.10.S5 (issue #93): the sync interval at a minute or more breaks the "cut off within a minute" promise (README,
 # E9.F9.5.S2, the deletion page); the reconcile's bound is hard (libs/config.KEYCLOAK_RECONCILE_CEILING), not a warning.
 SYNC_INTERVAL_WARN_SECONDS = 60
-# Daily copies: above this a deleted person's data lingers in backups over five weeks (issue #94).
+# Days a backup is kept: above this a deleted person's data lingers in backups over five weeks (issue #94).
 BACKUP_KEEP_WARN = 35
 # Writes a minute from one client address: above this (ten a second, which no person submitting a form reaches) the
 # limit no longer slows a tool guessing the one shared password of INKCAST_LOGIN=password (#157). Still far under the
@@ -419,13 +419,13 @@ def _check_backup_keep(ctx: _Ctx) -> Check:
 
 
 def backup_keep_warning(keep: int, setting: str = "INKCAST_BACKUP_KEEP") -> str | None:
-    """The backup-keep warning for ``keep`` daily copies, or None within BACKUP_KEEP_WARN: the check's detail, and what
+    """The backup-keep warning for ``keep`` days, or None within BACKUP_KEEP_WARN: the check's detail, and what
     ``inkcast backup`` logs when ``--keep`` (``setting``) or the variable says more (#157)."""
     if keep <= BACKUP_KEEP_WARN:
         return None
     return (f"{setting}={keep}: a deleted person's data stays in backups for {keep} days, more than the {BACKUP_KEEP_WARN} "
-            "the deletion pages should promise. Keep fewer daily copies (the default is 14), the same for the CronJob and "
-            "the server.")
+            "the deletion pages should promise. Keep backups fewer days (the default is 14), the same for the CronJob "
+            "and the server.")
 
 
 def _check_database_file(ctx: _Ctx) -> Check:

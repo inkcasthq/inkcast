@@ -7,4 +7,4 @@ spec:
   accessModes: [ReadWriteOnce]
   resources:
     requests:
-      storage: 2Gi        # 14 daily copies of a small SQLite file; grow it with the data
+      storage: 2Gi        # 14 days of daily copies of a small SQLite file (INKCAST_BACKUP_KEEP); grow it with the data

@@ -13,7 +13,7 @@ This runbook keeps that file safe.
 | What | Where |
 |---|---|
 | Daily backup | The `backup` component, on by default in the OpenShift, Kubernetes and CI overlays: CronJob `inkcast-backup`, 03:17 UTC |
-| Copies kept | 14, on the separate volume `inkcast-backups` (`INKCAST_BACKUP_KEEP`). A person who deletes their account is erased from the database at once, but a backup taken before that still holds their data until it ages out, within this many days; the deletion pages tell them so, with this number, so the server reads `INKCAST_BACKUP_KEEP` too (set it in the shared ConfigMap when the CronJob's value changes) |
+| Retention | `INKCAST_BACKUP_KEEP` days (14), on the separate volume `inkcast-backups`: a backup that many days old or older is removed by the next good backup. By age, not by count, so a backup taken by hand evicts no daily copy, and the first good backup after days without one removes everything that old at once; the days without one are the alert's. A person who deletes their account is erased from the database at once, but a backup taken before that still holds their data until it ages out, within this many days; the deletion pages tell them so, with this number, so the server and the CronJob read `INKCAST_BACKUP_KEEP` from the same ConfigMap, `inkcast-config` (unset there, both fall back to 14) |
 | Alert | [InkcastBackupMissing](alerts.md#inkcastbackupmissing): no successful backup for 26 hours (critical) |
 | Drill | `scripts/ops/backup-drill.sh`, run by CI on kind for every change |
 | Recovery point | Up to 24 hours (one backup a day); take one before any risky change |
@@ -27,9 +27,9 @@ The copy only counts if all of these hold:
 2. it is renamed into place from a temporary name;
 3. a manifest is written beside it (`inkcast-<time>.json`, with the size, SHA-256 and the row count of every table).
 
-Retention removes the oldest copies, and only after a good backup. A failed backup removes nothing.
+Retention removes the copies `INKCAST_BACKUP_KEEP` or more days old (the day in the file's name, UTC), with what a backup killed midway left that old (`.inkcast-<time>.db.partial`, or a backup without its manifest), and only after a good backup. A failed backup removes nothing, so while the CronJob fails the older copies stay: that is what [InkcastBackupMissing](alerts.md#inkcastbackupmissing) reports, and the first good backup removes them.
 
-**A backup is as sensitive as the database.** Platform credentials inside it are encrypted with `INKCAST_SECRET_KEY`, so the backup is useless without that key, and the two must never be stored together. Files are written `0640`, and the backup pod has no network at all (its NetworkPolicy denies everything).
+**A backup is as sensitive as the database.** Platform credentials inside it are encrypted with `INKCAST_SECRET_KEY`, so the backup is useless without that key, and the two must never be stored together. Files are written `0640`, and the backup pod has no network at all (its NetworkPolicy denies everything). Deleted content is overwritten in the database (`PRAGMA secure_delete`, set by every connection the server opens), so a backup taken after an erasure carries none of the erased rows' bytes in its free space; one taken before holds them whole, until it ages out.
 
 ## Take one now
 
@@ -63,7 +63,7 @@ The script does the following, stopping at the first failure:
    - only then swaps it in.
 3. Once the Job's `Complete` condition is set, and only then, scales the server back up and waits for it to be ready. **Before it serves anything, the server re-applies the erasures:** when a process opens the store it looks up, through an index, everyone whose stored hash (`users.erasure_hash`, written when the person was created) is in `user_erasures` but who has rows, which is what a backup taken before their deletion brings back, and erases them again. One log line per person, `identity.erasure.reapplied`, with the id and the number of rows; no second audit row, and `inkcast_identity_users_deleted_total` does not move (it was one deletion). The step costs the records and the matches, not the number of users; with nothing to do, one read. A backup from before the hash column existed is filled in once, at that first open (one hash per person, in batches), at the one-off cost described under [Upgrading to the hash column](#upgrading-to-the-hash-column). Check the server's log after the rollout: `oc -n "$NS" logs deploy/inkcast | grep identity.erasure.reapplied`.
 
-Nothing is deleted. The replaced database stays on the data volume as `inkcast.db.before-restore-<time>`, with its WAL files.
+Nothing is deleted by the restore. The replaced database stays on the data volume as `inkcast.db.before-restore-<time>`, with its WAL files, until it ages out: it holds whoever is erased after the restore, so the daily backup removes it, with those files, once it is `INKCAST_BACKUP_KEEP` or more days old (`removed_copies` in the `backup.done` line), the same rule as the backups. It is there to look into a restore that went wrong, not to restore from: `inkcast restore` only takes a backup with its manifest, and putting the copy back by hand would skip the carry of erasure records above. To go back to it within those days: scale the server to 0, run `inkcast backup --database /data/inkcast.db.before-restore-<time> --to /backups` as a Job with both volumes (the restore Job above, with `/backups` writable), then restore that backup. Its name carries the copy's time, not today's, so it ages out when the copy would have (a copy already that old is refused).
 
 **The server and the restore Job never run at the same time.** The script reports "Restored" only when the Job completed. On every other path it removes the Job and its pod (`kubectl delete job --cascade=foreground --wait`) and confirms no pod of the Job is left *before* it scales the server back up, then exits non-zero saying nothing was replaced:
 - the Job failed (its log is printed first; a failed Job is removed rather than left for its `ttlSecondsAfterFinished`);
@@ -86,6 +86,8 @@ The first start on an image with `users.erasure_hash` (issue #113) fills the has
 
 The log says how far it has got, one line per batch (`identity.erasure_hash.backfill`: the rows filled so far, the rows without a hash when that process started, the batches), and one line when every user has a hash (`identity.erasure_hash.backfilled`). A start with nothing to fill logs nothing.
 
+**The fill and a rotated key.** The fill writes each hash under the key current at that start. The record of an erasure carries the hash stored with the person's row when they were erased, so a row restored *with* its hash matches its record whatever key is current now; a row filled now matches only records made under the current key. When the fill runs beside existing records (a restore of a backup from before the column), the server logs `identity.erasure_hash.filled_with_records` with the rows filled, the records, and how many people were re-erased at that start. If `INKCAST_SECRET_KEY` was rotated since the oldest record, the people erased before the rotation whose rows that backup brought back are matched by no record and are not re-erased by this step: the Keycloak sync's first pass covers them as the limitation above describes (erased with their `DELETE_ACCOUNT` event, cut off otherwise), so watch it finish. With no rotation since, the line is information only.
+
 **A restart in the middle is safe.** Each batch commits on its own, so a pod stopped mid-fill keeps the batches it committed, and the next start fills what is left and counts from there; nothing is filled twice and nothing is lost. The startup probe allows 60 seconds (`failureThreshold` 30 at `periodSeconds` 2), which a database of several million users, or a slow node, can outlast: the pod is then restarted mid-fill, and converges, since every start gets a minute's worth of batches further. Expect [InkcastPodRestarting](alerts.md#inkcastpodrestarting) only if that takes more than three restarts; raise the startup probe's `failureThreshold` for that one rollout if it does.
 
 ## By hand (outside Kubernetes)
@@ -103,6 +105,10 @@ The same rules apply: the restore carries the erasure records of the database it
 `inkcast-backups` lives in the same cluster as the data, so losing the whole cluster loses both. Protect it further with either:
 - volume snapshots of `inkcast-backups` replicated by the storage platform (OpenShift Data Foundation, a CSI driver with snapshot classes); or
 - a Velero schedule for the namespace.
+
+**Their retention must be at most `INKCAST_BACKUP_KEEP` days.** A snapshot or a Velero backup is a copy outside the rotation above: nothing here removes it, and the deletion pages promise that copies of a person's data age out within `INKCAST_BACKUP_KEEP` days, so a longer retention on the snapshot schedule or the Velero schedule (`--ttl`) makes the pages understate it. Set it to that many days or fewer, and when `INKCAST_BACKUP_KEEP` changes, change it too. A snapshot of `inkcast-data` (the live database, with the copies restores leave beside it) is bound by the same days.
+
+Restoring from such a copy puts files back as they were. A volume restore of `inkcast-backups` brings the backups back, and `inkcast restore` from one of them carries the erasure records and the server re-erases, as above. A volume restore of `inkcast-data` puts a whole database in place with no carry: that is the lost-database case of the limitation above, so the people erased since that copy was taken are known only to Keycloak, and the first sync pass after start-up erases or cuts them off as described there.
 
 Story E7.F7.6.S2 covers object-storage replication.
 

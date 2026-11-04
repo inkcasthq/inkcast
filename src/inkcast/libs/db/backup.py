@@ -5,11 +5,15 @@
 * ``take_backup``: a consistent copy while the server keeps serving, through SQLite's online backup API (it copies
   a snapshot, WAL included; a plain file copy of a live WAL database can be torn). The copy is checked with
   ``PRAGMA integrity_check`` before it counts, written under a temporary name and renamed into place, and
-  described by a manifest beside it (size, SHA-256, row counts per table). Old backups beyond ``keep`` are removed,
-  oldest first; a failed backup never removes anything.
+  described by a manifest beside it (size, SHA-256, row counts per table). Backups ``keep`` or more days older than
+  the one just taken are removed (by age, not by count, issue #112: an extra backup on the same day evicts no daily
+  copy, and the first good backup after days without one removes everything that old at once); a failed backup never
+  removes anything, so the alert on a missed backup (InkcastBackupMissing) covers the days in between.
 * ``verify_backup``: the checksum against the manifest, then the integrity check.
 * ``restore_backup``: verifies first, refuses while the scheduler's heartbeat is fresh (the server is still running),
   and never deletes the current database: it is moved aside as ``<db>.before-restore-<time>`` with its WAL files.
+  That copy holds whoever is erased after the restore, so it ages out with the backups: ``take_backup`` removes it,
+  with those files, once it is ``keep`` or more days old (issue #112), and ``aside_copies`` lists what is there.
   The ``user_erasures`` audit rows of the database being replaced are carried into the restored copy (issue #94): a
   backup taken before a person's erasure holds their rows and not the record of it, and that record is what lets
   the server erase them again when it next opens the store (``Store.reapply_erasures``). So are their
@@ -18,8 +22,8 @@
 
 A backup is as sensitive as the database: platform credentials inside are encrypted with INKCAST_SECRET_KEY (keep
 the key, or the backup can't be used, and never store the two together), and tokens are stored only as hashes.
-Files are written 0640. Until they age out (``keep`` daily copies, INKCAST_BACKUP_KEEP), backups hold an erased
-person's data too; the deletion pages say so.
+Files are written 0640. Until they age out (``keep`` days, INKCAST_BACKUP_KEEP), backups hold an erased person's
+data too; the deletion pages say so.
 """
 
 from __future__ import annotations
@@ -40,8 +44,10 @@ log = logging.getLogger(__name__)
 
 PREFIX = "inkcast-"
 SUFFIX = ".db"
+ASIDE = ".before-restore-"  # <db>.before-restore-<time>: the database a restore replaced, beside the restored one
+STAMP = "%Y%m%dT%H%M%SZ"    # the UTC time in every copy's name: names sort by time, and say which day a copy is from
 FRESH_HEARTBEAT_SECONDS = 120
-DEFAULT_KEEP = 14           # daily copies; the CronJob's INKCAST_BACKUP_KEEP and Config.backup_keep say the same
+DEFAULT_KEEP = 14           # days; the CronJob's INKCAST_BACKUP_KEEP and Config.backup_keep say the same
 
 
 class BackupError(Exception):
@@ -52,10 +58,78 @@ class BackupError(Exception):
 class Backup:
     path: pathlib.Path
     manifest: dict
+    removed_backups: int = 0    # backups ``keep`` or more days older than this one, removed once it was good
+    removed_copies: int = 0     # the copies restores left beside the database (``ASIDE``) that old, removed too
 
     @property
     def name(self) -> str:
         return self.path.name
+
+
+def _stamp(now: float) -> str:
+    return datetime.fromtimestamp(now, timezone.utc).strftime(STAMP)
+
+
+def _stamped(text: str) -> datetime | None:
+    """The time a copy's name carries, or None for a name that carries none: retention leaves such a file alone."""
+    try:
+        return datetime.strptime(text, STAMP).replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def _aged_out(stamp: datetime, now: float, keep: int) -> bool:
+    """Whether a copy from ``stamp`` is ``keep`` or more days old on the day of ``now``. Days are UTC dates, so the
+    daily backup removes the one taken ``keep`` days earlier whatever the minutes between the two runs, an extra
+    backup on the same day evicts nothing, and the copy just taken (``keep`` is 1 or more) is never removed."""
+    today = datetime.fromtimestamp(now, timezone.utc).date()
+    return (today - stamp.date()).days >= keep
+
+
+def _prune_backups(directory: pathlib.Path, keep: int, now: float) -> int:
+    """Remove the backups in ``directory`` that are ``keep`` or more days old, with their manifests; how many went.
+    What a backup killed midway left goes by the same rule: a backup renamed into place without its manifest (counted)
+    and a ``.partial`` copy (a SIGTERM at the Job's deadline runs no cleanup), each a whole copy (issue #112)."""
+    removed = 0
+    for old in sorted(directory.glob(f"{PREFIX}*{SUFFIX}")):     # with or without its manifest
+        stamp = _stamped(old.name[len(PREFIX):-len(SUFFIX)])
+        if stamp is not None and _aged_out(stamp, now, keep):
+            old.unlink(missing_ok=True)
+            _manifest_path(old).unlink(missing_ok=True)
+            removed += 1
+    for partial in directory.glob(f".{PREFIX}*{SUFFIX}.partial"):
+        stamp = _stamped(partial.name[len(PREFIX) + 1:-len(SUFFIX + ".partial")])
+        if stamp is not None and _aged_out(stamp, now, keep):
+            partial.unlink(missing_ok=True)
+    return removed
+
+
+def aside_copies(database: pathlib.Path) -> list[pathlib.Path]:
+    """The copies restores left beside ``database`` (``<db>.before-restore-<time>``), oldest first: the files whose
+    name carries a time, not their WAL files, and not a copy someone named by hand."""
+    prefix = database.name + ASIDE
+    return sorted(p for p in database.parent.glob(f"{prefix}*") if _stamped(p.name[len(prefix):]) is not None)
+
+
+def _content_time(database: pathlib.Path, now: float) -> float:
+    """When the content of ``database`` is from: ``now``, or for a restore's copy (``<db>.before-restore-<time>``) the
+    time of that restore. A backup of the copy (the runbook's way back to it) is named with that time, so it ages out
+    when the copy would have: the copy holds whoever was erased after the restore (issue #112)."""
+    base, _, rest = database.name.rpartition(ASIDE)
+    stamp = _stamped(rest) if base else None
+    return stamp.timestamp() if stamp else now
+
+
+def _prune_copies(database: pathlib.Path, keep: int, now: float) -> int:
+    """Remove the copies restores left beside ``database`` that are ``keep`` or more days old, each with its WAL files
+    (the restore moved them aside with it); how many copies went."""
+    removed = 0
+    for copy in aside_copies(database):
+        if _aged_out(_stamped(copy.name[len(database.name + ASIDE):]), now, keep):
+            for extra in ("", "-wal", "-shm"):
+                copy.with_name(copy.name + extra).unlink(missing_ok=True)
+            removed += 1
+    return removed
 
 
 def _sha256(path: pathlib.Path) -> str:
@@ -102,7 +176,11 @@ def take_backup(database: pathlib.Path, directory: pathlib.Path, *, keep: int = 
     if keep < 1:
         raise BackupError("keep must be at least 1.")
     directory.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.fromtimestamp(now or time.time(), timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    now = now or time.time()
+    taken = _content_time(database, now)
+    if _aged_out(datetime.fromtimestamp(taken, timezone.utc), now, keep):
+        raise BackupError(f"{database.name} is {keep} or more days old: it has aged out, and a backup of it would too.")
+    stamp = _stamp(taken)
     target = directory / f"{PREFIX}{stamp}{SUFFIX}"
     if target.exists():
         raise BackupError(f"{target.name} already exists; one backup per second at most.")
@@ -138,10 +216,11 @@ def take_backup(database: pathlib.Path, directory: pathlib.Path, *, keep: int = 
         raise
     finally:
         os.umask(old_umask)
-    for old in list_backups(directory)[:-keep]:         # retention, oldest first, only after a good backup
-        old.unlink(missing_ok=True)
-        _manifest_path(old).unlink(missing_ok=True)
-    return Backup(target, manifest)
+    # Retention, only after a good backup: by age, so the promise "within keep days" holds from the first good backup
+    # after any run of failed ones, and a backup taken by hand evicts no daily copy. The copies restores left beside
+    # the database go by the same rule: they hold whoever was erased after the restore (issue #112).
+    return Backup(target, manifest, removed_backups=_prune_backups(directory, keep, now),
+                  removed_copies=_prune_copies(database, keep, now))
 
 
 def verify_backup(path: pathlib.Path) -> dict:
@@ -259,8 +338,7 @@ def restore_backup(path: pathlib.Path, database: pathlib.Path, *, force: bool = 
                  extra={"event": "restore.erasures.carried", "rows": carried, "aliases": aliases})
     aside = None
     if database.exists():
-        stamp = datetime.fromtimestamp(now, timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        aside = database.with_name(f"{database.name}.before-restore-{stamp}")
+        aside = database.with_name(f"{database.name}{ASIDE}{_stamp(now)}")   # ages out: aside_copies, take_backup
         os.link(database, aside)                        # a second name: the old file stays at its path until replaced
         for extra in ("-wal", "-shm"):                  # the old WAL belongs to the old file, never the restored one
             side = database.with_name(database.name + extra)

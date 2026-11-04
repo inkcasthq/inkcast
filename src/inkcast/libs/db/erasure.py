@@ -8,8 +8,9 @@ a new table with a ``user_id`` column (or another user-keyed column) fails the b
 
 ``user_erasures`` is the audit record: a salted hash of the user id (HMAC-SHA256 under a key derived from
 INKCAST_SECRET_KEY, so the id can be checked against the record but not read from it), the time, and the
-counts. Nothing else about the person survives in the database. Copies in backups do, until they age out
-(INKCAST_BACKUP_KEEP daily copies), and a restore brings them back: ``reapply_erasures`` (issue #94), run by every
+counts. Nothing else about the person survives in the database, not even in its free space (deleted content is
+overwritten: ``PRAGMA secure_delete``, libs/db/database.py). Copies in backups do, until they age out
+(INKCAST_BACKUP_KEEP days), and a restore brings them back: ``reapply_erasures`` (issue #94), run by every
 process when it opens the store, erases again anyone whose hash is in ``user_erasures`` but who has rows. The
 restore carries the audit rows of the database it replaces into the restored one (libs/db/backup.py), which is
 what makes that possible: a backup taken before the erasure holds the rows and not the record. Each person's hash
@@ -18,7 +19,9 @@ not a hash of every user in every process (issue #113); ``backfill_erasure_hashe
 it. The record of an erasure carries the hash stored with the person's row, so the two match whatever key was current
 when each was written: a rotation of INKCAST_SECRET_KEY doesn't stop a restored row from being re-erased (#112). A row
 restored from before the column is filled under the key of the restore instead, so when the two differ the hash under
-the key current at the erasure is kept beside the record (``user_erasure_aliases``, carried by a restore too).
+the key current at the erasure is kept beside the record (``user_erasure_aliases``, carried by a restore too). What
+that cannot cover is a rotation after the record: a row filled now matches no record made before it under another
+key, so a fill beside existing records is logged at start-up (libs/runtime.open_store), with the counts.
 
 Whoever erases decided on a reading of the person (a 404 from Keycloak, a grace period over) that another replica
 may have overtaken by the time the transaction starts, so ``erase_user`` takes the row as the caller read it and
@@ -279,6 +282,10 @@ class ErasureRepo(Database):
         rows = self._all("SELECT user_hash, erased_at, counts FROM user_erasures ORDER BY erased_at, rowid")
         return [{"user_hash": r["user_hash"], "erased_at": float(r["erased_at"]), "counts": json.loads(r["counts"])}
                 for r in rows]
+
+    def erasure_record_count(self) -> int:
+        """How many audit records there are: one count, no hash read."""
+        return int(self._one("SELECT COUNT(*) AS n FROM user_erasures")["n"])
 
     # ---- rows written in the instant of an erasure (issue #196): refused at the write, swept from before ----------
 

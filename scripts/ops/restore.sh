@@ -9,9 +9,9 @@
 #
 # Steps, each checked: scale the server to 0 (a restore refuses while the server runs), run `inkcast restore` as a
 # one-off Job with the same image and both volumes, scale back to the previous replica count, wait for the rollout.
-# The database being replaced is kept on the data volume as inkcast.db.before-restore-<time>; its erasure records
-# go into the restored copy, and the server erases those people again as it starts, before it serves (the runbook
-# says what that covers and what it can't). KUBECTL=oc works too.
+# The database being replaced is kept on the data volume as inkcast.db.before-restore-<time> until the daily backup
+# removes it, INKCAST_BACKUP_KEEP days on; its erasure records go into the restored copy, and the server erases those
+# people again as it starts, before it serves (the runbook says what that covers and what it can't). KUBECTL=oc works too.
 #
 # The server and the restore Job never run at the same time. The Job gets RESTORE_TIMEOUT seconds (default 300)
 # as its activeDeadlineSeconds, and the script waits that long for it; a Job that has not completed by then, or
@@ -192,4 +192,5 @@ if ! $k -n "$ns" rollout status deploy/inkcast --timeout=180s; then
        "($k -n $ns get pod -l app.kubernetes.io/component=server) and its log." >&2
   exit 1
 fi
-echo "Restored. The previous database is on the data volume as inkcast.db.before-restore-<time>."
+echo "Restored. The previous database is on the data volume as inkcast.db.before-restore-<time>, until the daily" \
+     "backup removes it, INKCAST_BACKUP_KEEP days on."

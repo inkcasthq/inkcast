@@ -149,7 +149,8 @@ SECONDS_FLOOR_RULE = "{name} must be a number of seconds, 1 or more (got {got!r}
 SHUTDOWN_GRACE_RULE = ("INKCAST_SHUTDOWN_GRACE must be a positive number of seconds under 40, the Deployment's "
                        "terminationGracePeriodSeconds: at that point Kubernetes kills the pod, grace or no grace (got {got!r}).")
 RATE_LIMIT_RULE = "INKCAST_RATE_LIMIT_PER_MINUTE must be a whole number from 0 (off) to 10000 (got {got!r})."
-BACKUP_KEEP_RULE = "INKCAST_BACKUP_KEEP must be a whole number, 1 or more (the backup keeps that many daily copies) (got {got!r})."
+BACKUP_KEEP_RULE = ("INKCAST_BACKUP_KEEP must be a whole number, 1 or more (a backup that many days old or older is removed "
+                    "at the next good backup) (got {got!r}).")
 _SWITCH = {"true": True, "yes": True, "on": True, "1": True, "false": False, "no": False, "off": False, "0": False}
 
 
@@ -741,9 +742,10 @@ class Config:
     # scheduler intervals: below that, a post due between ticks is "overdue" and InkcastPostsOverdue fires on a healthy
     # system. At most an hour: beyond that the alert stays quiet about a stopped scheduler that long.
     overdue_grace_seconds: float = 600.0
-    # How many daily backups the backup CronJob keeps (its INKCAST_BACKUP_KEEP; libs/db/backup.DEFAULT_KEEP): the
-    # deletion pages tell a person that copies of their data in backups age out within this many days (issue #94).
-    # The server reads the same name, so a changed CronJob value goes in the shared ConfigMap too. 1 or more; above
+    # How many days the backup CronJob keeps a backup (its INKCAST_BACKUP_KEEP; libs/db/backup.DEFAULT_KEEP): a copy
+    # that many days old or older is removed at the next good backup (by age, not by count, #112), and the deletion
+    # pages tell a person that copies of their data in backups age out within this many days (issue #94). The CronJob
+    # reads it from the same ConfigMap as the server (components/backup), so one value serves both. 1 or more; above
     # 35 (checks.BACKUP_KEEP_WARN) a deleted person's data lingers in backups over five weeks, a posture warning (backup-keep).
     backup_keep: int = 14
     # Lab troubleshooting only (INKCAST_LOG_REVEAL_SECRETS): DEBUG lines about consumed secrets also print

@@ -50,7 +50,9 @@ class Store(IdentityRepo, VaultRepo, PostsRepo, LedgerRepo, OutboxRepo, KpiRepo,
         self.install_owner_guards()         # no row for a person who has no users row (issue #196); one read once in place
         self.sealer = Sealer(secret_key)
         self._erasure_salt = derive_key(secret_key, "erasure")
-        self.backfill_erasure_hashes()      # the rows from before users.erasure_hash (issue #113); then one read per open
+        # The rows from before users.erasure_hash (issue #113); then one read per open. How many were filled is kept
+        # for open_store (libs/runtime): a fill beside existing erasure records is worth a warning (#112).
+        self.erasure_hashes_filled = self.backfill_erasure_hashes()
 
     def purge_expired(self, retention: RetentionPolicy = RetentionPolicy()) -> None:
         """Housekeeping: expired grants and tickets, then domain events every consumer has passed and hourly KPI buckets

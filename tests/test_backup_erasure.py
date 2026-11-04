@@ -135,13 +135,18 @@ class TheSetting(unittest.TestCase):
 
     def test_backup_keep_comes_from_the_environment_and_defaults_to_the_cronjobs_14(self):
         import yaml
+        from inkcast.libs.config import backup_keep_from
         self.assertEqual(load_config(self.BASE).backup_keep, 14)
         self.assertEqual(load_config({**self.BASE, "INKCAST_BACKUP_KEEP": "3"}).backup_keep, 3)
+        # The CronJob reads the number from the ConfigMap the server reads (#112): the same name, and the same default
+        # when the ConfigMap leaves it out, on both sides.
         cronjob = yaml.safe_load((pathlib.Path(__file__).resolve().parents[1] / "deploy" / "kustomize" / "components"
                                   / "backup" / "cronjob.yaml").read_text())
-        env = {e["name"]: e["value"] for e in cronjob["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]["env"]}
-        self.assertEqual(int(env["INKCAST_BACKUP_KEEP"]), Config(public_url="http://localhost:8787", secret_key=KEY,
-                                                                 database_path=":memory:").backup_keep)
+        container = cronjob["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]
+        self.assertEqual(container["envFrom"], [{"configMapRef": {"name": "inkcast-config"}}])
+        self.assertNotIn("INKCAST_BACKUP_KEEP", {e["name"] for e in container["env"]})
+        self.assertEqual(backup_keep_from({}), Config(public_url="http://localhost:8787", secret_key=KEY,
+                                                      database_path=":memory:").backup_keep)
         with self.assertRaisesRegex(ConfigError, "INKCAST_BACKUP_KEEP"):
             load_config({**self.BASE, "INKCAST_BACKUP_KEEP": "two"})
         with self.assertRaisesRegex(ConfigError, "INKCAST_BACKUP_KEEP"):

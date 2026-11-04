@@ -114,7 +114,7 @@ def _backups_age_out(backup_keep: int) -> str:
 
 
 def deletion_confirm(pending_id: str, csrf: str, user_display: str, backup_keep: int) -> HTMLResponse:
-    """What goes, what stays (on the platforms, and in backups until they age out: ``backup_keep`` daily copies),
+    """What goes, what stays (on the platforms, and in backups until they age out: ``backup_keep`` days),
     and Continue to Keycloak (E9.F9.5.S4). The export (E3.F3.3.S7) is not built yet."""
     return _page("Delete your account", f"""
 <h1>Delete your Inkcast account?</h1>
