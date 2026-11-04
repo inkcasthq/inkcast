@@ -184,6 +184,13 @@ class Publisher:
                 await platform.resolve_destination(creds, account, prepared.destination) if prepared.destination else None
             )
             result = await platform.publish(creds, account, prepared, destination)
+            if not result.url and not result.remote_id:
+                # A 2xx that names nothing (a 204, a 202 with no body, JSON without the post): the platform accepted
+                # the request, so the post is probably out, but nothing says where, and nothing could find it again.
+                # Never 'published' on that (#214): it is as uncertain as a lost answer, and handled below as one.
+                raise PlatformError(
+                    f"{platform.name} accepted the request but its answer named neither the post's URL nor its id, so "
+                    f"it may or may not have been published. Check {platform.name} before trying again.", uncertain=True)
         except PlatformError as exc:
             self._observe("inkcast_publish_duration_seconds", time.perf_counter() - started, platform=platform.id)
             # A send can outlast STUCK_AFTER: another worker then takes the post over as 'recovering', and a person may
