@@ -24,10 +24,14 @@
 #      when that index is invalid or missing, so that `openfga migrate` applies 006 again (goose up.go:99-106 at
 #      v3.28.0 plans every file above the table's highest version). Not once a version above 6 is recorded: goose
 #      then refuses a 6 missing below it on every run (up.go:77-90). Nothing else is touched: no tuple, no model;
-#   4. `openfga migrate`, its version discovery and every migration, while the session holds the lock, idle;
+#   4. `openfga migrate`, its version discovery and every migration, in the background while the session holds the
+#      lock and this shell probes the session every PROBE_SECONDS (#409): the session can die alone while this
+#      container lives (pg_terminate_backend; a middlebox dropping an idle connection), and the lock goes with it,
+#      so a probe that finds it gone ends this run and kills `openfga migrate`; the statement its backend had in
+#      flight ends with its client (client_connection_check_interval, below), within seconds;
 #   5. release the lock. A session that died meanwhile (the database restarted) fails this run, and the kubelet runs
-#      it again from step 1. What `openfga migrate` did between the loss and the retry ran without the lock: the
-#      retry's repair covers 006, and a retry finds the revision current otherwise.
+#      it again from step 1. What `openfga migrate` did between the loss and the next probe ran without the lock,
+#      for seconds at most: the retry's repair covers 006, and a retry finds the revision current otherwise.
 #
 # This script shows no credential: psql connects with the URI less its password and reads the password from
 # PGPASSWORD, because a process's argv is readable by every user of the node (/proc/<pid>/cmdline, mode 0444; `ps`)
@@ -40,6 +44,7 @@ set -euo pipefail
 : "${OPENFGA_DATASTORE_URI:?OPENFGA_DATASTORE_URI is not set: the Secret openfga-db-app, key uri}"
 OPENFGA_BINARY="${OPENFGA_BINARY:-/opt/openfga/openfga}"
 connect_timeout="${CONNECT_TIMEOUT:-600}"
+probe_seconds="${PROBE_SECONDS:-2}"
 # CRC-32 of "inkcast/openfga-migrate", derived as goose derives its own default (4097083626, CRC-32 of "goose",
 # lock/session_locker_options.go at v3.28.0) and deliberately not that one: an OpenFGA that one day locks there
 # itself, inside the run this session wraps, would wait on this session for ever.
@@ -146,11 +151,31 @@ if [ "$versioned" = true ] && { [ "$idx_invalid" = true ] || [ "$idx_missing" = 
   fi
 fi
 
-# 4. The migration, while the session idles with the lock. A statement first, so a session already lost never
-# lets OpenFGA start; OpenFGA's own exit code is the run's.
+# 4. The migration, while the session holds the lock. A statement first, so a session already lost never lets
+# OpenFGA start; OpenFGA's own exit code is the run's. `openfga migrate` runs in the background and this shell
+# probes the session between sleeps (#409): `query` ends the run when the session is gone, through the EXIT trap,
+# which kills the migration (SIGTERM ends a Go process at once, and `openfga migrate` handles no signal: its backend
+# loses its client, and the server ends the statement at its next client check) and reaps it, as it does when the
+# kubelet ends this container: a child terminated by a signal and left to whatever is PID 1 is a crash to a
+# postmaster (measured: "untracked child process ... terminated by signal 15", then recovery). The probe holds no
+# snapshot once it has answered, so 006's concurrent build never waits on this session. The trap goes once the
+# migration has ended on its own.
 query "SELECT format('lock held by pid %s, running openfga migrate', pg_backend_pid())"
 log "$reply"
-if "$OPENFGA_BINARY" migrate; then :; else
+end_migration() {  # the EXIT trap while `openfga migrate` runs: this run takes the migration with it
+  if kill "$migrate_pid" 2>/dev/null; then
+    wait "$migrate_pid" 2>/dev/null || true
+    log "killed openfga migrate (pid ${migrate_pid}): this run ends without it"
+  fi
+}
+"$OPENFGA_BINARY" migrate &
+migrate_pid=$!
+trap end_migration EXIT
+while sleep "$probe_seconds"; kill -0 "$migrate_pid" 2>/dev/null; do
+  query "SELECT 1"
+done
+trap - EXIT
+if wait "$migrate_pid"; then :; else
   code=$?
   log "openfga migrate exited ${code}: this run fails, the kubelet starts it again"
   exit "$code"
