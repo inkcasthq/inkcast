@@ -131,6 +131,56 @@ class PostsRepo(Database):
                 insert_events(c, events)
         return changed
 
+    CONFIRMED = ("published", "draft", "unlisted")  # the statuses that record a copy on the platform
+
+    @staticmethod
+    def same_copy(row: dict[str, Any], remote_id: str | None, url: str | None) -> bool:
+        """Whether the copy ``row`` records is the one an answer names. Ids tell two posts apart, so they are compared
+        when both have one; the URL only when either has none: a platform may name every post by the account's
+        profile URL (the review of #390). The column is text, so an id a plug-in hands on as a number is compared as
+        the text it is stored as, as SQL's affinity compared it before."""
+        if row["remote_id"] is not None and remote_id is not None:
+            return row["remote_id"] == str(remote_id)
+        return row["result_url"] is not None and row["result_url"] == url
+
+    @staticmethod
+    def may_have_arrived_since(row: dict[str, Any], held: int) -> bool:
+        """Whether ``row`` counts a send since ``held`` (another worker's re-send) that may have reached the platform:
+        still out, or answered without saying. Queued again ('scheduled') or 'failed' say it certainly did not."""
+        return row["attempts"] != held and row["status"] not in ("scheduled", "failed")
+
+    def record_success(self, post_id: str, *, held: int, status: str, result_url: str | None, remote_id: str | None,
+                       notes: list[str], second_copy: Callable[[int], str], both_copies: Callable[[dict[str, Any]], str],
+                       events: Iterable[DomainEvent] | None = None) -> tuple[bool, dict[str, Any] | None]:
+        """A send's success, the platform's truth: written over whatever the post became while the send was out
+        (#214), unless the row already records a confirmed copy (``CONFIRMED``, with a remote id or a URL) that is not
+        this one (``same_copy``). That copy stays, another send's or a lookup's, and the row's error gains
+        ``both_copies(row)``: the platform may have both, and a person keeps one. When the row counts a later send that
+        may have arrived (``may_have_arrived_since``), ``second_copy(attempts)`` joins ``notes`` as the error of the
+        written post, so a person checks for two. The read that words either note and the write share the
+        transaction's write lock (``_tx``), so a claim can't land between them and leave a record without its note.
+        ``events`` are written with a success. ``(written, the row as it was)``; ``(False, None)`` for a post that no
+        longer exists (its owner erased), which is left alone."""
+        with self._tx() as c:
+            row = c.execute("SELECT * FROM posts WHERE id = ?", (post_id,)).fetchone()
+            if row is None:
+                return False, None
+            before = dict(row)
+            now = time.time()
+            recorded = before["status"] in self.CONFIRMED and (before["remote_id"] is not None
+                                                               or before["result_url"] is not None)
+            if recorded and not self.same_copy(before, remote_id, result_url):
+                note = both_copies(before)
+                c.execute("UPDATE posts SET error = ?, updated_at = ? WHERE id = ?",
+                          (f"{before['error']}; {note}" if before["error"] else note, now, post_id))
+                return False, before
+            if self.may_have_arrived_since(before, held):
+                notes = [*notes, second_copy(before["attempts"])]
+            c.execute("UPDATE posts SET status = ?, result_url = ?, remote_id = ?, error = ?, updated_at = ? WHERE id = ?",
+                      (status, result_url, remote_id, "; ".join(notes) or None, now, post_id))
+            insert_events(c, events)
+        return True, before
+
     PENDING = ("scheduled", "recovering", "unconfirmed")  # the statuses a person can cancel from (#216, #226)
 
     def cancel_if_pending(self, post_id: str, user_id: str, events: Iterable[DomainEvent] | None = None,

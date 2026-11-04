@@ -36,6 +36,13 @@ from .events import DomainEvent
 log = logging.getLogger(__name__)
 
 STUCK_AFTER = 600  # a post 'publishing' for longer than this was interrupted (the HTTP timeout is 30 s)
+
+
+def _named(url: str | None, remote_id: str | None) -> str:
+    """A copy of a post as a person can find it: its URL with its id, or whichever it has."""
+    if url and remote_id:
+        return f"{url} (id {remote_id})"
+    return url or f"id {remote_id}"
 RECOVERY_MAX = 24 * 3600  # seconds a post stays 'recovering' before it is unconfirmed: INKCAST_PUBLISH_RECOVERY_MAX_HOURS's default
 
 
@@ -184,6 +191,13 @@ class Publisher:
                 await platform.resolve_destination(creds, account, prepared.destination) if prepared.destination else None
             )
             result = await platform.publish(creds, account, prepared, destination)
+            if not result.url and not result.remote_id:
+                # A 2xx that names nothing (a 204, a 202 with no body, JSON without the post): the platform accepted
+                # the request, so the post is probably out, but nothing says where, and nothing could find it again.
+                # Never 'published' on that (#214): it is as uncertain as a lost answer, and handled below as one.
+                raise PlatformError(
+                    f"{platform.name} accepted the request but its answer named neither the post's URL nor its id, so "
+                    f"it may or may not have been published. Check {platform.name} before trying again.", uncertain=True)
         except PlatformError as exc:
             self._observe("inkcast_publish_duration_seconds", time.perf_counter() - started, platform=platform.id)
             # A send can outlast STUCK_AFTER: another worker then takes the post over as 'recovering', and a person may
@@ -239,14 +253,48 @@ class Publisher:
 
         self._observe("inkcast_publish_duration_seconds", time.perf_counter() - started, platform=platform.id)
         status = result.status if result.status in ("draft", "unlisted") else "published"
-        self.store.update_post(post_id, status=status, result_url=result.url, remote_id=result.remote_id,
-                               error="; ".join(result.notes) or None,
-                               events=self._event("post.published", post_id, user_id, platform.id, status=status,
-                                                  scheduled=scheduled, attempts=attempts,
-                                                  lag_seconds=round(lag, 3) if lag is not None else None))
-        self._count(platform.id, status)
-        return Outcome(platform.id, status, post_id=post_id, url=result.url, notes=result.notes, prepared=prepared,
-                       remote_id=result.remote_id)
+        # The platform's success is the truth, and wins (#214): it is written over whatever the post became while this
+        # send was out past STUCK_AFTER. Taken over as stuck; cancelled (the post is out, and the person needs its URL to
+        # remove it: #216); re-sent by another worker and queued again, 'failed' or cancelled (that request never took
+        # effect: this copy is the only one). A re-send still out, or answered without saying (recovering, unconfirmed,
+        # cancelled from one of those), may have arrived too: this copy is recorded and that one noted, in #226's words,
+        # for the person to check; its own late answers then fall to the fences above (a failure or a 429 over a
+        # published post is refused, so nothing is sent again, and the URL stays). The one thing a success never
+        # replaces is a confirmed copy of another post already on the row (``PostsRepo.record_success``): a re-send
+        # that arrived, or a lookup's match (DEV's matches by title, so an older article). Nothing says which of the two
+        # is the extra one, so the row keeps the copy it has, names both, and a person keeps one. The read that words
+        # a note and the write are one transaction, so a claim can't land between them.
+        def second_copy(attempt: int) -> str:
+            return (f"Attempt {attempt} was sent by another worker while this one was out, and may have arrived too: a "
+                    f"second copy may be on {platform.name}. Check {platform.name}, and remove the extra copy there if it is.")
+
+        def both_copies(row: dict[str, Any]) -> str:
+            return (f"{platform.name} may have this post twice: {_named(row['result_url'], row['remote_id'])}, recorded "
+                    f"here, and {_named(result.url, result.remote_id)}, attempt {attempts}'s answer. Check "
+                    f"{platform.name}: keep one and remove the other.")
+
+        written, before = self.store.record_success(
+            post_id, held=held, status=status, result_url=result.url, remote_id=result.remote_id, notes=result.notes,
+            second_copy=second_copy, both_copies=both_copies,
+            events=self._event("post.published", post_id, user_id, platform.id, status=status, scheduled=scheduled,
+                               attempts=attempts, lag_seconds=round(lag, 3) if lag is not None else None))
+        if written or before is None:  # before is None: erased meanwhile, the row left alone and the answer kept
+            notes = list(result.notes)
+            if written:
+                self._count(platform.id, status)
+                if self.store.may_have_arrived_since(before, held):
+                    notes.append(second_copy(before["attempts"]))
+                    log.warning("Post %s on %s was published by a send taken over as stuck; attempt %s, sent meanwhile, "
+                                "may have posted a second copy", post_id, platform.id, before["attempts"],
+                                extra={"event": "publish.second_copy", "post_id": post_id, "platform": platform.id})
+            return Outcome(platform.id, status, post_id=post_id, url=result.url, notes=notes, prepared=prepared,
+                           remote_id=result.remote_id)
+        log.warning("Post %s on %s: attempt %s answered %s (%s), and the post records another copy (%s); %s may have "
+                    "both, and a person keeps one", post_id, platform.id, attempts, status,
+                    _named(result.url, result.remote_id), _named(before["result_url"], before["remote_id"]), platform.id,
+                    extra={"event": "publish.second_copy", "post_id": post_id, "platform": platform.id})
+        return Outcome(platform.id, before["status"], post_id=post_id, url=before["result_url"],
+                       remote_id=before["remote_id"], message=both_copies(before))
 
     def _crashed(self, post_id: str, user_id: str, platform: Platform, exc: BaseException, held: int = 0) -> Outcome:
         """A plug-in bug while sending. It may have crashed after the platform accepted the post (reading the reply),
@@ -293,9 +341,9 @@ class Publisher:
             return Outcome(platform.id, "failed", post_id=post_id, message=f"Internal error in the {platform.name} "
                            f"plug-in: {exc}", prepared=prepared)
         status = result.status if result.status in ("draft", "unlisted") else "published"
-        if post_id:
+        if post_id:  # a PUT's answer that names no URL (a 204) keeps the post's: the post is where it was (#214)
             self.store.update_post(post_id, status=status, title=prepared.title, payload=json.dumps(prepared.to_dict()),
-                                   result_url=result.url or None, error="; ".join(result.notes) or None)
+                                   error="; ".join(result.notes) or None, **({"result_url": result.url} if result.url else {}))
         self._count(platform.id, "updated")
         return Outcome(platform.id, status, post_id=post_id, url=result.url, notes=result.notes, prepared=prepared,
                        remote_id=result.remote_id or remote_id)
@@ -321,6 +369,11 @@ class Publisher:
             return None
         if found is None:
             return Outcome(platform.id, "missing")
+        if not found.url and not found.remote_id:
+            # The platform has it, says the plug-in, but nothing names it: no post is recorded as published on that,
+            # from recovery or from Git sync's check (#214), any more than from a send. Can't tell: a person decides.
+            log.warning("Platform %s found an existing post but named neither its URL nor its id", platform.id)
+            return None
         status = found.status if found.status in ("draft", "unlisted") else "published"
         return Outcome(platform.id, status, url=found.url, remote_id=found.remote_id)
 
