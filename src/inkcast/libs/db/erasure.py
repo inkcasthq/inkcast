@@ -202,6 +202,8 @@ class ErasureRepo(Database):
         when the person's own row went: rows found without one (left by a write in the instant of the erasure, in a
         database from before the guard; issue #196) go too, under the record already there."""
         now = time.time()
+        if user_id == MEMBER_ERASED:    # the tombstone names nobody: erasing it would delete every erased member's totals
+            return {table: 0 for table, _ in USER_TABLES}
         with self._tx() as c:
             if as_read is not None and not self._as_read(c, user_id, as_read):
                 return {table: 0 for table, _ in USER_TABLES}
@@ -307,8 +309,10 @@ class ErasureRepo(Database):
         the row runs it once more), in the one process that runs housekeeping, never at start-up: it reads every
         user-keyed table. ``ORPHAN_BATCH`` rows at a time, found without the lock and deleted under it with the
         condition checked again there, each batch its own transaction, so the lock is held for a batch and a run cut
-        short leaves the rest to the next. No audit row: the record of each erasure is the one already there. The rows
-        removed per table, for the tables that had any; {} once done."""
+        short leaves the rest to the next. No audit row: the record of each erasure is the one already there. A team
+        KPI row naming such a member goes outright, not into the tombstone: it was written after the erasure had folded
+        the person's totals, as a row the guard now refuses (issue #212). The rows removed per table, for the tables
+        that had any; {} once done."""
         if self._one("SELECT 1 FROM sync_state WHERE name = ?", ORPHANS_SWEPT) is not None:
             return {}
         swept: dict[str, int] = {}
