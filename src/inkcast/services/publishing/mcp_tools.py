@@ -92,14 +92,15 @@ def render_cancel(post: PostInfo, was: str) -> str:
 
 
 def render_resend(post: PostInfo, old_id: str, registry: dict) -> str:
-    """The resend's reply: the new post, as a publish reply would show it, and the one thing left to the person."""
+    """The resend's reply: the new post, as a publish reply would show it, and the one thing left to the person. Any
+    status but a confirmed one is named as it is, with the post's note: 'unconfirmed' (the person decides again),
+    'failed', or 'recovering' (the send outlasted STUCK_AFTER and another worker took it over; it was called FAILED
+    before, #234)."""
     name = registry[post.platform].name if post.platform in registry else post.platform
     if post.status in ("published", "draft", "unlisted"):
         what = post.status + (f" → {post.url}" if post.url else "")
-    elif post.status == "unconfirmed":
-        what = f"UNCONFIRMED — {post.error}"
     else:
-        what = f"FAILED — {post.error}"
+        what = f"{post.status.upper()} — {post.error}"
     return (f"Resent “{post.title}” (post `{old_id}`) as post `{post.id}`: {what}\n"
             f"  The first post is cancelled; it may already be on {name}: check {name}, and remove the extra copy if it is.")
 

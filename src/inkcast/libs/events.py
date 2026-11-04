@@ -34,9 +34,10 @@ EVENT_TYPES: dict[str, str] = {
     "post.unconfirmed": "A platform may or may not have published a post; a person must check.",
     "post.recovered": "A post interrupted mid-send was resolved after a restart (attrs.status).",
     "post.cancelled": "A scheduled post was cancelled before it was sent, or a recovering or unconfirmed one by the person "
-                      "(its send was interrupted, or the platform had not said whether it arrived).",
-    "post.resent": "A person resent an unconfirmed post as a new one (attrs.new_post_id); the old one is cancelled. "
-                   "user_id is who decided.",
+                      "(its send was interrupted, or the platform had not said whether it arrived); or an unconfirmed "
+                      "one the person resent (attrs.reason: resent, beside its post.resent).",
+    "post.resent": "A person resent an unconfirmed post as a new one (attrs.new_post_id); the old one is cancelled, with "
+                   "its post.cancelled. user_id is who decided.",
     "sync.result": "One (file, platform) outcome of a Git publishing sync (attrs.action).",
 }
 

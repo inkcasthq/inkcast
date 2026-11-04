@@ -20,17 +20,20 @@ from ..auth import SCOPE, Principal, TokenVerifier
 
 
 class ApiError(Exception):
-    def __init__(self, status: int, code: str, message: str):
+    def __init__(self, status: int, code: str, message: str, **extra: Any):
+        """``extra``: members the problem body carries beside the message, for a client to act on without parsing it
+        (RFC 9457 extension members): the post a retried resend made (``post_id``, #234)."""
         super().__init__(message)
-        self.status, self.code, self.message = status, code, message
+        self.status, self.code, self.message, self.extra = status, code, message, extra
 
 
-def problem(status: int, code: str, message: str, headers: dict[str, str] | None = None) -> JSONResponse:
+def problem(status: int, code: str, message: str, headers: dict[str, str] | None = None, **extra: Any) -> JSONResponse:
     try:
         title = HTTPStatus(status).phrase
     except ValueError:
         title = "Error"
-    body = {"type": "about:blank", "title": title, "status": status, "detail": message, "error": code, "message": message}
+    body = {"type": "about:blank", "title": title, "status": status, "detail": message, "error": code, "message": message,
+            **extra}
     return JSONResponse(body, status_code=status, headers=headers, media_type="application/problem+json")
 
 
@@ -100,7 +103,7 @@ class Authed:
             try:
                 result = await handler(request, principal)
             except ApiError as exc:
-                return problem(exc.status, exc.code, exc.message)
+                return problem(exc.status, exc.code, exc.message, **exc.extra)
             except ValidationError as exc:
                 return problem(422, "invalid_request", "; ".join(
                     f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in exc.errors()))

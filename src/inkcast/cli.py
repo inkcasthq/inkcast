@@ -1,12 +1,16 @@
 # SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 # Copyright 2026 ScalarOps Technologies LLC
-"""``inkcast sync``: publish markdown files from a repository, from any CI or a laptop.
+"""``inkcast sync``: publish markdown files from a repository, from any CI or a laptop; ``inkcast resend`` and
+``inkcast cancel``: a person's decision on a post the sync reported as waiting for one.
 
     export INKCAST_URL=https://inkcast.example.com
     export INKCAST_TOKEN=ink_pat_...          # a personal access token with the stories:sync scope
     inkcast sync 'posts/**/*.md'              # publish new files, update changed ones, skip the rest
     inkcast sync --dry-run 'posts/**/*.md'    # say what would happen, with per-platform previews
     inkcast sync --removed-since <rev> 'posts/**/*.md'   # and cancel the pending posts of files removed since <rev>
+    inkcast sync --fail-on-decision 'posts/**/*.md'      # exit 1 while a file's post waits for a person's decision
+    inkcast resend <post-id>                  # send an unconfirmed post again as a new one (a posts:write token)
+    inkcast cancel <post-id>                  # cancel a scheduled, recovering or unconfirmed post (a posts:write token)
 
 The token is read from an environment variable only (never a command-line argument, which other
 users of the machine could see). Files are sent in batches of 50, removed paths in batches of their
@@ -14,7 +18,11 @@ own; each batch carries an Idempotency-Key, so a retried batch can never publish
 Actions the repository, commit and image URLs are detected automatically, results go to the job
 summary, and the step outputs ``results`` (JSON) and ``urls``.
 
-Exit codes: 0 all good, 1 something failed, 2 usage or configuration problem.
+Exit codes: 0 all good, 1 something failed, 2 usage or configuration problem. ``inkcast sync`` exits 0 on a
+file whose post waits for a person's decision (its last publish is ``unconfirmed``, or still ``recovering``):
+only a person can resolve that, and CI must not fail on every push until they do unless the repository asks
+for it with ``--fail-on-decision`` (#234). ``inkcast resend`` exits 1 when the new post is not published
+(failed, unconfirmed or recovering in its turn: the reply says why).
 """
 
 from __future__ import annotations
@@ -30,17 +38,53 @@ import re
 import subprocess
 import sys
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import httpx2
 
 BATCH = 50
 ICONS = {"create": "+", "update": "~", "unchanged": "=", "stale": "!", "skipped": "-", "failed": "x", "removed": "D"}
 MARKDOWN = (".md", ".markdown")
+DECIDING = ("unconfirmed", "recovering")  # a 'skipped' result with one of these statuses waits for a person (#226)
+CONFIRMED = ("published", "draft", "unlisted")
 
 
 class CliError(Exception):
     """A usage or environment problem the command reports and exits 2 on."""
+
+
+def _connection(prog: str, url: str, token_env: str) -> tuple[str, str] | int:
+    """The server URL and the token every command needs, or the exit code (2) after saying what is missing. The token
+    comes from the environment only; a personal access token; never sent over plain http but to this machine."""
+    token = os.environ.get(token_env, "").strip()
+    if not url or not token:
+        print(f"{prog}: set INKCAST_URL (or --url) and {token_env}.", file=sys.stderr)
+        return 2
+    if not token.startswith("ink_pat_"):
+        print(f"{prog}: {token_env} doesn't look like a personal access token (ink_pat_...).", file=sys.stderr)
+        return 2
+    url_host = urlparse(url).hostname or ""
+    if not url.startswith("https://") and url_host not in ("localhost", "127.0.0.1", "::1"):
+        print(f"{prog}: refusing to send the token over plain http to {url_host}; use an https INKCAST_URL.",
+              file=sys.stderr)
+        return 2
+    return url, token
+
+
+def _client(base_url: str, token: str) -> httpx2.Client:
+    """The HTTP client every command talks to the server through (a test stands in a transport here)."""
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json", "User-Agent": "inkcast-sync"}
+    return httpx2.Client(base_url=base_url.rstrip("/"), timeout=120, headers=headers)
+
+
+def _detail(r: httpx2.Response) -> str:
+    """What an error reply says: its ``message``, and the post it names (a retried resend's new post, #234)."""
+    try:
+        body = r.json()
+        detail = body.get("message") or r.text
+        return f"{detail} (post {body['post_id']})" if body.get("post_id") else detail
+    except (ValueError, AttributeError):
+        return r.text
 
 
 def _git(*args: str) -> str:
@@ -205,24 +249,19 @@ def sync_main(argv: list[str]) -> int:
                         help="public base URL of the repository root for relative images; default: raw GitHub URL")
     parser.add_argument("--dry-run", action="store_true", help="report and preview only; change nothing")
     parser.add_argument("--fail-on-stale", action="store_true", help="exit 1 if a changed file couldn't be updated")
+    parser.add_argument("--fail-on-decision", action="store_true",
+                        help="exit 1 if a file's post waits for a person's decision (its last publish is unconfirmed, "
+                             "or still recovering): resend or cancel it (inkcast resend | cancel <post-id>)")
     parser.add_argument("--removed-since", metavar="REV", default=None,
                         help="also report the matching files removed between REV and HEAD (git diff), so their pending "
                              "posts are cancelled; the GitHub action passes the commit before the push")
     parser.add_argument("--json", action="store_true", help="print the raw results as JSON")
     args = parser.parse_args(argv)
 
-    token = os.environ.get(args.token_env, "").strip()
-    if not args.url or not token:
-        print(f"inkcast sync: set INKCAST_URL (or --url) and {args.token_env}.", file=sys.stderr)
-        return 2
-    if not token.startswith("ink_pat_"):
-        print(f"inkcast sync: {args.token_env} doesn't look like a personal access token (ink_pat_...).", file=sys.stderr)
-        return 2
-    url_host = urlparse(args.url).hostname or ""
-    if not args.url.startswith("https://") and url_host not in ("localhost", "127.0.0.1", "::1"):
-        print(f"inkcast sync: refusing to send the token over plain http to {url_host}; use an https INKCAST_URL.",
-              file=sys.stderr)
-        return 2
+    connection = _connection("inkcast sync", args.url, args.token_env)
+    if isinstance(connection, int):
+        return connection
+    url, token = connection
     paths = collect(args.paths)
     removed: list[str] = []
     if args.removed_since:
@@ -244,21 +283,16 @@ def sync_main(argv: list[str]) -> int:
     platforms = [p.strip() for p in args.platforms.split(",") if p.strip()] if args.platforms else None
 
     results: list[dict[str, Any]] = []
-    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json", "User-Agent": "inkcast-sync"}
-    with httpx2.Client(base_url=args.url.rstrip("/"), timeout=120, headers=headers) as client:
+    with _client(url, token) as client:
         for body in build_requests(paths, source, ref, platforms, image_base, args.dry_run, removed):
             key = hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
             try:
                 r = client.post("/api/v1/stories:sync", json=body, headers={"Idempotency-Key": key})
             except httpx2.HTTPError as exc:
-                print(f"inkcast sync: can't reach {args.url}: {exc}", file=sys.stderr)
+                print(f"inkcast sync: can't reach {url}: {exc}", file=sys.stderr)
                 return 1
             if r.status_code != 200:
-                try:
-                    detail = r.json().get("message") or r.text
-                except ValueError:
-                    detail = r.text
-                print(f"inkcast sync: {r.status_code}: {detail}", file=sys.stderr)
+                print(f"inkcast sync: {r.status_code}: {_detail(r)}", file=sys.stderr)
                 return 2 if r.status_code in (401, 403) else 1
             results += r.json()["results"]
 
@@ -272,4 +306,50 @@ def sync_main(argv: list[str]) -> int:
             f.write(f"results={json.dumps(results, separators=(',', ':'))}\nurls={urls}\n")
     failed = any(r["action"] == "failed" for r in results)
     stale = any(r["action"] == "stale" for r in results)
-    return 1 if failed or (stale and args.fail_on_stale) else 0
+    deciding = any(r["action"] == "skipped" and r.get("status") in DECIDING for r in results)
+    return 1 if failed or (stale and args.fail_on_stale) or (deciding and args.fail_on_decision) else 0
+
+
+def post_main(command: str, argv: list[str]) -> int:
+    """``inkcast resend <post-id>`` and ``inkcast cancel <post-id>``: the person's decision on a post a sync reported
+    as waiting for one (``POST /api/v1/posts/{id}/resend`` and ``.../cancel``, a ``posts:write`` token). The reply is
+    the post: for a resend the new one (published, or failed, unconfirmed or recovering in its turn: exit 1, and the
+    first post is cancelled either way); for a cancel the cancelled one, with its note when it may already be on the
+    platform. The API's refusals (409: not unconfirmed, resent already, the platform not connected; 404) are exit 1
+    with the message; a token short of the scope is exit 2."""
+    prog = f"inkcast {command}"
+    parser = argparse.ArgumentParser(prog=prog, description={
+        "resend": "Send an unconfirmed post again, now, as one new post; the old one is cancelled. Check the platform "
+                  "first: the first send may have arrived.",
+        "cancel": "Cancel a scheduled, recovering or unconfirmed post. A recovering or unconfirmed one may already be "
+                  "on the platform; the reply says so."}[command])
+    parser.add_argument("post_id", help="the post id, as the sync result or inkcast_posts names it (pst_...)")
+    parser.add_argument("--url", default=os.environ.get("INKCAST_URL", ""), help="Inkcast URL (env INKCAST_URL)")
+    parser.add_argument("--token-env", default="INKCAST_TOKEN", help="environment variable holding the token (posts:write)")
+    parser.add_argument("--json", action="store_true", help="print the raw reply as JSON")
+    args = parser.parse_args(argv)
+
+    connection = _connection(prog, args.url, args.token_env)
+    if isinstance(connection, int):
+        return connection
+    url, token = connection
+    with _client(url, token) as client:
+        try:
+            # One path segment, whatever the id holds: "pst_x/cancel#" must not turn a resend into a cancel.
+            r = client.post(f"/api/v1/posts/{quote(args.post_id, safe='')}/{command}")
+        except httpx2.HTTPError as exc:
+            print(f"{prog}: can't reach {url}: {exc}", file=sys.stderr)
+            return 1
+    if r.status_code != 200:
+        print(f"{prog}: {r.status_code}: {_detail(r)}", file=sys.stderr)
+        return 2 if r.status_code in (401, 403) else 1
+    post = r.json()
+    if args.json:
+        print(json.dumps(post, indent=2))
+    else:
+        line = f"{post['status']}  " + (f"{post['url']}  " if post.get("url") else "") + f"(post {post['id']})"
+        print(line + (f"\n    {post['error']}" if post.get("error") else ""))
+        if command == "resend":
+            print(f"Post {args.post_id} is cancelled; it may already be on the platform from the first send: check, and "
+                  "remove the extra copy if it is.")
+    return 0 if command == "cancel" or post["status"] in CONFIRMED else 1
