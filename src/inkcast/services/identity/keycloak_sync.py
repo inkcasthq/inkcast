@@ -73,9 +73,10 @@ until an operator resolves the pass with ``inkcast identity confirm-deletions --
 their grace period starts then, and the reconcile erases them as the policy says; the disabled are cut off and their
 personal access tokens revoked) or ``dismiss-deletions`` (nothing is done to the gone; the disabled are released and
 their personal access tokens work again; the next reconcile reads everyone again, and trips again if it must). A
-held person Keycloak reports enabled again is released at once, by whichever pass reads them, and leaves the pass. A
-DELETE_ACCOUNT event is never held: the person asked, and the event is specific. Below the thresholds a 404 or an
-``enabled: false`` is acted on as before.
+held person Keycloak reports enabled again is released at once, by whichever pass reads them, and leaves the pass; so
+does a gone one it reports present, even as an operator confirms the pass: the confirmation claims each person
+before it acts, and a release that lands first spares them (#161). A DELETE_ACCOUNT event is never held: the person
+asked, and the event is specific. Below the thresholds a 404 or an ``enabled: false`` is acted on as before.
 """
 
 from __future__ import annotations
@@ -539,9 +540,8 @@ class KeycloakSync:
                 continue
             self.store.mark_user_present(str(known["id"]))     # Keycloak has them: a running grace period stops
             if state == "active":                      # enabled (again): a hold on them is lifted by this pass (#135)
-                if held:                               # and they leave the pass, as at the reconcile
-                    self.store.release_breaker_people([str(known["id"])])
-                if known.get("held_at") is not None:
+                self.store.release_breaker_people([str(known["id"])])   # and they leave a pass, as at the reconcile:
+                if known.get("held_at") is not None:                    # whatever its status by now (#161)
                     release_person(self.store, str(known["id"]), "event")
             elif held:                                 # disabled while a pass is held: held too, not cut off (#135)
                 hold_person(self.store, known, "event", self.clock())
@@ -601,9 +601,10 @@ class KeycloakSync:
         disabled = [(user, keycloak_id) for user, keycloak_id, state in read if state == "disabled"]
         held = self._breaker(gone, disabled, len(read), untried)
         deferred = held is None                      # the breaker could not count: what it would hold waits (#152)
-        if held:                                     # Keycloak has them again: a confirmation no longer applies to them
-            self.store.release_breaker_people([str(user["id"]) for user, _, state in read if state == "active"])
-            self.store.release_breaker_people([str(user["id"]) for user, _ in disabled], BREAKER_GONE)   # present, still disabled
+        # Keycloak has them again: a pass that held them, pending or claimed by an operator since the reads (#161),
+        # no longer does, so its confirmation does not cut them off. One read when no pass holds anyone.
+        self.store.release_breaker_people([str(user["id"]) for user, _, state in read if state == "active"])
+        self.store.release_breaker_people([str(user["id"]) for user, _ in disabled], BREAKER_GONE)   # present, still disabled
         for user, keycloak_id, state in read:
             if state == "deleted":
                 continue

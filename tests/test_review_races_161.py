@@ -10,6 +10,7 @@ main every raced test fails on its assertions: the person is held, cut off, or t
 import unittest
 
 from inkcast.breaker import _confirm
+from inkcast.libs.db.identity import BREAKER_CONFIRMED
 from inkcast.services.identity.keycloak_sync import KeycloakSync
 from test_erasure_recheck import Raced
 from test_sync_breaker import T0
@@ -132,6 +133,72 @@ class TheEventsPassHold(Base):
         self.assert_working(bob, pat, before, signed_in)
         for user in people:
             self.assert_held(user)
+
+
+# ---- 2. A restore lost when it races a breaker confirmation: a gone person's "back" was recorded only in
+#         ``sync_breaker_people``, and ``release_breaker_people`` touched pending passes only ---------------------
+
+class TheStoreRelease(Base):
+    """``release_breaker_people`` lands whatever the pass's status; ``claim_breaker_person`` is the confirmation's
+    one write per person before it acts, true once."""
+
+    def test_a_release_reaches_a_claimed_pass_and_a_claim_is_taken_once(self):
+        ada, bob = self.person("kc-ada"), self.person("kc-bob")
+        pass_id = self.store.record_breaker_trip(T0, 2, 10, [(ada["id"], ada["last_login_at"]), (bob["id"], bob["last_login_at"])])
+        self.assertTrue(self.store.resolve_breaker_trip(pass_id, BREAKER_CONFIRMED, T0 + 1, "on-call"))
+        self.assertEqual(self.other.release_breaker_people([ada["id"], "usr_nobody"]), 1,
+                         "a reconcile read her present: she leaves the pass, claimed or not")
+        self.assertEqual([p["user_id"] for p in self.store.breaker_trip_people(pass_id)], [bob["id"]])
+        self.assertFalse(self.store.claim_breaker_person(pass_id, ada["id"]), "released: the confirmation leaves her")
+        self.assertTrue(self.store.claim_breaker_person(pass_id, bob["id"]), "the pass held him: the confirmation acts")
+        self.assertFalse(self.store.claim_breaker_person(pass_id, bob["id"]), "once")
+        self.assertEqual(self.other.release_breaker_people([bob["id"]]), 0, "too late: claimed")
+        self.assertEqual(self.store.breaker_trip_people(pass_id), [])
+
+
+class TheRestoreRacingAConfirmation(Base):
+    """A pending pass of gone people, and the realm restored: Keycloak has them all again. Another replica's pass
+    reads them present after the operator's confirmation claimed the pass (and listed its people), before it acts
+    on them: the pass no longer holds them, so nobody is cut off."""
+
+    def raced(self, method: str, events: bool) -> None:
+        people = [self.person(f"kc-p{i:02d}") for i in range(20)]
+        gone, kept = people[:5], people[5:]
+        self.kc.gone.update(u["kc"] for u in gone)
+        self.reconcile(self.sync(30))
+        (trip,) = self.trips()
+        before = {u["id"]: self.person_rows(u["id"]) for u in gone}
+        self.kc.gone.clear()                                             # the realm is restored
+
+        def other_pass() -> dict:
+            worker = self.other_sync(30)
+            if events:                                                   # the admin-events pass alone, with an edit of each
+                worker.last_reconcile = self.now
+                for user in gone:
+                    self.kc.admin_events.append({"time": int(self.now * 1000) + 1000, "resourceType": "USER",
+                                                 "operationType": "UPDATE", "resourcePath": f"users/{user['kc']}"})
+            return self.tick(worker, T0 + 3600)
+        landed = self.hook(self.store, method, other_pass, after=True)
+        records = self.confirm(trip["id"])
+        self.assertEqual(len(landed), 1, "the other replica's pass ran inside the confirmation")
+        self.assertEqual(landed[0]["disabled"], 0, "it cut nobody off either: Keycloak has them")
+        for user in gone:
+            self.assert_untouched(user)
+            self.assertEqual(self.person_rows(user["id"]), {**before[user["id"]], "sync_breaker_people": 0}, "every row kept")
+        for user in kept:
+            self.assert_untouched(user)
+        self.assertEqual([r for r in records if getattr(r, "event", "") == "identity.user.disabled"], [], "no cut-off line")
+        self.assertEqual(self.confirmed(records).applied, 0, "the pass held nobody any more")
+        self.assertEqual(self.store.breaker_trip_people(trip["id"]), [])
+
+    def test_a_reconcile_that_reads_them_present_as_the_pass_is_claimed_spares_them(self):
+        for method in ("resolve_breaker_trip", "breaker_trip_people"):
+            with self.subTest(after=method):
+                self.setUp()
+                self.raced(method, events=False)
+
+    def test_an_events_pass_that_reads_them_present_as_the_pass_is_claimed_spares_them(self):
+        self.raced("breaker_trip_people", events=True)
 
 
 if __name__ == "__main__":

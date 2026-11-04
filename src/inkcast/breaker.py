@@ -15,7 +15,9 @@ person is cut off and marked gone from now, so the reconcile erases them INKCAST
 its next pass with 0; never with off), after reading Keycloak again; a disabled person is cut off and their personal
 access tokens revoked (never erased: Keycloak has them). One who signed in since the pass read them is spared
 (Keycloak let them in: the one proof Inkcast has that it has them), one erased meanwhile (their own DELETE_ACCOUNT
-event) is in no pass any more, and a held person a pass has since read enabled again left the pass then. Dismissing
+event) is in no pass any more, and a person a pass has since read present (the gone) or enabled (the disabled) left
+the pass then, even as the confirmation runs: it claims each person before it acts, so a release that lands first
+spares them (#161). Dismissing
 does nothing to the gone and releases the disabled, whose personal access tokens work again; the next reconcile reads
 everyone again and trips again if it must. Either is claimed once: a second confirmation, or a dismissal after a
 confirmation, does nothing and says so. Each outcome is one log line, the audit record
@@ -92,6 +94,9 @@ def _confirm(store: Store, pass_id: str, by: str, now: float) -> int:
     applied = {"gone": 0, "disabled": 0}
     skipped = 0
     for held in store.breaker_trip_people(pass_id):
+        if not store.claim_breaker_person(pass_id, held["user_id"]):    # a pass read them present or enabled since the
+            skipped += 1                                                # list above: released, so not held (#161)
+            continue
         user = store.get_user(held["user_id"])
         if user is None or user.get("last_login_at") != held["last_login_at"]:
             skipped += 1                   # erased meanwhile, or Keycloak let them in since the pass read them
