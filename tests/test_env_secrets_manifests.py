@@ -76,9 +76,13 @@ class Rendered(unittest.TestCase):
                 self.assertEqual(init["volumeMounts"], TOKEN_MOUNT)
                 self.assertIn("memory", init["resources"]["limits"])
                 self.assertIs(pod["automountServiceAccountToken"], False, "no token for OpenFGA's own container")
-                self.assertEqual(pod["volumes"], [TOKEN_VOLUME], "ten minutes, the shortest the API allows")
+                # The token volume is appended after the component's two (OpenFGA's image and the migration script,
+                # both read-only, mounted by migrate alone: tests/test_openfga_component.py), never replacing them.
+                self.assertEqual(pod["volumes"][-1], TOKEN_VOLUME, "ten minutes, the shortest the API allows")
+                self.assertEqual([v["name"] for v in pod["volumes"]], ["openfga", "migrate", "api-token"])
                 for container in (*pod["containers"], migrate):
-                    self.assertFalse(container.get("volumeMounts"), f"{container['name']}: never the token")
+                    self.assertNotIn("api-token", {m["name"] for m in container.get("volumeMounts", [])},
+                                     f"{container['name']}: never the token")
                 self.assertEqual((pod["serviceAccountName"], pod["imagePullSecrets"]), (SA, PULL))
                 account = one(docs, "ServiceAccount", SA)
                 self.assertEqual(account["metadata"]["namespace"], namespace)

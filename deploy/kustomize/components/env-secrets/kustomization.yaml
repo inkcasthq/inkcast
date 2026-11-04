@@ -17,8 +17,9 @@
 # no manual step. It runs first, before the pod's other init container `migrate` (components/openfga) and OpenFGA's
 # own container read openfga-db-app and inkcast-secrets (the kubelet resolves a container's secretKeyRef when it
 # starts that container), so the migration and OpenFGA always run on the values this run wrote: a pair generated anew
-# is the pair both connect with, without a restart. A pod whose run fails never starts the migration or OpenFGA:
-# during a rollout the previous pod keeps serving.
+# is the pair both connect with, without a restart. A pod whose run fails never starts the migration or OpenFGA;
+# the Deployment is `strategy: Recreate` (components/openfga/deployment.yaml), so the previous pod is already gone
+# and OpenFGA is unavailable until the run succeeds (scripts/dev/env-secrets-e2e.sh, proof 4, measures that).
 apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
 resources:

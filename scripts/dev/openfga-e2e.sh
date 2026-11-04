@@ -7,7 +7,7 @@
 # failing the script:
 #
 #   1. the init container migrate of OpenFGA's pod brings a fresh database to the current schema (E3.F3.9.S8, issue
-#      #337: no Job) and the OpenFGA Deployment rolls out;
+#      #337: no Job), under the database lock migrate.sh holds across the run, and the OpenFGA Deployment rolls out;
 #   2. the init container authz-model of Inkcast's pod, restarted by the kubelet until OpenFGA serves, creates the
 #      store and writes the model with no manual step, and the server then pins that store and version by name: the
 #      Deployment rolls out on its own; nothing patches the ConfigMap, nothing runs write-model by hand;
@@ -15,13 +15,16 @@
 #      source, never its value);
 #   4. a restarted pod (`rollout restart`) runs the init container again, which finds the model unchanged: the same
 #      ids, pinned again, one store, one version;
-#   5. an image change on OpenFGA's Deployment re-runs the migration with no manual step: the new pod's init
-#      container finds the schema current and the server starts; then the apply of the manifests over the changed
-#      template is accepted (a Job's template would have refused it: "field is immutable").
+#   5. an image change on OpenFGA's Deployment re-runs the migration with no manual step: `strategy: Recreate` ends
+#      the old pod, the new pod's init container finds the schema current and the server starts, and the time
+#      OpenFGA was unavailable is measured and printed (the cost of Recreate, the owner's decision on PR #374); then
+#      the apply of the manifests over the changed template is accepted (a Job's template would have refused it:
+#      "field is immutable").
 #
 #   scripts/dev/openfga-e2e.sh        # needs a kind cluster with the inkcast:ci image loaded, as in the kind CI job
 #   scripts/dev/openfga-recovery-e2e.sh runs the longer proofs of #337 (two pods migrating a fresh database at once,
-#   a database outage longer than 30 minutes) on request, not in CI.
+#   two runners held behind the lock and serialised, an invalid index repaired, a database outage longer than
+#   30 minutes) on request, not in CI.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 # shellcheck disable=SC1091
@@ -50,12 +53,15 @@ openfga_pod() {  # the newest running OpenFGA pod (a rollout leaves the old one 
   $k -n "$ns" get pods -l app.kubernetes.io/name=openfga,app.kubernetes.io/component=authz --field-selector=status.phase=Running \
     --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.name}'
 }
-migrated() {  # migrated POD: the init container's log, which must report the revision it found and a finished run
+migrated() {  # migrated POD: the init container's log: the lock taken, the revision found, a finished run, the lock released
   local log
   log="$($k -n "$ns" logs "$1" -c migrate)"; echo "$log"
+  has "$log" 'migration lock taken by pid' || { echo "$1: migrate.sh did not take the migration lock" >&2; return 1; }
   has "$log" '"current version":' || { echo "$1: the init container migrate did not report the schema revision" >&2; return 1; }
   has "$log" '"migration done"' || { echo "$1: the init container migrate did not finish" >&2; return 1; }
+  has "$log" 'migration lock released by pid' || { echo "$1: migrate.sh did not release the migration lock" >&2; return 1; }
 }
+stamp() { date -u -d "@$1" +%H:%M:%SZ 2>/dev/null || date -u -r "$1" +%H:%M:%SZ; }   # GNU date, or BSD's on macOS
 
 echo "== CloudNativePG $CNPG_VERSION (the release manifest at its tag, checked against scripts/versions.env)"
 curl -fsSL --retry 3 -o "$work/cnpg.yaml" \
@@ -71,7 +77,7 @@ $k -n cnpg-system rollout status deploy/cnpg-controller-manager --timeout=300s
 echo "== Inkcast with the OpenFGA component (ci-openfga)"
 $k apply -k "$ROOT/deploy/kustomize/overlays/ci-openfga"
 echo "-- 1. the init container migrate brings the fresh database to the current schema, then the server starts"
-# One rollout covers the Cluster's bootstrap (migrate retries its first connection for OPENFGA_TIMEOUT), the
+# One rollout covers the Cluster's bootstrap (migrate.sh waits for the database for CONNECT_TIMEOUT), the lock, the
 # migration and the server's startup probe; the Deployment's progress deadline is the default 600 s.
 $k -n "$ns" rollout status deploy/openfga --timeout=600s
 $k -n "$ns" get cluster,pods -o wide | cut -c1-120
@@ -145,12 +151,24 @@ echo "one store, one model version after two pod starts"
 
 echo "-- 5. an image change re-runs the migration with no manual step, and the next apply is accepted"
 # The same build named by its tag alone is a changed pod template: a new ReplicaSet, a new pod whose init container
-# migrates (and finds the schema current) before its server starts, while the old pod serves. Then the manifests'
-# apply, which puts the digest back, is accepted over the changed template: nothing immutable, nothing to delete.
+# migrates (and finds the schema current) before its server starts. `strategy: Recreate` ends the old pod first, so
+# OpenFGA is unavailable from the old pod's end to the new server's readiness: sampled every second here and
+# printed, the measured cost of Recreate. Then the manifests' apply, which puts the digest back, is accepted over
+# the changed template: nothing immutable, nothing to delete.
 pinned="$($k -n "$ns" get deploy openfga -o jsonpath='{.spec.template.spec.containers[0].image}')"
 has "$pinned" "@sha256:" || { echo "the server's image is not pinned by digest: $pinned" >&2; exit 1; }
-$k -n "$ns" set image deploy/openfga "migrate=${pinned%@*}" "openfga=${pinned%@*}"
-$k -n "$ns" rollout status deploy/openfga --timeout=600s
+[ "$($k -n "$ns" get deploy openfga -o jsonpath='{.spec.strategy.type}')" = Recreate ] || { echo "the Deployment's strategy is not Recreate" >&2; exit 1; }
+$k -n "$ns" set image deploy/openfga "openfga=${pinned%@*}"
+started="$(date +%s)"; gone=""; back=""
+while :; do
+  available="$($k -n "$ns" get deploy openfga -o jsonpath='{.status.availableReplicas}')"
+  [ -z "$gone" ] && [ "${available:-0}" = 0 ] && gone="$(date +%s)"
+  [ -n "$gone" ] && [ "${available:-0}" = 1 ] && { back="$(date +%s)"; break; }
+  [ $(( $(date +%s) - started )) -lt 600 ] || { echo "the rollout did not make the new pod available within 600 s" >&2; exit 1; }
+  sleep 1
+done
+$k -n "$ns" rollout status deploy/openfga --timeout=120s
+echo "Recreate: OpenFGA unavailable for $(( back - gone )) s (no available replica from $(stamp "$gone") to $(stamp "$back"); sampled every second)"
 changed="$(openfga_pod)"
 [ "$changed" != "$fresh" ] || { echo "the image change left the same pod ($fresh)" >&2; exit 1; }
 log="$(migrated "$changed")"; cut -c1-200 <<< "$log"
