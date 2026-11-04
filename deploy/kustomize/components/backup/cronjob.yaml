@@ -5,6 +5,8 @@ metadata:
   labels: {app.kubernetes.io/name: inkcast, app.kubernetes.io/component: backup}
 spec:
   schedule: "17 3 * * *"          # daily, off the hour; patch it per environment
+  # A run INKCAST_BACKUP_KEEP or more days after the one before it (2 with keep 1) removes nothing and fails (#405), so
+  # a schedule that slow refuses every run: tests/test_471_backup_refusals.py binds each environment's to its keep.
   timeZone: Etc/UTC
   concurrencyPolicy: Forbid
   startingDeadlineSeconds: 3600
