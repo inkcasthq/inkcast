@@ -43,8 +43,8 @@ fetch_pinned() {  # fetch_pinned URL FILE SHA256: download, compare, refuse what
 psql_keycloak() {  # a read-only query against the keycloak database, as postgres over the instance's local socket
   $k -n "$ns" exec keycloak-db-1 -c postgres -- psql -U postgres -d keycloak -tAc "$1"
 }
-discovery() {  # discovery REALM: the realm's OIDC discovery document through the HTTPS port-forward, parsed
-  curl -sfk "https://localhost:28443/realms/$1/.well-known/openid-configuration" | python3 -c '
+discovery() {  # discovery REALM [PORT]: the realm's OIDC discovery document through an HTTPS port-forward, parsed
+  curl -sfk "https://localhost:${2:-28443}/realms/$1/.well-known/openid-configuration" | python3 -c '
 import json, sys
 doc = json.load(sys.stdin)
 print(doc["issuer"])'
@@ -171,9 +171,15 @@ done
 
 echo "-- 5. a pod deleted and recreated serves the realm again: the state is in PostgreSQL"
 $k -n "$ns" delete pod keycloak-0 --wait=true >/dev/null
-$k -n "$ns" wait --for=condition=Ready pod/keycloak-0 --timeout=600s
+# --for=create first: a wait on a pod the StatefulSet has not made again yet fails at once (NotFound).
+$k -n "$ns" wait --for=create --for=condition=Ready pod/keycloak-0 --timeout=600s
 $k -n "$ns" wait --for=condition=Ready keycloak/keycloak --timeout=300s
-issuer="$(discovery inkcast-staging)"
+# Asked through a forward to the new pod itself: step 4's forward is bound to one pod, and dies with it, or, bound to
+# keycloak-1, answers from a pod that never restarted.
+$k -n "$ns" port-forward pod/keycloak-0 28444:8443 >/dev/null 2>&1 &
+PIDS+=("$!")
+for _ in $(seq 1 30); do curl -sfk -o /dev/null https://localhost:28444/realms/master && break; sleep 1; done
+issuer="$(discovery inkcast-staging 28444)"
 [ "$issuer" = "$hostname/realms/inkcast-staging" ] || { echo "after the restart: issuer $issuer" >&2; exit 1; }
-echo "keycloak-0 recreated, inkcast-staging served again"
+echo "keycloak-0 recreated, inkcast-staging served by it again"
 echo "PASS: the Keycloak operator and CloudNativePG at their pinned releases, the component under restricted, the CR Ready with two pods on the CloudNativePG database, both realm imports Done, the realms in PostgreSQL over TLS, discovery over HTTPS, and a recreated pod serving them again"
