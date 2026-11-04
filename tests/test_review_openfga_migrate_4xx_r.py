@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 # Copyright 2026 ScalarOps Technologies LLC
-"""The review of PRs #452 (issue #410) and #453 (issue #409): components/openfga/migrate.sh against the pinned
-PostgreSQL and OpenFGA images, with the harness of tests/test_review_openfga_migrate.py (its container, its database
-and its runner). Docker and both images must already be present, as there."""
+"""The review of PRs #452 (issue #410) and #453 (issue #409), and the concerns it left (issue #474):
+components/openfga/migrate.sh against the pinned PostgreSQL and OpenFGA images, with the harness of
+tests/test_review_openfga_migrate.py (its container, its database and its runner). Docker and both images must
+already be present, as there."""
 
 from __future__ import annotations
 
@@ -95,9 +96,57 @@ class Review409(harness.MigrateScript):
         self.assertIn("openfga migrate exited 1: this run fails", log)
 
 
+class Review474(harness.MigrateScript):
+    container = f"{harness.MigrateScript.container}-474"
+
+    def refused(self, uri: str) -> str:
+        """migrate.sh on URI: refused at start-up, its log the refusal's one line (a psql run logs a line of its own,
+        failed or not) and the database untouched."""
+        code, log = self.migrate(uri=uri, connect_timeout="1")
+        self.assertEqual(code, 1, log)
+        self.assertEqual(len(log.splitlines()), 1, log)
+        self.assertIn("the datastore URI (the Secret openfga-db-app, key uri) is refused", log)
+        self.assertEqual(self.sql("SELECT to_regclass('goose_db_version') IS NULL"), "t")
+        return log
+
+    def test_a_uri_the_parsers_read_differently_is_refused_before_psql_with_no_part_of_its_password(self):
+        """K1: libpq ends the user information at the first `@` before any `/` (fe-connect.c
+        conninfo_uri_parse_options at REL_18_6), so a raw `@` in the password puts what follows it in the host
+        (`could not translate host name "...@127.0.0.1"`) and a raw `/` puts what precedes it in the port (`invalid
+        integer value "..." for connection option "port"`); Go's net/url refuses both. No split can recover such a
+        password, and the wait for the database logged libpq's error, part of the password in it. A keyword=value
+        string is no URI at all: psql took it whole, password included, on its command line for the whole run, and
+        `openfga migrate` then failed on it (measured on 4fa484fe)."""
+        for uri in (*(f"postgres://openfga:{password}@127.0.0.1:5432/openfga?sslmode=disable"
+                      for password in ("Pw-474@not-a-secret", "Pw-474/not-a-secret", "Pw-474@a/not-a-secret")),
+                    "host=127.0.0.1 port=5432 dbname=openfga user=openfga password=Pw-474-not-a-secret sslmode=disable"):
+            with self.subTest(uri=uri.replace("not-a-secret", "...")):
+                log = self.refused(uri)
+                self.assertIn("percent-encoded", log)
+                self.assertNotIn("Pw-474", log)
+                self.assertNotIn("not-a-secret", log)
+
+    def test_a_password_in_the_query_is_refused_before_psql(self):
+        """K3: libpq and pgx honour a password in the query, over the user information's, and decode a keyword as they
+        decode a value (conninfo_uri_parse_params at REL_18_6), so migrate.sh's split left it in the URI psql runs
+        with, on a command line every user of the node reads (the role's password is the query's here, so that
+        before #474 the run connected with it and migrated). sslpassword, a client key's, is a password as well."""
+        secret = "Pw-474-not-a-secret"
+        self.sql(f"ALTER ROLE openfga PASSWORD '{secret}'", "postgres")
+        self.addCleanup(self.sql, f"ALTER ROLE openfga PASSWORD '{harness.PASSWORD}'", "postgres")
+        for uri in (f"postgres://openfga@127.0.0.1:5432/openfga?sslmode=disable&password={secret}",
+                    f"postgres://openfga@127.0.0.1:5432/openfga?sslmode=disable&pass%77ord={secret}",
+                    f"postgres://openfga:{harness.PASSWORD}@127.0.0.1:5432/openfga?password={secret}",
+                    f"postgres://openfga@127.0.0.1:5432/openfga?sslmode=disable&sslpassword={secret}"):
+            with self.subTest(uri=uri.replace(secret, "...").replace(harness.PASSWORD, "...")):
+                log = self.refused(uri)
+                self.assertIn("a password in its query", log)
+                self.assertNotIn("not-a-secret", log)
+
+
 def load_tests(loader: unittest.TestLoader, standard_tests: unittest.TestSuite, pattern: str | None) -> unittest.TestSuite:
     """This file's tests only: its classes inherit the harness's own, which run in their module."""
     suite = unittest.TestSuite()
-    for case in (Review410, Review409):
+    for case in (Review410, Review409, Review474):
         suite.addTests(case(name) for name in sorted(vars(case)) if name.startswith("test_"))
     return suite

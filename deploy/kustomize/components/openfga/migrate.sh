@@ -47,6 +47,8 @@
 # OpenFGA gets the same URI less its password, with the password in OPENFGA_DATASTORE_PASSWORD (step 4): it parses
 # the URI with Go's net/url and prints one it refuses, password included (a raw `|` in the password, which libpq
 # accepts: "invalid database uri: parse ...: net/url: invalid userinfo", measured with v1.22.0; issue #410).
+# A URI no split makes safe is refused before psql runs, in words that quote none of it (#474): a raw `@` or `/` in
+# the password, which every parser misreads, and a password in the query, which would stay on psql's command line.
 # The lab's e2e proofs are scripts/dev/openfga-recovery-e2e.sh.
 set -euo pipefail
 : "${OPENFGA_DATASTORE_URI:?OPENFGA_DATASTORE_URI is not set: the Secret openfga-db-app, key uri}"
@@ -77,6 +79,29 @@ if [[ "$db_uri" =~ ^([^:/?#]+://[^:@/]*):([^@/]*)@(.*)$ ]]; then
   unset encoded
 fi
 log() { printf '%s migrate: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
+# $1 percent-decoded into `decoded` as libpq decodes (conninfo_uri_decode at REL_18_6): each %XX, and nothing else, a
+# backslash included.
+uri_decode() {
+  local escaped="${1//\\/\\\\}"
+  printf -v decoded '%b' "${escaped//%/\\x}"
+}
+
+# A URI no split makes safe, refused in words that quote none of it (#474): a string that is no URI (keyword=value),
+# which psql takes whole on its command line and `openfga migrate` cannot read; a raw `@` or `/` in the password,
+# which libpq reads into the host or the port and quotes in the errors the wait for the database logs (net/url
+# refuses it); a password in the query, which libpq and pgx honour over the user information's, its keyword
+# percent-decoded (conninfo_uri_parse_params), and which the split leaves on psql's command line.
+[[ "$OPENFGA_DATASTORE_URI" =~ ^[^:/?#]+://([^@/]*@)?[^@]*$ ]] ||
+  { log "the datastore URI (the Secret openfga-db-app, key uri) is refused: it is no URI, or an @ in it does not end its user information (an @ or a / in the password must be percent-encoded: %40, %2F)"; exit 1; }
+if [[ "$db_uri" == *\?* ]]; then
+  IFS='&' read -ra params <<< "${db_uri#*\?}"
+  for param in "${params[@]}"; do
+    uri_decode "${param%%=*}"
+    case "$decoded" in
+      *password*) log "the datastore URI (the Secret openfga-db-app, key uri) is refused: it carries a password in its query (password=, sslpassword=), which psql's command line would show; the password goes in the user information"; exit 1 ;;
+    esac
+  done
+fi
 
 # The probe interval, whole seconds: sleep and the grace's arithmetic need one, a 0 would probe in a busy loop, and at
 # half pace (2 x 4 + 2) a lock session that dies alone still ends its migration within the 10 s of #409.
