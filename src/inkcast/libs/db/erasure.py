@@ -312,7 +312,7 @@ class ErasureRepo(Database):
         if self._one("SELECT 1 FROM sync_state WHERE name = ?", ORPHANS_SWEPT) is not None:
             return {}
         swept: dict[str, int] = {}
-        for table, _, _, _ in OWNERS:
+        for table in dict.fromkeys(owner[0] for owner in OWNERS):   # each table once: its condition covers every way
             condition = orphan_condition(table, table)
             while True:
                 ids = [r[0] for r in self._all(f"SELECT rowid FROM {table} WHERE {condition} LIMIT ?", self.ORPHAN_BATCH)]
