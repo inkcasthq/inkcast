@@ -24,7 +24,6 @@ waves:
   why: 'Follow-ups in code that already runs: links written to the log, double-sends, lost posts and data kept after erasure.
     These are the failures a writer or an auditor notices first (handover, suggested order 1), so they come before new screens.'
   items:
-  - '#222'
   - '#234'
   - '#399'
   - '#400'
@@ -39,6 +38,10 @@ waves:
   - '#428'
   - '#435'
   - '#436'
+  - '#444'
+  - '#445'
+  - '#446'
+  - '#447'
 - id: W3
   phase: 1
   title: The writer web app
@@ -378,7 +381,6 @@ issues:
   136: "Token lifetimes: follow-ups from the review of #132"
   207: "Alerts: InkcastIdentitySyncReconcileEndingEarly can't fire near the top of the reconcile interval"
   215: "Rate limits: wording and docs left from #188"
-  222: "Always-schedule follow-ups: large imports can page, clock skew in the lag measure, stale wording"
   227: "tokensave fork: workspaces, agent and model discovery, and a local token dashboard"
   234: "Person decides: follow-ups from the review of #231"
   246: "tokensave fork S1: record effort, model, thinking and subagent runs per turn"
@@ -403,4 +405,8 @@ issues:
   428: "Publishing: an unconfirmed post's error names the platform's reason it can't tell"
   435: "env-secrets e2e proof 4: retry the --previous log read when containerd can't retrieve it"
   436: "Keep a copy of inkcast-secrets beside the backups' key, so a lost secret-key can be restored"
+  444: "Git sync: an old unconfirmed entry with no post id: send it late, or wait for an edit (owner's call)"
+  445: "Resend: a retryable verify error refuses the resend instead of cancelling for a send that fails"
+  446: "Scheduler: one stuck row's recovery error stops the pass for every later row"
+  447: "Keycloak sync: a failure whose exception has no message is logged with no reason"
   360: "Backlog tracker: every story in one execution order, reviewed wave by wave"
