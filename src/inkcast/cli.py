@@ -134,14 +134,15 @@ def _globbed(parts: list[str], names: list[str]) -> bool:
 
 def removed_since(rev: str, patterns: list[str]) -> list[str]:
     """The markdown files ``patterns`` would have collected that ``rev`` had and HEAD no longer has, in git's order:
-    ``git diff --no-renames --diff-filter=D``, so a renamed file is a removal (its new path is a new story), relative
-    to the current directory as the collected paths are, and regular files only, as ``collect`` lists them (a removed
-    link or submodule, #417). Raises ``CliError`` when git can't tell (not a repository, or ``rev`` unknown: a shallow
+    ``git diff --no-renames --diff-filter=DT``, so a renamed file is a removal (its new path is a new story), and so is
+    a file that became a link or a submodule (``T``: ``collect`` lists it no more), relative to the current directory
+    as the collected paths are, and regular files only, as ``collect`` lists them (a removed link or submodule, #417).
+    Raises ``CliError`` when git can't tell (not a repository, or ``rev`` unknown: a shallow
     clone that never fetched it)."""
     if rev.startswith("-"):  # git would read it as an option (``--output=FILE`` writes a file), never a revision
         raise CliError(f"{rev!r} isn't a revision")
     try:
-        diff = subprocess.run(["git", "diff", "--no-renames", "--diff-filter=D", "--raw", "--relative", "-z",
+        diff = subprocess.run(["git", "diff", "--no-renames", "--diff-filter=DT", "--raw", "--relative", "-z",
                                rev, "HEAD"], capture_output=True)
     except OSError as exc:
         raise CliError(f"can't run git to list the files removed since {rev}: {exc}") from exc
@@ -151,7 +152,7 @@ def removed_since(rev: str, patterns: list[str]) -> list[str]:
     # As ``collect`` writes paths: no ``./``. A pattern ending in ``/`` or ``/.`` lists directories only, no file.
     globs = [str(pathlib.PurePosixPath(p)) for p in patterns if p.rsplit("/", 1)[-1] not in ("", ".")]
     found: list[str] = []
-    entries = diff.stdout.split(b"\0")      # ``--raw -z``: ':<old mode> <new mode> <old> <new> D', then the path, each NUL-ended
+    entries = diff.stdout.split(b"\0")      # ``--raw -z``: ':<old mode> <new mode> <old> <new> D|T', then the path, each NUL-ended
     for meta, raw in zip(entries[::2], entries[1::2]):
         if meta.split()[0] not in (b":100644", b":100755"):  # a link (120000) or a submodule (160000) was never collected
             continue
