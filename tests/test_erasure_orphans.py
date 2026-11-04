@@ -344,7 +344,10 @@ class TheGuard(unittest.TestCase):
         drops = [s for s in traced.statements if s.startswith("DROP TRIGGER")]
         self.assertLess(traced.statements.index(creates[0]), traced.statements.index(drops[0]),
                         "the wanted guard is in place before a stale one goes: never a moment without one")
-        self.assertEqual([s for s in traced.statements if s.startswith("BEGIN")], [], "autocommit statements, each atomic")
+        begin = traced.statements.index("BEGIN IMMEDIATE")              # one transaction under the write lock (#219)
+        self.assertEqual([s for s in traced.statements if s.startswith("BEGIN")], ["BEGIN IMMEDIATE"])
+        self.assertLess(begin, traced.statements.index(creates[0]))
+        self.assertLess(traced.statements.index(drops[0]), traced.statements.index("COMMIT", begin))
         conn = sqlite3.connect(path)
         have = {r[0]: r[1] for r in conn.execute("SELECT name, sql FROM sqlite_master WHERE type = 'trigger'")}
         conn.close()

@@ -308,26 +308,35 @@ class ErasureRepo(Database):
         unguarded until a newer pod opened (issue #219). The reverse, a table taken out of ``OWNERS``, takes a schema
         change (it no longer holds a person's rows): dropping the table takes its guards with it, and SQLite refuses to
         drop the owning column while a guard reads it, so that release drops the guard by name, knowing the table; until
-        then the guard keeps the rule every release before it kept. Run at every open (``Store``); each statement
-        commits on its own, so a start cut short leaves the ones done and the next open does the rest, and two
-        processes opening at once each find what the other did (``IF NOT EXISTS``, ``IF EXISTS``). A guard lives in the
-        database, so a process from before it is bound as soon as one process installs it. Once in place it costs one
-        read of the schema and no write. How many triggers were created or dropped."""
+        then the guard keeps the rule every release before it kept. Run at every open (``Store``). The changes are made
+        in one transaction under the write lock, after reading the schema again there, as the columns are (issue
+        #176): two releases opening at once would otherwise each read the other's guard, create their own, and drop
+        the other's, leaving none on a table both know; ordered, the second finds the first's guard and replaces it.
+        A start cut short changes nothing, and the next open does it all. A guard lives in the database, so a process
+        from before it is bound as soon as one process installs it. Once in place it costs one read of the schema, no
+        lock and no write. How many triggers were created or dropped."""
+        with self._lock:
+            if not any(self._guard_changes(self._conn)):
+                return 0
+        with self._tx() as c:
+            creates, drops = self._guard_changes(c)     # again under the lock: another process may have opened first
+            for statement in creates:
+                c.execute(statement)
+            for name in drops:
+                c.execute(f"DROP TRIGGER IF EXISTS {name}")
+        return len(creates) + len(drops)
+
+    @staticmethod
+    def _guard_changes(c: sqlite3.Connection) -> tuple[list[str], list[str]]:
+        """What ``install_owner_guards`` would do to the schema as ``c`` reads it: the CREATE TRIGGER of each guard it
+        lacks, and the name of each guard this release did not generate on a table it knows."""
         wanted = dict(owner_guards())
         known = {owner[0] for owner in OWNERS}
-        changed = 0
-        with self._lock:
-            have = {r["name"]: r["tbl_name"] for r in self._conn.execute(
-                "SELECT name, tbl_name FROM sqlite_master WHERE type = 'trigger' AND substr(name, 1, ?) = ?",
-                (len(_GUARD), _GUARD))}
-            for name, statement in wanted.items():
-                if name not in have:
-                    self._conn.execute(statement)
-                    changed += 1
-            for name in sorted(name for name, table in have.items() if name not in wanted and table in known):
-                self._conn.execute(f"DROP TRIGGER IF EXISTS {name}")
-                changed += 1
-        return changed
+        have = {r["name"]: r["tbl_name"] for r in c.execute(
+            "SELECT name, tbl_name FROM sqlite_master WHERE type = 'trigger' AND substr(name, 1, ?) = ?",
+            (len(_GUARD), _GUARD))}
+        return ([statement for name, statement in wanted.items() if name not in have],
+                sorted(name for name, table in have.items() if name not in wanted and table in known))
 
     def _swept_tables(self) -> set[str]:
         """The tables the sweep is done with in this database: those the marker lists, those of the release that wrote
