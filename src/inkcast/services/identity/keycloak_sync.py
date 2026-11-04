@@ -558,18 +558,22 @@ class KeycloakSync:
             else:
                 disabled.append(known)
         held = held or self._events_breaker(gone, disabled)    # a trip of this pass's own holds as a pending pass does
-        cut = 0
+        cut = acted = 0                                # cut off now; acted on as the breaker counts them (newly gone or disabled)
         for user in gone:                              # held: the reconcile reads them again, and acts once an operator decides
-            if not held and self._cut_off(user, "deleted", "event"):
-                cut += 1
+            if held:
+                continue
+            result = self._cut_off(user, "deleted", "event")
+            cut += bool(result)
+            acted += result is not None and user.get("deleted_at") is None   # marked gone now, disabled before or not
         for user in disabled:
             if held:                                   # disabled while a pass is held: held too, not cut off (#135)
                 hold_person(self.store, user, "event", self.clock())
             elif cut_off_person(self.store, self.metrics, user, "disabled", "event", self.clock()):
                 cut += 1
+                acted += 1
         done["disabled"] += cut
-        if cut and self.config.keycloak_breaker:       # below the thresholds: part of a burst the next passes may complete (#139)
-            self.store.record_events_cutoffs(self.clock(), cut, self.clock() - self.config.keycloak_reconcile_seconds)
+        if acted and self.config.keycloak_breaker:     # below the thresholds: part of a burst the next passes may complete (#139)
+            self.store.record_events_cutoffs(self.clock(), acted, self.clock() - self.config.keycloak_reconcile_seconds)
         if self._budget_used(p, "admin-events"):   # the reconcile is not done: due again at the next pass
             return
         if due:
