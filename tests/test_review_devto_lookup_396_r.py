@@ -73,6 +73,24 @@ def drafts(n: int) -> list[dict]:
     return [article(5000 + i, f"Draft {i}", f"Draft body {i}.", published=False) for i in range(n)]
 
 
+class FindingAFullPageWithoutTheArticleIsNotMissing(Lookup):
+    """A person with 100 drafts: the article a published send made is listed after them, off the page Inkcast reads."""
+
+    def test_a_full_page_without_a_match_cannot_tell(self):
+        listing = [*drafts(100), article(1002, "Hello", "Body.\n")]
+        found, _ = self.find(listing[:100])
+        self.assert_cannot_tell(found, "100")
+
+    def test_recovery_does_not_send_the_post_again(self):
+        post, dev = recovered([*drafts(100), article(1002, "Hello", "Body.\n")], {"title": "Hello"})
+        self.assertEqual(dev.posts, [], "sent again: DEV now has the post twice")
+        self.assertEqual(post["status"], "unconfirmed")
+
+    def test_a_short_page_without_a_match_is_still_missing(self):
+        found, _ = self.find(drafts(99))
+        self.assertIsNone(found)
+
+
 class FindingATitleDevNormalisedIsNotMissing(Lookup):
     """DEV stores the title as ``normalize_title`` makes it: the article has the body sent, under another title."""
 

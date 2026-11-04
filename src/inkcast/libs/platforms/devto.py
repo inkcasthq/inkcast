@@ -22,6 +22,8 @@ from .base import Account, CredentialField, Destination, Platform, PlatformError
 
 MAX_TAGS = 4
 MAX_TITLE = 128
+# Articles per page of GET /articles/me/all that find_existing reads: one page, newest first.
+LOOKUP_PAGE = 100
 
 
 def _normalise_tag(tag: str) -> str:
@@ -179,7 +181,7 @@ class DevtoPlatform(Platform):
         article = prepared.payload["article"]
         title, body = article["title"], article["body_markdown"].strip()
         canonical = (article.get("canonical_url") or "").strip() or None
-        mine = await self.request("GET", "/articles/me/all", headers=self._headers(creds), params={"per_page": 100}) or []
+        mine = await self.request("GET", "/articles/me/all", headers=self._headers(creds), params={"per_page": LOOKUP_PAGE}) or []
         same: list[dict[str, Any]] = []
         unsure: list[str] = []
         for a in mine if isinstance(mine, list) else []:
@@ -202,9 +204,13 @@ class DevtoPlatform(Platform):
                 same.append(a)
         if len(same) == 1:
             return self._listed(same[0])
-        if not same and not unsure:
+        if not same and not unsure and len(mine) < LOOKUP_PAGE:
             return None
-        if same:
+        if not same and not unsure:
+            # DEV lists drafts first (published_at DESC puts NULL first): past a full page of them, a published
+            # send's article is on a page not read, so "none here" is not "missing".
+            reason = f"none of the {len(mine)} articles DEV listed (a full page) is it, and the rest were not read"
+        elif same:
             reason = f"{len(same)} articles agree with it: " + ", ".join(f"id {a.get('id')}" for a in same)
         else:
             reason = (f"{'an article shares' if len(unsure) == 1 else 'articles share'} its title or canonical URL but not "
