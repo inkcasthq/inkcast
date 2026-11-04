@@ -67,9 +67,10 @@ class ReplacesLifecycle(SyncCase):
         self.assertEqual(self.sync(when, body="Better body.").status, "scheduled")
         self.assertGreater(self.live()["created_at"], born + 500)
 
-    def test_the_schedule_tolerance_is_the_replace_runs_own(self):
-        """Under a second from the replaced post's time is the same schedule (``schedule_changed`` in ``_one``)."""
-        for moved, kept in ((0.999, True), (-0.6, True), (1.0, False), (-1.0, False)):
+    def test_the_schedule_comparison_is_the_replace_runs_own(self):
+        """The replaced post's time as written is the same schedule, and any move the file can express is a change
+        (``same_time`` in ``_one``; a tolerance of a second let a time moved later by under that go out early, #222)."""
+        for moved, kept in ((0.0, True), (0.5, False), (-0.000001, False), (1.0, False)):
             with self.subTest(moved=moved):
                 self.setUp()
                 when, born = at(2 * 86400), time.time() - 600

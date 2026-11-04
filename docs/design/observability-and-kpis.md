@@ -104,7 +104,7 @@ Rook-Ceph RGW on-prem, S3 in cloud, through one `ObjectStore` seam (put, presign
 | `inkcast_http_request_duration_seconds` | histogram | `route` (template), `method`, `code` (class) | RED for every route: rate, error ratio, p50/p95/p99 |
 | `inkcast_publish_total` | counter | `platform`, `status` | publish attempts and outcomes |
 | `inkcast_publish_duration_seconds` | histogram | `platform` | one platform call |
-| `inkcast_publish_lag_seconds` | histogram | `platform` | how late a scheduled post was claimed |
+| `inkcast_publish_lag_seconds` | histogram | `platform` | how late a scheduled post was claimed after its time (a post made after its time is not measured: ADR-0019) |
 | `inkcast_posts{status}`, `inkcast_posts_due`, `inkcast_posts_overdue`, `inkcast_posts_oldest_due_age_seconds` | gauge | `status` on the first | the queue: depth, overdue, head-of-line lag |
 | `inkcast_posts_recovering_oldest_age_seconds` | gauge | — | how long the oldest post whose send was interrupted has been `recovering`, the platform refusing to say whether it arrived (`InkcastPostRecoveringTooLong` past an hour; `INKCAST_PUBLISH_RECOVERY_MAX_HOURS` ends it unconfirmed) |
 | `inkcast_scheduler_ticks_total` | counter | — | the loop is alive |

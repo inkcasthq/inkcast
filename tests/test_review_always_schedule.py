@@ -214,24 +214,29 @@ class FindingAnEditDoesNotHideHowLateAPostIs(Measured):
                       "counted on time by the schedule-timeliness SLO")
         self.assertGreaterEqual(self.lag_of_the_send(), 300, "counted on time in the customer's on-time rate")
 
-    def test_a_past_dated_file_edited_before_its_first_tick_is_still_on_time(self):
-        """What the fix keeps (ADR-0015): a file dated a week ago is due from when it was first known, edits or not."""
+    def test_a_past_dated_file_edited_before_its_first_tick_is_still_not_late(self):
+        """What the fix keeps: a file dated a week ago is a backfill, edits or not: never overdue, and measured by no
+        deadline (ADR-0019 superseded ADR-0015's "due from when it was first known"; not late either way)."""
         week_ago = at(-7 * 24 * 3600)
         created = self.sync(week_ago)
         edited = self.sync(week_ago, body="Better body.")
         self.assertEqual((edited.action, edited.status), ("update", "scheduled"))
         self.assertNotEqual(edited.post_id, created.post_id)
+        self.assertEqual(self.store.get_post(edited.post_id)["created_at"],
+                         self.store.get_post(created.post_id)["created_at"],
+                         "the replacement keeps the replaced post's created_at, so its place in the claim order (#280)")
         now = time.time()
         self.assertEqual(self.store.overdue_count(now, 60), 0)
         asyncio.run(self.publisher.run_due(now=now))
-        self.assertLess(self.lag_of_the_send(), 60)
+        self.assertIsNone(self.lag_of_the_send(), "a backfill's send is not measured")
 
-    def test_a_time_moved_into_the_past_is_due_from_the_move(self):
-        """What the fix keeps: a time the author moves into the past is due from that sync, not from the time."""
+    def test_a_time_moved_into_the_past_is_a_backfill(self):
+        """What the fix keeps: a time the author moves into the past is due from that sync, never late by the time
+        (a backfill, measured by no deadline: ADR-0019)."""
         self.sync(at(2 * 24 * 3600))
         self.sync(at(-3600))
         asyncio.run(self.publisher.run_due())
-        self.assertLess(self.lag_of_the_send(), 60)
+        self.assertIsNone(self.lag_of_the_send())
 
 
 class FindingAPostDueFirstIsClaimedFirst(Measured):

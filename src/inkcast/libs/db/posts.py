@@ -13,7 +13,7 @@ import json
 import sqlite3
 import time
 import uuid
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Mapping
 
 from ..events import DomainEvent
 from .database import Database
@@ -50,12 +50,21 @@ COLUMNS = (("posts", "recovering_since", "REAL"), ("posts", "requested_at", "REA
            ("posts", "resent_as", "TEXT"))
 
 
+def backfill(row: Mapping[str, Any]) -> bool:
+    """Whether a post row was made after its time (``PostsRepo._BACKFILL``): a backfill, measured by no deadline (ADR-0019).
+    Its time is the one asked for, ``requested_at``, which a retry or recovery's re-send keeps while it moves ``run_at``
+    past the creation; a post asked for now, or a row from before the column, has none, and its ``run_at`` stands."""
+    asked = row["run_at"] if row["requested_at"] is None else row["requested_at"]
+    return float(row["created_at"]) > float(asked)
+
+
 class PostsRepo(Database):
     def create_post(self, *, group_id: str, user_id: str, platform: str, title: str, status: str,
                     run_at: float, payload: dict[str, Any], created_at: float | None = None,
                     on_created: Callable[[str], None] | None = None) -> str:
         """``created_at`` is now unless the post replaces one whose schedule it keeps (Git sync): then that one's, so
-        how late it is counts from when its time was first asked for (``overdue_count``, the lag; ADR-0015).
+        a post made before its time stays one (``backfill``: its lag, the overdue count), as late as it is, and keeps its
+        place in the claim order (ADR-0015, ADR-0019).
         ``on_created(post_id)`` runs in the transaction that makes the row (Git sync's ledger write naming it): if it
         raises, there is no row, so none is ever left that nothing names (#213)."""
         post_id = self.new_post_id()
@@ -305,15 +314,22 @@ class PostsRepo(Database):
     # (issue #196; refused at the write now, and swept from a database from before that), it is neither sent nor
     # recovered, whatever its status.
     _OWNED = " AND EXISTS (SELECT 1 FROM users WHERE users.id = posts.user_id)"
+    # A post made after its time is a backfill: a Git file dated in the past (ADR-0015), a time moved into the past. It
+    # is due at once, claimed after every post whose time has come, and measured by no deadline, because it has no time
+    # to be on time for (ADR-0019). The rest were made before their time: promises, sent at it and measured from it.
+    # Its time is the one asked for (``backfill``): a retry's run_at, after the creation, never makes it a promise.
+    _BACKFILL = "created_at > COALESCE(requested_at, run_at)"
 
     def claim_due_posts(self, now: float, limit: int = 20) -> list[dict[str, Any]]:
-        """Atomically move due scheduled posts to 'publishing' and return them, the one that has waited longest first:
-        from its time, or its creation when that came later (``oldest_due_age``), so a Git file dated last year
-        doesn't jump ahead of a post that was due before it was synced (ADR-0015); never one whose person has no row."""
+        """Atomically move due scheduled posts to 'publishing' and return them: every promise whose time has come first,
+        the earliest time first, then the backfill (``_BACKFILL``), the one made first first. A promise is never queued
+        behind an import, however large (measured: a post due 60 s into a 900-file import went out 840 s late when the
+        longest wait came first), and an import never jumps ahead of a post that was due before it was synced
+        (ADR-0015, ADR-0019). Never one whose person has no row."""
         with self._tx() as c:
             rows = c.execute(
                 "SELECT * FROM posts WHERE status = 'scheduled' AND run_at <= ?" + self._OWNED
-                + " ORDER BY MAX(run_at, created_at), run_at LIMIT ?", (now, limit)
+                + " ORDER BY " + self._BACKFILL + ", MAX(run_at, created_at), run_at LIMIT ?", (now, limit)
             ).fetchall()
             for r in rows:
                 c.execute(
@@ -375,21 +391,24 @@ class PostsRepo(Database):
         row = self._one("SELECT COUNT(*) AS n FROM posts WHERE status = 'scheduled' AND run_at <= ?" + self._OWNED, now)
         return int(row["n"]) if row else 0
 
-    # A post has waited since it could first be sent: its time, or its creation when that came later (a post made
-    # after its time, a Git file dated in the past, is due at once, ADR-0015). It is due by its time alone. SQLite's
-    # scalar MAX(a, b) is GREATEST(a, b) on PostgreSQL (ADR-0014).
+    # A post has waited since it could first be sent: its time, or its creation when that came later (a backfill,
+    # ADR-0015). It is due by its time alone, and overdue by its time alone: a backfill has no time to be overdue
+    # against (ADR-0019). SQLite's scalar MAX(a, b) is GREATEST(a, b) on PostgreSQL (ADR-0014).
 
     def oldest_due_age(self, now: float) -> float:
-        """Seconds the oldest due, still-scheduled post has waited; 0.0 when nothing is due."""
+        """Seconds the oldest due, still-scheduled post has waited; 0.0 when nothing is due. A backfill counts from its
+        creation: an import draining at the batch rate shows here (InkcastQueueHeadLagHigh warns), never as overdue."""
         row = self._one("SELECT MIN(MAX(run_at, created_at)) AS oldest FROM posts WHERE status = 'scheduled' AND run_at <= ?"
                         + self._OWNED,
                         now)
         return max(0.0, now - float(row["oldest"])) if row and row["oldest"] is not None else 0.0
 
     def overdue_count(self, now: float, grace: float) -> int:
-        """Scheduled posts that have waited more than ``grace`` seconds: the scheduler is behind or stopped."""
-        row = self._one("SELECT COUNT(*) AS n FROM posts WHERE status = 'scheduled' AND run_at <= ? AND created_at <= ?"
-                        + self._OWNED, now - grace, now - grace)
+        """Promises more than ``grace`` seconds past their time: the scheduler is behind or stopped (InkcastPostsOverdue
+        pages). Never a backfill (ADR-0019): measured, 900 past-dated files draining at 20 a tick paged for a scheduler
+        at its full rate."""
+        row = self._one("SELECT COUNT(*) AS n FROM posts WHERE status = 'scheduled' AND run_at <= ? AND NOT ("
+                        + self._BACKFILL + ")" + self._OWNED, now - grace)
         return int(row["n"]) if row else 0
 
     def post_status_counts(self, user_id: str, since: float) -> dict[str, dict[str, int]]:

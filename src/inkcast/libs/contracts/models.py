@@ -271,7 +271,9 @@ class InsightsSummary(BaseModel):
                                                        "(a post scheduled for later counts as scheduled now).")
     ledger_by_status: dict[str, int] = Field(description="Git publishing ledger entries by status, now.")
     publish_success: list[RateSummary] = Field(description="published / (published + failed + unconfirmed), per platform.")
-    on_time: list[RateSummary] = Field(description="scheduled sends within two minutes of their time, per platform.")
+    on_time: list[RateSummary] = Field(description="scheduled sends within two minutes of their time, per platform; a post "
+                                       "made after its time (a Git file dated in the past) has no time to be on time for and "
+                                       "is not counted.")
     sync_by_action: dict[str, int]
     sync_by_platform: dict[str, int]
 

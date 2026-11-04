@@ -62,7 +62,9 @@ def build_metrics(store: Store | None, registry: dict[str, Platform], config: Co
                 "Request duration by route template, method and status class (RED: rate, errors, duration).")
     m.histogram("inkcast_publish_duration_seconds", "Time one platform publish call took, by platform.")
     m.histogram("inkcast_publish_lag_seconds",
-                "How late a scheduled post was claimed after its run_at (schedule lag), by platform.", LAG_BUCKETS)
+                "How late a scheduled post was claimed after its time (schedule lag), by platform. A post made after its "
+                "time (a Git file dated in the past) has no time to be on time for and is not measured (ADR-0019).",
+                LAG_BUCKETS)
     m.counter("inkcast_ratelimit_total", "Rate-limit decisions on unauthenticated writes, by limit and decision.")
     m.counter("inkcast_identity_sync_total", "Keycloak user sync passes, by result (ok, error).")
     m.counter("inkcast_identity_sync_errors_total", "Keycloak user sync failures the pass went on past, by stage (person: "

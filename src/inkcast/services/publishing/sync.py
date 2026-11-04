@@ -60,6 +60,18 @@ def stored_hash(payload: dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
 
 
+def same_time(stored: float | None, written: datetime | None) -> bool:
+    """Whether a post's stored time (``run_at`` untried; ``requested_at`` once tried, ADR-0017) is the time a file
+    writes: both none, or the same instant at the datetime's resolution, a microsecond. The stored float is a written
+    time's ``timestamp()``, which reads back as that time (measured over 300,000 random times in 2026-2029: no
+    mismatch, and a microsecond's move always reads as one), so a time moved by anything a file can express is a
+    change, and a time left alone never reads as one. A tolerance of a second let a time moved later by under that go
+    out before it was written (#222)."""
+    if stored is None or written is None:
+        return stored is None and written is None
+    return datetime.fromtimestamp(stored, timezone.utc) == written
+
+
 class GitSync:
     def __init__(self, store: Store, platforms: dict[str, Platform], publisher: Publisher, metrics: Metrics | None = None):
         self.store, self.platforms, self.publisher, self.metrics = store, platforms, publisher, metrics
@@ -90,7 +102,7 @@ class GitSync:
             story = parse_story(markdown, known_platforms=self.platforms.keys(), platforms=req.platforms,
                                 image_base_url=image_base_url, schedule_as_written=True)
         except StoryError as exc:
-            return [SyncResult(path=path, platform="*", action="failed", message=str(exc))]
+            return [SyncResult(path=path, platform="*", action="failed", message=str(exc) + self._stands(user_id, req, path))]
         connected = self.store.connected_accounts(user_id)
         targets = story.platforms or [pid for pid in connected if pid in self.platforms]
         if not targets:
@@ -111,6 +123,24 @@ class GitSync:
                 continue
             out.append(await self._one(user_id, req, path, story, platform, prepared))
         return out
+
+    def _stands(self, user_id: str, req: SyncRequest, path: str) -> str:
+        """For a file that fails validation: the scheduled posts its last valid version made, which stay as they are and
+        go out at their time. An invalid file changes nothing, as after every ``failed`` result (a cancel would lose a
+        scheduled post to a typo, with CI's red the only notice), so the result names what stands and when, for the
+        author to change the file before then, or cancel the post (#222). Empty when nothing is scheduled."""
+        standing = []
+        for entry in self.store.list_entries(user_id, source=req.source, path=path):
+            post = self.store.get_post(entry["post_id"]) if entry["post_id"] else None
+            if post and post["status"] == "scheduled":
+                when = datetime.fromtimestamp(post["run_at"], timezone.utc).isoformat(timespec="seconds")
+                name = getattr(self.platforms.get(entry["platform"]), "name", entry["platform"])
+                standing.append(f"post {post['id']} on {name} goes out at {when}")
+        if not standing:
+            return ""
+        return (" The last valid version of this file keeps its scheduled post, unchanged: " + "; ".join(standing)
+                + ". Fix the file before then to change it, or cancel the post (inkcast_cancel, or "
+                "POST /api/v1/posts/{id}/cancel).")
 
     async def _one(self, user_id: str, req: SyncRequest, path: str, story, platform: Platform,
                    prepared: Prepared) -> SyncResult:
@@ -185,20 +215,17 @@ class GitSync:
                                       created_at=self._creation_kept(replaced, story) if replaced else None)
 
         schedule_changed = False
-        if post and post["status"] == "scheduled":  # not sent yet: the schedule time matters too
-            wanted = story.publish_at.timestamp() if story.publish_at else None  # the time as written (ADR-0015)
+        if post and post["status"] == "scheduled":  # not sent yet: the schedule time matters too (as written, ADR-0015)
             if post["attempts"]:
                 # A post the scheduler has tried waits for its retry: its run_at is the retry's, so compare with the
                 # time it was asked for (None: now). A row from before requested_at has none, and reads as changed
                 # once if the file has a time: the edit in place keeps its retry, so nothing is sent sooner (#204).
-                asked = post["requested_at"]
-                schedule_changed = (wanted is None) != (asked is None) or \
-                    (wanted is not None and asked is not None and abs(asked - wanted) >= 1)
+                schedule_changed = not same_time(post["requested_at"], story.publish_at)
             else:
                 # Not tried yet: its run_at is the time the file asked for. Compare with that, whatever the clock: in
                 # the minutes before it, or once it has passed (the scheduler behind), an unchanged file has not
                 # changed, and the post is the scheduler's to send at its time (#187).
-                schedule_changed = wanted is None or abs(post["run_at"] - wanted) >= 1
+                schedule_changed = not same_time(post["run_at"], story.publish_at)
             changed = changed or schedule_changed
 
         if not changed:
@@ -211,7 +238,11 @@ class GitSync:
             return await self._edit_waiting(user_id, req, path, platform, prepared, digest, post, story)
 
         if post and post["status"] == "scheduled":  # not sent yet: replace what will be sent
-            if req.dry_run:
+            if req.dry_run:  # what the real run does: a removed time is a "now" post, published by the sync (ADR-0015)
+                if story.publish_at is None:
+                    return SyncResult(**base, action="update", status="preview", post_id=post["id"], preview=prepared.preview,
+                                      message="Would cancel the scheduled post and publish now: the file's publish_at "
+                                              "was removed.")
                 return SyncResult(**base, action="update", status="scheduled", post_id=post["id"], preview=prepared.preview,
                                   message="Would re-schedule with the new content.")
             # Ours to replace now: hold it as a claim, or a concurrent sync sees the cancelled post and creates one too.
@@ -278,8 +309,7 @@ class GitSync:
         """The ``created_at`` a replacement of the scheduled ``post`` keeps: the post's own when only the content changed,
         so that the replacement keeps its schedule and its creation too, and a post the scheduler is behind on stays as
         late as it is (ADR-0015); none when the file moved the schedule, or the scheduler has tried the post."""
-        wanted = story.publish_at.timestamp() if story.publish_at else None
-        if post["attempts"] or wanted is None or abs(post["run_at"] - wanted) >= 1:
+        if post["attempts"] or not same_time(post["run_at"], story.publish_at):
             return None
         return post["created_at"]
 

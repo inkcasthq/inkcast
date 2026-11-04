@@ -33,7 +33,7 @@ Where the work stands and how to pick it up on another machine or in a fresh ses
 
 | Topic | Decision | Where |
 |---|---|---|
-| `publish_at` in a Git file | Always a scheduled post, at the time as written; lag measured from `MAX(run_at, created_at)` | ADR-0015 |
+| `publish_at` in a Git file | Always a scheduled post, at the time as written; a post made after its time is a backfill: behind every promise, measured by no deadline | ADR-0015, ADR-0019 |
 | Posts stuck recovering | Cancel, alert after 1 h, cap at `INKCAST_PUBLISH_RECOVERY_MAX_HOURS` (24) | #221 |
 | Unconfirmed posts past the cap | The person decides: cancel, or resend (`inkcast_resend`, `POST /api/v1/posts/{id}/resend`); Git sync never re-creates them | #231 |
 | Mockups | One app per mockup, one token table, typed datasets, fixed section types, checked at 390/820/1440 px | ADR-0016, [mockup standard](tooling/mockup-standard.md) |

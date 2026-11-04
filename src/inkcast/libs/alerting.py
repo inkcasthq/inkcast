@@ -100,7 +100,8 @@ ALERTS: tuple[Alert, ...] = (
     Alert("InkcastQueueHeadLagHigh", "max(inkcast_posts_oldest_due_age_seconds) > 300", "warning",
           "The oldest due post has waited more than 5 minutes",
           "Head-of-line lag is {{ $value | humanizeDuration }}: ticks are slow (a platform is slow, or the batch is "
-          "too small for the load). Not yet overdue.", "scheduler-worker", for_="10m"),
+          "too small for the load), or a Git import of files dated in the past is draining at the batch rate, 20 a "
+          "tick, which never becomes overdue (ADR-0019). Not yet overdue.", "scheduler-worker", for_="10m"),
     Alert("InkcastUnconfirmedPublishes", 'sum(increase(inkcast_publish_total{status="unconfirmed"}[1h])) > 0', "warning",
           "Posts are unconfirmed and wait for a person",
           "{{ $value }} publish(es) in the last hour ended unconfirmed: the platform may or may not have the post. "
