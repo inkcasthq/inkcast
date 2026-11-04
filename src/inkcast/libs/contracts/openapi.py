@@ -189,7 +189,9 @@ def openapi_document(public_url: str) -> dict[str, Any]:
                              "(`Idempotent-Replayed: true`), unless that response has a `skipped` or `failed` result, "
                              "which asks for a re-run: then the repeat runs, and the ledger keeps what the first run did; a "
                              "repeat while the first is still running gets 409 "
-                             "`idempotency_key_in_use` (retry shortly); the same key with a different body gets "
+                             "`idempotency_key_in_use` (retry shortly), for 15 minutes from the first's start: a sync "
+                             "that runs longer no longer holds the key, and the repeat runs anew; the same key with a "
+                             "different body gets "
                              "422 `idempotency_key_reused` while the first response is kept, and runs once it "
                              "isn't."))},
             "/api/v1/ledger": {"get": _op(

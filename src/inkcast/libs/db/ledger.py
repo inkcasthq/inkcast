@@ -9,6 +9,7 @@ creating a duplicate.
 
 from __future__ import annotations
 
+import secrets
 import sqlite3
 import time
 from typing import Any
@@ -30,7 +31,10 @@ CREATE TABLE IF NOT EXISTS idempotency (
 
 # ``replaces``: the post a Git sync's claim replaces (cancelled in the claim's transaction), until the claim has a post
 # of its own: a run that fails before then leaves it for the re-run, which keeps that post's creation (#280).
-COLUMNS = (("ledger", "replaces", "TEXT"),)
+# ``idempotency.owner``: the token ``reserve_idempotency_key`` made for the request holding the key, which alone
+# completes or releases the reservation (#416); '' on a reservation from before the column, which nobody's token matches
+# and which expires on its own.
+COLUMNS = (("ledger", "replaces", "TEXT"), ("idempotency", "owner", "TEXT NOT NULL DEFAULT ''"))
 
 CLAIM_TTL = 600  # a 'syncing' claim older than this was left by a crash and may be taken over
 
@@ -125,35 +129,48 @@ class LedgerRepo(Database):
 
     # A key is reserved (response '') before the work runs, then completed with the response. Reserving is one
     # INSERT OR IGNORE, so of two identical requests exactly one runs; the other is told to retry, then replays the
-    # first one's response. A reservation left by a crash is given up after IDEMPOTENCY_PENDING_SECONDS.
+    # first one's response. A reservation left by a crash is given up after IDEMPOTENCY_PENDING_SECONDS: the next
+    # repeat takes the key over. The reservation names its owner, a token made here, and only the owner completes or
+    # releases it: a request that outlived its reservation leaves the repeat's alone (#416).
     IDEMPOTENCY_SECONDS = 86400
     IDEMPOTENCY_PENDING_SECONDS = 900
 
-    def reserve_idempotency_key(self, user_id: str, key: str, request_hash: str) -> tuple[str, str] | None:
-        """None when this request now holds the key (run it, then `complete_` or `release_` it). Otherwise the
-        (request hash, response JSON) of the request holding it; the response is '' while that one is running.
-        A person who has no users row any more (erased since the request authenticated; issue #196) gets no row and
-        holds nothing, and runs as if they held the key: nothing the request writes is kept either."""
-        now = time.time()
+    def reserve_idempotency_key(self, user_id: str, key: str, request_hash: str) -> str | tuple[str, str]:
+        """The reservation's owner (a token: run the request, then `complete_` or `release_` the key with it) when this
+        request now holds the key. Otherwise the (request hash, response JSON) of the request holding it; the response
+        is '' while that one is running. A person who has no users row any more (erased since the request
+        authenticated; issue #196) gets no row and holds nothing, and runs as if they held the key: nothing the request
+        writes is kept either."""
+        now, owner = time.time(), secrets.token_hex(16)
         with self._tx() as c:
             c.execute("DELETE FROM idempotency WHERE user_id = ? AND key = ? AND (created_at <= ? OR"
                       " (response = '' AND created_at <= ?))",
                       (user_id, key, now - self.IDEMPOTENCY_SECONDS, now - self.IDEMPOTENCY_PENDING_SECONDS))
-            if c.execute("INSERT OR IGNORE INTO idempotency VALUES (?, ?, ?, '', ?)",
-                         (user_id, key, request_hash, now)).rowcount == 1:
-                return None
+            if c.execute("INSERT OR IGNORE INTO idempotency (user_id, key, request_hash, response, created_at, owner)"
+                         " VALUES (?, ?, ?, '', ?, ?)", (user_id, key, request_hash, now, owner)).rowcount == 1:
+                return owner
             row = c.execute("SELECT request_hash, response FROM idempotency WHERE user_id = ? AND key = ?",
                             (user_id, key)).fetchone()
-        return (row["request_hash"], row["response"]) if row is not None else None
+        return (row["request_hash"], row["response"]) if row is not None else owner
 
-    def complete_idempotency_key(self, user_id: str, key: str, response: str) -> None:
-        self._exec("UPDATE idempotency SET response = ? WHERE user_id = ? AND key = ?", response, user_id, key)
+    def complete_idempotency_key(self, user_id: str, key: str, owner: str, response: str) -> bool:
+        """Keep ``response`` for replay under the key. False when the reservation is not ``owner``'s any more (a repeat
+        took it over after IDEMPOTENCY_PENDING_SECONDS, or the person has no row, #196): it is left as it is."""
+        if not owner:
+            raise ValueError("owner is the token reserve_idempotency_key returned")  # '' marks a row from before owners
+        kept = self._exec("UPDATE idempotency SET response = ? WHERE user_id = ? AND key = ? AND owner = ?",
+                          response, user_id, key, owner) == 1
         self._exec("DELETE FROM idempotency WHERE created_at < ?", time.time() - self.IDEMPOTENCY_SECONDS)
+        return kept
 
-    def release_idempotency_key(self, user_id: str, key: str) -> None:
+    def release_idempotency_key(self, user_id: str, key: str, owner: str) -> bool:
         """Free the key so the client can retry with it: the request failed before it had a response, or its response
-        asks for a re-run (a ``skipped`` or ``failed`` result, #290)."""
-        self._exec("DELETE FROM idempotency WHERE user_id = ? AND key = ? AND response = ''", user_id, key)
+        asks for a re-run (a ``skipped`` or ``failed`` result, #290). False when the reservation is not ``owner``'s any
+        more (taken over, completed, or never written, #196): it is left as it is."""
+        if not owner:
+            raise ValueError("owner is the token reserve_idempotency_key returned")  # '' marks a row from before owners
+        return self._exec("DELETE FROM idempotency WHERE user_id = ? AND key = ? AND response = '' AND owner = ?",
+                          user_id, key, owner) == 1
 
     def ledger_status_counts(self, user_id: str) -> dict[str, int]:
         rows = self._all("SELECT status, COUNT(*) AS n FROM ledger WHERE user_id = ? GROUP BY status ORDER BY status", user_id)
