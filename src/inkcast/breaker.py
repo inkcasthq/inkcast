@@ -17,13 +17,13 @@ access tokens revoked (never erased: Keycloak has them). One who signed in since
 (Keycloak let them in: the one proof Inkcast has that it has them), one erased meanwhile (their own DELETE_ACCOUNT
 event) is in no pass any more, and a person a pass has since read present (the gone) or enabled (the disabled) left
 the pass then, even as the confirmation runs: it claims each person before it acts, so a release that lands first
-spares them (#161). Dismissing
-does nothing to the gone and releases the disabled, whose personal access tokens work again; the next reconcile reads
-everyone again and trips again if it must. Either is claimed once: a second confirmation, or a dismissal after a
-confirmation, does nothing and says so. Each outcome is one log line, the audit record
-(`identity.sync.breaker.confirmed`, `identity.sync.breaker.dismissed`: the pass id, who, and counts; never a person's
-id), beside the pass's own row (`sync_breaker_trips`: status, time, who). Runs in the IdentityService pod, against the
-same database and INKCAST_SECRET_KEY, while the server serves. Exit status: 0 done, 1 refused, 2 bad usage.
+spares them (#161). Dismissing does nothing to the gone and releases the disabled, whose personal access tokens work
+again; the next reconcile reads everyone again and trips again if it must. Either is claimed once: a second
+confirmation, or a dismissal after a confirmation, does nothing and says so. Each outcome is one log line, the audit
+record (`identity.sync.breaker.confirmed`, `identity.sync.breaker.dismissed`: the pass id, who, and counts, among them
+how many gone people were marked gone but not cut off here, their clock running all the same; never a person's id),
+beside the pass's own row (`sync_breaker_trips`: status, time, who). Runs in the IdentityService pod, against the same
+database and INKCAST_SECRET_KEY, while the server serves. Exit status: 0 done, 1 refused, 2 bad usage.
 """
 
 from __future__ import annotations
