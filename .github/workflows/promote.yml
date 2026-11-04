@@ -18,7 +18,7 @@ on:
         type: choice
         options: [staging, production]
       digest:
-        description: "sha256:… to promote (default: the image built from the latest main commit)"
+        description: "sha256:… to promote (default: the image of the latest successful publish run on main)"
         required: false
 
 permissions:
@@ -41,6 +41,7 @@ jobs:
       pull-requests: write
       issues: write          # the deploy label (labels belong to issues)
       packages: read
+      actions: read          # a manual run finds the latest publish run on main
     env:
       ENVIRONMENT: ${{ inputs.environment || 'staging' }}
       IMAGE: ${{ vars.REGISTRY || 'ghcr.io' }}/${{ github.repository }}
@@ -49,12 +50,21 @@ jobs:
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - name: Resolve the digest
         id: d
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           echo "${{ secrets.REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}" | docker login "${IMAGE%%/*}" -u "${{ vars.REGISTRY_USER || github.actor }}" --password-stdin
           digest="${{ inputs.digest }}"
           if [ -z "$digest" ]; then
-            sha="${{ github.event.workflow_run.head_sha || github.sha }}"
+            sha="${{ github.event.workflow_run.head_sha }}"
+            if [ -z "$sha" ]; then
+              # A manual run promotes the latest image published from main. Not github.sha: a head that only moved
+              # an environment's pin published nothing (#382).
+              sha=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/publish.yml/runs?branch=main&status=success&per_page=1" \
+                --jq '.workflow_runs[0].head_sha // empty')
+              [ -n "$sha" ] || { echo "::error::no successful publish run on main to promote"; exit 1; }
+            fi
             digest=$(docker buildx imagetools inspect "$IMAGE:sha-${sha::12}" --format '{{json .Manifest}}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["digest"])')
           fi
           echo "digest=$digest" >> "$GITHUB_OUTPUT"

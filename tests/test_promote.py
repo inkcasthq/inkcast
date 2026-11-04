@@ -38,6 +38,22 @@ class Promote(unittest.TestCase):
         self.assertIn('scripts/ci-run.sh "open the promotion pull request" gh pr create', text)
         self.assertRegex(text, r"permissions:[\s\S]*issues: write")
 
+    def test_a_promotion_merge_does_not_publish_again(self):
+        # Issue #382: publishing on a pin-only push rebuilt the same source under a new digest, and promote.yml opened
+        # another promotion for it after every merge. The image never contains deploy/, so nothing is lost.
+        self.assertIn("deploy", (REPO / ".dockerignore").read_text().split())
+        push = re.search(r"\n  push:\n((?:    .*\n)+)", (WORKFLOWS / "publish.yml").read_text()).group(1)
+        self.assertIn("branches: [main]", push)
+        self.assertIn('tags: ["v*.*.*"]', push)                  # path filters don't apply to tags: releases publish
+        self.assertRegex(push, r"paths-ignore:\n\s+- deploy/kustomize/environments/\*\*\n")
+
+    def test_a_manual_promotion_finds_the_latest_published_image(self):
+        # A pin-only head of main has no sha-<head> image any more (#382), so a manual run must not look it up.
+        text = (WORKFLOWS / "promote.yml").read_text()
+        self.assertNotRegex(text, r"\|\|\s*github\.sha\b")              # the old fallback to the run's own commit
+        self.assertIn("actions/workflows/publish.yml/runs?branch=main&status=success&per_page=1", text)
+        self.assertRegex(text, r"permissions:[\s\S]*actions: read")
+
 
 if __name__ == "__main__":
     unittest.main()
