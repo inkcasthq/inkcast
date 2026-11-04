@@ -67,24 +67,23 @@ export PGAPPNAME=openfga-migrate PGCONNECT_TIMEOUT=10
 # table takes) without the lock. OpenFGA's pgx reads PGOPTIONS too (pgconn/config.go at v5.11.0). The proofs are
 # tests/test_review_openfga_migrate.py.
 export PGOPTIONS="-c tcp_keepalives_idle=20 -c tcp_keepalives_interval=5 -c tcp_keepalives_count=3 -c client_connection_check_interval=2s"
+# $1 percent-decoded into `decoded` as libpq decodes (conninfo_uri_decode at REL_18_6): each %XX, and nothing else.
+# Its backslashes are doubled first, or printf's %b would read a `\n` or a `\c` in a password as an escape (#474).
+uri_decode() {
+  local escaped="${1//\\/\\\\}"
+  printf -v decoded '%b' "${escaped//%/\\x}"
+}
 # psql's URI, less the password, which goes to PGPASSWORD percent-decoded as libpq decodes it (the header says why).
 # Split where libpq and pgx split: the userinfo ends at the first `@` before any `/`, so a raw `?` or `#` is part of
 # the password (fe-connect.c conninfo_uri_parse_options at REL_18_6; pgconn/parse_url.go at v5.11.0).
 db_uri="$OPENFGA_DATASTORE_URI"
 if [[ "$db_uri" =~ ^([^:/?#]+://[^:@/]*):([^@/]*)@(.*)$ ]]; then
-  encoded="${BASH_REMATCH[2]//%/\\x}"
-  printf -v PGPASSWORD '%b' "$encoded"
-  export PGPASSWORD
   db_uri="${BASH_REMATCH[1]}@${BASH_REMATCH[3]}"
-  unset encoded
+  uri_decode "${BASH_REMATCH[2]}"
+  export PGPASSWORD="$decoded"
+  unset decoded
 fi
 log() { printf '%s migrate: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
-# $1 percent-decoded into `decoded` as libpq decodes (conninfo_uri_decode at REL_18_6): each %XX, and nothing else, a
-# backslash included.
-uri_decode() {
-  local escaped="${1//\\/\\\\}"
-  printf -v decoded '%b' "${escaped//%/\\x}"
-}
 
 # A URI no split makes safe, refused in words that quote none of it (#474): a string that is no URI (keyword=value),
 # which psql takes whole on its command line and `openfga migrate` cannot read; a raw `@` or `/` in the password,

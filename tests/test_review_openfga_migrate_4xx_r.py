@@ -143,6 +143,22 @@ class Review474(harness.MigrateScript):
                 self.assertIn("a password in its query", log)
                 self.assertNotIn("not-a-secret", log)
 
+    def test_a_backslash_in_the_password_migrates(self):
+        """K4: libpq decodes %XX alone and keeps a backslash as it is (conninfo_uri_decode at REL_18_6), while
+        migrate.sh's `printf '%b'` read a raw `\\n` as a newline and stopped at `\\c`, so psql failed authentication on
+        every run while the server accepted the same URI. Percent-encoded, as env-secrets writes it, it still migrates."""
+        password = r"Pw\n474\c-not-a-secret"
+        self.sql(f"ALTER ROLE openfga PASSWORD '{password}'", "postgres")   # standard_conforming_strings: as written
+        self.addCleanup(self.sql, f"ALTER ROLE openfga PASSWORD '{harness.PASSWORD}'", "postgres")
+        for written in (password, password.replace("\\", "%5C")):
+            with self.subTest(encoded="%5C" in written):
+                self.setUp()
+                code, log = self.migrate(uri=f"postgres://openfga:{written}@127.0.0.1:5432/openfga?sslmode=disable",
+                                         connect_timeout="5")
+                self.assertEqual(code, 0, log)
+                self.assertNotIn("not-a-secret", log)
+                self.assertEqual(self.sql("SELECT max(version_id) FROM goose_db_version"), "6")
+
 
 def load_tests(loader: unittest.TestLoader, standard_tests: unittest.TestSuite, pattern: str | None) -> unittest.TestSuite:
     """This file's tests only: its classes inherit the harness's own, which run in their module."""
