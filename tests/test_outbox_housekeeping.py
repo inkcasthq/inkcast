@@ -114,6 +114,25 @@ class TheCursorsMatchTheCode(unittest.TestCase):
                 housekeeping(context(self.store))
             self.assertEqual(self.seqs("webhooks"), [], "passed by every consumer the code has: purged")
 
+    def test_the_scheduler_syncs_at_its_start_before_the_first_tick(self):
+        """A release that retires a consumer: its cursor would otherwise hold the purge, and keep a lag series that
+        trips InkcastOutboxConsumerLag, until the first housekeeping, up to HOUSEKEEPING_EVERY later."""
+        self.store.advance("legacy", 1)
+        ticks = []
+
+        class FakePublisher:
+            async def run_forever(self, interval, stop, housekeeping=None, on_tick=None):
+                ticks.append(sorted(self_test.store.outbox_lag()))   # what the loop sees from its first tick
+
+        self_test = self
+        ctx = context(self.store)
+        ctx.publisher, ctx.config.scheduler_interval_seconds = FakePublisher(), 0.001
+        with self.assertLogs("inkcast.services.scheduler", level="WARNING") as logs:
+            asyncio.run(run_scheduler(ctx, asyncio.Event()))
+        self.assertEqual(ticks, [["insights"]], "gone before the loop started")
+        self.assertEqual([getattr(r, "consumer", "") for r in logs.records], ["legacy"])
+        self.assertEqual(self.store.purge_outbox(7 * DAY), 3)
+
     def test_the_catalogue_names_every_consumer_a_service_runs_and_nothing_else(self):
         """Both ways, like EVENT_TYPES: a service that polls the outbox says so in ``CONSUMER`` next to its
         ``ServiceSpec``, and ``CONSUMERS`` maps that name to the service, so housekeeping never retires a live one."""

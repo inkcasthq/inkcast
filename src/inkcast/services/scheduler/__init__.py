@@ -29,13 +29,12 @@ HOUSEKEEPING = "housekeeping"     # the heartbeat that times housekeeping: when 
 HOUSEKEEPING_EVERY = 30 * 60.0
 
 
-def housekeeping(ctx: Context) -> None:
-    """Every HOUSEKEEPING_EVERY (``housekeeping_if_due``): the outbox cursors made to match the code's consumers, so a
-    retired consumer's cursor can't hold the purge and one that has not run yet is waited for (issue #141); expired
-    grants and tickets, then domain events and hourly KPI buckets past the configured retention
-    (INKCAST_OUTBOX_RETENTION_DAYS, INKCAST_KPI_HOURLY_RETENTION_DAYS; F1.10.S3, issue #91); and, once per database,
-    the rows left by writes in the instant of an erasure before the guard refused them (issue #196), logged as counts
-    only: no new erasure, and no audit row. Consumer names are the code's own, never a person's."""
+def sync_consumers(ctx: Context) -> None:
+    """The outbox cursors made to match the code's consumers (``CONSUMERS``; issue #141), so a retired consumer's cursor
+    can't hold the purge and one that has not run yet is waited for: at the scheduler's start, so a consumer this
+    release retired holds nothing from the first tick on, and in every housekeeping, for a cursor a pod of the old
+    release re-created during the rollout. Each change is logged with the consumer's name: the code's own, never a
+    person's."""
     retired, registered = ctx.store.sync_consumers(CONSUMERS)
     for name in retired:
         log.warning("Outbox consumer %s is no longer in the code: its cursor is removed, and the events only it had not "
@@ -43,6 +42,15 @@ def housekeeping(ctx: Context) -> None:
     for name in registered:
         log.info("Outbox consumer %s has not run yet: its cursor starts at the beginning, and the purge waits for it",
                  name, extra={"event": "outbox.consumer.registered", "consumer": name})
+
+
+def housekeeping(ctx: Context) -> None:
+    """Every HOUSEKEEPING_EVERY (``housekeeping_if_due``): the outbox cursors matched to the code's consumers
+    (``sync_consumers``); expired grants and tickets, then domain events and hourly KPI buckets past the configured
+    retention (INKCAST_OUTBOX_RETENTION_DAYS, INKCAST_KPI_HOURLY_RETENTION_DAYS; F1.10.S3, issue #91); and, once per
+    database, the rows left by writes in the instant of an erasure before the guard refused them (issue #196), logged
+    as counts only: no new erasure, and no audit row."""
+    sync_consumers(ctx)
     ctx.store.purge_expired(ctx.config.retention)
     swept = ctx.store.sweep_orphans()
     if swept:
@@ -70,6 +78,7 @@ def housekeeping_if_due(ctx: Context) -> bool:
 
 
 async def run_scheduler(ctx: Context, stop: asyncio.Event) -> None:
+    sync_consumers(ctx)                 # before the first tick: a cursor this release retired holds nothing (0.1 ms)
     await ctx.publisher.run_forever(ctx.config.scheduler_interval_seconds, stop,
                                     housekeeping=lambda: housekeeping_if_due(ctx),
                                     on_tick=lambda: ctx.store.beat(HEARTBEAT))
