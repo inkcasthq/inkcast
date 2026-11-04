@@ -43,6 +43,16 @@ def _named(url: str | None, remote_id: str | None) -> str:
     if url and remote_id:
         return f"{url} (id {remote_id})"
     return url or f"id {remote_id}"
+
+
+def _edited(platform: Platform, url: str | None = None, remote_id: str | None = None) -> str:
+    """The note on a post whose send's success found it changed meanwhile (#392): what the platform has, and how the
+    change reaches it. ``Publisher.update`` settles it, and only it."""
+    return (f"The post was changed while this send was out, so {platform.name} has it as it was sent. "
+            + ("The next sync sends the change as an update." if "update" in platform.capabilities else
+               f"{platform.name} doesn't let Inkcast edit posts: update it by hand: {_named(url, remote_id)}."))
+
+
 RECOVERY_MAX = 24 * 3600  # seconds a post stays 'recovering' before it is unconfirmed: INKCAST_PUBLISH_RECOVERY_MAX_HOURS's default
 
 
@@ -273,9 +283,16 @@ class Publisher:
                     f"here, and {_named(result.url, result.remote_id)}, attempt {attempts}'s answer. Check "
                     f"{platform.name}: keep one and remove the other.")
 
+        # The platform has what this send carried, whatever the row came to hold meanwhile: Git sync's edit in place of
+        # a post recovery had queued again while this send was still out (#392). The row takes the sent content back,
+        # with a note, and the file's entry sees the edit at the next sync: sent as an update where the platform edits
+        # posts, reported as stale (update it by hand) where it doesn't. Never a second post, and never dropped.
+        sent = prepared.to_dict()
+        edited = _edited(platform, result.url, result.remote_id)
+
         written, before = self.store.record_success(
-            post_id, held=held, status=status, result_url=result.url, remote_id=result.remote_id, notes=result.notes,
-            second_copy=second_copy, both_copies=both_copies,
+            post_id, held=held, status=status, result_url=result.url, remote_id=result.remote_id, sent=sent,
+            notes=result.notes, second_copy=second_copy, both_copies=both_copies, edited=edited,
             events=self._event("post.published", post_id, user_id, platform.id, status=status, scheduled=scheduled,
                                attempts=attempts, lag_seconds=round(lag, 3) if lag is not None else None))
         if written or before is None:  # before is None: erased meanwhile, the row left alone and the answer kept
@@ -287,6 +304,11 @@ class Publisher:
                     log.warning("Post %s on %s was published by a send taken over as stuck; attempt %s, sent meanwhile, "
                                 "may have posted a second copy", post_id, platform.id, before["attempts"],
                                 extra={"event": "publish.second_copy", "post_id": post_id, "platform": platform.id})
+                if not self.store.holds(before, sent):
+                    notes.append(edited)
+                    log.warning("Post %s on %s was changed while its send was out; %s has it as it was sent, and the "
+                                "change waits for the next sync", post_id, platform.id, platform.id,
+                                extra={"event": "publish.edited_meanwhile", "post_id": post_id, "platform": platform.id})
             return Outcome(platform.id, status, post_id=post_id, url=result.url, notes=notes, prepared=prepared,
                            remote_id=result.remote_id)
         log.warning("Post %s on %s: attempt %s answered %s (%s), and the post records another copy (%s); %s may have "
@@ -342,8 +364,14 @@ class Publisher:
                            f"plug-in: {exc}", prepared=prepared)
         status = result.status if result.status in ("draft", "unlisted") else "published"
         if post_id:  # a PUT's answer that names no URL (a 204) keeps the post's: the post is where it was (#214)
+            # The update that sends an edit made while a send was out settles that edit's note only (#392): the success
+            # that wrote it may have noted a second copy beside it (#214), which is the person's to check.
+            notes = list(result.notes)
+            held = ((self.store.get_post(post_id) or {}).get("error") or "").split("; ")
+            if _edited(platform) in held:
+                notes = [n for n in held if n != _edited(platform)] + notes
             self.store.update_post(post_id, status=status, title=prepared.title, payload=json.dumps(prepared.to_dict()),
-                                   error="; ".join(result.notes) or None, **({"result_url": result.url} if result.url else {}))
+                                   error="; ".join(notes) or None, **({"result_url": result.url} if result.url else {}))
         self._count(platform.id, "updated")
         return Outcome(platform.id, status, post_id=post_id, url=result.url, notes=result.notes, prepared=prepared,
                        remote_id=result.remote_id or remote_id)

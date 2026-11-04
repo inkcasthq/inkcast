@@ -32,6 +32,7 @@ import json
 import sqlite3
 import time
 from datetime import datetime, timezone
+from typing import Any
 
 from ...libs.content.story import StoryError, parse_story
 from ...libs.contracts.models import LedgerEntry, SyncRequest, SyncResponse, SyncResult
@@ -46,8 +47,14 @@ from ...libs.platforms import Platform, PlatformError, Prepared
 def payload_hash(prepared: Prepared) -> str:
     """What the platform would receive. The schedule time is deliberately not part of it: once a post is
     out, a date in its front matter no longer matters (see ``_one`` for still-scheduled posts)."""
-    data = prepared.to_dict()
-    data.pop("warnings", None)
+    return stored_hash(prepared.to_dict())
+
+
+def stored_hash(payload: dict[str, Any]) -> str:
+    """``payload_hash`` of a post row's payload (its ``Prepared.to_dict()``, as stored). Once the post is confirmed, the
+    row holds what the platform received (``PostsRepo.record_success``): the entry takes this hash as it follows the
+    post (``_one``), so an edit the send did not carry reads as a change (#392)."""
+    data = {k: v for k, v in payload.items() if k != "warnings"}
     return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
 
 
@@ -116,12 +123,15 @@ class GitSync:
             entry = self.store.put_entry(user_id, src, path, pid, status="publishing")
 
         # A scheduled post may have gone out (or failed) since the last sync, and a person may have cancelled or resent
-        # an unconfirmed one (#226): take its current state.
+        # an unconfirmed one (#226): take its current state. A confirmed post holds what the platform received
+        # (``record_success``), which is not always what the entry hashed: an edit in place while the post's send was
+        # still out (#392). The entry takes the hash of what the platform has, so that edit reads as a change below.
         post = self.store.get_post(entry["post_id"]) if entry and entry["post_id"] else None
         if post and entry["status"] in ("scheduled", "publishing", "recovering", "unconfirmed") \
                 and post["status"] != entry["status"]:
+            has = {"content_hash": stored_hash(json.loads(post["payload"]))} if post["status"] in self.store.CONFIRMED else {}
             if not self.store.follow_post(user_id, src, path, pid, post["id"], status=post["status"],
-                                          url=post["result_url"], remote_id=post["remote_id"]):
+                                          url=post["result_url"], remote_id=post["remote_id"], **has):
                 # Re-pointed since this sync read it (a person's resend, in another process): never the old post's
                 # status on the new post's entry. The next sync follows the post it names now.
                 now = self.store.get_entry(user_id, src, path, pid) or entry
