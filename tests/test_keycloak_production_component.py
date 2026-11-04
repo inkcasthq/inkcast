@@ -198,23 +198,25 @@ class ComponentFiles(unittest.TestCase):
 
 
 def kustomizations_using(component: pathlib.Path) -> dict[str, pathlib.Path]:
-    """Every kustomization under deploy/kustomize whose `components` list names the component, by its path relative
-    to deploy/kustomize: a new overlay, environment or shared kustomization that uses it is tested without being
-    listed here (review of #391, K6)."""
+    """Every kustomization under deploy/kustomize that renders the component's Keycloak CR (its kind and labels), by
+    its path relative to deploy/kustomize: through its own `components`, a Component that includes this one, or an
+    overlay on such a kustomization, in any file name kustomize reads. A new one is tested without being listed here
+    (review of #391, K6)."""
+    (marker,) = load(component / "keycloak.yaml")
+    labels = marker["metadata"]["labels"].items()
     found = {}
-    for path in sorted(KUSTOMIZE.rglob("kustomization.yaml")):
-        k = yaml.safe_load(path.read_text()) or {}
-        if k.get("kind") == "Component":
+    files = {p for name in ("kustomization.yaml", "kustomization.yml", "Kustomization") for p in KUSTOMIZE.rglob(name)}
+    for path in sorted(files):
+        if (yaml.safe_load(path.read_text()) or {}).get("kind") == "Component":
             continue
-        for entry in k.get("components") or []:
-            if (path.parent / entry).resolve() == component.resolve():
-                found[str(path.parent.relative_to(KUSTOMIZE))] = path.parent
+        if any(d["kind"] == marker["kind"] and labels <= d["metadata"].get("labels", {}).items() for d in render(path.parent)):
+            found[str(path.parent.relative_to(KUSTOMIZE))] = path.parent
     return found
 
 
 @unittest.skipUnless(shutil.which("kubectl"), "kubectl renders the overlays (CI's manifests job has it)")
 class Rendered(unittest.TestCase):
-    """The rendered objects of every kustomization that ships the component, found by scanning deploy/kustomize."""
+    """The rendered objects of every kustomization that ships the component, found by rendering deploy/kustomize."""
 
     @classmethod
     def setUpClass(cls):
