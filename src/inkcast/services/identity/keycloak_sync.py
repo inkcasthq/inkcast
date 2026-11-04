@@ -149,7 +149,10 @@ def _reason(exc: BaseException) -> str:
     Keycloak's lists through ``_get`` as they are, so an httpx timeout reaches the loop itself, and its ``str()`` is
     empty: "sync failed: " said nothing (#447). An httpx2 error is named by its type alone, as ``_access_token`` and
     ``_read_person`` name one: its text can quote the request, the bearer token of an "Illegal header value" included."""
-    text = "" if isinstance(exc, httpx2.HTTPError) else str(exc)
+    try:
+        text = "" if isinstance(exc, httpx2.HTTPError) else str(exc)
+    except Exception:  # a text that can't be rendered (#174's case): the type names it, and the loop goes on
+        text = ""
     return f"{type(exc).__name__}: {text}" if text else type(exc).__name__
 
 
