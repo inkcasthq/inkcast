@@ -12,9 +12,17 @@ by the run's own rule (``_refusal``), on the run after the schedule's longest ga
 2. A refused day costs one copy, not three. Each refused attempt kept a whole copy, and the Job's ``backoffLimit: 2``
 gives three attempts, on a volume sized for one copy a day. Now an attempt that finds today's copy of the same database
 there already, on a day whose retention is refused, takes none and is refused the same way: the refusal rests on the
-days before today, so every copy of today was taken by a run refused alike. The first attempt is as before."""
+days before today, so every copy of today was taken by a run refused alike. The first attempt is as before.
 
+3. A manifest nested too deep crashed every reader of the backups. Parsing it raises RecursionError, which nothing
+caught: ``take_backup`` raised before it copied anything (no ``backup.failed`` line, a traceback), and so did
+``list_backups`` (``restore --latest``, ``inkcast backups``). Now a manifest that cannot be read, of any shape, counts as
+having no ``previous`` (the copy is dated by its name) and is listed; ``verify_backup`` calls it unreadable, so
+``inkcast backups`` shows the copy as broken and ``restore --latest`` refuses it."""
+
+import contextlib
 import copy
+import io
 import logging
 import pathlib
 import shutil
@@ -26,7 +34,7 @@ from unittest import mock
 from test_backup_clock import DAY, DAY0, JUMP, KEEP, FiveDailyBackups, names, stamp
 from test_openfga_component import KUSTOMIZE, one, render
 
-from inkcast.backup import backup_main
+from inkcast.backup import backup_main, list_main, restore_main
 from inkcast.libs.config import backup_keep_from
 from inkcast.libs.db import backup as module
 from inkcast.libs.db.backup import ASIDE, _refusal, list_backups, take_backup
@@ -37,6 +45,7 @@ FIELDS = ((0, 59), (0, 23), (1, 31), (1, 12), (0, 6))
 # 28 years, in which the days of the week and the leap days of 1901 to 2099 come round once, and a year more for the gap
 # that spans the cycle's end.
 FIRST, LAST = date(2001, 1, 1), date(2030, 1, 1)
+DEPTH = 1_000_000           # parsing raises RecursionError: Python 3.14 here parses 100 000 levels, not 200 000
 
 
 def cron_field(text: str, low: int, high: int) -> tuple[set[int], bool]:
@@ -174,6 +183,50 @@ class ARefusedDay(FiveDailyBackups):
         retry = take_backup(self.db, self.backups, keep=KEEP, now=JUMP + 900)
         self.assertEqual((retry.copied, retry.name), (False, first.name))
         self.assertEqual(len(list_backups(self.backups, now=JUMP)), 7)
+
+
+class AManifestNestedTooDeep(FiveDailyBackups):
+    """A copy a clock a year ahead took, whose day ``_dated`` reads from its manifest's ``previous`` once the clock is
+    right again, and whose manifest is then rewritten nested too deep to parse (it takes write access to the volume)."""
+
+    def setUp(self):
+        super().setUp()
+        self.future = take_backup(self.db, self.backups, keep=KEEP, now=JUMP)
+        self.future.path.with_suffix(".json").write_text("[" * DEPTH + "]" * DEPTH)
+        self.now = DAY0 + 5 * DAY
+
+    def test_the_backup_is_taken_and_list_backups_lists_it(self):
+        b = take_backup(self.db, self.backups, keep=KEEP, now=self.now)
+        self.assertEqual((b.copied, b.refused, b.removed_backups), (True, "", 0))
+        # No ``previous``: dated by its name, a year on, as a manifest from before #405 is (tests/test_backup_clock.py).
+        self.assertEqual(names(list_backups(self.backups, now=self.now)),
+                         names(d.path for d in self.days) + [b.name, self.future.name])
+
+    def test_a_manifest_of_any_shape_that_cannot_be_read_counts_as_no_previous(self):
+        nested = "[" * DEPTH + "]" * DEPTH
+        shapes = {"nested object": '{"a":' * DEPTH + "1" + "}" * DEPTH, "nested previous": f'{{"previous": {nested}}}',
+                  "a list": "[1, 2]", "a string": '"20261105T031700Z"', "not JSON": "{", "not UTF-8": b"\xff\xfe"}
+        for i, (shape, text) in enumerate(shapes.items(), start=1):
+            with self.subTest(shape=shape):
+                self.future.path.with_suffix(".json").write_bytes(text if isinstance(text, bytes) else text.encode())
+                b = take_backup(self.db, self.backups, keep=KEEP, now=self.now + i * 60)
+                self.assertEqual((b.copied, b.refused), (True, ""))
+                self.assertEqual(list_backups(self.backups, now=self.now + i * 60)[-2:], [b.path, self.future.path])
+
+    def test_the_commands_back_up_list_and_refuse_to_restore_it_without_a_traceback(self):
+        with mock.patch.object(module, "time", types.SimpleNamespace(time=lambda: self.now)), \
+                mock.patch("inkcast.backup._logging"), self.assertLogs("inkcast.backup", logging.INFO) as logs:
+            self.assertEqual(backup_main(["--database", str(self.db), "--to", str(self.backups), "--keep", str(KEEP)]), 0)
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(list_main(["--to", str(self.backups)]), 0)
+            self.assertEqual(restore_main(["--latest", str(self.backups), "--database", str(self.db)]), 1)
+        self.assertEqual([getattr(r, "event", "") for r in logs.records], ["backup.done", "restore.refused"])
+        self.assertIn("manifest is empty or can't be read", logs.records[-1].getMessage())
+        lines = out.getvalue().splitlines()
+        self.assertEqual([line.split()[0] for line in lines], names(d.path for d in self.days) +
+                         [f"inkcast-{stamp(self.now)}.db", self.future.name])
+        self.assertTrue(all(line.endswith(" ok") for line in lines[:-1]), lines)
+        self.assertIn("BROKEN", lines[-1])
 
 
 if __name__ == "__main__":

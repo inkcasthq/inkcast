@@ -16,7 +16,8 @@
   day costs one copy: a run that finds today's copy of the same database there already (the Job's retries) takes
   none, and is refused the same way (issue #471). A copy a wrong clock dated after today ages out with the day its
   run followed (``previous``), not with its own date (``_dated``).
-* ``verify_backup``: the checksum against the manifest, then the integrity check.
+* ``verify_backup``: the checksum against the manifest (one that is empty or cannot be read fails, issue #471), then
+  the integrity check.
 * ``restore_backup``: verifies first, refuses while the scheduler's heartbeat is fresh (the server is still running),
   and never deletes the current database: it is moved aside as ``<db>.before-restore-<time>`` with its WAL files.
   That name is to the second, so a second restore in the same second is refused before it copies anything (#202).
@@ -124,10 +125,11 @@ def _aged_out(stamp: datetime, now: float, keep: int) -> bool:
 
 
 def _manifest(backup: pathlib.Path) -> dict:
-    """The manifest beside ``backup``, or {} for one that is missing or cannot be read as an object."""
+    """The manifest beside ``backup``, or {} for one that is missing or cannot be read as an object: not JSON, another
+    shape, or nested too deep to parse, which raises RecursionError (issue #471; it takes write access to the volume)."""
     try:
         manifest = json.loads(_manifest_path(backup).read_text())
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):
         return {}
     return manifest if isinstance(manifest, dict) else {}
 
@@ -398,7 +400,9 @@ def verify_backup(path: pathlib.Path) -> dict:
     manifest_file = _manifest_path(path)
     if not path.exists() or not manifest_file.exists():
         raise BackupError(f"{path} or its manifest is missing.")
-    manifest = json.loads(manifest_file.read_text())
+    manifest = _manifest(path)
+    if not manifest:
+        raise BackupError(f"{path.name}'s manifest is empty or can't be read.")
     if _sha256(path) != manifest.get("sha256"):
         raise BackupError(f"{path.name} doesn't match its manifest's checksum: it changed after it was taken.")
     result = _integrity(path)
