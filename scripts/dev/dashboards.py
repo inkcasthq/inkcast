@@ -110,7 +110,8 @@ def seed(args: argparse.Namespace) -> int:
         h = {"Authorization": f"Bearer {token}"}
         for pid, fields in (("devto", {"api_key": "devto-key"}), ("medium", {"token": "medium-token"})):
             link = c.post(f"{base}/api/v1/platforms/{pid}/connect-link", headers=h).raise_for_status().json()
-            c.post(link["url"], data=fields)
+            page = c.get(link["url"]).raise_for_status().text                # the form's token goes back with the key (#401)
+            c.post(link["url"], data={**fields, "csrf": re.search(r'name=csrf value="([^"]*)"', page).group(1)})
         published = 0
         for i in range(args.rounds):
             r = c.post(f"{base}/api/v1/posts", headers=h, json={"markdown": story(f"Seed {run} now {i}")})
