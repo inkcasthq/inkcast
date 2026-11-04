@@ -25,22 +25,16 @@ waves:
     These are the failures a writer or an auditor notices first (handover, suggested order 1), so they come before new screens.'
   items:
   - '#399'
-  - '#400'
   - '#401'
-  - '#404'
-  - '#405'
-  - '#409'
-  - '#410'
-  - '#416'
-  - '#417'
-  - '#427'
-  - '#428'
-  - '#435'
   - '#436'
-  - '#444'
-  - '#445'
-  - '#446'
-  - '#447'
+  - '#470'
+  - '#471'
+  - '#472'
+  - '#473'
+  - '#474'
+  - '#475'
+  - '#476'
+  - '#479'
 - id: W3
   phase: 1
   title: The writer web app
@@ -391,20 +385,14 @@ issues:
   273: "Fix the tokensave saving rate under tool, model and effort filters"
   299: "OpenFGA to PostgreSQL with cert-manager client certificates instead of passwords"
   399: "Connect links: two POSTs with one ticket both save credentials"
-  400: "Rate limit: HEAD requests on GET routes are never counted"
   401: "One-time links: only a POST from the person uses a link up, not a GET or a previewer"
-  404: "Erasure: the live WAL and a killed restore's file keep erased data"
-  405: "Backups: one run on a clock that jumped ahead removes every earlier backup"
-  409: "OpenFGA migration: a lock session that dies alone leaves the migration running unlocked"
-  410: "OpenFGA logs its datastore password when the URI doesn't parse"
-  416: "Git sync: a request frees only its own Idempotency-Key reservation"
-  417: "inkcast sync: collect lists what git can report removed (symlinks, directories, case)"
-  427: "Publishing: the 'changed while this send was out' note promises an update that may never come"
-  428: "Publishing: an unconfirmed post's error names the platform's reason it can't tell"
-  435: "env-secrets e2e proof 4: retry the --previous log read when containerd can't retrieve it"
   436: "Keep a copy of inkcast-secrets beside the backups' key, so a lost secret-key can be restored"
-  444: "Git sync: an old unconfirmed entry with no post id: send it late, or wait for an edit (owner's call)"
-  445: "Resend: a retryable verify error refuses the resend instead of cancelling for a send that fails"
-  446: "Scheduler: one stuck row's recovery error stops the pass for every later row"
-  447: "Keycloak sync: a failure whose exception has no message is logged with no reason"
+  470: "Erasure checkpoint: off the event loop, an event when it is deferred, a backup that survives its cleanup"
+  471: "Backups: a schedule slower than keep, retries on a refused day, a nested manifest"
+  472: "Scheduler on the wrong key: an alert for recovery_failed, and a resend that refuses unreadable credentials"
+  473: "Publishing: Publisher.update loses a second-copy note written meanwhile"
+  474: "OpenFGA migrate: refuse ambiguous URIs, decode backslashes, decide an eviction fence"
+  475: "Idempotency keys: name the version-mix limit, log what failed, identify the reservation"
+  476: "inkcast sync: submodule files, silent skips, and a removed link synced as a story"
+  479: "One-time links: bind the page token to its purpose; a HEAD-only limit counts HEAD"
   360: "Backlog tracker: every story in one execution order, reviewed wave by wave"
