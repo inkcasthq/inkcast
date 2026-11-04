@@ -55,11 +55,19 @@ def _named(url: str | None, remote_id: str | None) -> str:
 
 
 def _edited(platform: Platform, url: str | None = None, remote_id: str | None = None) -> str:
-    """The note on a post whose send's success found it changed meanwhile (#392): what the platform has, and how the
-    change reaches it. ``Publisher.update`` settles it, and only it."""
-    return (f"The post was changed while this send was out, so {platform.name} has it as it was sent. "
-            + ("The next sync sends the change as an update." if "update" in platform.capabilities else
-               f"{platform.name} doesn't let Inkcast edit posts: update it by hand: {_named(url, remote_id)}."))
+    """The note on a post whose send's success found it changed meanwhile (#392): what the platform has, and what becomes
+    of the change. An update at the next sync where the platform edits posts and the success named the id an update
+    needs; by hand otherwise, at the copy named (#427). Recognised by equality, so it is worded from the row's copy
+    (``url``, ``remote_id``). ``Publisher.update`` settles it when the update is sent, ``Publisher.settle_edited`` when
+    the file is back to what was sent."""
+    if "update" in platform.capabilities and remote_id:
+        fate = "The next sync sends the change as an update."
+    elif "update" in platform.capabilities:
+        fate = (f"{platform.name} named no id for it, which an update needs, so Inkcast can't send the change: update "
+                f"it by hand: {_named(url, remote_id)}.")
+    else:
+        fate = f"{platform.name} doesn't let Inkcast edit posts: update it by hand: {_named(url, remote_id)}."
+    return f"The post was changed while this send was out, so {platform.name} has it as it was sent. {fate}"
 
 
 def _lost(platform: Platform) -> str:
@@ -420,9 +428,10 @@ class Publisher:
             # The update that sends an edit made while a send was out settles that edit's note only (#392): the success
             # that wrote it may have noted a second copy beside it (#214), which is the person's to check.
             notes = list(result.notes)
-            held = ((self.store.get_post(post_id) or {}).get("error") or "").split("; ")
-            if _edited(platform) in held:
-                notes = [n for n in held if n != _edited(platform)] + notes
+            row = self.store.get_post(post_id) or {"error": None, "result_url": None, "remote_id": None}
+            held, edited = self.store.notes_of(row), _edited(platform, row["result_url"], row["remote_id"])
+            if edited in held:
+                notes = [n for n in held if n != edited] + notes
             elif _lost(platform) in held:  # an edit is no decision about a second copy: only a person clears it (#234)
                 notes = [_lost(platform)] + notes
             self.store.update_post(post_id, status=status, title=prepared.title, payload=json.dumps(prepared.to_dict()),
@@ -430,6 +439,22 @@ class Publisher:
         self._count(platform.id, "updated")
         return Outcome(platform.id, status, post_id=post_id, url=result.url, notes=result.notes, prepared=prepared,
                        remote_id=result.remote_id or remote_id)
+
+    def settle_edited(self, post_id: str, platform: Platform) -> bool:
+        """Clear the note that a post was changed while its send was out (``_edited``) once nothing is owed: Git sync
+        found the file back to what was sent (#427). Every other note stays (a second copy, an earlier send's lost
+        answer: the person's to check). Worded from the row's copy and matched by equality, as ``update`` matches it,
+        and written only while the row is as read (status, attempts and notes): a note written meanwhile (a second copy,
+        ``PostsRepo.record_success``) is never overwritten. True when cleared."""
+        row = self.store.get_post(post_id)
+        if row is None:
+            return False
+        held, edited = self.store.notes_of(row), _edited(platform, row["result_url"], row["remote_id"])
+        if edited not in held:
+            return False
+        kept = [n for n in held if n != edited]
+        return self.store.update_post(post_id, error="; ".join(kept) or None, only_if=row["status"],
+                                      if_attempts=row["attempts"], if_error=row["error"])
 
     async def confirm(self, user_id: str, platform: Platform, prepared: Prepared) -> Outcome | None:
         """For an ``unconfirmed`` publish: ask the platform whether the post exists. None = can't tell. An
