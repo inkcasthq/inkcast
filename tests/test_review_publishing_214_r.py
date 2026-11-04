@@ -10,9 +10,9 @@ import unittest
 
 from inkcast.libs.db import Store
 from inkcast.libs.pipeline import STUCK_AFTER, Publisher
-from inkcast.libs.platforms import PlatformError
+from inkcast.libs.platforms import PlatformError, PublishResult
 
-from test_review_publishing_214 import Harness, answering
+from test_review_publishing_214 import Findable, Harness, answering
 
 DAY = 24 * 3600
 
@@ -93,6 +93,42 @@ class FindingAnEmptyAnswerToAnUpdateErasesThePostsURL(unittest.TestCase):
                 self.assertEqual((requests[-1].method, outcome.status, outcome.remote_id), ("PUT", "published", "7"))
                 self.assertEqual((post["status"], post["result_url"], post["remote_id"]),
                                  ("published", "https://dev.to/on-call/t", "7"), "the post's URL was erased")
+
+
+class ProfileURL(Findable):
+    """A platform whose answer names each post by its id, and by a URL that is not the post's own (the account's
+    profile, say): the id is the post's identity, the URL is not."""
+
+    async def publish(self, creds, account, prepared, destination):
+        result = await super().publish(creds, account, prepared, destination)
+        return PublishResult(url="https://findable/@on-call", remote_id=result.remote_id, status=result.status)
+
+
+class FindingTwoCopiesSharingAURLReadAsOne(Harness):
+    """``unless_other_copy`` (posts.py) calls the row's copy this answer's when either the remote id or the URL
+    matches. Two posts with distinct ids and the same URL were then one copy: worker B's re-send published (id 1),
+    worker A's late 2xx (id 2) was written over it, B's id was lost from the row with no note naming it, and a
+    second post.published event was written for one post (libs/events.py: "never twice"). Ids, when both answers
+    have one, are what tell two posts apart; the URL is compared only when one of them has none."""
+
+    def test_a_late_success_with_another_id_is_another_copy_though_the_url_is_the_same(self):
+        self.platform = ProfileURL()
+        self.platforms[self.platform.id] = self.platform
+        self.publisher = Publisher(self.store, self.platforms)
+        post_id = self.post()
+        b = self.replica()
+
+        async def while_a_waits(prepared):                                    # inside A's publish
+            await b.run_due(now=time.time() + STUCK_AFTER + 1)                # B: missing → re-queued → published (id 1)
+
+        self.platform.during_publish = while_a_waits
+        (outcome,) = asyncio.run(self.publisher.run_due(now=time.time()))    # A's 2xx (id 2) lands last
+        post = self.store.get_post(post_id)
+        self.assertEqual(self.platform.sent, ["t", "t"])
+        self.assertEqual((post["status"], post["remote_id"], outcome.remote_id), ("published", "1", "1"),
+                         "A's copy was written over B's: B's id is lost")
+        self.assertIn("Attempt 1 also published this post", post["error"])
+        self.assertEqual(self.published_events(post_id), 1, "one post, one post.published event")
 
 
 if __name__ == "__main__":

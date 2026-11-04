@@ -115,10 +115,11 @@ class PostsRepo(Database):
         ``unless_found_at``: change it unless the platform has confirmed the post at this attempt count ('published',
         'draft' or 'unlisted' with no send since: another worker's lookup found the very send a late answer is about).
         ``unless_other_copy``: the ``(remote_id, url)`` a send's success names: change it unless the row already records
-        a confirmed copy ('published', 'draft' or 'unlisted' with a remote id or a URL) that is not this one, neither
-        its remote id nor its URL being this answer's. That copy is another send's (a re-send that arrived, or the send
-        this late answer belongs with), and it stays: the platform has both, the row names one, and the caller notes the
-        other beside it for the person (#214). The same copy, found by a lookup first, is recorded again.
+        a confirmed copy ('published', 'draft' or 'unlisted' with a remote id or a URL) that is not this one: its remote
+        id is not this answer's, or, when either has none, its URL is not. Ids tell two posts apart; a URL may not (an
+        account's profile, say). That copy is another send's (a re-send that arrived, or the send this late answer
+        belongs with), and it stays: the platform has both, the row names one, and the caller notes the other beside it
+        for the person (#214). The same copy, found by a lookup first, is recorded again.
         True when the post was changed."""
         fields["updated_at"] = time.time()
         cols = ", ".join(f"{k} = ?" for k in fields)
@@ -128,7 +129,8 @@ class PostsRepo(Database):
                      if unless_found_at is not None else "")
                   + (" AND NOT (status IN ('published', 'draft', 'unlisted')"
                      " AND (remote_id IS NOT NULL OR result_url IS NOT NULL)"
-                     " AND NOT (COALESCE(remote_id = ?, FALSE) OR COALESCE(result_url = ?, FALSE)))"
+                     " AND NOT COALESCE(CASE WHEN remote_id IS NOT NULL AND ? IS NOT NULL THEN remote_id = ?"
+                     " ELSE result_url = ? END, FALSE))"
                      if unless_other_copy is not None else ""))
         with self._tx() as c:
             changed = c.execute(f"UPDATE posts SET {cols} WHERE id = ?{status}",
@@ -136,7 +138,8 @@ class PostsRepo(Database):
                                  *([unless] if unless else []),
                                  *([if_attempts] if if_attempts is not None else []),
                                  *([unless_found_at] if unless_found_at is not None else []),
-                                 *(unless_other_copy if unless_other_copy is not None else []))).rowcount == 1
+                                 *(() if unless_other_copy is None
+                                   else (unless_other_copy[0], *unless_other_copy)))).rowcount == 1
             if changed:
                 insert_events(c, events)
         return changed
