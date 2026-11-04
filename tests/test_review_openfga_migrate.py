@@ -286,6 +286,75 @@ class MigrateScript(unittest.TestCase):
         self.assertEqual(self.sql("SELECT indisvalid FROM pg_index WHERE indexrelid = to_regclass('idx_user_lookup')"), "t")
         self.assertEqual(self.sql("SELECT count(*) FROM goose_db_version WHERE version_id = 6"), "1")
 
+    def test_a_lock_session_that_dies_alone_ends_the_migration_within_10_s(self):
+        """Issue #409: the psql session that holds the lock can die while its runner lives (pg_terminate_backend,
+        SIGTERM to that one backend, signalfuncs.c:237-251 at REL_18_6; a middlebox dropping an idle connection),
+        and the lock goes with it ("held until explicitly released or the session ends", mvcc.sgml "Advisory Locks"),
+        while `openfga migrate` ran on, unlocked, to the end, beside whichever runner took the lock next. migrate.sh
+        now probes the session while `openfga migrate` runs in the background, ends the run when it is gone and
+        kills the migration; its backend's statement in flight, here 006's CREATE INDEX CONCURRENTLY held by a
+        snapshot, ends with its client (client_connection_check_interval, the F4 of PR #374). The run exits non-zero
+        and leaves no process, and the next run repairs what the interrupted 006 left."""
+        self.assertMigrated()
+        self.sql("DELETE FROM goose_db_version WHERE version_id = 6")
+        self.sql("DROP INDEX idx_user_lookup")
+        snapshot = subprocess.Popen(["docker", "exec", self.container, "psql", "-h", "/tmp", "-U", "postgres", "-d", "openfga",
+                                     "-c", "BEGIN ISOLATION LEVEL REPEATABLE READ; SELECT count(*) FROM goose_db_version;"
+                                     " SELECT pg_sleep(60); COMMIT;"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        end_snapshot = ("SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity"
+                        " WHERE query LIKE '%pg_sleep(60)%' AND pid <> pg_backend_pid()")
+        self.addCleanup(snapshot.wait, 60)
+        self.addCleanup(self.sql, end_snapshot)
+        time.sleep(1)
+        runner = subprocess.Popen(self.migrate_command(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        self.addCleanup(runner.wait, 120)
+        self.addCleanup(runner.kill)
+        building = "SELECT count(*) FROM pg_stat_progress_create_index"
+        for _ in range(80):
+            if self.sql(building) == "1":
+                break
+            time.sleep(0.25)
+        self.assertEqual(self.sql(building), "1", "006's build never started")
+        # The lock session alone: the one backend that holds the advisory lock; OpenFGA's own connections live on.
+        self.assertEqual(self.sql("SELECT count(pg_terminate_backend(pid)) FROM pg_locks WHERE locktype = 'advisory' AND granted"), "1")
+        died = time.monotonic()
+        running = "SELECT count(*) FROM pg_stat_activity WHERE application_name = 'openfga-migrate' AND state = 'active'"
+        while self.sql(running) != "0" and time.monotonic() - died < 10:
+            time.sleep(0.5)
+        self.assertEqual(self.sql("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND granted"), "0")
+        self.assertEqual(self.sql(running), "0", "a migration statement still runs 10 s after its lock session died, without the lock")
+        try:
+            log, _ = runner.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            self.fail("the run did not end within 10 s of its lock session's death")
+        self.assertNotEqual(runner.returncode, 0, log)
+        self.assertIn("the database session ended", log)
+        self.assertEqual(self.command_lines_holding("/opt/openfga/openfga migrate"), [], "openfga migrate left running")
+        self.sql(end_snapshot)
+        log = self.assertMigrated()   # the next run: the repair drops the invalid index, 006 builds it
+        self.assertIn("repair: idx_user_lookup is INVALID", log)
+        self.assertEqual(self.sql("SELECT indisvalid FROM pg_index WHERE indexrelid = to_regclass('idx_user_lookup')"), "t")
+        self.assertEqual(self.sql("SELECT count(*) FROM goose_db_version WHERE version_id = 6"), "1")
+
+    def test_a_runner_beside_another_session_of_its_role_waits_the_hand_over_grace(self):
+        """Issue #409, the hand-over: a runner whose lock session died alone still migrates until its next probe,
+        and `openfga migrate` takes no fencing token the database could check, so the runner that takes the lock
+        next waits out that time (twice the probe interval, plus the server's client check: 6 s) before it touches
+        the schema, as leader election hands a lease over, when another session of its role exists. Alone, it
+        waits nothing: the schema is current and the server starts at once."""
+        log = self.assertMigrated()
+        self.assertNotIn("other session(s) of this role", log)
+        other = subprocess.Popen(["docker", "exec", self.container, "psql", "-h", "/tmp", "-U", "openfga", "-d", "openfga",
+                                  "-Atc", "SELECT pg_sleep(30)"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.addCleanup(other.wait, 60)
+        self.addCleanup(self.sql, "SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE usename = 'openfga'")
+        time.sleep(1)
+        started = time.monotonic()
+        log = self.assertMigrated()
+        self.assertIn("1 other session(s) of this role: waiting 6 s", log)
+        self.assertGreaterEqual(time.monotonic() - started, 6)
+        self.assertLess(log.index("waiting 6 s"), log.index("running openfga migrate"), "the grace before the migration")
+
 
 @unittest.skipIf(UNAVAILABLE, UNAVAILABLE)
 class PartitionedRunner(unittest.TestCase):
