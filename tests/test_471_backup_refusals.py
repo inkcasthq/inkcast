@@ -56,7 +56,7 @@ def cron_field(text: str, low: int, high: int) -> tuple[set[int], bool]:
     for item in text.split(","):
         span, _, step = item.partition("/")
         if span in ("*", "?"):
-            start, end, star = low, high, star or step in ("", "1")
+            start, end, star = low, high, star or int(step or 1) == 1      # robfig: a star unless the step is above 1
         else:
             first, _, last = span.partition("-")
             start = int(first)
