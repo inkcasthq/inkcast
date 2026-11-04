@@ -69,7 +69,7 @@ configMapGenerator:
       - INKCAST_BACKUP_KEEP=14           # days; the backup CronJob (components/backup) reads this ConfigMap too
 images:
   - name: ghcr.io/inkcasthq/inkcast
-    digest: sha256:42887e7df09f79d9e00e744a7fa8fc9e26345a97b2b10361176d5e02798eafe6
+    digest: sha256:0fd2b07746e9799b4ffc5e4f5400b78729f3852a339282230c8f19bbc70c428c
 patches:
   # The Route's host matches INKCAST_PUBLIC_URL above: one host per environment, so both Routes are admitted on one
   # cluster (#305).
