@@ -75,6 +75,9 @@ if [[ "$db_uri" =~ ^([^:/?#]+://[^:@/?#]*):([^@/?#]*)@(.*)$ ]]; then
 fi
 log() { printf '%s migrate: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 
+# The probe interval, whole seconds: sleep and the grace's arithmetic need one, a 0 would probe in a busy loop, and at
+# half pace (2 x 4 + 2) a lock session that dies alone still ends its migration within the 10 s of #409.
+[[ "$probe_seconds" =~ ^[1-4]$ ]] || { log "PROBE_SECONDS must be a whole number of seconds from 1 to 4, not ${probe_seconds}"; exit 1; }
 [ -x "$OPENFGA_BINARY" ] || { log "no OpenFGA binary at $OPENFGA_BINARY: is the image volume mounted?"; exit 1; }
 
 # 1. The database, with its role and its database created: a connection as the role, not a bare ping.
