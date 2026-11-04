@@ -63,8 +63,8 @@ STUB = textwrap.dedent('''\
             done = subprocess.run(["kubectl", "label", "--local", "-f", str(p), "stub=1", "--dry-run=client", "-o", output],
                                   capture_output=True, text=True, env={**os.environ, "KUBECONFIG": str(root / "kubeconfig")})
             sys.stdout.write(done.stdout); sys.stderr.write(done.stderr); sys.exit(done.returncode)
-    elif verb == "create" and args[1:3] == ["-f", "-"]:
-        obj = json.load(sys.stdin)
+    elif verb == "create" and args[1] == "-f":
+        obj = json.load(sys.stdin) if args[2] == "-" else json.loads(pathlib.Path(args[2]).read_text())
         kind = obj["kind"]
         namespace = obj["metadata"].get("namespace", ns)
         if kind == "Backup":
@@ -171,6 +171,34 @@ class DrillAgainstAStub(unittest.TestCase):
         self.assertIn("label inkcast.io/root-secret=true: present", done.stdout)
         self.assertEqual(sorted(VALUES), sorted(self.secret()["data"]))
         self.assertEqual(list(self.tmp.iterdir()), [], "the safety copy is removed when the drill passes")
+
+    def test_a_failed_restore_puts_the_safety_copy_back(self):
+        """The safety copy exists so that a failed restore is not a loss. When the drill stops after the delete
+        with the Secret still absent, it puts the copy back (only the data, type, name and labels: a create refuses
+        a resourceVersion) instead of removing the only copy with the rest of its directory."""
+        done = self.drill("restore-fails")
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn(["-n", NS, "delete", "secret", "inkcast-secrets"], self.calls(), "the drill reached the loss")
+        back = self.secret()
+        self.assertIsNotNone(back, "inkcast-secrets is absent and its safety copy was removed:\n" + done.stderr)
+        self.assertEqual(back["data"], {k: base64.b64encode(v.encode()).decode() for k, v in VALUES.items()})
+        self.assertEqual(back["metadata"]["labels"]["inkcast.io/root-secret"], "true")
+        self.assertIn("put back from the safety copy", done.stderr)
+        self.assertEqual(list(self.tmp.iterdir()), [], "once put back, the copy is removed")
+
+    def test_a_secret_made_meanwhile_keeps_the_safety_copy(self):
+        """OpenFGA's init container makes a new inkcast-secrets when its pod starts while the Secret is absent;
+        the Restore (existingResourcePolicy none) then keeps the new one, and step 5 finds other values. The copy
+        of the values the sealed credentials need is then kept, mode 600, and the drill says where and how."""
+        done = self.drill("made-meanwhile")
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("the restored Secret differs", done.stderr)
+        (kept,) = list(self.tmp.iterdir()) or [None]
+        self.assertIsNotNone(kept, "the only copy of the original values was removed:\n" + done.stderr)
+        self.assertEqual(kept.stat().st_mode & 0o777, 0o700)
+        self.assertEqual((kept / "put-back.json").stat().st_mode & 0o777, 0o600)
+        self.assertIn(str(kept / "put-back.json"), done.stderr, "the drill names the copy and the command")
+        self.assertIn("replace", done.stderr)
 
 
 if __name__ == "__main__":

@@ -236,7 +236,7 @@ class Scripts(unittest.TestCase):
                                                    "6. the CronJob's run now", "7. sealed credentials still read")]
         self.assertEqual(steps, sorted(steps))
         self.assertLess(text.index("umask 077"), steps[0], "the copy's mode is set before anything is written")
-        for needed in ("trap 'rm -rf \"$work\"' EXIT", "hashlib.sha256", ".hexdigest()[:12]", '"existingResourcePolicy": "none"',
+        for needed in ("trap finish EXIT", "put-back.json", "hashlib.sha256", ".hexdigest()[:12]", '"existingResourcePolicy": "none"',
                        '"includedResources": ["secrets"]', "labelSelector", "every generated Secret is present and in agreement.",
                        "from inkcast.libs.secrets import Sealer", "INKCAST_SECRET_KEY_FILE", "SELECT sealed FROM credentials",
                        "--from=cronjob/inkcast-env-secrets"):
