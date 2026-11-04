@@ -1,0 +1,46 @@
+# Keycloak's own PostgreSQL, run by CloudNativePG (ADR-0014), on the pattern of components/openfga/cluster.yaml. The
+# operator creates the database `keycloak` and its owner `keycloak` at bootstrap and writes the Secret
+# `keycloak-db-app` (`<cluster>-app`: docs/src/applications.md at v1.30.1, "Secrets"; the keys `username`,
+# `password`, `host`, `port`, `dbname`, `uri`, `jdbc-uri`: pkg/specs/secrets.go at v1.30.1, CreateSecret), which the
+# Keycloak CR reads (keycloak.yaml): no credential is written here or made by hand. One instance suits CI and a
+# small self-host; production patches `instances: 3` (ADR-0014). Keycloak's own blueprint for this database is
+# docs/guides/high-availability/single-cluster/deploy-cnpg.adoc at Keycloak 26.6.4: `initdb` database `keycloak`
+# owned by `keycloak`, and the `-ro` and `-r` Services off, "since Keycloak requires a read-write access it only
+# connects to the `-rw` service".
+#
+# pg_hba (docs/src/postgresql_conf.md at v1.30.1, "The pg_hba section", as shared/inkcast-db/cluster.yaml uses it:
+# the operator's fixed rules first, then these, then its default `host all all all scram-sha-256`; PostgreSQL stops
+# at the first matching record): the keycloak role reaches its database over TLS only, and a plaintext connection as
+# keycloak is rejected before authentication. Keycloak connects with sslmode=require (keycloak.yaml). The bootstrap
+# role and the operator's own connections are untouched: the operator reaches the instance over the local socket and
+# by certificate (the fixed rules), never as keycloak.
+#
+# The operator makes the pods fit Pod Security "restricted" and the restricted-v2 SCC itself (components/openfga/
+# cluster.yaml). The image is the operator's default for this release, pinned by digest so it is mirrored like the
+# rest (scripts/images.py); it moves with CNPG_VERSION in scripts/versions.env, as the OpenFGA one does. 2Gi of
+# storage where OpenFGA has 1Gi: the realms, their sessions and seven days of events (realm-inkcast.json,
+# eventsExpiration) plus the WAL.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: keycloak-db
+  labels: {app.kubernetes.io/name: keycloak-db, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: identity-db}
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.6-system-trixie@sha256:44d17e8570dc25055376148a2918840def5bef0193969be3e79101afa25eafc2
+  bootstrap:
+    initdb:
+      database: keycloak
+      owner: keycloak
+  managed:
+    services:
+      disabledDefaultServices: [ro, r]
+  postgresql:
+    pg_hba:
+      - hostssl keycloak keycloak all scram-sha-256
+      - host all keycloak all reject
+  storage:
+    size: 2Gi
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 512Mi}

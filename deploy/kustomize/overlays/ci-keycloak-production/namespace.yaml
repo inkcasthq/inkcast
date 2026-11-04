@@ -1,0 +1,9 @@
+# The same Namespace as deploy/keycloak/keycloak.yaml declares (the dev Keycloak of the kind job), so applying both
+# is one object: Pod Security "restricted" enforced, as the lab's namespaces.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: keycloak
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest

@@ -39,7 +39,7 @@ Open loops on the lab and the repository cost the most while they stay open. Eac
 | 4 | #343 | open issue | Measure a realm import applied before its client-secret Secret exists | | [#343](https://github.com/inkcasthq/inkcast/issues/343) |
 | 5 | #312 | open issue | Runbooks: name the namespace instead of hard-coding inkcast | | [#312](https://github.com/inkcasthq/inkcast/issues/312) |
 | 6 | #324 | open issue | Research and design: disabled accounts get export, notice and deletion after N days (cleanup job) | | [#324](https://github.com/inkcasthq/inkcast/issues/324) |
-| 7 | F9.1.S3 | in-progress | Kustomize component for Keycloak (dev) and docs for a production Keycloak on Postgres | E9 |  |
+| 7 | F9.1.S3 | in-progress | Keycloak production component on CloudNativePG | E9 | [#386](https://github.com/inkcasthq/inkcast/issues/386) |
 | 8 | F3.1.S9 | done | SQLite stopgap until F3.1.S5: inkcast backup/restore/backups, the backup component (daily CronJob, own volume, deny-all network), InkcastBackupMissing, restore runbook, restore drill in CI on kind | E3 |  |
 | 9 | F1.8.S1 | in-progress | Protect main with a ruleset: required checks, squash only, no force-push or deletion | E1 | [#34](https://github.com/inkcasthq/inkcast/issues/34) |
 | 10 | F1.8.S5 | in-progress | Remove the stale publish.yml:codeql code-scanning configuration | E1 | [#38](https://github.com/inkcasthq/inkcast/issues/38) |
@@ -735,7 +735,7 @@ Outside the product. Worked only when the owner asks.
 |---|---|---|---|---|
 | F9.1.S1 | done | Realm export deploy/keycloak/realm-inkcast.json (clients, roles, policies; no secrets) |  |  |
 | F9.1.S2 | done | kind CI: Keycloak with the realm; end-to-end sign-in against it in single and split mode |  |  |
-| F9.1.S3 | in-progress | Kustomize component for Keycloak (dev) and docs for a production Keycloak on Postgres |  | 7 (W1) |
+| F9.1.S3 | in-progress | Keycloak production component on CloudNativePG | [#386](https://github.com/inkcasthq/inkcast/issues/386) | 7 (W1) |
 | F9.2.S1 | done | Registration, email verification, terms; default role inkcast-user |  |  |
 | F9.2.S2 | planned | First login creates the Inkcast user and their personal organization (owner tuple; emits org.created) |  | 62 (W5) |
 | F9.2.S3 | planned | Realm email in each environment: Keycloak sends verify-email and reset-password mail through the environment's SMTP relay, settings as code, the password from a Secret |  | 110 (W7) |
