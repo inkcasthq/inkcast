@@ -31,6 +31,8 @@ from inkcast.libs.content.story import parse_story
 from inkcast.libs.db import Store
 from inkcast.libs.pipeline import STUCK_AFTER, Publisher
 from inkcast.libs.platforms import Account, Platform, PlatformError, Prepared, PublishResult
+from inkcast.libs.platforms.devto import DevtoPlatform
+from inkcast.libs.platforms.medium import MediumPlatform
 
 
 class Findable(Platform):
@@ -223,6 +225,121 @@ class HeldTheSendersOwnSuccessIsStillWritten(Harness):
         self.assertEqual((resent.status, post["status"], post["attempts"], post["result_url"]),
                          ("published", "published", 0, "https://findable/3"))
         self.assertEqual(self.platform.sent, ["s", "Now", "u"])
+
+
+# ---- item 2: a 2xx that names nothing is not a confirmed answer --------------------------------------------------
+
+
+def answering(status: int, body: bytes):
+    """Both built-in plug-ins against an API that answers every request with this status and body, and the requests."""
+    requests: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        return httpx2.Response(status, content=body, headers={"Content-Type": "application/json"} if body else {})
+
+    http = httpx2.AsyncClient(transport=httpx2.MockTransport(handler))
+    return [DevtoPlatform(http), MediumPlatform(http)], requests
+
+
+EMPTY_ANSWERS = (
+    (204, b""), (202, b""), (200, b""), (201, b""),       # no body at all
+    (201, b"{}"), (201, b'{"data": {}}'), (201, b'{"ok": true}'),   # a body without the post
+)
+
+
+class EmptySuccessOnAPublish(unittest.TestCase):
+    """Neither platform documents such an answer to a create: Forem's ``POST /articles`` is ``201`` with the article
+    (app/controllers/concerns/api/articles_controller.rb, ``render "show", status: :created, location: @article.url``),
+    Medium's ``POST /users/{id}/posts`` is ``201`` with the post in a ``data`` envelope (medium-api-docs §3.3). So a 2xx
+    naming nothing is an answer we can't read: the request was accepted, the post is probably out, where is unknown."""
+
+    def publisher(self, platform: Platform) -> Publisher:
+        self.store = Store(":memory:", "k" * 40)
+        self.addCleanup(self.store.close)
+        self.user = self.store.upsert_user("local:on-call", "on-call", None, None)["id"]
+        self.store.save_credentials(self.user, platform.id, {"api_key": "k", "token": "t"},
+                                    {"id": "1", "name": "on-call"})
+        return Publisher(self.store, {platform.id: platform})
+
+    def test_a_now_publish_is_unconfirmed_never_published_with_nothing_to_find_it_by(self):
+        for status, body in EMPTY_ANSWERS:
+            platforms, requests = answering(status, body)
+            for platform in platforms:
+                with self.subTest(platform=platform.id, status=status, body=body):
+                    publisher = self.publisher(platform)
+                    story = parse_story("# Now\n\nBody.\n", known_platforms=[platform.id])
+                    sent = len(requests)
+                    (outcome,) = asyncio.run(publisher.publish(self.user, story, [platform.id]))
+                    post = self.store.get_post(outcome.post_id)
+                    self.assertEqual((outcome.status, post["status"]), ("unconfirmed", "unconfirmed"))
+                    self.assertEqual((outcome.url, post["result_url"], post["remote_id"]), (None, None, None))
+                    self.assertIn(platform.name, post["error"])
+                    self.assertIn("may or may not have been published", post["error"])
+                    self.assertNotIn("internal error", post["error"], "an unreadable answer is not a plug-in bug")
+                    self.assertEqual(len(requests) - sent, 1)
+
+    def test_a_scheduled_post_is_unconfirmed_once_and_never_sent_again(self):
+        for status, body in ((204, b""), (201, b"{}")):
+            platforms, requests = answering(status, body)
+            for platform in platforms:
+                with self.subTest(platform=platform.id, status=status):
+                    publisher = self.publisher(platform)
+                    prepared = platform.prepare({"title": "t"}, "Body.")
+                    post_id = self.store.create_post(group_id="g", user_id=self.user, platform=platform.id, title="t",
+                                                     status="scheduled", run_at=time.time() - 1,
+                                                     payload=prepared.to_dict())
+                    sent = len(requests)
+                    asyncio.run(publisher.run_due())
+                    post = self.store.get_post(post_id)
+                    self.assertEqual((post["status"], post["attempts"], len(requests) - sent), ("unconfirmed", 1, 1))
+                    for later in (61, 301, 1801, 7 * 24 * 3600):
+                        asyncio.run(publisher.run_due(now=time.time() + later))
+                    self.assertEqual((self.store.get_post(post_id)["status"], len(requests) - sent), ("unconfirmed", 1))
+
+    def test_a_draft_is_held_to_the_same_rule(self):
+        """DEV's ``published: false`` reads 'draft' from the payload when the answer says nothing: no URL, no id,
+        and a 'draft' status that the pipeline would have recorded as a confirmed draft."""
+        platforms, _ = answering(204, b"")
+        devto = platforms[0]
+        publisher = self.publisher(devto)
+        story = parse_story("---\ntitle: Draft\ndevto:\n  draft: true\n---\n\nBody.\n", known_platforms=[devto.id])
+        (outcome,) = asyncio.run(publisher.publish(self.user, story, [devto.id]))
+        self.assertEqual((outcome.status, self.store.get_post(outcome.post_id)["status"]), ("unconfirmed", "unconfirmed"))
+
+    def test_an_answer_naming_the_id_or_the_url_is_a_confirmed_publish(self):
+        """Either is enough to find the post again (``update``, ``find_existing``, the person): the rule is "neither"."""
+        cases = (
+            ("devto", 201, b'{"id": 7, "published": true}', (None, "7")),
+            ("devto", 201, b'{"url": "https://dev.to/on-call/x", "published": true}', ("https://dev.to/on-call/x", None)),
+            ("medium", 201, b'{"data": {"id": "e6f36a", "publishStatus": "public"}}', (None, "e6f36a")),
+        )
+        for pid, status, body, (url, remote_id) in cases:
+            platforms, _ = answering(status, body)
+            platform = next(p for p in platforms if p.id == pid)
+            with self.subTest(platform=pid, body=body):
+                publisher = self.publisher(platform)
+                story = parse_story("# Now\n\nBody.\n", known_platforms=[platform.id])
+                (outcome,) = asyncio.run(publisher.publish(self.user, story, [platform.id]))
+                post = self.store.get_post(outcome.post_id)
+                self.assertEqual((outcome.status, post["status"], post["result_url"], post["remote_id"]),
+                                 ("published", "published", url, remote_id))
+
+
+class EmptySuccessFromAnyPlugin(Harness):
+    def test_a_plugin_returning_a_result_that_names_nothing_is_unconfirmed_too(self):
+        """A third-party plug-in that returns ``PublishResult(None, None, "published")`` is held to the same rule: the
+        pipeline, not the plug-in, is where a post is marked 'published'."""
+        post_id = self.post()
+        self.platform.answer = PublishResult(url=None, remote_id=None, status="published")
+        (outcome,) = asyncio.run(self.publisher.run_due(now=time.time()))
+        post = self.store.get_post(post_id)
+        self.assertEqual((outcome.status, post["status"], post["result_url"], post["remote_id"]),
+                         ("unconfirmed", "unconfirmed", None, None))
+        self.assertIn("Findable accepted the request", post["error"])
+        self.assertEqual(self.published_events(post_id), 0)
+        self.assertEqual(self.platform.sent, ["t"])
+        self.assertEqual(asyncio.run(self.publisher.run_due(now=time.time() + 7 * 24 * 3600)), [], "sent again")
 
 
 if __name__ == "__main__":
