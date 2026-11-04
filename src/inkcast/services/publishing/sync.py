@@ -513,8 +513,8 @@ class GitSync:
 
     def _resolve(self, user_id: str, src: str, path: str, platform: Platform, entry: dict, o: Outcome | None) -> dict | None:
         """Resolve an unconfirmed entry from what the platform said (``Publisher.confirm``): published → record it;
-        missing → allow a fresh create (an entry with no post; one with a post is the person's, ``_one``); None →
-        can't tell. The post is written only while it is still 'unconfirmed': a person may have cancelled or resent it
+        missing → the post failed and the entry 'missing', so a fresh create follows (an entry with no post is left
+        as it is: the edit of its file decides, #444, ``_one``); None → can't tell. The post is written only while it is still 'unconfirmed': a person may have cancelled or resent it
         while the lookup was out, and then the entry follows what they decided (#226)."""
         if o is None:
             return None
