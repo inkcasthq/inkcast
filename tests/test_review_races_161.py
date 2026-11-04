@@ -7,10 +7,16 @@ same database file stands in for another replica, and its write (a sign-in, a re
 lands at the exact moment between a check and the act that relied on it, by wrapping the act's store method. On
 main every raced test fails on its assertions: the person is held, cut off, or told the wrong thing."""
 
+import asyncio
 import unittest
 
+import httpx2
+from starlette.testclient import TestClient
+
 from inkcast.breaker import _confirm
+from inkcast.launcher import build, resolve
 from inkcast.libs.db.identity import BREAKER_CONFIRMED
+from inkcast.libs.http.app import compose
 from inkcast.services.identity.keycloak_sync import KeycloakSync
 from test_erasure_recheck import Raced
 from test_sync_breaker import T0
@@ -246,6 +252,61 @@ class TheConfirmationsAudit(Base):
                 self.assert_cut_off(user, deleted_at=T0 + 3600)
         line = self.confirmed(records)
         self.assertEqual((line.applied, line.marked, line.skipped), (4, 0, 1), "the sign-in stopped the clock: skipped")
+
+
+# ---- 4. /account/return: an erasure declined because of a sign-in showed "erases your data within about a minute" ---
+
+class TheReturnVisit(Base):
+    """``/account/return`` in the IdentityService over the same database file: Keycloak's 404, then the erasure,
+    which declines because a sign-in landed between them (#102). The page must say so."""
+
+    def app(self, keycloak=None):
+        specs = resolve("IdentityService")
+        ctx = build(self.config(30), specs, transport=httpx2.MockTransport(keycloak or self.kc))
+        self.addCleanup(ctx.store.close)
+        self.addCleanup(lambda: asyncio.run(ctx.http.aclose()))
+        client = TestClient(compose(specs, ctx), base_url="http://localhost:8787")
+        self.addCleanup(client.close)
+        return ctx, client
+
+    def armed(self, user: dict) -> str:
+        req = self.store.open_deletion_link(self.store.create_deletion_request(user["id"], 900))
+        return self.store.arm_deletion_return(req["id"], user["kc"], 1800)
+
+    def test_a_sign_in_between_the_404_and_the_erasure_is_told_the_sign_in_kept_the_account(self):
+        ada = self.person("kc-ada")
+        cookie = self.armed(ada)
+        ctx, client = self.app()
+        self.kc.gone.add(ada["kc"])
+        signed_in = self.sign_in_at(ctx.store, "erase_user", ada)
+        with client:
+            page = client.get("/account/return", cookies={"inkcast_deletion": cookie})
+        self.assertEqual((page.status_code, len(signed_in)), (200, 1))
+        self.assertIsNotNone(ctx.store.get_user(ada["id"]), "nothing erased")
+        self.assertIn("Deletion in progress", page.text)
+        self.assertIn("you signed in again", page.text, "told the sign-in kept the account")
+        self.assertIn("kept your account", page.text)
+        self.assertNotIn("once the sign-in provider confirms the account is gone", page.text, "not the plain finishing page")
+        self.assertNotIn("Your account is deleted", page.text)
+        self.assertIn("daily backups", page.text, "what stays for a while, as on every deletion page")
+        self.assertIsNotNone(self.store.deletion_request_by_cookie(cookie), "the record stays for a later visit")
+
+    def test_unchanged_keycloak_not_answering_is_the_plain_finishing_page(self):
+        ada = self.person("kc-ada")
+        cookie = self.armed(ada)
+        mock = self.kc
+
+        def keycloak(request):
+            if request.url.path.endswith(f"/users/{ada['kc']}"):
+                raise httpx2.ReadTimeout("no answer")
+            return mock(request)
+        ctx, client = self.app(keycloak)
+        with client:
+            page = client.get("/account/return", cookies={"inkcast_deletion": cookie})
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("once the sign-in provider confirms the account is gone", page.text)
+        self.assertNotIn("you signed in again", page.text)
+        self.assertIsNotNone(ctx.store.get_user(ada["id"]))
 
 
 if __name__ == "__main__":
