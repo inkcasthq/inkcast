@@ -13,8 +13,8 @@ import shutil
 import sqlite3
 import sys
 import tempfile
-import time
 import unittest
+from datetime import datetime, timedelta, timezone
 
 from inkcast.libs.db import Store
 from inkcast.libs.db.backup import BackupError, aside_copies, restore_backup, take_backup
@@ -36,10 +36,13 @@ class ASecondRestoreInTheSameSecond(unittest.TestCase):
         self.db.parent.mkdir()
         store = Store(str(self.db), "k" * 40)
         store.upsert_user("local:owner", "owner", None, None)
-        self.backup = take_backup(self.db, self.base / "backups").path
+        # The test's own clock, at noon UTC tomorrow: every name here is stamped from it, and the backup a day on below
+        # must fall on the next date. On the wall clock, a run after 23:00 UTC put it two dates on, which #405 refuses.
+        start = datetime.now(timezone.utc).replace(hour=12, minute=0, second=0, microsecond=0) + timedelta(days=1)
+        self.backup = take_backup(self.db, self.base / "backups", now=start.timestamp()).path
         store.upsert_user("local:second", "second", None, None)
         store.close()
-        self.now = time.time() + 3600                          # an hour on: the heartbeat is stale
+        self.now = start.timestamp() + 3600                    # an hour on: the heartbeat is stale
         self.aside = restore_backup(self.backup, self.db, now=self.now)
         self.assertEqual(users(self.db), 1)
         self.assertEqual(users(self.aside), 2)
