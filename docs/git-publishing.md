@@ -107,7 +107,7 @@ If a sync fails part-way (the request errors because Inkcast's database was busy
 - A post the failed run had not made yet is made by the re-run. That is a new file's post, or the replacement of a scheduled post whose file you edited.
 - If the failed run couldn't even record its error, the file stays held for up to 10 minutes. A re-run in that time reports `skipped` (another sync of the file is running); run it again after that.
 
-A re-run sends the same request, so the same `Idempotency-Key`, and the server tells the two kinds apart. A result that asked for a re-run (`skipped`: the file held by another sync, its post being sent, or its state changed during the sync) isn't kept for replay: the re-run runs, and a removal whose cancel lost a race cancels the post then. A result with nothing skipped is replayed as it was for 24 hours (`Idempotent-Replayed: true`). Either way nothing is sent twice: the ledger remembers what each run made.
+A re-run sends the same request, so the same `Idempotency-Key`, and the server tells the two kinds apart. A result that asked for a re-run (`skipped`: the file held by another sync, its post being sent, or its state changed during the sync; `failed`: the next sync tries again, after you reconnect a platform that refused its key, say) isn't kept for replay: the re-run runs, and a removal whose cancel lost a race cancels the post then. A result with nothing skipped or failed is replayed as it was for 24 hours (`Idempotent-Replayed: true`). Either way nothing is sent twice: the ledger remembers what each run made.
 
 ## Any other CI, or your laptop
 

@@ -84,9 +84,10 @@ def build_routes(service: InkcastService, sync: GitSync, authed: Authed, public_
         except BaseException:
             sync.store.release_idempotency_key(who.user_id, key)
             raise
-        if any(r.action == "skipped" for r in result.results):
+        if any(r.action in ("skipped", "failed") for r in result.results):
             # A skipped result asks for a re-run: the file was held by another sync, its post was being sent, or its
-            # state changed under this one. The re-run (the CLI, the action) sends the same body, so the same key: a
+            # state changed under this one. A failed one is tried again by the next sync (the platform refused it, or
+            # its key: reconnect, then re-run). The re-run (the CLI, the action) sends the same body, so the same key: a
             # replay would answer it with this result for 24 hours and sync nothing, and a removal's pending post would
             # go out (#290). So the key is freed and the re-run runs; what this run did holds in the ledger (a post made
             # is 'unchanged', a cancelled post stays cancelled), so a repeat sends nothing twice, replayed or not.
