@@ -107,7 +107,7 @@ stop_job() {
   # (foreground cascade: the Job goes only after its pod has) and confirm nothing of it is left. Returns 1 if a pod
   # or the Job is still there: the server must not come back then, and nothing is said about the database (a pod
   # that is still there can still swap it).
-  if ! $listing && ! job_ended; then
+  if ! job_ended; then
     # A running restore honours a SIGTERM before its swap (it stops within one step of its copy and says so) and
     # ignores one after (then it says it swapped). Sent through the pod's own python: `inkcast` is PID 1, which
     # drops the kubelet's SIGTERM until the handler is up, and a deleted pod takes its log, the evidence, with it.
@@ -141,7 +141,6 @@ stop_job() {
     return 1
   fi
   applied=false               # only now: interrupted before this, the exit trap looks again
-  $listing && return 0
   # The restore's own account decides (issue #128): the Job's conditions can't, as a stopped Job is deleted before
   # the controller records how its pod ended, and a restore killed as it ended may have swapped without a word.
   case "$words" in

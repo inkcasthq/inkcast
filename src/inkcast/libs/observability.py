@@ -137,6 +137,8 @@ EVENTS: dict[str, tuple[str, str]] = {
                                          "rotation, went into the restored copy, so the server erases those people again "
                                          "at start-up (counts only)."),
     "restore.refused": ("warning", "A restore did not run: the backup failed its checks, or the server was still running."),
+    "restore.stopped": ("warning", "A restore stopped before its swap, asked to (SIGTERM, Ctrl-C) or past its deadline; the "
+                                   "current database was not touched and nothing was left staged."),
 }
 
 # ---- the public route templates ---------------------------------------------------------------
