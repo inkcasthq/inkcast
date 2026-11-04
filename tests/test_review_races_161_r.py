@@ -148,5 +148,23 @@ class WhatThePRsTestsLeaveUnpinned(Base):
         self.assertIsNotNone(self.store.deletion_request_by_cookie(cookie), "the record stays")
 
 
+class TheConfirmationsAuditForTheDisabled(Base):
+    """Review of #397, C1: a disabled person cut off by another pass between the confirmation's check and its own
+    cut-off was counted as skipped ("signed in since, present or enabled again, or erased already") although she is
+    cut off. She is counted apart, as the gone kind's ``marked`` is."""
+
+    def test_a_disabled_person_cut_off_elsewhere_between_the_check_and_the_act_is_not_skipped(self):
+        people = sorted((self.person(f"kc-p{i:02d}") for i in range(20)), key=lambda u: u["id"])
+        held = people[:5]
+        self.kc.disabled.update(u["kc"] for u in held)
+        self.reconcile(self.sync(30))
+        (trip,) = self.trips()
+        ada = held[0]
+        self.hook(self.store, "disable_user", lambda: self.other.disable_user(ada["id"]))
+        line = self.confirmed(self.confirm(trip["id"]))
+        self.assertIsNotNone(self.row(ada)["disabled_at"], "she is cut off")
+        self.assertEqual((line.applied, line.disabled, line.elsewhere, line.skipped), (4, 4, 1, 0))
+
+
 if __name__ == "__main__":
     unittest.main()

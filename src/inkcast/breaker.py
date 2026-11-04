@@ -21,7 +21,8 @@ spares them (#161). Dismissing does nothing to the gone and releases the disable
 again; the next reconcile reads everyone again and trips again if it must. Either is claimed once: a second
 confirmation, or a dismissal after a confirmation, does nothing and says so. Each outcome is one log line, the audit
 record (`identity.sync.breaker.confirmed`, `identity.sync.breaker.dismissed`: the pass id, who, and counts, among them
-how many gone people were marked gone but not cut off here, their clock running all the same; never a person's id),
+how many gone people were marked gone but not cut off here, their clock running all the same, and how many disabled
+people another pass cut off meanwhile; never a person's id),
 beside the pass's own row (`sync_breaker_trips`: status, time, who). Runs in the IdentityService pod, against the same
 database and INKCAST_SECRET_KEY, while the server serves. Exit status: 0 done, 1 refused, 2 bad usage.
 """
@@ -92,7 +93,7 @@ def _confirm(store: Store, pass_id: str, by: str, now: float) -> int:
                   trip["resolved_by"], extra={"event": "identity.sync.breaker.refused"})
         return 1
     applied = {"gone": 0, "disabled": 0}
-    marked = skipped = 0
+    marked = elsewhere = skipped = 0
     for held in store.breaker_trip_people(pass_id):
         if not store.claim_breaker_person(pass_id, held["user_id"]):    # a pass read them present or enabled since the
             skipped += 1                                                # list above: released, so not held (#161)
@@ -112,6 +113,8 @@ def _confirm(store: Store, pass_id: str, by: str, now: float) -> int:
             row = store.get_user(held["user_id"])      # a gone person's mark may have landed first: then the clock runs
             if held["kind"] == BREAKER_GONE and row is not None and row.get("deleted_at") is not None:
                 marked += 1                            # a pass since cut them off, or released them (#161)
+            elif held["kind"] == BREAKER_DISABLED and row is not None and row.get("disabled_at") is not None:
+                elsewhere += 1                         # a pass since cut them off: cut off, not by this confirmation
             else:
                 skipped += 1                           # signed in since (which stops the clock), or erased
             continue
@@ -119,12 +122,12 @@ def _confirm(store: Store, pass_id: str, by: str, now: float) -> int:
     store.forget_breaker_trip_people(pass_id)
     log.warning("Pass %s confirmed by %s: cut off %d (%d gone, their grace period running from now; %d disabled, their "
                 "personal access tokens revoked); marked gone but not cut off here %d (their grace period running from "
-                "now too; a pass since cut them off or released them); skipped %d (signed in since, present or enabled "
-                "again, or erased already)",
-                pass_id, by, sum(applied.values()), applied["gone"], applied["disabled"], marked, skipped,
+                "now too; a pass since cut them off or released them); disabled and cut off by another pass meanwhile %d; "
+                "skipped %d (signed in since, present or enabled again, or erased already)",
+                pass_id, by, sum(applied.values()), applied["gone"], applied["disabled"], marked, elsewhere, skipped,
                 extra={"event": "identity.sync.breaker.confirmed", "pass_id": pass_id, "by": by,
                        "applied": sum(applied.values()), "gone": applied["gone"], "disabled": applied["disabled"],
-                       "marked": marked, "skipped": skipped})
+                       "marked": marked, "elsewhere": elsewhere, "skipped": skipped})
     return 0
 
 
