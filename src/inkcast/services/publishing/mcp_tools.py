@@ -49,8 +49,8 @@ For CI, the person needs a personal access token: call inkcast_create_token and 
 the link (the token is shown to them in the browser, never to you).
 
 If the person wants to delete their Inkcast account, call inkcast_delete_account and give
-them the link: they sign in again, read what goes and what stays, and confirm at the sign-in
-provider. You never delete anything yourself.
+them the link: it opens a page, and its Continue button starts a fresh sign-in; they read what
+goes and what stays, and confirm at the sign-in provider. You never delete anything yourself.
 """
 
 
@@ -306,8 +306,8 @@ def build_mcp(ctx: Context, service: InkcastService, sync: GitSync) -> MCPServer
 
     @mcp.tool(title="Delete my account", annotations=ToolAnnotations(read_only_hint=True))
     async def inkcast_delete_account() -> str:
-        """Give the person a one-time link to delete their Inkcast account. Nothing is deleted by this call: on the
-        page they sign in again, read what goes (posts, schedules, the ledger, connections and credentials, tokens,
+        """Give the person a one-time link to delete their Inkcast account. Nothing is deleted by this call: the page's
+        Continue button starts a fresh sign-in; they read what goes (posts, schedules, the ledger, connections and credentials, tokens,
         usage numbers) and what stays (articles already on the platforms), and confirm at the sign-in provider."""
         who = principal("posts:read")
         if who.kind != "oauth":
@@ -317,7 +317,8 @@ def build_mcp(ctx: Context, service: InkcastService, sync: GitSync) -> MCPServer
         except ServiceError as exc:
             raise ToolError(exc.message) from exc
         return (f"Open this link to delete your Inkcast account (valid {link.expires_in // 60} minutes, one use):\n{link.url}\n\n"
-                "You'll sign in again, see what goes and what stays, then confirm at the sign-in provider. Articles already "
+                "Opening it only shows a page. Its Continue button starts a fresh sign-in; you'll see what goes and what stays, "
+                "then confirm at the sign-in provider. Articles already "
                 "published on the platforms stay there. Nothing has been deleted yet.")
 
     return mcp

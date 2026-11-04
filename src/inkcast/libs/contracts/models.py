@@ -80,7 +80,8 @@ class PlatformInfo(BaseModel):
 class ConnectLink(BaseModel):
     platform: str
     url: str = Field(description="One-time page where the person enters this platform's credentials. Opening it does not "
-                                 "use the link up; submitting the form does.")
+                                 "use the link up; submitting a key the platform accepts does, and a refused key leaves "
+                                 "it good for another try.")
     expires_in: int = Field(description="Seconds until the link expires.")
     help: str
 

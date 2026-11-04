@@ -9,8 +9,10 @@ cookie: a previewer leaves nothing behind.
 
 The POST carries a token bound to the ticket: HMAC-SHA256 under a key derived from INKCAST_SECRET_KEY for this one
 purpose, over the ticket. Only a form Inkcast served for that very ticket can answer, so a blind POST (a scanner that
-tries POST too, a form on another site, a token taken from another link) is refused before anything is started, and
-SameSite cookies are not the only defence (OWASP, CSRF Prevention Cheat Sheet; these pages set no cookie at all).
+posts without reading the page, a form on another site, a token taken from another link) is refused before anything
+is started, and SameSite cookies are not the only defence (OWASP, CSRF Prevention Cheat Sheet; these pages set no
+cookie at all). A scanner that renders the page and submits its form is the person, as far as the server can tell,
+and uses the link up as they would.
 Stateless on purpose: the same ticket gives the same token, so the form shown again after a refused key carries a
 token that still works. Whoever holds the link can read its page and its token: the link is the capability, bounded
 by its lifetime (INKCAST_ONE_TIME_LINK_MINUTES) and its single use."""

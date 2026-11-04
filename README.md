@@ -48,7 +48,7 @@ More detail on the design is in [docs/architecture.md](docs/architecture.md).
 | Tool | What it does |
 |---|---|
 | `inkcast_platforms` | Lists the platforms and which ones you've connected. |
-| `inkcast_connect` | Returns a one-time link where you enter a platform's credentials. Opening the link only shows the form; submitting it uses the link up. |
+| `inkcast_connect` | Returns a one-time link where you enter a platform's credentials. Opening the link only shows the form; a key the platform accepts uses the link up, and a refused one leaves it good for another try. |
 | `inkcast_disconnect` | Deletes your stored credentials for a platform. |
 | `inkcast_destinations` | Lists Medium publications, or finds DEV organizations. |
 | `inkcast_publish` | Publishes now, schedules, or creates drafts on one or more platforms. Supports `dry_run`. |
