@@ -125,12 +125,22 @@ for pod in keycloak-0 keycloak-1; do   # memory in use (cgroup v2), to size the 
   echo "$pod memory.current: $((mem / 1048576)) MiB"
 done
 
-echo "-- 2. the lab's realm imports complete into this Keycloak (shared/keycloak-realms, Secrets made here)"
+echo "-- 2. the lab's realm imports complete into this Keycloak (shared/keycloak-realms, the placeholder Secrets made here)"
+# The two generated imports, unchanged. Their placeholder Secrets are made here with random values unless they exist:
+# in the kind job, scripts/dev/env-secrets-e2e.sh has already had the cluster write inkcast-staging-realm. The files are
+# applied one by one rather than the kustomization: its Mailpit shares the name of the dev Keycloak's Mailpit
+# (deploy/keycloak/keycloak.yaml, applied earlier in the kind job) with another selector, and a Deployment's selector
+# is immutable; the realms' SMTP host, mailpit.keycloak.svc, is that Service either way, and an import sends no mail.
 for side in staging prod; do
-  $k -n "$ns" create secret generic "inkcast-$side-realm" --from-literal=identity-client-secret="$(rand)" \
-    --from-literal=sync-client-secret="$(rand)" --dry-run=client -o yaml | $k apply -f - >/dev/null
+  if $k -n "$ns" get secret "inkcast-$side-realm" >/dev/null 2>&1; then
+    echo "inkcast-$side-realm: exists (left as is)"
+  else
+    $k -n "$ns" create secret generic "inkcast-$side-realm" --from-literal=identity-client-secret="$(rand)" \
+      --from-literal=sync-client-secret="$(rand)" >/dev/null
+  fi
 done
-$k apply -k "$ROOT/deploy/kustomize/shared/keycloak-realms"
+$k apply -f "$ROOT/deploy/kustomize/shared/keycloak-realms/realm-inkcast-staging.yaml" \
+  -f "$ROOT/deploy/kustomize/shared/keycloak-realms/realm-inkcast-prod.yaml"
 for realm in inkcast-staging inkcast-prod; do
   $k -n "$ns" wait --for=condition=Done "keycloakrealmimport/$realm" --timeout=600s
   $k -n "$ns" get keycloakrealmimport "$realm" -o go-template='{{range .status.conditions}}CONDITION: {{.type}}  STATUS: {{.status}}  MESSAGE: {{.message}}{{"\n"}}{{end}}'
