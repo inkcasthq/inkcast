@@ -40,8 +40,8 @@ features:
       oldest_due_age and list_posts (libs/db/posts.py); the ORDER BY on created_at > COALESCE(requested_at, run_at)
       sorts a boolean, false first, on both (#222, ADR-0019)'
     - 'One clock for the queue: posts.created_at is stamped by the server (now()), not by the API pod, so a backfill
-      (created_at > run_at) is classed and ordered on one clock whatever a pod''s skew; the lag itself stays the
-      scheduler''s clock against run_at (ADR-0019)'
+      (created_at > COALESCE(requested_at, run_at)) is classed and ordered on one clock whatever a pod''s skew; the lag
+      itself stays the scheduler''s clock against run_at (ADR-0019)'
   - id: F3.1.S2
     title: Versioned, reversible migrations
     status: planned

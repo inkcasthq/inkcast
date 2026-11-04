@@ -222,6 +222,9 @@ class FindingAnEditDoesNotHideHowLateAPostIs(Measured):
         edited = self.sync(week_ago, body="Better body.")
         self.assertEqual((edited.action, edited.status), ("update", "scheduled"))
         self.assertNotEqual(edited.post_id, created.post_id)
+        self.assertEqual(self.store.get_post(edited.post_id)["created_at"],
+                         self.store.get_post(created.post_id)["created_at"],
+                         "the replacement keeps the replaced post's created_at, so its place in the claim order (#280)")
         now = time.time()
         self.assertEqual(self.store.overdue_count(now, 60), 0)
         asyncio.run(self.publisher.run_due(now=now))
