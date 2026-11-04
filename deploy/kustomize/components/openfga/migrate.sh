@@ -23,10 +23,11 @@
 #   2b. a hand-over grace (#409): a runner whose lock session died alone still runs its migration until its next
 #      probe (step 4), so when other sessions of this role exist, this runner waits twice the probe interval plus
 #      the server's client check before touching the schema, as leader election hands a lease over (client-go's
-#      LeaseDuration: a candidate waits it out before it acts). No fence is possible: `openfga migrate` runs goose
+#      LeaseDuration: a candidate waits it out before it acts). No fence is built yet: `openfga migrate` runs goose
 #      as a black box, with no token the database could check (Kleppmann, "How to do distributed locking"), where
 #      goose's own Provider, golang-migrate and Flyway lock on the very connection that migrates. A runner paused
-#      beyond that grace is the residual, bounded by nothing; the repair of step 3 and a retry cover what it leaves;
+#      beyond that grace is the residual, bounded by nothing; the repair of step 3 and a retry cover what it leaves
+#      (ending such a runner's sessions before the repair is #494; docs/research/openfga-2026-10.md §7);
 #   3. repair what an interrupted 006 leaves: `idx_user_lookup` INVALID is dropped, and goose's version-6 rows go
 #      when that index is invalid or missing, so that `openfga migrate` applies 006 again (goose up.go:99-106 at
 #      v3.28.0 plans every file above the table's highest version). Not once a version above 6 is recorded: goose
@@ -50,8 +51,9 @@
 # the URI with Go's net/url and prints one it refuses, password included (a raw `|` in the password, which libpq
 # accepts: "invalid database uri: parse ...: net/url: invalid userinfo", measured with v1.22.0; issue #410).
 # A URI no split makes safe is refused before psql runs, in words that quote none of it (#474): a raw `@` or `/` in
-# the password, which every parser misreads; a password in the query, which would stay on psql's command line; and
-# options=, which would replace PGOPTIONS (below) and with it the client check that ends a killed runner's statement.
+# the password, which libpq and pgx misread (net/url splits at the last `@` and refuses a `/`); a password in the
+# query, which would stay on psql's command line; and options=, which would replace PGOPTIONS (below) and with it the
+# client check that ends a killed runner's statement.
 # The lab's e2e proofs are scripts/dev/openfga-recovery-e2e.sh.
 set -euo pipefail
 : "${OPENFGA_DATASTORE_URI:?OPENFGA_DATASTORE_URI is not set: the Secret openfga-db-app, key uri}"
@@ -99,7 +101,7 @@ fi
 # and pgx read a URI only after postgresql:// or postgres:// (fe-connect.c uri_prefix_length at REL_18_6; pgconn/
 # parse_url.go at v5.11.0), and anything else with an `=` as keyword=value; a raw `@` or `/` in the password,
 # which libpq reads into the host or the port and quotes in the errors the wait for the database logs (net/url
-# refuses it); a raw `?` or `#` in the user name, where libpq reads on to the `@` and net/url, `openfga migrate`'s,
+# refuses a `/`); a raw `?` or `#` in the user name, where libpq reads on to the `@` and net/url, `openfga migrate`'s,
 # ends the authority, and which started the query below early; a password in the query, which libpq and pgx honour
 # over the user information's, its keyword percent-decoded (conninfo_uri_parse_params), and which the split leaves on
 # psql's command line; options=, which replaces PGOPTIONS above whole (pgx: pgconn/config.go mergeSettings at
@@ -115,8 +117,8 @@ if [[ "$db_uri" == *\?* ]]; then
   IFS='&' read -ra params <<< "${db_uri#*\?}"
   for param in "${params[@]}"; do
     uri_decode "${param%%=*}"
-    case "$decoded" in
-      *password*) log "the datastore URI (the Secret openfga-db-app, key uri) is refused: it carries a password in its query (password=, sslpassword=), which psql's command line would show; the password goes in the user information"; exit 1 ;;
+    case "${decoded,,}" in          # libpq refuses an upper-case key; the value would still be on psql's command line
+      *password*|*secret*|scram_*) log "the datastore URI (the Secret openfga-db-app, key uri) is refused: it carries a password or a secret in its query (password=, sslpassword=, oauth_client_secret=, scram_client_key=), which psql's command line would show; the password goes in the user information"; exit 1 ;;
       *options*) log "the datastore URI (the Secret openfga-db-app, key uri) is refused: its query sets options=, which would replace PGOPTIONS and the client check that ends a killed runner's statement"; exit 1 ;;
     esac
   done

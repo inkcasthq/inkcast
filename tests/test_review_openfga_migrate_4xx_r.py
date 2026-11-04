@@ -113,7 +113,7 @@ class Review474(harness.MigrateScript):
         """K1: libpq ends the user information at the first `@` before any `/` (fe-connect.c
         conninfo_uri_parse_options at REL_18_6), so a raw `@` in the password puts what follows it in the host
         (`could not translate host name "...@127.0.0.1"`) and a raw `/` puts what precedes it in the port (`invalid
-        integer value "..." for connection option "port"`); Go's net/url refuses both. No split can recover such a
+        integer value "..." for connection option "port"`); Go's net/url refuses the `/`. No split can recover such a
         password, and the wait for the database logged libpq's error, part of the password in it. A keyword=value
         string is no URI at all: psql took it whole, password included, on its command line for the whole run, and
         `openfga migrate` then failed on it (measured on 4fa484fe)."""
@@ -140,8 +140,23 @@ class Review474(harness.MigrateScript):
                     f"postgres://openfga@127.0.0.1:5432/openfga?sslmode=disable&sslpassword={secret}"):
             with self.subTest(uri=uri.replace(secret, "...").replace(harness.PASSWORD, "...")):
                 log = self.refused(uri)
-                self.assertIn("a password in its query", log)
+                self.assertIn("a password or a secret in its query", log)
                 self.assertNotIn("not-a-secret", log)
+
+    def test_a_secret_key_or_options_in_any_case_is_refused_before_psql(self):
+        """The integrator's, on K3 and K8: libpq 18.6 holds two more secrets (oauth_client_secret, shown as "*") and two
+        keys (scram_client_key, scram_server_key, hidden as "D") in its option table (fe-connect.c PQconninfoOptions at
+        REL_18_6), and compares a keyword with strcmp (conninfo_find), so an upper-case PASSWORD= is refused by psql
+        only after it starts, its value on the command line. Every case of each key is refused before psql runs."""
+        secret = "Pw-474-not-a-secret"
+        for query in (f"PASSWORD={secret}", f"SslPassword={secret}", f"oauth_client_secret={secret}",
+                      f"scram_client_key={secret}", f"SCRAM_SERVER_KEY={secret}"):
+            with self.subTest(query=query.replace(secret, "...")):
+                log = self.refused(f"postgres://openfga:{harness.PASSWORD}@127.0.0.1:5432/openfga?sslmode=disable&{query}")
+                self.assertIn("a password or a secret in its query", log)
+                self.assertNotIn("not-a-secret", log)
+        log = self.refused(f"postgres://openfga:{harness.PASSWORD}@127.0.0.1:5432/openfga?sslmode=disable&OPTIONS=-c%20work_mem%3D1MB")
+        self.assertIn("options=", log)
 
     def test_a_backslash_in_the_password_migrates(self):
         """K4: libpq decodes %XX alone and keeps a backslash as it is (conninfo_uri_decode at REL_18_6), while
