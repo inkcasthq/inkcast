@@ -51,9 +51,12 @@ def sync_consumers(ctx: Context) -> None:
 def housekeeping(ctx: Context) -> None:
     """Every HOUSEKEEPING_EVERY (``housekeeping_if_due``): the outbox cursors matched to the code's consumers
     (``sync_consumers``); expired grants and tickets, then domain events and hourly KPI buckets past the configured
-    retention (INKCAST_OUTBOX_RETENTION_DAYS, INKCAST_KPI_HOURLY_RETENTION_DAYS; F1.10.S3, issue #91); and, once per
+    retention (INKCAST_OUTBOX_RETENTION_DAYS, INKCAST_KPI_HOURLY_RETENTION_DAYS; F1.10.S3, issue #91); once per
     table, the rows left by writes in the instant of an erasure before the guard refused them (issue #196), logged
-    as counts only: no new erasure, and no audit row."""
+    as counts only: no new erasure, and no audit row; and last a checkpoint that cuts the write-ahead log
+    (``checkpoint_wal``), so what every deletion above and every erasure since the last one overwrote is out of the
+    files on disk within HOUSEKEEPING_EVERY even where the erasure's own checkpoint met a reader on an older snapshot
+    (issue #404). A reader holding one now keeps the log until the next run; that costs 250 ms here and is logged."""
     sync_consumers(ctx)
     ctx.store.purge_expired(ctx.config.retention)
     swept = ctx.store.sweep_orphans()
@@ -61,6 +64,10 @@ def housekeeping(ctx: Context) -> None:
         rows = sum(swept.values())
         log.warning("Removed %d row(s) from %d table(s) left for people erased before the write-time guard", rows,
                     len(swept), extra={"event": "identity.erasure.orphans_swept", "rows": rows, "tables": len(swept)})
+    busy, frames, _ = ctx.store.checkpoint_wal()
+    if busy:
+        log.info("The write-ahead log was not cut (readers held an older snapshot): %d frame(s) stay until the next "
+                 "housekeeping", frames)
 
 
 def housekeeping_due(ctx: Context, now: float | None = None) -> bool:
