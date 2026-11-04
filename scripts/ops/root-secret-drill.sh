@@ -134,8 +134,11 @@ echo "backup $backup: Completed, $items item(s)"
 [ "${items:-0}" -ge 1 ] || { echo "the backup holds no item" >&2; exit 1; }
 
 step "3. THE LOSS: deleting $ns/$secret"
-$k -n "$ns" delete secret "$secret"
+# Marked before the command, not after: the server may have deleted the Secret when the client dies or answers
+# non-zero (a dropped connection), and `finish` must then put the copy back or keep it. A delete that did nothing
+# leaves the Secret present, which `finish` sees, and keeps the copy with the command to use it.
 deleted=yes
+$k -n "$ns" delete secret "$secret"
 [ -z "$(field "$ns" "secret/$secret" '{.metadata.name}')" ] || { echo "$secret still exists" >&2; exit 1; }
 
 step "4. the restore, limited to secrets carrying $label_key=true in $ns"

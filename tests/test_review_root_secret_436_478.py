@@ -104,6 +104,8 @@ STUB = textwrap.dedent('''\
         p = path(ns, "secret", args[2])
         (root / "deleted.json").write_text(p.read_text())
         p.unlink()
+        if scenario == "delete-drops":   # the server deleted it, the client's connection died before the answer
+            sys.exit("error: unexpected EOF reading the server's response")
     elif verb == "exec":
         code_args = args[args.index("-c") + 2:]
         if code_args[0] == "seal":
@@ -186,6 +188,19 @@ class DrillAgainstAStub(unittest.TestCase):
         self.assertEqual(back["metadata"]["labels"]["inkcast.io/root-secret"], "true")
         self.assertIn("put back from the safety copy", done.stderr)
         self.assertEqual(list(self.tmp.iterdir()), [], "once put back, the copy is removed")
+
+    def test_a_delete_whose_answer_never_arrives_still_puts_the_copy_back(self):
+        """The server can delete the Secret and the client still exit non-zero (its connection dropped before the
+        answer). `set -e` then ends the drill on that command, so the mark `finish` reads must be set before the
+        delete, not after it: set after, the mark is never reached, `finish` removes the only copy, and the Secret
+        is gone for good."""
+        done = self.drill("delete-drops")
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn(["-n", NS, "delete", "secret", "inkcast-secrets"], self.calls(), "the drill reached the loss")
+        back = self.secret()
+        self.assertIsNotNone(back, "inkcast-secrets is absent and its safety copy was removed:\n" + done.stderr)
+        self.assertEqual(back["data"], {k: base64.b64encode(v.encode()).decode() for k, v in VALUES.items()})
+        self.assertIn("put back from the safety copy", done.stderr)
 
     def test_a_secret_made_meanwhile_keeps_the_safety_copy(self):
         """OpenFGA's init container makes a new inkcast-secrets when its pod starts while the Secret is absent;

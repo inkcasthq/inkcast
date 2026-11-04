@@ -12,9 +12,11 @@
 # The storage location `root-secrets`, and only it. It is `default: true` because the operator demands a default of
 # the locations it is given (measured on 1.6.2: without one the DPA stays Reconciled=False, "no default
 # backupstoragelocations configured, ensure that one backupstoragelocation has been configured as the default
-# location"). The default decides nothing here: every Schedule names its location. When E7.F7.6.S2 adds a location
-# for the SQLite backups' off-cluster copies, that one becomes the default and this one goes `false`, so nothing
-# lands in the root Secrets' bucket by omission. Its credential is the Secret `cloud-credentials-root-secrets`,
+# location"). Every Schedule names its location, so the default decides nothing for the copies; it does for anything
+# else: while this is the only location, never create a Velero Backup or Schedule on this cluster without
+# `storageLocation`, or namespace data lands in the key's bucket (docs/runbooks/env-secrets.md says so). When
+# E7.F7.6.S2 adds a location for the SQLite backups' off-cluster copies, that one becomes the default and this one
+# goes `false`, so nothing lands in the root Secrets' bucket by omission. Its credential is the Secret `cloud-credentials-root-secrets`,
 # key `cloud`, an AWS credentials file (`[default]`, aws_access_key_id, aws_secret_access_key: OADP's
 # docs/install_olm.md), which no manifest holds.
 #
