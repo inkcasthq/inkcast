@@ -47,6 +47,12 @@ patches:
       - op: add
         path: /spec/template/spec/initContainers/0/imagePullPolicy
         value: Never
+  # The CronJob that brings a deleted Secret back (#342) runs the same CI image, loaded into kind.
+  - target: {kind: CronJob, name: inkcast-env-secrets}
+    patch: |-
+      - op: add
+        path: /spec/jobTemplate/spec/template/spec/containers/0/imagePullPolicy
+        value: Never
   - target: {kind: Deployment, name: inkcast}
     patch: |-
       - op: add
