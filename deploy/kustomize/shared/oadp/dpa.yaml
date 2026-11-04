@@ -64,4 +64,4 @@ spec:
           region: us-east-1
           profile: default
           s3ForcePathStyle: "true"
-          s3Url: http://seaweedfs.inkcast-seaweedfs.svc:8333
+          s3Url: http://seaweedfs-all-in-one.inkcast-seaweedfs.svc:8333   # the chart's all-in-one Service (shared/seaweedfs/values.yaml)

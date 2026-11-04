@@ -1,17 +1,18 @@
 # The credential, generated in the cluster (setup.sh, mounted from the ConfigMap kustomization.yaml generates): one
-# key pair for Velero's identity, written as the identities file the store reads (inkcast-seaweedfs/
-# seaweedfs-s3-identities, key identities.json) and as the AWS credentials file Velero reads (openshift-adp/
-# cloud-credentials-root-secrets, key cloud). A pair, as env-secrets' pairs: a side that exists is kept, a side
-# that is absent is copied from the other, two sides that disagree fail the run naming them, and only when both
-# are absent is a value drawn, from the kernel's CSPRNG. Then the Job waits for the store and checks that the
-# bucket exists. Nothing it prints is a value.
+# key pair for Velero's identity, written as the identities file the chart mounts for the gateway
+# (inkcast-seaweedfs/seaweedfs-s3-config, key seaweedfs_s3_config: values.yaml, allInOne.s3.existingConfigSecret)
+# and as the AWS credentials file Velero reads (openshift-adp/cloud-credentials-root-secrets, key cloud). A pair,
+# as env-secrets' pairs: a side that exists is kept, a side that is absent is copied from the other, two sides that
+# disagree fail the run naming them, and only when both are absent is a value drawn, from the kernel's CSPRNG. It
+# touches the store itself not at all: the chart installs after it, mounts the Secret, and makes the bucket.
+# Nothing it prints is a value.
 #
-# The store's own image, which carries `curl` for the API server and `weed` for the bucket check (docker/
-# Dockerfile.go_build at 4.52: alpine, `apk add ... curl`), with `command` set so the image's entrypoint (which
-# prefixes `weed`) is not used. The token is projected into this container alone, valid ten minutes, with the
-# cluster's CA and the namespace, at the path in-cluster clients read, and the script sends it as a header read
-# from a file, never as an argument. /tmp is memory, never a disk: the values pass through it while the pod runs.
-# Restricted as the store's pod: an arbitrary uid, a read-only root filesystem, every capability dropped.
+# The store's own image, which carries `curl` for the API server (docker/Dockerfile.go_build at 4.52: alpine,
+# `apk add ... curl`), with `command` set so the image's entrypoint (which prefixes `weed`) is not used. The token
+# is projected into this container alone, valid ten minutes, with the cluster's CA and the namespace, at the path
+# in-cluster clients read, and the script sends it as a header read from a file, never as an argument. /tmp is
+# memory, never a disk: the values pass through it while the pod runs. Restricted as the store's pod: an arbitrary
+# uid, a read-only root filesystem, every capability dropped.
 #
 # A Job's template is immutable: scripts/lab/root-secret-copy.sh removes a finished Job before it applies again,
 # and a later run keeps what the first made. Bounded: four retries within a run, a quarter of an hour in all.

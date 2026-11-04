@@ -1,29 +1,27 @@
 # THE LAB'S STAND-IN for an off-cluster, KMS-encrypted bucket (issue #436, ADR-0020): an S3-compatible object store
 # in the cluster, in its own namespace, holding the one bucket the storage location `root-secrets` writes to
-# (shared/oadp/dpa.yaml). SeaweedFS 4.52, one pod (`weed mini`), one volume, one bucket, one identity: Velero's,
-# scoped to that bucket. Its credential, and the identities file the server reads, are generated in the cluster by
-# the Job seaweedfs-setup (setup.sh): no value is in Git, none is printed, none is ever on a command line. Velero's
-# pods in openshift-adp reach the S3 port, the Job reaches the store, nothing else reaches it (networkpolicy.yaml).
+# (shared/oadp/dpa.yaml). The store is SeaweedFS installed from its own Helm chart, `seaweedfs` 4.52.0, with the
+# values file beside this one (values.yaml: one pod, one 2Gi claim, one bucket, one identity scoped to that bucket,
+# a NetworkPolicy admitting Velero's pods alone; every value cites the chart). What this kustomization holds is
+# what the chart does not: the namespace, and the Job seaweedfs-setup (setup.sh) that generates the identity's key
+# pair in the cluster and writes it twice, as the identities file the chart mounts and as the credentials file
+# Velero reads: no value in Git, none printed, none ever on a command line, and an existing Secret never changed.
 #
 # The limit this stands in with, stated once in docs/runbooks/env-secrets.md: the store is in the same cluster as
-# the data, so the copy survives a deleted Secret, not the loss of the whole cluster, and the volume is not
+# the data, so the copy survives a deleted Secret, not the loss of the whole cluster, and the claim is not
 # encrypted. Production points the storage location at an off-cluster bucket encrypted with a KMS key and needs
 # nothing from this directory.
 #
-# Applied after shared/oadp-operator (the namespace openshift-adp) and shared/seaweedfs-access (the Job's one right
-# there), before shared/oadp, in order: namespace, volume, the store, the Job that writes the two Secrets and checks
-# the bucket (README, Hosted §2; scripts/lab/root-secret-copy.sh does it and waits at each step). A Job's template
-# is immutable, so the install script removes a finished Job before applying again; a re-run changes nothing
-# that exists (setup.sh: an existing credential is kept, a pair that disagrees fails naming it).
+# In order (scripts/lab/root-secret-copy.sh does it and waits at each step; README, Hosted §2): this kustomization
+# (the namespace, the account, the Job: a Job's template is immutable, so the script removes a finished Job first;
+# a re-run keeps what exists), after shared/oadp-operator (the namespace openshift-adp) and shared/seaweedfs-access
+# (the Job's one right there); then the chart, `helm upgrade --install` of the tgz verified against
+# scripts/versions.env, whose post-install hook creates the bucket; then shared/oadp.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: inkcast-seaweedfs
 resources:
   - namespace.yaml
-  - pvc.yaml
-  - deployment.yaml
-  - service.yaml
-  - networkpolicy.yaml
   - serviceaccount.yaml
   - rbac.yaml
   - setup-job.yaml

@@ -1,28 +1,30 @@
 #!/bin/sh
 # SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 # Copyright 2026 ScalarOps Technologies LLC
-# The lab's root Secret store, set up from inside the cluster (issue #436, ADR-0020; the Job in setup-job.yaml runs
-# this with the store's own image: busybox sh, curl, weed). It writes a pair of Secrets holding one key pair, Velero's
-# identity on the store:
+# The lab's root Secret store's one identity, generated from inside the cluster (issue #436, ADR-0020; the Job in
+# setup-job.yaml runs this with the store's own image: busybox sh and curl). It writes a pair of Secrets holding one
+# key pair, Velero's identity on the store:
 #
-#   inkcast-seaweedfs/seaweedfs-s3-identities   identities.json   what the store reads (-s3.config, deployment.yaml)
-#   openshift-adp/cloud-credentials-root-secrets cloud            what Velero reads (shared/oadp/dpa.yaml)
+#   inkcast-seaweedfs/seaweedfs-s3-config        seaweedfs_s3_config   the identities file the chart mounts for the
+#                                                                     gateway (values.yaml, allInOne.s3.existingConfigSecret)
+#   openshift-adp/cloud-credentials-root-secrets cloud                 what Velero reads (shared/oadp/dpa.yaml)
 #
 # As `inkcast env-secrets` treats a pair: both present and equal, kept; one present, copied to the other; both
 # absent, one key pair drawn from the kernel's CSPRNG and written to both; present and different, the run fails
-# naming them and writes nothing. An existing Secret is never replaced (the account has no update or patch). Then
-# it waits for the store and checks that the bucket exists (the server creates it at start: -bucket). Every value
-# travels through this shell's variables, files in /tmp (memory, mode 600) and the API's TLS connection, never an
-# argument (nothing in a process list) and never stdout or stderr: the output names Secrets and keys.
+# naming them and writes nothing. An existing Secret is never replaced or changed (the account has no update or
+# patch). Nothing else: the store itself, its bucket and its policy are the chart's (scripts/lab/root-secret-copy.sh
+# installs it after this Job). Every value travels through this shell's variables, files in /tmp (memory, mode 600)
+# and the API's TLS connection, never an argument (nothing in a process list) and never stdout or stderr: the
+# output names Secrets and keys.
 set -eu
 
 sa=/var/run/secrets/kubernetes.io/serviceaccount
 api="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT:-443}"
 ns="$(cat "$sa/namespace")"
-store=seaweedfs                                  # the Service beside this (service.yaml)
-bucket=inkcast-root-secrets                      # declared on the server (deployment.yaml) and in the DPA
+bucket=inkcast-root-secrets                      # the chart creates it (values.yaml, allInOne.s3.createBuckets) and the DPA names it
 identity=velero                                  # the one identity the store knows
-store_secret=seaweedfs-s3-identities
+store_secret=seaweedfs-s3-config
+store_key=seaweedfs_s3_config                    # the key the chart mounts as /etc/sw/s3/seaweedfs_s3_config (values.yaml:1936-1938 at 4.52)
 velero_ns=openshift-adp
 velero_secret=cloud-credentials-root-secrets
 work=/tmp/setup
@@ -89,67 +91,54 @@ create_secret() {   # namespace name key file
 }
 
 # 1. What each side holds.
-store_key=""; store_secret_key=""; velero_key=""; velero_secret_key=""
+store_access=""; store_secret_key=""; velero_access=""; velero_secret_key=""
 read_secret "$ns" "$store_secret"
 if [ "$code" = 200 ]; then
-  data_key identities.json > "$work/identities.json"
-  store_key="$(sed -n 's/.*"accessKey": *"\([A-Za-z0-9]*\)".*/\1/p' "$work/identities.json" | head -n 1)"
+  data_key "$store_key" > "$work/identities.json"
+  store_access="$(sed -n 's/.*"accessKey": *"\([A-Za-z0-9]*\)".*/\1/p' "$work/identities.json" | head -n 1)"
   store_secret_key="$(sed -n 's/.*"secretKey": *"\([A-Za-z0-9]*\)".*/\1/p' "$work/identities.json" | head -n 1)"
-  if ! { valid "$store_key" 20 && valid "$store_secret_key" 40; }; then
-    fail "$ns/$store_secret identities.json is not what this job writes (one identity with a 20- and a 40-character key): remove it, or write both Secrets by hand."
+  if ! { valid "$store_access" 20 && valid "$store_secret_key" 40; }; then
+    fail "$ns/$store_secret $store_key is not what this job writes (one identity with a 20- and a 40-character key): remove it, or write both Secrets by hand."
   fi
 fi
 read_secret "$velero_ns" "$velero_secret"
 if [ "$code" = 200 ]; then
   data_key cloud > "$work/cloud"
-  velero_key="$(sed -n 's/^aws_access_key_id=\([A-Za-z0-9]*\)$/\1/p' "$work/cloud" | head -n 1)"
+  velero_access="$(sed -n 's/^aws_access_key_id=\([A-Za-z0-9]*\)$/\1/p' "$work/cloud" | head -n 1)"
   velero_secret_key="$(sed -n 's/^aws_secret_access_key=\([A-Za-z0-9]*\)$/\1/p' "$work/cloud" | head -n 1)"
-  if ! { valid "$velero_key" 20 && valid "$velero_secret_key" 40; }; then
+  if ! { valid "$velero_access" 20 && valid "$velero_secret_key" 40; }; then
     fail "$velero_ns/$velero_secret cloud is not what this job writes (a [default] profile with a 20- and a 40-character key): remove it, or write both Secrets by hand."
   fi
 fi
 
 # 2. Decide, as env-secrets decides a pair.
-if [ -n "$store_key" ] && [ -n "$velero_key" ]; then
-  if [ "$store_key" = "$velero_key" ] && [ "$store_secret_key" = "$velero_secret_key" ]; then
+if [ -n "$store_access" ] && [ -n "$velero_access" ]; then
+  if [ "$store_access" = "$velero_access" ] && [ "$store_secret_key" = "$velero_secret_key" ]; then
     say "$ns/$store_secret and $velero_ns/$velero_secret: kept, in agreement"
   else
     fail "$ns/$store_secret and $velero_ns/$velero_secret disagree. Nothing was written: remove the one that is wrong (the store's, unless Velero has copies made with it) and run again; the next run copies the other."
   fi
 else
-  if [ -n "$store_key" ]; then
-    key="$store_key"; secret="$store_secret_key"; origin="from $ns/$store_secret"
-  elif [ -n "$velero_key" ]; then
-    key="$velero_key"; secret="$velero_secret_key"; origin="from $velero_ns/$velero_secret"
+  if [ -n "$store_access" ]; then
+    key="$store_access"; secret="$store_secret_key"; origin="from $ns/$store_secret"
+  elif [ -n "$velero_access" ]; then
+    key="$velero_access"; secret="$velero_secret_key"; origin="from $velero_ns/$velero_secret"
   else
     key="$(random_alnum 20)"; secret="$(random_alnum 40)"; origin="generated"
   fi
-  if [ -z "$store_key" ]; then
+  if [ -z "$store_access" ]; then
+    # The chart's own generated file has this shape (templates/s3/s3-secret.yaml:64 at 4.52); the actions are the
+    # bucket-scoped form, "Action:bucket" (weed/s3api/auth_credentials.go, CanDo).
     printf '{"identities": [{"name": "%s", "credentials": [{"accessKey": "%s", "secretKey": "%s"}], "actions": ["Read:%s", "Write:%s", "List:%s"]}]}\n' \
       "$identity" "$key" "$secret" "$bucket" "$bucket" "$bucket" > "$work/identities.json"
-    create_secret "$ns" "$store_secret" identities.json "$work/identities.json"
+    create_secret "$ns" "$store_secret" "$store_key" "$work/identities.json"
     say "  identity $identity on bucket $bucket: Read, Write, List ($origin)"
   fi
-  if [ -z "$velero_key" ]; then
+  if [ -z "$velero_access" ]; then
     printf '[default]\naws_access_key_id=%s\naws_secret_access_key=%s\n' "$key" "$secret" > "$work/cloud"
     create_secret "$velero_ns" "$velero_secret" cloud "$work/cloud"
     say "  the storage location root-secrets' credential ($origin)"
   fi
 fi
 rm -rf "$work"
-
-# 3. The store lists the bucket the server declares. The listing itself is the wait: `mini` starts the master before
-# the filer, and the pod may be starting on the identities file this run just wrote, so the shell is asked again
-# until it answers (five minutes), then the answer is judged once.
-i=0
-while :; do
-  listing="$(printf 's3.bucket.list\n' | weed shell -master="$store:9333" -filer="$store:8888" 2>&1)" && break
-  i=$((i + 1))
-  [ "$i" -le 60 ] || fail "the store did not list its buckets within five minutes (oc -n $ns logs deploy/seaweedfs). weed shell said: $listing"
-  sleep 5
-done
-case "$listing" in
-  *"$bucket"*) say "bucket $bucket: present" ;;
-  *) fail "bucket $bucket is absent on the store (the server creates it at start: deployment.yaml, -bucket). weed shell said: $listing" ;;
-esac
-say "$ns: the store, its identity and the storage location's credential are in place."
+say "$ns: the store's identity and the storage location's credential are in place."
