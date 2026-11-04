@@ -201,5 +201,52 @@ class TheRestoreRacingAConfirmation(Base):
         self.raced("breaker_trip_people", events=True)
 
 
+# ---- 3. Skip accounting: a cut-off that declined after the mark had started the clock was counted as skipped ----
+
+class TheConfirmationsAudit(Base):
+    """``inkcast identity confirm-deletions`` marks a gone person gone (the erasure clock) and then cuts them off, in
+    two transactions. When the cut-off declines after the mark, the audit line says whether the clock runs."""
+
+    def trip(self, gone: list[dict]) -> str:
+        self.kc.gone.update(u["kc"] for u in gone)
+        self.reconcile(self.sync(30))
+        (trip,) = self.trips()
+        return trip["id"]
+
+    def test_a_cut_off_elsewhere_between_the_mark_and_the_cut_off_is_marked_gone_not_skipped(self):
+        people = [self.person(f"kc-p{i:02d}") for i in range(20)]
+        gone = people[:5]
+        pass_id = self.trip(gone)
+        ada = min(gone, key=lambda u: u["id"])                           # the first the confirmation acts on
+        # The breaker closed with the claim: a reconcile on another replica, finding her 404 alone, cuts her off
+        # between the confirmation's mark and its cut-off, which declines (disabled_at is set).
+        landed = self.hook(self.store, "disable_user", lambda: self.other.disable_user(ada["id"]))
+        records = self.confirm(pass_id)
+        self.assertEqual(len(landed), 1)
+        self.assertIsNotNone(landed[0], "the other replica's cut-off landed first")
+        for user in gone:
+            self.assert_cut_off(user, deleted_at=T0 + 3600)             # her clock runs from the confirmation's mark
+        line = self.confirmed(records)
+        self.assertEqual((line.applied, line.gone, line.marked, line.skipped), (4, 4, 1, 0),
+                         "marked gone, not cut off here: not skipped, her grace period runs")
+        self.assertIn("marked gone", line.getMessage())
+        self.assertEqual(self.store.breaker_trip_people(pass_id), [])
+
+    def test_a_sign_in_between_the_mark_and_the_cut_off_is_skipped_as_the_sign_in_stopped_the_clock(self):
+        people = [self.person(f"kc-p{i:02d}") for i in range(20)]
+        gone = people[:5]
+        pass_id = self.trip(gone)
+        ada = min(gone, key=lambda u: u["id"])
+        before = self.person_rows(ada["id"])
+        signed_in = self.sign_in_at(self.store, "disable_user", ada)     # Keycloak has her again and let her in
+        records = self.confirm(pass_id)
+        self.assert_intact(ada, {**before, "sync_breaker_people": 0}, signed_in)   # deleted_at None: no clock runs
+        for user in gone:
+            if user is not ada:
+                self.assert_cut_off(user, deleted_at=T0 + 3600)
+        line = self.confirmed(records)
+        self.assertEqual((line.applied, line.marked, line.skipped), (4, 0, 1), "the sign-in stopped the clock: skipped")
+
+
 if __name__ == "__main__":
     unittest.main()
