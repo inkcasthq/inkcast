@@ -85,6 +85,11 @@ EVENTS: dict[str, tuple[str, str]] = {
                                                "keeps the batches it committed; the next start fills the rest."),
     "identity.erasure_hash.backfilled": ("info", "That fill is done: every user has a hash (rows filled and batches at this "
                                                  "start)."),
+    "identity.erasure_hash.filled_with_records": ("warning", "That fill ran beside existing erasure records (rows filled, "
+                                                             "records, people re-erased at this start): the rows carry the "
+                                                             "current key's hash, so a person among them erased before a "
+                                                             "rotation of INKCAST_SECRET_KEY is matched by no record (#112); "
+                                                             "the Keycloak sync's first pass covers them. Counts only."),
     "identity.sync.failed": ("warning", "A Keycloak user sync pass failed (service account refused, Keycloak down); retried."),
     "identity.sync.person.failed": ("warning", "Keycloak answered an error about one person, or gave the read about them no "
                                                "answer (Inkcast user id, read, status and the error's name only); nothing "
@@ -110,7 +115,8 @@ EVENTS: dict[str, tuple[str, str]] = {
     "authz.error": ("critical", "The policy engine could not answer (OpenFGA down, bad model id); the caller failed closed (503)."),
     "authz.model.pinned": ("info", "Start-up resolved the OpenFGA store by INKCAST_FGA_STORE_NAME and pinned the model version "
                                    "equal to the packaged model (store and model ids); a refusal before it is config.unsafe."),
-    "backup.done": ("info", "A database backup was taken, checked and kept (name, size, rows)."),
+    "backup.done": ("info", "A database backup was taken, checked and kept (name, size, rows), and the backups and pre-restore "
+                            "copies INKCAST_BACKUP_KEEP or more days old removed (removed_backups, removed_copies)."),
     "backup.failed": ("critical", "A database backup failed; nothing was removed. The alert fires when none succeeds for 26 h."),
     "restore.done": ("warning", "The database was replaced by a backup; the previous one was kept beside it."),
     "restore.erasures.carried": ("info", "The erasure records of the replaced database, and their aliases from a key "
