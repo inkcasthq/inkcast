@@ -105,6 +105,11 @@ spec:
         - name: openfga
           image: openfga/openfga:v1.22.0@sha256:9cf9a20af32a40434cd3a788c429879439ee9ea9abf65c9c200ee17cd43f769e
           args: ["run"]
+          # The whole URI and no OPENFGA_DATASTORE_USERNAME or _PASSWORD here: the server parses it with pgx, which
+          # takes what libpq takes and redacts the password in every error (pgconn/parse_url.go, errors.go at
+          # v5.11.0), but with an override set it parses the URI with Go's net/url first and prints one that net/url
+          # refuses, password included (pkg/storage/postgres/postgres.go:68-72 at v1.22.0, measured; issue #410).
+          # migrate.sh splits the URI for `openfga migrate`, which has only net/url.
           env:
             - {name: OPENFGA_DATASTORE_ENGINE, value: postgres}
             - name: OPENFGA_DATASTORE_URI
