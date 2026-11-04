@@ -97,6 +97,12 @@ def as_str(value: "str | SecretValue") -> str:
     return value.reveal() if isinstance(value, SecretValue) else value
 
 
+class CredentialsUnreadable(RuntimeError):
+    """Stored credentials that can't be decrypted: sealed under another INKCAST_SECRET_KEY (rotated, or a database from
+    another environment). A RuntimeError, as before it had a name, so every guard that caught one still does; a resend
+    refuses on it by name, before anything is cancelled (#472)."""
+
+
 class Sealer:
     """Encrypts platform credentials at rest with a key derived from INKCAST_SECRET_KEY."""
 
@@ -110,9 +116,9 @@ class Sealer:
         try:
             return json.loads(self._fernet.decrypt(sealed.encode()))
         except InvalidToken as exc:
-            raise RuntimeError(
+            raise CredentialsUnreadable(
                 "Stored credentials can't be decrypted; INKCAST_SECRET_KEY changed. Reconnect the platform."
             ) from exc
 
 
-__all__ = ["SecretValue", "Sealer", "as_str", "derive_key", "new_secret", "token_hash"]
+__all__ = ["CredentialsUnreadable", "SecretValue", "Sealer", "as_str", "derive_key", "new_secret", "token_hash"]

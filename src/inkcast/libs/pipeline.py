@@ -34,6 +34,7 @@ from .db import Store
 from .db.posts import backfill
 from .content.story import Story
 from .events import DomainEvent
+from .secrets import CredentialsUnreadable
 
 log = logging.getLogger(__name__)
 
@@ -724,7 +725,8 @@ class Publisher:
         (its first reply lost) is told the post the first one made (``AlreadyResent``, #234). Refused too, before
         anything is cancelled, while the platform isn't connected or refuses the stored credentials (``verify``, the
         check a connect makes): the old post would be cancelled for a new one that fails at once, and the decision
-        consumed (``Disconnected``, naming the reconnect, #234). A check that can't be made just now (a 429, unreachable)
+        consumed (``Disconnected``, naming the reconnect, #234); so are credentials sealed under another
+        INKCAST_SECRET_KEY, which the send could not read either (#472). A check that can't be made just now (a 429, unreachable)
         refuses it too, for now (``Unavailable``, naming the platform's Retry-After, #445): the send would very likely
         fail the same way, and a resend's send is never queued. A retryable failure of the send is reported, not
         queued: the person is there to try again."""
@@ -738,7 +740,20 @@ class Publisher:
             raise self._not_resendable(post_id, row)
         reconnect = (f"Reconnect {platform.name} (inkcast_connect, or POST /api/v1/platforms/{platform.id}/connect-link), "
                      f"then resend post {post_id}.")
-        connected = self.store.get_credentials(user_id, platform.id)
+
+        def stored() -> tuple[dict[str, Any], dict[str, Any]] | None:
+            try:
+                return self.store.get_credentials(user_id, platform.id)
+            except CredentialsUnreadable as exc:
+                # Sealed under another key: the send would raise the same, after the old post is cancelled (#472).
+                log.warning("Post %s on %s: its credentials can't be decrypted; the resend is refused", post_id,
+                            platform.id, extra={"event": "publish.resend.unreadable", "post_id": post_id,
+                                                "platform": platform.id})
+                raise Disconnected(f"{platform.name}'s stored credentials can't be decrypted (they were sealed under "
+                                   f"another INKCAST_SECRET_KEY): post {post_id} was not resent and is still "
+                                   f"unconfirmed. {reconnect}") from exc
+
+        connected = stored()
         if connected:
             try:
                 await platform.verify(connected[0])
@@ -752,7 +767,7 @@ class Publisher:
                 raise Unavailable(f"{_sentence(str(exc))} Post {post_id} was not resent and is still unconfirmed: "
                                   f"resend it {wait_text(exc.retry_after)}.") from exc
             # Read again: a disconnect while verify was out would cancel the old post for a new one that fails at once.
-            connected = self.store.get_credentials(user_id, platform.id)
+            connected = stored()
         if not connected:
             raise Disconnected(f"{platform.name} isn't connected: post {post_id} was not resent and is still unconfirmed. "
                                f"{reconnect}")

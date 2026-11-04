@@ -80,6 +80,10 @@ EVENTS: dict[str, tuple[str, str]] = {
                                          "INKCAST_SECRET_KEY, a payload this version can't read; post id and platform, with "
                                          "the traceback); it stays 'recovering' for the next stuck pass, and the pass went "
                                          "on to the rows after it. Counted as inkcast_publish_total{status=\"recovery_failed\"}."),
+    "publish.resend.unreadable": ("warning", "A person's resend was refused, nothing cancelled, because the post's "
+                                             "credentials can't be decrypted (sealed under another INKCAST_SECRET_KEY "
+                                             "than this process runs on): post id and platform. The reply asks them to "
+                                             "reconnect; check the key first (InkcastPostsCannotBeSent's runbook)."),
     "publish.second_copy": ("warning", "A post may be on its platform twice: a send taken over as stuck succeeded after "
                                        "another worker re-sent it, or after a lookup recorded another post. The post's "
                                        "error names both copies, or the attempt that may have made one; a person checks "
