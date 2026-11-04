@@ -80,6 +80,7 @@ erDiagram
     text url
     text status
     text message
+    text replaces "the post a failed replacement replaces"
     real synced_at }
   IDEMPOTENCY { text user_id PK
     text key PK
