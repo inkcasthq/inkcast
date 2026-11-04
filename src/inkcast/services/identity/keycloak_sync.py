@@ -23,8 +23,8 @@ polling (the ADR-0008 option that needs no Keycloak plug-in, so it works air-gap
 
 Each of those acts is decided on a reading of the person that another replica may overtake before the transaction
 starts, so the caller passes the row as it read it and the store re-checks it inside the transaction (issue #102:
-``erase_user`` with the row, ``disable_user`` and ``mark_user_deleted`` with ``last_login_at``): a sign-in handled
-elsewhere in between leaves the person as they are, and the next pass judges them afresh.
+``erase_user`` with the row, ``disable_user``, ``mark_user_deleted`` and ``hold_user`` (#161) with ``last_login_at``):
+a sign-in handled elsewhere in between leaves the person as they are, and the next pass judges them afresh.
 
 A person who is gone (404) or ``enabled: false`` is disabled in Inkcast: every OAuth token, code and personal
 access token is cut off in one transaction (``Store.disable_user``) and the person is marked, which clears at their
@@ -230,9 +230,12 @@ def hold_person(store: Any, user: dict[str, Any], via: str, now: float) -> bool:
     """Hold one person Keycloak reports disabled while the breaker holds a pass (#135): their OAuth tokens, codes and
     pending consents go now (a sign-in restores them, and Keycloak refuses that while they are disabled), their
     personal access tokens are refused but not revoked, until an operator confirms (revoked) or dismisses (work
-    again). Nothing for one already held or cut off. Logs ``identity.user.held`` with the Inkcast id and counts."""
+    again). ``user`` is their row as the caller read it: held only while its ``last_login_at`` is still their last
+    sign-in (#161), as ``cut_off_person``, so a sign-in handled by another replica in between (Keycloak enabled them
+    and let them in) leaves them as they are. True when held now; False when nothing was done (already held or cut
+    off, no such person, or signed in since). Logs ``identity.user.held`` with the Inkcast id and counts."""
     user_id = str(user["id"])
-    cut = store.hold_user(user_id, now)
+    cut = store.hold_user(user_id, now, last_login_at=float(user["last_login_at"]))
     if cut is None:
         return False
     oauth, codes = (int(cut.get(k, 0)) for k in ("oauth_tokens", "codes"))     # counts only, as in cut_off_person
@@ -636,10 +639,9 @@ class KeycloakSync:
         return not user or user.get("last_login_at") != listed.get("last_login_at")
 
     def _hold(self, listed: dict[str, Any], via: str) -> bool:
-        """``hold_person`` for a person the reconcile read disabled, unless they signed in since ``listed`` was read
-        (Keycloak let them in: enabled, the one proof) or were erased; nothing for one already held or cut off."""
-        if self._signed_in_since(listed):
-            return False
+        """``hold_person`` for a person the reconcile read disabled, their row as listed before the reads (#102):
+        one who signed in since (Keycloak let them in: enabled, the one proof) or was erased is left as they are, by
+        the hold's own re-check (#161); nothing for one already held or cut off."""
         return hold_person(self.store, listed, via, self.clock())
 
     def _breaker_open(self) -> bool:

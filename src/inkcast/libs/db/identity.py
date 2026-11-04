@@ -160,14 +160,16 @@ class IdentityRepo(Database):
                              (now, user_id)).rowcount
         return {"oauth_tokens": tokens, "personal_access_tokens": pats, "codes": codes}
 
-    def hold_user(self, user_id: str, now: float) -> dict[str, int] | None:
+    def hold_user(self, user_id: str, now: float, last_login_at: float | None = None) -> dict[str, int] | None:
         """The Keycloak sync's breaker holds the person (#135): every OAuth token, code and pending consent goes, in
         one transaction, as ``disable_user`` cuts them (a sign-in restores them, and Keycloak refuses that while the
-        person is disabled); their personal access tokens stay, refused while ``held_at`` is set. Counts of what was
-        cut; None when nothing was done (already held, cut off, or no such person)."""
+        person is disabled); their personal access tokens stay, refused while ``held_at`` is set. With
+        ``last_login_at``, only while that is still their last sign-in (#161), as ``disable_user``: the caller read it
+        when it decided, and a sign-in since, handled by another replica, means Keycloak let them in. Counts of what
+        was cut; None when nothing was done (already held, cut off, no such person, or signed in since)."""
         with self._tx() as c:
-            if c.execute("UPDATE users SET held_at = ? WHERE id = ? AND held_at IS NULL AND disabled_at IS NULL",
-                         (now, user_id)).rowcount != 1:
+            if c.execute("UPDATE users SET held_at = ? WHERE id = ? AND held_at IS NULL AND disabled_at IS NULL"
+                         " AND (? IS NULL OR last_login_at = ?)", (now, user_id, last_login_at, last_login_at)).rowcount != 1:
                 return None
             tokens = c.execute("DELETE FROM tokens WHERE user_id = ?", (user_id,)).rowcount
             codes = c.execute("DELETE FROM auth_codes WHERE user_id = ?", (user_id,)).rowcount
