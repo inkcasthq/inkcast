@@ -183,9 +183,12 @@ def openapi_document(public_url: str) -> dict[str, Any]:
                              "cancelled and reported `removed`; a published one stays on the platform. `files` may "
                              "be empty only when `removed` is not. Use the `Idempotency-Key` header to make "
                              "client retries safe: a repeat within 24 hours replays the first response "
-                             "(`Idempotent-Replayed: true`); a repeat while the first is still running gets 409 "
+                             "(`Idempotent-Replayed: true`), unless that response has a `skipped` or `failed` result, "
+                             "which asks for a re-run: then the repeat runs, and the ledger keeps what the first run did; a "
+                             "repeat while the first is still running gets 409 "
                              "`idempotency_key_in_use` (retry shortly); the same key with a different body gets "
-                             "422 `idempotency_key_reused`."))},
+                             "422 `idempotency_key_reused` while the first response is kept, and runs once it "
+                             "isn't."))},
             "/api/v1/ledger": {"get": _op(
                 "listLedger", "What each synced file became on each platform", "Git publishing",
                 _resp("LedgerEntry", "Ledger entries", array=True), scope="posts:read", service=pub,
