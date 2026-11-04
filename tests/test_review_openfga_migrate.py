@@ -285,3 +285,15 @@ class PartitionedRunner(unittest.TestCase):
         while self.sql(held) != "0" and time.monotonic() - cut < 60:
             time.sleep(1)
         self.assertEqual(self.sql(held), "0", f"the lock is still held {time.monotonic() - cut:.0f} s after the runner was cut off")
+
+
+class NoMigrateJob(unittest.TestCase):
+    def test_nothing_acts_on_the_migrate_job_any_more(self):
+        """Issue #337's acceptance: nothing in deploy/, scripts/, CI or the docs still waits for or deletes
+        openfga-migrate. A check left on a Job the release no longer ships reads whatever an earlier release left on
+        the cluster: a Job failed for good there (the K2 state this story removes) fails the check for ever."""
+        acting = re.compile(r"\bjobs?[/ ]+openfga-migrate\b")
+        found = [f"{path.relative_to(ROOT)}:{n}" for top in ("deploy", "scripts", ".github", "docs") for path in (ROOT / top).rglob("*")
+                 if path.is_file() and path.suffix in {".sh", ".py", ".yaml", ".yml", ".md"} and "evidence" not in path.parts
+                 for n, line in enumerate(path.read_text().splitlines(), 1) if acting.search(line)]
+        self.assertEqual(found, [])
