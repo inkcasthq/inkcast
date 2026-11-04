@@ -97,6 +97,82 @@ These are OpenFGA **server** settings. If a deployment changes them (`OPENFGA_MA
 
 **What Inkcast does (E3.F3.9.S8):** `deploy/kustomize/components/openfga/migrate.sh`, run by the init container `migrate` with the PostgreSQL image and OpenFGA's own image as an image volume, holds one session-level advisory lock (key 1473304569, CRC-32 of `inkcast/openfga-migrate`, derived as goose derives its own 4097083626 and deliberately not that one) across the version discovery, the repair of an INVALID `idx_user_lookup` (dropped, and goose's version-6 rows removed so 006 runs again) and the whole `openfga migrate`; the Deployment is `strategy: Recreate` with one replica. The proofs are `scripts/dev/openfga-recovery-e2e.sh`.
 
+## 7. The hand-over after a lock lost alone: a time grace, or a fence
+
+*Added 2026-11-04 for issue #474 (K5, from the review of PR #453). This is research only: nothing here is built. Sources:*
+- *read over git: PostgreSQL `REL_18_6`; pgx v5.11.0 (OpenFGA v1.22.0's `go.mod:28`); Go's `database/sql` at go1.26.0 (OpenFGA's `go.mod`: `go 1.26.0`); goose v3.28.0; CloudNativePG v1.30.1;*
+- *read on the web: the PostgreSQL 18 manual and the Kubernetes documentation;*
+- *measured: on 2026-11-04, in the migration harness's container (the pinned PostgreSQL 18.6 and OpenFGA v1.22.0 images), with a scratch script outside the repository.*
+
+**The design today.** It is described in steps 2, 2b and 4 of `migrate.sh`'s header:
+- One psql session takes the advisory lock. It probes itself every `PROBE_SECONDS` while `openfga migrate` runs in the background. A probe that finds the session gone kills the migration.
+- So a runner whose lock session dies alone migrates on until its next probe.
+- The runner that takes the lock next therefore waits a grace before it repairs and migrates: `2 × PROBE_SECONDS + 2` s (6 s by default), and only when another session of its role exists.
+
+A grace is a time bound, not a fence: a runner that is paused rather than dead wakes up after the grace has passed. The review of PR #453 measured this residual: in 29 of 33 samples, the next runner held the lock while the paused runner's statement still ran (issue #474).
+
+| Fact | Where |
+|---|---|
+| A paused client's statement runs on. With `openfga migrate` stopped (SIGSTOP) during 006, its `CREATE INDEX CONCURRENTLY` was still building 6 s later. `client_connection_check_interval` finds a client that has gone, not one that is paused with its connection open. | measured |
+| A role may end its own sessions. `pg_terminate_backend` is allowed when the caller has the privileges of the backend's role, or of `pg_signal_backend`. It never ends a superuser's backend unless the caller is a superuser. With a timeout in milliseconds, it waits for the backend to exit; if the backend does not exit in time, it returns false with a warning. | `src/backend/storage/ipc/signalfuncs.c:50-127` (`pg_signal_backend`; the role checks at 88-103) and `:226-279` (`pg_terminate_backend` and its timeout); the PostgreSQL 18 manual, "Server Signaling Functions" |
+| As the migrating role, `pg_terminate_backend(pid, 5000)` on the paused runner's session returned true in 0.15 s. The build ended and left `idx_user_lookup` INVALID. The thawed `openfga migrate` exited 1 (`failed to run SQL migration ... CREATE INDEX CONCURRENTLY`), and no version-6 row was recorded. On a superuser's backend, the same call failed with `permission denied to terminate process`. | measured |
+| The migrating roles are not superusers. `openfga_staging` and `openfga_prod` are CloudNativePG managed roles with no `superuser` set, and it defaults to false. | `deploy/kustomize/shared/inkcast-db/cluster.yaml:32-41`; CloudNativePG v1.30.1 `api/v1/cluster_types.go:2721-2724` |
+| `openfga migrate` names its sessions with `PGAPPNAME`. pgx maps it to `application_name`, and the URI's own settings override the environment's. OpenFGA sets no `application_name` of its own. Measured: with `PGAPPNAME=openfga-migrate-goose`, its session showed that name. Today `migrate.sh` exports `PGAPPNAME=openfga-migrate` for both psql and `openfga migrate`, so their sessions cannot yet be told apart. | pgx `pgconn/config.go:701-739` (`parseEnvSettings`) and `:428` (`mergeSettings(defaultSettings, envSettings, connStringSettings)`); OpenFGA `pkg/storage/migrate/migrate.go` (no `application_name`); `migrate.sh:65` |
+| Ending a connection does not end the process. Before pgx's `database/sql` driver reuses a connection that has been idle for more than 1 s, it pings it, and it reports a failed ping as `driver.ErrBadConn`. `database/sql` then retries on another connection, and on its last try it opens a new one. So a runner thawed between two statements reconnects and goes on. **Read in source, not measured.** | pgx `stdlib/sql.go:566-598` (`ResetSession`) and `:148-151` (`OptionShouldPing`, default 1 s); Go `src/database/sql/sql.go:1572-1584` at go1.26.0 (`maxBadConnRetries`, `retry`) |
+| goose's `Provider` takes its session lock on a dedicated `*sql.Conn` and runs the migrations on that same connection, so the lock and the migration cannot come apart. OpenFGA calls goose's package-level functions instead. OpenFGA's refactor toward a migration interface of its own is open. | goose v3.28.0 `provider_run.go:277-336` (`initialize`); openfga/openfga#2448 (open); #3355 (the INVALID index, open) |
+| A fence needs a check by the storage, not by the lock holder: "the storage server to take an active role in checking tokens". | Kleppmann, "How to do distributed locking" (2016) |
+| Kubernetes fences a node only when told to. With the `node.kubernetes.io/out-of-service` taint, "the pods on the node will be forcefully deleted", and "it should be verified that the node is already in shutdown or power off state". The feature has been stable since 1.28. | Kubernetes documentation, "Node Shutdowns", "Non-graceful node shutdown handling" |
+
+### Options
+
+1. **Keep the time grace (today).**
+   - **It closes:** a runner whose lock session died while the runner itself runs at its pace, or at up to half its pace. Its own probe ends it within the grace.
+   - **It fails** when a runner is paused for longer than the grace:
+     - its statement in flight runs on during the pause (measured above), beside the next runner's work;
+     - once thawed, it runs on for up to `PROBE_SECONDS`, until its own probe ends it.
+   - **What covers that failure:** the repair (step 3) and a retry cover 006. They do not cover the one overlap that is permanent (§6): a runner paused after it planned 003 to 006, and thawed after the other runner's 006 dropped `idx_reverse_lookup_user`, records version 3 again. That needs a database below version 3 (a new install, or an upgrade from before 003) and a pause at that moment.
+2. **Fence by eviction.**
+   - **How it works:**
+     - `openfga migrate` gets a name of its own (`PGAPPNAME=openfga-migrate-goose`, on its command only).
+     - Once the runner has the lock, before it repairs anything, it ends every session of its role and database that has that name, with `pg_terminate_backend(pid, 5000)`.
+     - It fails the run when any of those sessions does not end within the timeout.
+     - A URI's `application_name=` would override that name, so it is refused, as `options=` is.
+   - **It closes:** the residual that was measured. A paused runner's statement in flight ends in about 0.15 s (measured), whatever the grace. Its failed statement then fails its whole `openfga migrate`.
+   - **It fails** in these cases:
+     - A runner thawed between two statements, or after the eviction, gets a new connection from `database/sql` (read in source, not measured). It migrates on until its own probe ends it, for up to `PROBE_SECONDS`. So the 003-after-006 overlap of option 1 stays possible.
+     - A backend that does not exit in time fails the run, and the kubelet retries it. **[UNVERIFIED]** A backend whose client is cut off may wait on its socket while it ends.
+   - **What it costs:** one statement, one environment variable and one more refused keyword. Nothing is added to OpenFGA's schema.
+   - **The grace stays:** it lets a live runner end itself, and the eviction ends what a paused runner left running.
+3. **A fence the database checks: a trigger on goose's version table.**
+   - **How it works:**
+     - Each run gives both its sessions, psql's and `openfga migrate`'s, a name with a token of its own (`application_name=openfga-migrate-<token>`).
+     - A `BEFORE INSERT` trigger on `goose_db_version`, which the role owns, raises an error unless the session that holds the lock has the same name as the inserting session.
+   - **It closes:** every transactional migration of a runner that lost the lock. Its version row is refused, so its DDL rolls back with it. That includes the late 003, the overlap that is permanent. For 006 (`NO TRANSACTION`), only the version row is refused: the build has already run, and the repair covers it.
+   - **It fails or costs:**
+     - It puts an object in OpenFGA's schema that OpenFGA does not know about. A later OpenFGA or goose that changes the version table, or writes to it outside `openfga migrate`, will meet it.
+     - It adds PL/pgSQL to a shell script, and the trigger needs a repair of its own if it is ever dropped.
+     - **[UNVERIFIED]** It is neither built nor measured.
+4. **Upstream: OpenFGA locks its own migration.**
+   - goose's `Provider` with a session locker holds the lock on the connection that migrates (see the table). For a binary used as a black box, that is the only true fence.
+   - The script's lock and grace would stay as a second guard until every supported OpenFGA version has it.
+   - Nobody has asked for it yet. The place to ask is openfga/openfga#2448.
+5. **Fence the node, not the session.**
+   - `strategy: Recreate` ends the old pod before the new one starts. So a runner still alive after that belongs to a pod whose node is partitioned, or whose object was force-deleted.
+   - Fencing that is the platform's job: the out-of-service taint, applied once the node is verified to be off. It is outside the init container's reach.
+   - It is no substitute for 1 to 4 in the script, which cannot see the node.
+
+### Recommendation
+
+- **Build option 2, the eviction fence, beside the grace, as a story of its own:**
+  - It closes the residual that was measured: 29 of 33 samples, and a build still running 6 s into a pause.
+  - It uses the role's own privilege and adds nothing to OpenFGA's schema.
+  - What it leaves is short and covered: up to `PROBE_SECONDS` after a thaw, before the runner's own probe ends it. The repair and the retry cover 006.
+  - Its tests: the paused-runner case of the review of PR #453, with the eviction measured, and a refused `application_name=`.
+- **Raise option 4 upstream, on openfga/openfga#2448.** It is the only fence that closes the late-003 overlap without an object in OpenFGA's schema.
+- **Do not build option 3 unless a late 003 is ever seen.** It fences a rare, permanent case at the price of a foreign object in OpenFGA's schema.
+
+The integrator decides whether the fence is built (issue #474).
+
 ## Sources
 
 - [OpenFGA's Move to Weighted Graph Resolution: What's Changing](https://openfga.dev/blog/weighted-graph-upcoming-changes), 21 July 2026.
@@ -106,6 +182,11 @@ These are OpenFGA **server** settings. If a deployment changes them (`OPENFGA_MA
 - [Usersets](https://openfga.dev/docs/modeling/building-blocks/usersets).
 - OpenFGA v1.22.0 source (`pkg/server/config/config.go`) and openfga/cli v0.8.2 `go.mod`, read over git on 2026-10-22.
 - **[CONFLICT]** The GitHub releases page fetched on the same day listed v1.19.0 as the latest release. The CLI's `go.mod` and the v1.22.0 tag (6 October 2026) show it was stale, so the version facts here come from the tags.
+- [Server Signaling Functions](https://www.postgresql.org/docs/18/functions-admin.html#FUNCTIONS-ADMIN-SIGNAL), PostgreSQL 18 manual: `pg_terminate_backend` and its `timeout` (§7).
+- [How to do distributed locking](https://martin.kleppmann.com/2016/02/08/how-to-do-distributed-locking.html), Martin Kleppmann, 2016: fencing tokens (§7).
+- [Node Shutdowns](https://kubernetes.io/docs/concepts/cluster-administration/node-shutdown/), Kubernetes documentation: "Non-graceful node shutdown handling" (§7).
+- [openfga/openfga#2448](https://github.com/openfga/openfga/issues/2448), "Migrate: Refactor for migration improvements", and [#3355](https://github.com/openfga/openfga/issues/3355), "Failed migration left invalid index", both open on 2026-11-04 (§7).
+- PostgreSQL `REL_18_6` (`signalfuncs.c`), pgx v5.11.0 (`pgconn/config.go`, `stdlib/sql.go`), Go go1.26.0 (`database/sql/sql.go`), goose v3.28.0 (`provider_run.go`) and CloudNativePG v1.30.1 (`api/v1/cluster_types.go`), read over git on 2026-11-04 (§7).
 
 ---
 <!-- inkcast-nav -->
