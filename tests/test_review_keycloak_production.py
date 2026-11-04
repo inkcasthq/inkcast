@@ -51,6 +51,19 @@ class ReviewKeycloakProduction(unittest.TestCase):
         port = re.search(r"port-forward pod/keycloak-0 (\d+):8443", five).group(1)
         self.assertIn(f"discovery inkcast-staging {port}", five, "the discovery goes through the new pod's forward")
 
+    def test_the_kind_proof_shows_the_database_policy_enforced(self):
+        """The script said "kindnet enforces none" and left "5432 from Keycloak's pods only" to a rendered-object test.
+        kindnet in the pinned kind (v0.33.0) enforces NetworkPolicy: on kind, pg_isready to keycloak-db-1 from an
+        unlabelled pod in the namespace got "no response" (exit 2), and "accepting connections" (exit 0) once the
+        policy was deleted. The proof checks it both ways: an admitted label set answered, the others not."""
+        self.assertFalse("enforces none" in SCRIPT.read_text(), "kindnet enforces NetworkPolicy")
+        six = step("6")
+        probes = re.findall(r'^probe "\$(\w+)" (\S+) "(\{.*\})" (\d)$', six, re.M)
+        self.assertEqual({(name, want) for _, name, _, want in probes},
+                         {("np-as-realm-import", "0"), ("np-unlabelled", "2"), ("np-as-cnpg-operator", "2")}, six)
+        self.assertEqual({ns for ns, name, _, _ in probes if name == "np-as-cnpg-operator"}, {"outsider"})
+        self.assertIn("app.kubernetes.io/name=cloudnative-pg", six, "the outsider namespace carries the operator's label")
+
 
 if __name__ == "__main__":
     unittest.main()
