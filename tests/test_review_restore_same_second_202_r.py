@@ -10,8 +10,8 @@ readonly database", "unable to open database file"). Measured with two processes
 runs: four of four ended so, none with the PR's message. ``sqlite3.Error`` is not a ``BackupError``: ``inkcast
 restore`` logged no outcome for it, only a traceback.
 
-The fix holds a lock on the staging file for the whole restore, taken before the PR's check: the second restore is
-refused before it copies anything, with a sentence that says what to do, whichever of the two checks sees it."""
+The fix holds a lock on the data directory for the whole restore, taken before the PR's check: the second restore
+is refused before it copies anything, with a sentence that says what to do, whichever of the two checks sees it."""
 
 import pathlib
 import shutil
