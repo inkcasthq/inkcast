@@ -112,7 +112,7 @@ def removed_since(rev: str, patterns: list[str]) -> list[str]:
             continue
         path = str(pathlib.PurePosixPath(name)) if name else ""
         if path and pathlib.PurePosixPath(path).suffix.lower() in MARKDOWN and path not in found \
-                and any(glob_match(g, path) for g in globs):
+                and any(glob_match(g, path) or path == g for g in globs):  # ``collect`` falls back to a pattern naming a file
             found.append(path)
     return found
 

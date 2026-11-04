@@ -93,5 +93,21 @@ class APatternEndingInASlashListsNoFile(Repo):
                 self.assertEqual(reported, collected)
 
 
+class AFileNamedByItsPatternIsReported(Repo):
+    """``collect`` falls back to the pattern itself when glob lists nothing and the pattern names a file:
+    ``posts/[x].md`` is a class to glob (``posts/x.md``), so the file ``posts/[x].md`` is synced through that fallback.
+    Its removal is reported too, or its pending post goes out."""
+
+    files = ("posts/[x].md", "posts/a*b.md", "posts/a.md")
+    PATTERNS = ("posts/[x].md", "posts/a*b.md", "posts/*.md")
+
+    def test_removed_since_reports_what_collect_listed(self):
+        removed = self.removed(list(self.PATTERNS))
+        self.assertEqual(removed["posts/[x].md"][0], ["posts/[x].md"])  # collected through the fallback
+        for pattern, (collected, reported) in removed.items():
+            with self.subTest(pattern=pattern):
+                self.assertEqual(reported, collected)
+
+
 if __name__ == "__main__":
     unittest.main()
