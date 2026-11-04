@@ -45,6 +45,13 @@ def one(docs: list[dict], kind: str, name: str) -> dict:
     return found
 
 
+def quantity(text: str) -> int:
+    """A Kubernetes memory quantity in bytes (the suffixes the components use)."""
+    units = {"": 1, "M": 10**6, "G": 10**9, "Mi": 2**20, "Gi": 2**30}
+    number, unit = re.fullmatch(r"(\d+)([A-Za-z]*)", text).groups()
+    return int(number) * units[unit]
+
+
 def render(path: pathlib.Path) -> list[dict]:
     """The objects `kubectl kustomize` renders (CI's manifests job renders every overlay the same way)."""
     out = subprocess.run(["kubectl", "kustomize", str(path)], capture_output=True, text=True, check=True)
@@ -78,6 +85,11 @@ def check_component(case: unittest.TestCase, docs: list[dict], what: str) -> Non
     case.assertEqual(set(spec["resources"]), {"requests", "limits"}, what)
     case.assertEqual(set(spec["resources"]["requests"]), {"cpu", "memory"}, what)
     case.assertEqual(set(spec["resources"]["limits"]), {"memory"}, f"{what}: no CPU limit, as the other components")
+    # The memory request covers a start: kc.sh commits half the limit as the initial heap (InitialRAMPercentage=50 at
+    # 26.6.4) and a pod measured 1042 MiB at start on kind, so the request is at least the HA blueprint's 1250M
+    # (deploy-keycloak.adoc:173 at 26.6.4) under a 2Gi limit.
+    case.assertGreaterEqual(quantity(spec["resources"]["requests"]["memory"]), 1250 * 10**6, f"{what}: memory request")
+    case.assertEqual(spec["resources"]["limits"]["memory"], "2Gi", what)
     # The Cluster: the pattern of components/openfga/cluster.yaml, the image pinned by digest.
     case.assertEqual(cluster["apiVersion"], "postgresql.cnpg.io/v1", what)
     case.assertRegex(cluster["spec"]["imageName"], POSTGRES_IMAGE, what)
