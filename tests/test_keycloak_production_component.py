@@ -291,6 +291,20 @@ class KindJob(unittest.TestCase):
         self.assertIn("sleep", body, "polling")
         self.assertRegex(script, r'(?m)^\s*wait_import "\$realm"', "step 2 waits through it")
 
+    def test_the_ci_overlay_and_the_proof_refuse_the_lab(self):
+        """Review of #391, K9: the overlay renders CR `keycloak` in namespace `keycloak`, the lab's RHBK CR's name and
+        namespace; applied there it would replace the lab's database and hostname. The overlay opens with the warning,
+        and the proof exits before any apply unless the current context is a kind cluster (`kind-*`)."""
+        head = (OVERLAY / "kustomization.yaml").read_text().splitlines()[0]
+        self.assertRegex(head, r"^# (NEVER|Never) ", head)
+        self.assertIn("lab", head)
+        script = (ROOT / "scripts" / "dev" / "keycloak-production-e2e.sh").read_text()
+        guard = re.search(r"(?ms)^context=\"\$\(\$k config current-context.*?^esac$", script)
+        self.assertIsNotNone(guard, "a current-context guard")
+        self.assertIn("kind-*)", guard.group(0))
+        self.assertIn("exit 1", guard.group(0))
+        self.assertLess(guard.start(), script.index("$k apply"), "before the first apply")
+
 
 if __name__ == "__main__":
     unittest.main()
