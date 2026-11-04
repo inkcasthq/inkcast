@@ -62,7 +62,9 @@ from your own tool (e.g. <code>/mcp</code> in Claude Code).</p>
 </form>""")
 
 
-def connect_form(ticket: str, platform_name: str, help_text: str, fields: Iterable, error: str | None = None) -> HTMLResponse:
+def connect_form(ticket: str, platform_name: str, help_text: str, fields: Iterable, csrf: str,
+                 error: str | None = None) -> HTMLResponse:
+    """The connect page. ``csrf`` is the token bound to the ticket (libs/http/onetime): the POST must carry it back."""
     err = f"<p class=err>{escape(error)}</p>" if error else ""
     inputs = []
     for f in fields:
@@ -75,9 +77,24 @@ def connect_form(ticket: str, platform_name: str, help_text: str, fields: Iterab
         )
     return _page(f"Connect {platform_name}", f"""
 <h1>Connect {escape(platform_name)}</h1>{err}<p class=muted>{escape(help_text)}</p>
-<form method=post action="/connect/{escape(ticket)}">{''.join(inputs)}
+<form method=post action="/connect/{escape(ticket)}"><input type=hidden name=csrf value="{escape(csrf)}">{''.join(inputs)}
 <div class=row><button class=primary type=submit>Connect</button></div></form>
 <p class=muted>Credentials are encrypted on the Inkcast server and are never shown to the AI assistant.</p>""")
+
+
+def deletion_start(ticket: str, csrf: str) -> HTMLResponse:
+    """The page a deletion link opens (issue #401). Opening it changes nothing, so a previewer or a scanner that
+    fetches the link leaves it good; Continue is the POST that starts the fresh sign-in and uses the link up.
+    ``csrf`` is the token bound to the ticket (libs/http/onetime)."""
+    return _page("Delete your account", f"""
+<h1>Delete your Inkcast account?</h1>
+<p>This link starts deleting your account. Nothing is deleted yet, and nothing happens until you continue.</p>
+<p>Continue takes you to sign in again. You then read what goes and what stays, and confirm at the sign-in provider,
+which deletes the account; Inkcast then erases your data.</p>
+<p class=muted>Only continue if you asked for this link from your own MCP client or the API.</p>
+<form method=post action="/account/delete/{escape(ticket)}">
+<input type=hidden name=csrf value="{escape(csrf)}">
+<div class=row><button class=primary type=submit>Continue</button></div></form>""")
 
 
 def token_confirm(pending_id: str, csrf: str, name: str, scopes: list[str], days: int | None,

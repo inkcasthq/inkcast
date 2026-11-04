@@ -160,7 +160,8 @@ class Harness(unittest.TestCase):
         async with httpx2.AsyncClient() as c:
             page = await c.get(link)
             assert "never shown to the AI" in page.text
-            done = await c.post(link, data=fields)
+            csrf = re.search(r'name=csrf value="([^"]*)"', page.text).group(1)   # the form's token (issue #401)
+            done = await c.post(link, data={**fields, "csrf": csrf})
             again = await c.get(link)
         return done.text, again.status_code
 
@@ -752,8 +753,12 @@ class AccountDeletion(Harness):
         return re.search(rf"({self.base}/account/delete/\S+)", out[0]).group(1)
 
     async def to_confirm_page(self, c: httpx2.AsyncClient, link: str) -> httpx2.Response:
-        """Open the link: a fresh sign-in at (the fake) Keycloak, then Inkcast's confirm page."""
-        r = await c.get(link)
+        """Open the link and press Continue (the POST; opening alone changes nothing, issue #401): a fresh sign-in at
+        (the fake) Keycloak, then Inkcast's confirm page."""
+        start = await c.get(link)
+        self.assertEqual(start.status_code, 200, start.text[:300])
+        self.assertIn("Nothing is deleted yet", start.text)
+        r = await c.post(link, data={"csrf": re.search(r'name=csrf value="([^"]*)"', start.text).group(1)})
         for _ in range(8):
             if not (r.status_code in (302, 303)) or "/auth/consent" in r.headers["location"]:
                 break

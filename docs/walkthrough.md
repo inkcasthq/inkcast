@@ -28,7 +28,8 @@ local listener on the callback port, the token exchange.
 8. The API reference pages, `/api` and `/api/redoc`.
 9. What the fake DEV holds, read back for the integrity check.
 10. Delete my account (E9.F9.5.S4): `inkcast_delete_account` (a one-time link, nothing deleted), the REST endpoint
-    refusing the CI token, the fresh sign-in, Inkcast's page (what goes, what stays, the export coming soon), the
+    refusing the CI token, the link's page (nothing deleted yet; Continue), the fresh sign-in, Inkcast's confirm page
+    (what goes, what stays, the export coming soon), the
     provider's re-authentication and confirmation, its "deleted" page linking back, Inkcast's "account deleted"
     page; then both tokens answer 401, the erasure counter reads exactly 1 (`via="return"`, or `via="event"` when the
     sync read the DELETE_ACCOUNT event before the visit back), and the fake DEV still holds both articles: what was

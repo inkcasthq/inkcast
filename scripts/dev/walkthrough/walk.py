@@ -704,8 +704,14 @@ async def journey(w: Walk, base: str, fakes: str, callback: Callback, facts: dic
                  headers={"Authorization": f"Bearer {pat}"}, auth_note="(the personal access token)")
     if delete_link:
         await page.goto(delete_link)
+        await page.wait_for_selector("button[type=submit]")
+        await w.browser("deletion link page", "The person opens the link: Inkcast's page says nothing is deleted yet. Opening it "
+                        "changes nothing (a link previewer leaves the link good); Continue is what starts the fresh sign-in.",
+                        ("nothing deleted yet, and a Continue button", has("Delete your Inkcast account?", "Nothing is deleted yet", "Continue")))
+        async with page.expect_navigation():
+            await page.click("button[type=submit]")
         await page.wait_for_selector("#kc-form-login")
-        await w.browser("deletion sign-in", "The link asks for a fresh sign-in at the identity provider first.",
+        await w.browser("deletion sign-in", "Continue asks for a fresh sign-in at the identity provider first.",
                         ("the identity provider's sign-in form", has("Sign in", "Password")))
         await sign_in(page, password)
         await page.wait_for_selector("button[value=approve]")

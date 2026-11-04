@@ -1,15 +1,17 @@
 # SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 # Copyright 2026 ScalarOps Technologies LLC
-"""A deletion link (/account/delete/<ticket>) is used up only once the sign-in redirect is ready (issue #149).
+"""A deletion link (/account/delete/<ticket>) is used up only once the sign-in redirect is ready (issue #149), and
+only by the POST from its page (issue #401).
 
-Opening the link reads the request behind it, starts the sign-in (with Keycloak: discovery, then a redirect to its
-authorization endpoint) and only then consumes the link. A sign-in provider that is down leaves the link good for
-another visit, instead of "Can't sign in" on a link that can never be opened again. The consume is one transaction,
-so of two tabs that open the same link only the first to have its redirect ready proceeds; the other sees "Link
-expired", and so does every later visit."""
+Opening the link (GET) shows a page and changes nothing. Continue, the POST, reads the request behind the link, starts
+the sign-in (with Keycloak: discovery, then a redirect to its authorization endpoint) and only then consumes the link.
+A sign-in provider that is down leaves the link good for another try, instead of "Can't sign in" on a link that can
+never be opened again. The consume is one transaction, so of two tabs that press Continue on the same link only the
+first to have its redirect ready proceeds; the other sees "Link expired", and so does every later visit."""
 
 import asyncio
 import html
+import re
 import unittest
 from unittest import mock
 from urllib.parse import parse_qs, urlparse
@@ -69,13 +71,25 @@ def link_hash(ctx):
     return ctx.store._one("SELECT link_hash FROM deletion_requests")["link_hash"]
 
 
+def csrf_of(page: str) -> str:
+    """The token the link's page binds its Continue to (issue #401)."""
+    return re.search(r'name=csrf value="([^"]*)"', page).group(1)
+
+
+def press_continue(c: TestClient, ticket: str):
+    """Open the link's page, then press Continue: the POST that starts the sign-in (issue #401)."""
+    page = c.get(f"/account/delete/{ticket}")
+    assert page.status_code == 200, page.text[:300]
+    return c.post(f"/account/delete/{ticket}", data={"csrf": csrf_of(page.text)})
+
+
 class ConsumedOnceTheRedirectIsReady(unittest.TestCase):
     def test_a_link_opened_while_the_provider_is_unreachable_can_be_opened_again(self):
         provider = Provider(up=False)
         app, ctx = keycloak_app(provider)
         ticket = a_link(ctx)
         with TestClient(app, base_url=PUBLIC_URL, follow_redirects=False) as c:
-            down = c.get(f"/account/delete/{ticket}")
+            down = press_continue(c, ticket)
             self.assertEqual(down.status_code, 502, down.text)
             self.assertIn(html.escape("Can't sign in"), down.text)
             self.assertEqual(provider.requests, 1, "discovery was tried")
@@ -83,7 +97,7 @@ class ConsumedOnceTheRedirectIsReady(unittest.TestCase):
             self.assertEqual(pending_rows(ctx), [], "no sign-in is left pending either")
 
             provider.up = True
-            back = c.get(f"/account/delete/{ticket}")
+            back = press_continue(c, ticket)
             self.assertEqual(back.status_code, 302, back.text)
             self.assertTrue(back.headers["location"].startswith(AUTHORIZE + "?"), back.headers["location"])
             query = parse_qs(urlparse(back.headers["location"]).query)
@@ -99,7 +113,8 @@ class ConsumedOnceTheRedirectIsReady(unittest.TestCase):
             self.assertEqual(len(pending_rows(ctx)), 1, "the used link starts nothing")
 
     def test_two_tabs_that_open_the_same_link_get_one_redirect(self):
-        """Both tabs have their redirect ready before either consumes the link: the consume decides, once."""
+        """Both tabs press Continue and have their redirect ready before either consumes the link: the consume
+        decides, once."""
         provider = Provider(up=True)
         app, ctx = keycloak_app(provider)
         ticket = a_link(ctx)
@@ -118,9 +133,11 @@ class ConsumedOnceTheRedirectIsReady(unittest.TestCase):
 
         async def two_tabs():
             async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app=app), base_url=PUBLIC_URL) as c:
+                csrf = csrf_of((await c.get(f"/account/delete/{ticket}")).text)
                 with mock.patch.object(OIDCIdentity, "start", start_then_wait):
-                    first, second = await asyncio.gather(c.get(f"/account/delete/{ticket}"), c.get(f"/account/delete/{ticket}"))
-                third = await c.get(f"/account/delete/{ticket}")
+                    first, second = await asyncio.gather(c.post(f"/account/delete/{ticket}", data={"csrf": csrf}),
+                                                         c.post(f"/account/delete/{ticket}", data={"csrf": csrf}))
+                third = await c.post(f"/account/delete/{ticket}", data={"csrf": csrf})
             return first, second, third
 
         first, second, third = asyncio.run(two_tabs())
@@ -136,14 +153,19 @@ class ConsumedOnceTheRedirectIsReady(unittest.TestCase):
         self.assertEqual(third.status_code, 400, "and the link is used up for everyone after")
 
     def test_the_password_form_uses_the_link_up_as_the_redirect_does(self):
-        """With the shared-password sign-in there is no provider to reach: the form is the sign-in, so showing it uses
-        the link up, as before."""
+        """With the shared-password sign-in there is no provider to reach: the form is the sign-in, so Continue showing
+        it uses the link up, as the redirect does. Opening the link shows only the page, as with Keycloak."""
         cfg = Config(public_url=PUBLIC_URL, secret_key="k" * 40, database_path=":memory:", login="password", password="p" * 12)
         specs = resolve("IdentityService")
         ctx = build(cfg, specs)
         ticket = a_link(ctx)
         with TestClient(compose(specs, ctx), base_url=PUBLIC_URL, follow_redirects=False) as c:
-            form = c.get(f"/account/delete/{ticket}")
+            start = c.get(f"/account/delete/{ticket}")
+            self.assertEqual(start.status_code, 200, start.text)
+            self.assertIn("Nothing is deleted yet", start.text)
+            self.assertNotIn("password", start.text, "opening the link shows the page, not yet the sign-in")
+            self.assertIsNotNone(link_hash(ctx))
+            form = press_continue(c, ticket)
             self.assertEqual(form.status_code, 200, form.text)
             self.assertIn("password", form.text)
             self.assertEqual(len(pending_rows(ctx)), 1)
