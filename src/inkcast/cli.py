@@ -20,6 +20,7 @@ Exit codes: 0 all good, 1 something failed, 2 usage or configuration problem.
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import glob
 import hashlib
 import json
@@ -49,37 +50,39 @@ def _git(*args: str) -> str:
         return ""
 
 
-def glob_pattern(pattern: str) -> re.Pattern[str]:
-    """``glob.glob(pattern, recursive=True)`` as a regular expression on a relative path, for files that no longer
-    exist: ``**`` crosses directories (and matches none), ``*`` and ``?`` stay inside one, ``[...]`` is a class."""
-    out, i = [], 0
-    while i < len(pattern):
-        ch = pattern[i]
-        if pattern.startswith("**/", i):
-            out.append("(?:.*/)?")
-            i += 3
-        elif pattern.startswith("**", i):
-            out.append(".*")
-            i += 2
-        elif ch == "*":
-            out.append("[^/]*")
-            i += 1
-        elif ch == "?":
-            out.append("[^/]")
-            i += 1
-        elif ch == "[":
-            end = pattern.find("]", i + 1)
-            if end == -1:
-                out.append(re.escape(ch))
-                i += 1
-            else:
-                body = pattern[i + 1:end].replace("\\", "\\\\")
-                out.append("[" + ("^" + body[1:] if body.startswith("!") else body) + "]")
-                i = end + 1
-        else:
-            out.append(re.escape(ch))
-            i += 1
-    return re.compile("".join(out) + r"\Z")
+_MAGIC = re.compile(r"[*?\[]")  # what makes a pattern component a wildcard for ``glob`` (its ``has_magic``)
+
+
+def glob_match(pattern: str, path: str) -> bool:
+    """Whether ``glob.glob(pattern, recursive=True)`` would list ``path`` if the file still existed: for the files a
+    push removed, which ``collect`` can't see. ``path`` is relative and POSIX, as ``collect`` writes paths and git names
+    them; ``pattern`` is as ``PurePosixPath`` writes it (no ``./``). The walk is glob's own, one component at a time,
+    so it matches no more than glob does (#291): a component without a wildcard is a name as written, a hidden one
+    too; one with a wildcard is ``fnmatch`` on one name, and never a hidden name (``.github``) unless it starts with
+    ``.`` itself; ``**`` on its own is any number of directories, none hidden, and ``**`` among other characters is
+    one ``*``. Python 3.13's ``glob.translate`` isn't used: 3.12 is supported, and it lets ``[!x]*`` match a hidden
+    name where ``glob.glob`` doesn't."""
+    return _globbed(pattern.split("/"), path.split("/"))
+
+
+def _globbed(parts: list[str], names: list[str]) -> bool:
+    if not parts:
+        return not names
+    head, rest = parts[0], parts[1:]
+    if head == "**":
+        for taken in range(len(names) + 1):  # zero or more directories; glob walks into no hidden one
+            if _globbed(rest, names[taken:]):
+                return True
+            if taken < len(names) and names[taken].startswith("."):
+                return False
+        return False
+    if not names:
+        return False
+    if _MAGIC.search(head):
+        matched = (head.startswith(".") or not names[0].startswith(".")) and fnmatch.fnmatchcase(names[0], head)
+    else:
+        matched = names[0] == head
+    return matched and _globbed(rest, names[1:])
 
 
 def removed_since(rev: str, patterns: list[str]) -> list[str]:
@@ -97,7 +100,7 @@ def removed_since(rev: str, patterns: list[str]) -> list[str]:
     if diff.returncode != 0:
         said = diff.stderr.decode(errors="replace").strip()
         raise CliError(f"can't list the files removed since {rev}: {said or 'git diff failed'}")
-    globs = [glob_pattern(str(pathlib.PurePosixPath(p))) for p in patterns]  # as ``collect`` writes paths: no ``./``
+    globs = [str(pathlib.PurePosixPath(p)) for p in patterns]  # as ``collect`` writes paths: no ``./``
     found: list[str] = []
     for raw in diff.stdout.split(b"\0"):
         try:
@@ -106,7 +109,7 @@ def removed_since(rev: str, patterns: list[str]) -> list[str]:
             continue
         path = str(pathlib.PurePosixPath(name)) if name else ""
         if path and pathlib.PurePosixPath(path).suffix.lower() in MARKDOWN and path not in found \
-                and any(g.match(path) for g in globs):
+                and any(glob_match(g, path) for g in globs):
             found.append(path)
     return found
 
