@@ -144,6 +144,14 @@ STALE_WITHIN = 1.0
 TIMEOUT_BUDGET = 3
 
 
+def _reason(exc: BaseException) -> str:
+    """An exception as the failed-pass line names it: its type, and its message when it has one. The event passes read
+    Keycloak's lists through ``_get`` as they are, so an httpx timeout reaches the loop itself, and its ``str()`` is
+    empty: "sync failed: " said nothing (#447). Only the exception's own text, never a token or a credential."""
+    text = str(exc)
+    return f"{type(exc).__name__}: {text}" if text else type(exc).__name__
+
+
 class SyncError(Exception):
     """The pass fails: Keycloak refused the service account or a realm-wide read, or the reconcile could act on nobody."""
 
@@ -771,7 +779,8 @@ class KeycloakSync:
                 if self.metrics:
                     self.metrics.inc("inkcast_identity_sync_total", result="ok")
             except Exception as exc:  # any error (Keycloak, an odd answer, the database): logged, counted, retried
-                log.error("Keycloak user sync failed: %s", exc, extra={"event": "identity.sync.failed"})
+                log.error("Keycloak user sync failed: %s", _reason(exc),
+                          extra={"event": "identity.sync.failed", "error": type(exc).__name__})
                 if self.metrics:
                     self.metrics.inc("inkcast_identity_sync_total", result="error")
             try:
