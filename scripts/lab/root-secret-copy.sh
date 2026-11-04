@@ -35,9 +35,8 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 # names another interpreter (CI and the tests pass their own).
 py="${INKCAST_PYTHON:-$ROOT/.venv/bin/python}"
 [ -x "$py" ] || { echo "no Python at $py: create the checkout's venv first (python3.14 -m venv .venv && .venv/bin/pip install -e ., CONTRIBUTING.md), or set INKCAST_PYTHON" >&2; exit 2; }
-[ "$("$py" -c 'import sys; print("inkcast-python-ok" if sys.version_info >= (3, 10) else "")' 2>/dev/null)" = inkcast-python-ok ] || {
-  echo "INKCAST_PYTHON must name a working Python 3.10+ interpreter" >&2; exit 2;
-}
+# An executable is not proof of Python: run it, before any cluster call, against pyproject.toml's requires-python.
+[ "$("$py" -c 'import sys; print(sys.version_info >= (3, 12))' 2>/dev/null)" = True ] || { echo "$py is not Python 3.12 or later (pyproject.toml's requires-python)" >&2; exit 2; }
 k="${KUBECTL:-oc}"
 adp=openshift-adp
 store_ns=inkcast-seaweedfs
