@@ -9,6 +9,7 @@ removes it when no restore holds the data directory's lock, the one a running re
 anything until after its swap and the kernel drops with a killed process. The restore here is a real ``inkcast restore``
 process, stopped (SIGSTOP) by itself after the first step of its copy and then killed; nothing is slept for."""
 
+import contextlib
 import fcntl
 import logging
 import os
@@ -22,6 +23,7 @@ import tempfile
 import time
 import unittest
 import uuid
+from collections.abc import Iterator
 from unittest import mock
 
 from inkcast.libs.db import Store
@@ -29,6 +31,20 @@ from inkcast.libs.db.backup import COPY_PAGES, take_backup
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 REMOVED = "restore.staging.removed"
+
+
+@contextlib.contextmanager
+def recorded(name: str) -> Iterator[list[logging.LogRecord]]:
+    """The records a logger emits, asserted after the files are, so a failure names the files first."""
+    records: list[logging.LogRecord] = []
+    handler = logging.Handler()
+    handler.emit = records.append
+    logger = logging.getLogger(name)
+    logger.addHandler(handler)
+    try:
+        yield records
+    finally:
+        logger.removeHandler(handler)
 
 # `inkcast restore`, through the launcher as the Job runs it, whose copy stops itself (SIGSTOP) after its first step of
 # COPY_PAGES pages: the staging copy then holds that step, and the test kills the process there.
@@ -104,35 +120,36 @@ class AKilledRestore(unittest.TestCase):
     def test_the_next_backup_removes_the_copy_and_its_journal(self):
         self.kill_a_restore_mid_copy()
         size = self.staging.stat().st_size + self.staging.with_name(self.staging.name + "-journal").stat().st_size
-        with self.assertLogs("inkcast.libs.db.backup", logging.WARNING) as logs:
+        with recorded("inkcast.libs.db.backup") as records:
             take_backup(self.db, self.base / "backups", now=self.later)
-        (removed,) = logs.records
-        self.assertEqual((removed.event, removed.bytes), (REMOVED, size))
         self.assertEqual(sorted(p.name for p in self.db.parent.iterdir()), ["inkcast.db"])
         self.assertEqual(self.holding(), [], "no file on the data volume holds the person")
+        (removed,) = records
+        self.assertEqual((removed.levelno, removed.event, removed.bytes), (logging.WARNING, REMOVED, size))
 
     def test_a_running_restore_s_copy_is_left_to_it(self):
         self.kill_a_restore_mid_copy()
         fd = os.open(self.db.parent, os.O_RDONLY)               # a restore in progress: the directory's lock held
         self.addCleanup(os.close, fd)
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        with self.assertNoLogs("inkcast.libs.db.backup", logging.WARNING):
+        with recorded("inkcast.libs.db.backup") as records:
             take_backup(self.db, self.base / "backups", now=self.later)
         self.assertTrue(self.staging.exists(), "a backup never takes a running restore's copy")
+        self.assertEqual(records, [])
         fcntl.flock(fd, fcntl.LOCK_UN)                           # the restore is gone
-        with self.assertLogs("inkcast.libs.db.backup", logging.WARNING):
-            take_backup(self.db, self.base / "backups", now=self.later + 1)
+        take_backup(self.db, self.base / "backups", now=self.later + 1)
         self.assertFalse(self.staging.exists())
 
     def test_a_directory_that_cannot_be_locked_leaves_the_copy_with_a_warning(self):
         self.kill_a_restore_mid_copy()
         with mock.patch("inkcast.libs.db.backup.fcntl.flock", side_effect=OSError("flock is not supported")), \
-                self.assertLogs("inkcast.libs.db.backup", logging.WARNING) as logs:
+                recorded("inkcast.libs.db.backup") as records:
             take_backup(self.db, self.base / "backups", now=self.later)
-        (left,) = logs.records
+        self.assertTrue(self.staging.exists())
+        (left,) = records
+        self.assertEqual(left.levelno, logging.WARNING)
         self.assertFalse(hasattr(left, "event"))
         self.assertIn("cannot be locked", left.getMessage())
-        self.assertTrue(self.staging.exists())
 
 
 if __name__ == "__main__":

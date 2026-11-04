@@ -10,6 +10,7 @@ beginning. So the person's marker stayed in ``inkcast.db-wal`` (and, below the a
 checkpoint, and housekeeping runs one every tick for the erasure whose checkpoint met a reader on an older snapshot.
 Each test reads the bytes of every file beside the database, never a table."""
 
+import contextlib
 import logging
 import pathlib
 import shutil
@@ -18,6 +19,7 @@ import tempfile
 import types
 import unittest
 import uuid
+from collections.abc import Iterator
 
 from inkcast.libs.config import Config, RetentionPolicy
 from inkcast.libs.db import Store
@@ -35,6 +37,20 @@ def context(store: Store) -> types.SimpleNamespace:
     return types.SimpleNamespace(store=store, config=types.SimpleNamespace(retention=RetentionPolicy()))
 
 
+@contextlib.contextmanager
+def recorded(name: str) -> Iterator[list[logging.LogRecord]]:
+    """The records a logger emits, asserted after the bytes are, so a failure names the bytes first."""
+    records: list[logging.LogRecord] = []
+    handler = logging.Handler()
+    handler.emit = records.append
+    logger = logging.getLogger(name)
+    logger.addHandler(handler)
+    try:
+        yield records
+    finally:
+        logger.removeHandler(handler)
+
+
 class APersonWithContent(unittest.TestCase):
     """A person with 20 posts, written just now: their frames are in the write-ahead log, below the automatic
     checkpoint's 1000 pages (every statement appends a frame per page it touches, so 200 posts would cross it), and
@@ -48,7 +64,7 @@ class APersonWithContent(unittest.TestCase):
         self.store = Store(str(self.db), KEY)
         self.addCleanup(lambda: self.store.close())
         self.store.upsert_user("oidc:kc#other", "Other", None, None)        # someone stays: the tables are not dropped
-        self.store.checkpoint_wal()
+        self.store._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")          # a clean log before the person
         self.marker = "wal404-" + uuid.uuid4().hex
         self.user = self.store.upsert_user(f"oidc:kc#{self.marker}", self.marker, f"{self.marker}@example.test", self.marker)
         for i in range(20):
@@ -57,7 +73,7 @@ class APersonWithContent(unittest.TestCase):
         self.assertEqual(self.holding(), ["inkcast.db-wal"])
 
     def settled(self) -> None:
-        self.store.checkpoint_wal()
+        self.store._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         self.assertEqual(self.holding(), ["inkcast.db"])
 
     def holding(self) -> list[str]:
@@ -76,11 +92,9 @@ class APersonWithContent(unittest.TestCase):
         reader.execute("SELECT COUNT(*) FROM users").fetchall()
         return reader
 
-    def erase_with_the_log_pinned(self) -> None:
-        with self.assertLogs("inkcast.libs.db.erasure", logging.WARNING) as logs:
-            self.assertEqual(self.store.erase_user(self.user["id"])["users"], 1)
-        (pending,) = logs.records
-        self.assertEqual(pending.event, PENDING)
+    def assert_pending_logged(self, records: list[logging.LogRecord]) -> None:
+        (pending,) = records
+        self.assertEqual((pending.levelno, pending.event), (logging.WARNING, PENDING))
         self.assertGreater(pending.frames, 0)
         self.assertNotIn(self.marker, pending.getMessage())
 
@@ -91,39 +105,45 @@ class TheErasure(APersonWithContent):
         for reader in readers:
             self.addCleanup(reader.close)
             reader.execute("SELECT COUNT(*) FROM users").fetchall()      # each has read, and holds no snapshot now
-        with self.assertNoLogs("inkcast.libs.db.erasure", logging.WARNING):
+        with recorded("inkcast.libs.db.erasure") as records:
             counts = self.store.erase_user(self.user["id"])
         self.assertEqual(counts["posts"], 20)
         self.assertEqual(self.holding(), [], "the database file, its -wal and its -shm hold nothing of the person")
         self.assertEqual(self.wal_size(), 0, "the write-ahead log was cut, not just restarted")
         self.assertEqual(readers[0].execute("SELECT COUNT(*) FROM users").fetchone()[0], 1, "readers go on")
+        self.assertEqual(records, [], "nothing to warn about")
 
     def test_takes_a_day_old_person_s_pages_out_of_the_database_file_too(self):
         # secure_delete zeroes them in the transaction, but the zeroed pages go to the log: the database file keeps
         # the person's pages until the checkpoint copies the zeroed ones over them.
         self.settled()
-        with self.assertNoLogs("inkcast.libs.db.erasure", logging.WARNING):
+        with recorded("inkcast.libs.db.erasure") as records:
             self.store.erase_user(self.user["id"])
         self.assertEqual(self.holding(), [])
         self.assertEqual(self.wal_size(), 0)
+        self.assertEqual(records, [])
 
     def test_a_reader_on_an_older_snapshot_leaves_the_log_to_housekeeping_within_one_tick(self):
         reader = self.pinned_by_a_reader()
-        self.erase_with_the_log_pinned()
+        with recorded("inkcast.libs.db.erasure") as records:
+            self.assertEqual(self.store.erase_user(self.user["id"])["users"], 1)
         self.assertEqual(self.holding(), ["inkcast.db-wal"], "the log keeps the frames the reader's snapshot pins")
         reader.execute("COMMIT")                                          # the reader is done before the next tick
         housekeeping(context(self.store))
         self.assertEqual(self.holding(), [], "one housekeeping tick on: nothing of the person in any file")
         self.assertEqual(self.wal_size(), 0)
+        self.assert_pending_logged(records)
 
     def test_a_reader_on_an_older_snapshot_leaves_a_day_old_person_s_pages_to_housekeeping(self):
         self.settled()
         reader = self.pinned_by_a_reader()
-        self.erase_with_the_log_pinned()
+        with recorded("inkcast.libs.db.erasure") as records:
+            self.assertEqual(self.store.erase_user(self.user["id"])["users"], 1)
         self.assertEqual(self.holding(), ["inkcast.db"], "the database file keeps the pages the snapshot still reads")
         reader.execute("COMMIT")
         housekeeping(context(self.store))
         self.assertEqual(self.holding(), [])
+        self.assert_pending_logged(records)
 
     def test_housekeeping_alone_cuts_the_log_after_plain_writes(self):
         for i in range(20):
