@@ -80,9 +80,11 @@ class PostsRepo(Database):
         never sends it before the time written nor before the platform allows.
 
         Only while it is still 'scheduled' with ``attempts`` sends: the scheduler may have claimed it since the caller
-        read it, or tried it again and set a later wait. ``also`` runs on the transaction's connection when the post
-        changed (Git sync's ledger entry): if it raises, the change rolls back with it. The new run_at, or None when
-        nothing changed."""
+        read it, or tried it again and set a later wait. A post recovery queued again reads the same (no send is
+        counted), and its send may still be out: that send's success records what the platform received, and notes
+        the change (``record_success``, #392). ``also`` runs on the transaction's connection when the post changed
+        (Git sync's ledger entry): if it raises, the change rolls back with it. The new run_at, or None when nothing
+        changed."""
         now = time.time()
         with self._tx() as c:
             row = c.execute("SELECT run_at, requested_at, not_before FROM posts WHERE id = ? AND user_id = ?"
@@ -149,18 +151,29 @@ class PostsRepo(Database):
         still out, or answered without saying. Queued again ('scheduled') or 'failed' say it certainly did not."""
         return row["attempts"] != held and row["status"] not in ("scheduled", "failed")
 
+    @staticmethod
+    def holds(row: dict[str, Any], sent: dict[str, Any]) -> bool:
+        """Whether ``row`` still holds the content a send carried (``sent``, its ``Prepared.to_dict()``), compared as the
+        row stores it (through JSON, as ``create_post`` writes it). An author's change while the send was out gave the
+        row other content: Git sync's edit in place of a post recovery had queued again (``edit_waiting``, #392)."""
+        return json.loads(row["payload"]) == json.loads(json.dumps(sent))
+
     def record_success(self, post_id: str, *, held: int, status: str, result_url: str | None, remote_id: str | None,
-                       notes: list[str], second_copy: Callable[[int], str], both_copies: Callable[[dict[str, Any]], str],
+                       sent: dict[str, Any], notes: list[str], second_copy: Callable[[int], str],
+                       both_copies: Callable[[dict[str, Any]], str], edited: str,
                        events: Iterable[DomainEvent] | None = None) -> tuple[bool, dict[str, Any] | None]:
         """A send's success, the platform's truth: written over whatever the post became while the send was out
         (#214), unless the row already records a confirmed copy (``CONFIRMED``, with a remote id or a URL) that is not
         this one (``same_copy``). That copy stays, another send's or a lookup's, and the row's error gains
         ``both_copies(row)``: the platform may have both, and a person keeps one. When the row counts a later send that
         may have arrived (``may_have_arrived_since``), ``second_copy(attempts)`` joins ``notes`` as the error of the
-        written post, so a person checks for two. The read that words either note and the write share the
-        transaction's write lock (``_tx``), so a claim can't land between them and leave a record without its note.
-        ``events`` are written with a success. ``(written, the row as it was)``; ``(False, None)`` for a post that no
-        longer exists (its owner erased), which is left alone."""
+        written post, so a person checks for two. The content the platform received, ``sent``, becomes the row's title
+        and payload: a row that held other content (``holds``; an edit while the send was out, #392) gains ``edited``
+        as a note, and the file's entry takes the hash of what the row holds when it follows the post (``GitSync._one``),
+        so the next sync sends the edit or reports it. The read that words any note and the write share the
+        transaction's write lock (``_tx``), so a claim or an edit can't land between them and leave a record without its
+        note. ``events`` are written with a success. ``(written, the row as it was)``; ``(False, None)`` for a post that
+        no longer exists (its owner erased), which is left alone."""
         with self._tx() as c:
             row = c.execute("SELECT * FROM posts WHERE id = ?", (post_id,)).fetchone()
             if row is None:
@@ -176,8 +189,12 @@ class PostsRepo(Database):
                 return False, before
             if self.may_have_arrived_since(before, held):
                 notes = [*notes, second_copy(before["attempts"])]
-            c.execute("UPDATE posts SET status = ?, result_url = ?, remote_id = ?, error = ?, updated_at = ? WHERE id = ?",
-                      (status, result_url, remote_id, "; ".join(notes) or None, now, post_id))
+            if not self.holds(before, sent):
+                notes = [*notes, edited]
+            c.execute("UPDATE posts SET status = ?, result_url = ?, remote_id = ?, error = ?, title = ?, payload = ?,"
+                      " updated_at = ? WHERE id = ?",
+                      (status, result_url, remote_id, "; ".join(notes) or None, sent["title"], json.dumps(sent), now,
+                       post_id))
             insert_events(c, events)
         return True, before
 

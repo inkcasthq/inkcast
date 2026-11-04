@@ -273,9 +273,19 @@ class Publisher:
                     f"here, and {_named(result.url, result.remote_id)}, attempt {attempts}'s answer. Check "
                     f"{platform.name}: keep one and remove the other.")
 
+        # The platform has what this send carried, whatever the row came to hold meanwhile: Git sync's edit in place of
+        # a post recovery had queued again while this send was still out (#392). The row takes the sent content back,
+        # with a note, and the file's entry sees the edit at the next sync: sent as an update where the platform edits
+        # posts, reported as stale (update it by hand) where it doesn't. Never a second post, and never dropped.
+        sent = prepared.to_dict()
+        edited = (f"The post was changed while this send was out, so {platform.name} has it as it was sent. "
+                  + ("The next sync sends the change as an update." if "update" in platform.capabilities else
+                     f"{platform.name} doesn't let Inkcast edit posts: update it by hand: "
+                     f"{_named(result.url, result.remote_id)}."))
+
         written, before = self.store.record_success(
-            post_id, held=held, status=status, result_url=result.url, remote_id=result.remote_id, notes=result.notes,
-            second_copy=second_copy, both_copies=both_copies,
+            post_id, held=held, status=status, result_url=result.url, remote_id=result.remote_id, sent=sent,
+            notes=result.notes, second_copy=second_copy, both_copies=both_copies, edited=edited,
             events=self._event("post.published", post_id, user_id, platform.id, status=status, scheduled=scheduled,
                                attempts=attempts, lag_seconds=round(lag, 3) if lag is not None else None))
         if written or before is None:  # before is None: erased meanwhile, the row left alone and the answer kept
@@ -287,6 +297,11 @@ class Publisher:
                     log.warning("Post %s on %s was published by a send taken over as stuck; attempt %s, sent meanwhile, "
                                 "may have posted a second copy", post_id, platform.id, before["attempts"],
                                 extra={"event": "publish.second_copy", "post_id": post_id, "platform": platform.id})
+                if not self.store.holds(before, sent):
+                    notes.append(edited)
+                    log.warning("Post %s on %s was changed while its send was out; %s has it as it was sent, and the "
+                                "change waits for the next sync", post_id, platform.id, platform.id,
+                                extra={"event": "publish.edited_meanwhile", "post_id": post_id, "platform": platform.id})
             return Outcome(platform.id, status, post_id=post_id, url=result.url, notes=notes, prepared=prepared,
                            remote_id=result.remote_id)
         log.warning("Post %s on %s: attempt %s answered %s (%s), and the post records another copy (%s); %s may have "
