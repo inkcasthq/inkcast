@@ -14,9 +14,6 @@ waves:
   - F3.9.S5
   - F3.9.S8
   - '#342'
-  - '#343'
-  - '#312'
-  - '#324'
   - F9.1.S3
   - F3.1.S9
   - F1.8.S1
@@ -29,6 +26,8 @@ waves:
     These are the failures a writer or an auditor notices first (handover, suggested order 1), so they come before new screens.'
   items:
   - '#214'
+  - '#392'
+  - '#396'
   - '#149'
   - '#212'
   - '#112'
@@ -411,8 +410,7 @@ issues:
   290: "Git sync: a re-run within 24 h replays the first skipped result"
   291: "inkcast sync --removed-since: glob_pattern matches more than glob.glob"
   299: "OpenFGA to PostgreSQL with cert-manager client certificates instead of passwords"
-  312: "Runbooks: name the namespace instead of hard-coding inkcast"
-  324: "Research and design: disabled accounts get export, notice and deletion after N days (cleanup job)"
   342: "Bring a deleted generated Secret back without restarting OpenFGA"
-  343: "Measure a realm import applied before its client-secret Secret exists"
+  392: "Git sync: an edit made while a send is out is lost when that send succeeds"
+  396: "Stop DEV's recovery lookup from taking an older article with the same title"
   360: "Backlog tracker: every story in one execution order, reviewed wave by wave"

@@ -30,6 +30,7 @@ features:
     title: Kustomize component for Keycloak (dev) and docs for a production Keycloak on Postgres
     status: in-progress
     change: 'dev Kustomize and production notes in PR #14; a production component waits for ADR-0014''s PostgreSQL'
+    issue: 386
 - id: F9.2
   phase: 2
   title: Self sign-up
