@@ -33,8 +33,9 @@ _H2 = re.compile(r"^##\s+(.+)$")
 # start, which is quadratic or worse (a 1 MB body took hours).
 _MD_IMAGE = re.compile(r"(!\[[^\[\]]*\]\()\s*<?([^()\s>]+)>?((?:\s+[\"'][^\"']*[\"'])?\s*\))")
 _HTML_IMAGE = re.compile(r"(<img\b[^<>]*?\bsrc\s*=\s*[\"'])([^\"']+)([\"'])", re.I)
-# A surrogate code point in a str. Python has no pairs (a pair in JSON or YAML is decoded to one character), so any
-# left is unpaired, and no UTF-8 encoder takes it: the JSON response, the database row, the request to the platform.
+# A surrogate code point in a str, which no UTF-8 encoder takes: the JSON response, the database row, the request to the
+# platform. JSON decodes an escaped pair to one character, so any left there is unpaired; PyYAML decodes each \u escape
+# alone, so an escaped pair in front matter is refused too, as libyaml refuses it (write the character itself).
 _LONE_SURROGATE = re.compile("[\ud800-\udfff]")
 
 # Common front-matter spellings mapped to Inkcast's names.

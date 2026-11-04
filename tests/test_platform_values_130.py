@@ -69,6 +69,8 @@ REFUSED = [
     ('devto:\n  series: "x\\ud800"\n', f"devto.series {SURROGATE_MESSAGE} 2"),
     ('"\\ud800": 1\n', f"A key in the front matter {SURROGATE_MESSAGE} 1"),
     ('devto:\n  "\\ud800": 1\n', f"A key in devto {SURROGATE_MESSAGE} 1"),
+    ("devto:\n  series: .inf\n", "devto.series is inf, which JSON can't carry"),
+    ("devto:\n  series: -.inf\n", "devto.series is -inf, which JSON can't carry"),
 ]
 
 

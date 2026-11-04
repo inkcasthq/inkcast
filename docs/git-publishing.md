@@ -63,6 +63,13 @@ devto:
 The story. Relative images like ![diagram](img/flow.png) are rewritten to raw GitHub URLs at the commit.
 ```
 
+Front matter must be values JSON can carry. A file with any of these reports `failed`, with the field named, until you edit it:
+
+- in a platform block (`devto:`), a key that isn't text: `1:`, or `on:` and `yes:`, which YAML reads as true; quote it (`"on":`);
+- in a platform block, `.nan`, `.inf` or `-.inf`, binary data (`!!binary`) or a set (`!!set`);
+- a tag that isn't a name, such as a list inside `tags` (`tags: [[a, b]]`, or the same in `devto.tags`);
+- anywhere, an unpaired surrogate (`"\ud83d"`); write the character itself, not its escapes.
+
 ### How `publish_at` is read
 
 A file with a `publish_at` is always a scheduled post, at the time as written ([ADR-0015](adr/0015-publish-at-is-always-scheduled.md)):
