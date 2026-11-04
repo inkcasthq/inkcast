@@ -147,8 +147,9 @@ TIMEOUT_BUDGET = 3
 def _reason(exc: BaseException) -> str:
     """An exception as the failed-pass line names it: its type, and its message when it has one. The event passes read
     Keycloak's lists through ``_get`` as they are, so an httpx timeout reaches the loop itself, and its ``str()`` is
-    empty: "sync failed: " said nothing (#447). Only the exception's own text, never a token or a credential."""
-    text = str(exc)
+    empty: "sync failed: " said nothing (#447). An httpx2 error is named by its type alone, as ``_access_token`` and
+    ``_read_person`` name one: its text can quote the request, the bearer token of an "Illegal header value" included."""
+    text = "" if isinstance(exc, httpx2.HTTPError) else str(exc)
     return f"{type(exc).__name__}: {text}" if text else type(exc).__name__
 
 
