@@ -31,11 +31,13 @@ import unittest
 import httpx2
 
 from inkcast.libs.content.story import parse_story
+from inkcast.libs.contracts.models import SyncFile, SyncRequest
 from inkcast.libs.db import Store
 from inkcast.libs.pipeline import STUCK_AFTER, Publisher
 from inkcast.libs.platforms import Account, Platform, PlatformError, Prepared, PublishResult
 from inkcast.libs.platforms.devto import DevtoPlatform
 from inkcast.libs.platforms.medium import MediumPlatform
+from inkcast.services.publishing.sync import GitSync
 
 DAY = 24 * 3600
 
@@ -417,6 +419,55 @@ class EmptySuccessFromAnyPlugin(Harness):
         self.assertEqual(self.published_events(post_id), 0)
         self.assertEqual(self.platform.sent, ["t"])
         self.assertEqual(asyncio.run(self.publisher.run_due(now=time.time() + 7 * 24 * 3600)), [], "sent again")
+
+
+class EveryPlaceAPostIsMarkedPublished(Harness):
+    """The rule holds wherever a post is marked 'published', not only after a send: recovery's lookup and Git sync's
+    check both read ``Publisher.confirm``, and a ``find_existing`` result naming neither URL nor id is "can't tell"
+    there, so neither writes a published post with nothing to find it by (the review of PR #390)."""
+
+    SOURCE, PATH = "github.com/acme/blog", "posts/p.md"
+
+    def test_recovery_does_not_publish_a_post_its_lookup_found_but_could_not_name(self):
+        post_id = self.post("publishing")
+        self.store._exec("UPDATE posts SET updated_at = updated_at - ? WHERE id = ?", STUCK_AFTER + 1, post_id)
+        self.platform.sent.append("t")                                        # the interrupted send had arrived
+        self.platform.nameless = True
+        (outcome,) = asyncio.run(self.publisher.run_due(now=time.time()))
+        post = self.store.get_post(post_id)
+        self.assertEqual((outcome.status, post["status"], post["result_url"], post["remote_id"]),
+                         ("unconfirmed", "unconfirmed", None, None), "published with nothing to find it by")
+        self.assertEqual(asyncio.run(self.publisher.run_due(now=time.time() + DAY)), [], "sent again")
+        self.assertEqual(self.platform.sent, ["t"])
+
+    def test_git_syncs_check_of_an_unconfirmed_post_does_not_publish_one_the_lookup_could_not_name(self):
+        git = GitSync(self.store, self.platforms, self.publisher)
+        markdown = f"---\ntitle: Hello\nplatforms: [{self.platform.id}]\n---\n\nBody.\n"
+        req = SyncRequest(source=self.SOURCE, files=[SyncFile(path=self.PATH, markdown=markdown)])
+        self.platform.answer = PlatformError("Findable timed out after the request was sent.", uncertain=True)
+        (first,) = asyncio.run(git.sync(self.user, req)).results
+        self.assertEqual((first.action, first.status), ("create", "unconfirmed"))
+        self.platform.sent.append("Hello")                                    # it had reached Findable after all
+        self.platform.nameless = True
+        (again,) = asyncio.run(git.sync(self.user, req)).results            # the next push: the sync checks
+        post = self.store.get_post(first.post_id)
+        self.assertEqual((again.action, again.status, post["status"], post["result_url"], post["remote_id"]),
+                         ("skipped", "unconfirmed", "unconfirmed", None, None), "published with nothing to find it by")
+        self.assertEqual(self.store.get_entry(self.user, self.SOURCE, self.PATH, self.platform.id)["status"], "unconfirmed")
+        self.assertEqual(self.platform.sent, ["Hello"])
+
+    def test_devs_lookup_names_no_id_rather_than_the_string_none(self):
+        """``str(a.get("id"))`` made an article without an id read as remote id "None": a lie the rule would have
+        recorded as a confirmed copy (devto.py ``find_existing``)."""
+        listing = [{"title": "t", "published": True}]
+        http = httpx2.AsyncClient(transport=httpx2.MockTransport(lambda request: httpx2.Response(200, json=listing)))
+        devto = DevtoPlatform(http)
+        prepared = devto.prepare({"title": "t"}, "Body.")
+        found = asyncio.run(devto.find_existing({"api_key": "k"}, Account(id="1", name="n"), prepared))
+        self.assertEqual((found.url, found.remote_id, found.status), (None, None, "published"))
+        self.store.save_credentials(self.user, devto.id, {"api_key": "k"}, {"id": "1", "name": "n"})
+        checked = asyncio.run(Publisher(self.store, {devto.id: devto}).confirm(self.user, devto, prepared))
+        self.assertIsNone(checked, "a find naming nothing is \"can't tell\", not a confirmed publish")
 
 
 # ---- item 3: 301/302 on a create stay definite failures, by design -----------------------------------------------

@@ -167,6 +167,6 @@ class DevtoPlatform(Platform):
         for a in mine if isinstance(mine, list) else []:
             same_canonical = article.get("canonical_url") and a.get("canonical_url") == article["canonical_url"]
             if same_canonical or a.get("title") == article["title"]:
-                return PublishResult(url=a.get("url"), remote_id=str(a.get("id")),
+                return PublishResult(url=a.get("url"), remote_id=str(a["id"]) if a.get("id") else None,
                                      status="published" if a.get("published") else "draft")
         return None
