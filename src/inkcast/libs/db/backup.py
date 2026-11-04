@@ -5,10 +5,15 @@
 * ``take_backup``: a consistent copy while the server keeps serving, through SQLite's online backup API (it copies
   a snapshot, WAL included; a plain file copy of a live WAL database can be torn). The copy is checked with
   ``PRAGMA integrity_check`` before it counts, written under a temporary name and renamed into place, and
-  described by a manifest beside it (size, SHA-256, row counts per table). Backups ``keep`` or more days older than
-  the one just taken are removed (by age, not by count, issue #112: an extra backup on the same day evicts no daily
-  copy, and the first good backup after days without one removes everything that old at once); a failed backup never
-  removes anything, so the alert on a missed backup (InkcastBackupMissing) covers the days in between.
+  described by a manifest beside it (size, SHA-256, row counts per table, and ``previous``: the newest backup there
+  was). Backups ``keep`` or more days older than the one just taken are removed (by age, not by count, issue #112: an
+  extra backup on the same day evicts no daily copy, and the first good backup after days without one removes
+  everything that old at once); a failed backup never removes anything, so the alert on a missed backup
+  (InkcastBackupMissing) covers the days in between. One run never removes every earlier backup (issue #405): when
+  the newest backup from before today is more than ``keep`` days old, either this clock has jumped that far ahead or
+  no backup succeeded for longer than the whole retention window, and the run removes nothing and says so
+  (``Backup.refused``; the command exits 1, so the Job fails and the alert fires). A copy a wrong clock dated after
+  today ages out with the day its run followed (``previous``), not with its own date (``_dated``).
 * ``verify_backup``: the checksum against the manifest, then the integrity check.
 * ``restore_backup``: verifies first, refuses while the scheduler's heartbeat is fresh (the server is still running),
   and never deletes the current database: it is moved aside as ``<db>.before-restore-<time>`` with its WAL files.
@@ -54,6 +59,7 @@ PREFIX = "inkcast-"
 SUFFIX = ".db"
 ASIDE = ".before-restore-"  # <db>.before-restore-<time>: the database a restore replaced, beside the restored one
 STAMP = "%Y%m%dT%H%M%SZ"    # the UTC time in every copy's name: names sort by time, and say which day a copy is from
+PREVIOUS = "previous"       # manifest: the stamp of the newest backup there was when this one was taken (issue #405)
 FRESH_HEARTBEAT_SECONDS = 120
 DEFAULT_KEEP = 14           # days; the CronJob's INKCAST_BACKUP_KEEP and Config.backup_keep say the same
 COPY_PAGES = 1024           # a restore copies its backup in steps of this many pages (4 MiB), and can stop between two
@@ -84,6 +90,7 @@ class Backup:
     manifest: dict
     removed_backups: int = 0    # backups ``keep`` or more days older than this one, removed once it was good
     removed_copies: int = 0     # the copies restores left beside the database (``ASIDE``) that old, removed too
+    refused: str = ""           # why retention removed nothing although copies had aged out (issue #405), or ""
 
     @property
     def name(self) -> str:
@@ -110,13 +117,72 @@ def _aged_out(stamp: datetime, now: float, keep: int) -> bool:
     return (today - stamp.date()).days >= keep
 
 
-def _prune_backups(directory: pathlib.Path, keep: int, now: float) -> int:
+def _previous(backup: pathlib.Path) -> str:
+    """The stamp of the backup that was the newest when ``backup`` was taken (``previous`` in its manifest), or "" for a
+    manifest that lacks it (from before issue #405) or cannot be read."""
+    try:
+        previous = json.loads(_manifest_path(backup).read_text()).get(PREVIOUS, "")
+    except (OSError, ValueError, AttributeError):
+        return ""
+    return previous if isinstance(previous, str) else ""
+
+
+def _dated(directory: pathlib.Path, now: float) -> dict[pathlib.Path, datetime]:
+    """The completed backups in ``directory`` whose name carries a time, with the time retention dates each by: the one
+    in its name, unless that is after today. A backup dated after today was taken by a clock ahead of this one (issue
+    #405), and its real day is at the earliest the day of the backup its run found newest, ``previous`` in its
+    manifest; that is the day it is dated by, followed on through manifests while the stamp found is itself after
+    today (a clock ahead for several runs). So such a copy ages out as a copy of the day it followed would, not a year
+    on. A chain that ends in a stamp still after today, or in a backup that is gone, leaves the copy dated by the last
+    stamp found: not aged, and left alone."""
+    today = datetime.fromtimestamp(now, timezone.utc).date()
+    stamped = {path.name[len(PREFIX):-len(SUFFIX)]: path for path in directory.glob(f"{PREFIX}*{SUFFIX}")
+               if _manifest_path(path).exists() and _stamped(path.name[len(PREFIX):-len(SUFFIX)]) is not None}
+    dated = {}
+    for text, path in stamped.items():
+        stamp, link, seen = _stamped(text), path, {text}
+        while stamp.date() > today:
+            previous = _previous(link)
+            if previous in seen or previous not in stamped:
+                break
+            seen.add(previous)
+            link, stamp = stamped[previous], _stamped(previous)
+        dated[path] = stamp
+    return dated
+
+
+def _refusal(dated: dict[pathlib.Path, datetime], now: float, keep: int) -> str:
+    """Why this run must remove nothing, or "" when retention may run: the newest backup from before today (as
+    ``_dated`` dates it) is more than ``keep`` days old, so every earlier backup would go and this run's copy, dated by
+    this clock, would be the only restore point left. On a correct clock that means no backup succeeded for longer
+    than the whole retention window (InkcastBackupMissing has fired for as long); on a clock more than ``keep`` days
+    ahead it is the one sign there is (issue #405). Either way the next good backup, a day on, finds a gap of one day
+    and removes them. Today's other copies are not consulted: a run's judgement of its clock rests on the days before
+    it, so a Job retried minutes after a refused run (each attempt takes a backup) refuses again rather than trusting
+    the copy the first attempt dated by the same clock."""
+    today = datetime.fromtimestamp(now, timezone.utc).date()
+    before = [stamp for stamp in dated.values() if stamp.date() < today]
+    if not before:
+        return ""
+    newest = max(before)
+    age = (today - newest.date()).days
+    if age <= keep:
+        return ""
+    return (f"the newest earlier backup, {PREFIX}{_stamp(newest.timestamp())}{SUFFIX}, is {age} days old, more than the "
+            f"{keep} day(s) kept: either this clock is that far ahead, or no backup succeeded for that long. Removing "
+            f"every earlier backup would leave only this run's copy, dated by this clock, so nothing was removed; the "
+            f"next good backup removes them.")
+
+
+def _prune_backups(directory: pathlib.Path, keep: int, now: float, dated: dict[pathlib.Path, datetime]) -> int:
     """Remove the backups in ``directory`` that are ``keep`` or more days old, with their manifests; how many went.
-    What a backup killed midway left goes by the same rule: a backup renamed into place without its manifest (counted)
-    and a ``.partial`` copy (a SIGTERM at the Job's deadline runs no cleanup), each a whole copy (issue #112)."""
+    A completed backup is as old as ``dated`` says (``_dated``: a copy a clock ahead of this one dated after today goes
+    by the day it followed). What a backup killed midway left goes by the time in its name: a backup renamed into place
+    without its manifest (counted) and a ``.partial`` copy (a SIGTERM at the Job's deadline runs no cleanup), each a
+    whole copy (issue #112)."""
     removed = 0
     for old in sorted(directory.glob(f"{PREFIX}*{SUFFIX}")):     # with or without its manifest
-        stamp = _stamped(old.name[len(PREFIX):-len(SUFFIX)])
+        stamp = dated.get(old) or _stamped(old.name[len(PREFIX):-len(SUFFIX)])
         if stamp is not None and _aged_out(stamp, now, keep):
             old.unlink(missing_ok=True)
             _manifest_path(old).unlink(missing_ok=True)
@@ -186,11 +252,15 @@ def _manifest_path(backup: pathlib.Path) -> pathlib.Path:
     return backup.with_suffix(".json")
 
 
-def list_backups(directory: pathlib.Path) -> list[pathlib.Path]:
-    """Completed backups in ``directory``, oldest first (names sort by time)."""
+def list_backups(directory: pathlib.Path, now: float | None = None) -> list[pathlib.Path]:
+    """Completed backups in ``directory``, oldest first by the time retention dates them (``_dated``: the time in the
+    name, unless a clock ahead of this one put that after today), then by name, so ``restore --latest`` takes the
+    newest copy of a sane day rather than one a wrong clock dated a year on; a name that carries no time sorts first."""
     if not directory.is_dir():
         return []
-    return sorted(p for p in directory.glob(f"{PREFIX}*{SUFFIX}") if _manifest_path(p).exists())
+    dated = _dated(directory, now or time.time())
+    found = [p for p in directory.glob(f"{PREFIX}*{SUFFIX}") if _manifest_path(p).exists()]
+    return sorted(found, key=lambda p: (dated.get(p, datetime.min.replace(tzinfo=timezone.utc)), p.name))
 
 
 def take_backup(database: pathlib.Path, directory: pathlib.Path, *, keep: int = DEFAULT_KEEP, version: str = "",
@@ -208,6 +278,8 @@ def take_backup(database: pathlib.Path, directory: pathlib.Path, *, keep: int = 
     target = directory / f"{PREFIX}{stamp}{SUFFIX}"
     if target.exists():
         raise BackupError(f"{target.name} already exists; one backup per second at most.")
+    dated = _dated(directory, now)                  # the backups before this one, as retention dates them (issue #405)
+    newest = max(dated.values(), default=None)      # recorded in the manifest: what this copy's day follows
     partial = directory / f".{target.name}.partial"
     old_umask = os.umask(0o027)
     try:
@@ -232,6 +304,7 @@ def take_backup(database: pathlib.Path, directory: pathlib.Path, *, keep: int = 
             "file": target.name, "created_at": stamp, "source": str(database), "size": partial.stat().st_size,
             "sha256": _sha256(partial), "integrity": "ok", "sqlite": sqlite3.sqlite_version,
             "inkcast": version, "rows": _row_counts(partial),
+            PREVIOUS: _stamp(newest.timestamp()) if newest else "",
         }
         partial.replace(target)
         _manifest_path(target).write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
@@ -242,8 +315,12 @@ def take_backup(database: pathlib.Path, directory: pathlib.Path, *, keep: int = 
         os.umask(old_umask)
     # Retention, only after a good backup: by age, so the promise "within keep days" holds from the first good backup
     # after any run of failed ones, and a backup taken by hand evicts no daily copy. The copies restores left beside
-    # the database go by the same rule: they hold whoever was erased after the restore (issue #112).
-    return Backup(target, manifest, removed_backups=_prune_backups(directory, keep, now),
+    # the database go by the same rule: they hold whoever was erased after the restore (issue #112). A run whose clock
+    # is more than keep days past the newest backup removes nothing, copies included (issue #405).
+    refused = _refusal(dated, now, keep)
+    if refused:
+        return Backup(target, manifest, refused=refused)
+    return Backup(target, manifest, removed_backups=_prune_backups(directory, keep, now, dated),
                   removed_copies=_prune_copies(database, keep, now))
 
 
