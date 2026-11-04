@@ -1,0 +1,22 @@
+# Used only by CI (kind): the production Keycloak component (E9.F9.1.S3, issue #386) in the namespace the lab uses,
+# `keycloak`, where the dev Keycloak of deploy/keycloak also runs in the kind job (different names, no overlap; the
+# upstream operator's ClusterRoleBinding binds its ServiceAccount in `keycloak`, kubernetes/kubernetes.yml at 26.6.4).
+# Proves, through scripts/dev/keycloak-production-e2e.sh, that the component applies under Pod Security "restricted",
+# the CR becomes Ready with two pods on the CloudNativePG database, the lab's own realm imports
+# (shared/keycloak-realms) complete into it, and the realms are served over HTTPS from PostgreSQL. Both operators
+# are installed by the script at their pinned versions (scripts/versions.env).
+#
+# The two patches are what a kustomization that uses the component supplies (components/keycloak-production/
+# kustomization.yaml): the hostname, here the in-cluster Service (`<CR name>-service`, KeycloakServiceDependentResource)
+# the script fetches the discovery document from; and, for plain Kubernetes under "restricted", the pod
+# securityContext the operator does not set (keycloak.yaml, "Pod Security"). Not readOnlyRootFilesystem: `start`
+# without `--optimized` augments the distribution at each pod start, writing under /opt/keycloak.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: keycloak
+resources:
+  - namespace.yaml
+components:
+  - ../../components/keycloak-production
+patches:
+  - path: keycloak-ci.yaml
