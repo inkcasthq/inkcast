@@ -45,6 +45,10 @@ connect_timeout="${CONNECT_TIMEOUT:-600}"
 # itself, inside the run this session wraps, would wait on this session for ever.
 lock_key="${LOCK_KEY:-1473304569}"
 export PGAPPNAME=openfga-migrate PGCONNECT_TIMEOUT=10
+# Server-side keepalives on these sessions: a runner cut off without a FIN (a node partition) holds the lock until the
+# server finds it gone, after the OS's 7200 s of idle with tcp_keepalives_idle 0, PostgreSQL's and CloudNativePG's
+# default; with these, in about 35 s (tests/test_review_openfga_migrate.py measures both).
+export PGOPTIONS="-c tcp_keepalives_idle=20 -c tcp_keepalives_interval=5 -c tcp_keepalives_count=3"
 # psql's URI, less the password, which goes to PGPASSWORD percent-decoded as libpq decodes it (the header says why).
 db_uri="$OPENFGA_DATASTORE_URI"
 if [[ "$db_uri" =~ ^([^:/?#]+://[^:@/?#]*):([^@/?#]*)@(.*)$ ]]; then
