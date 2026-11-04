@@ -134,7 +134,10 @@ class GitSync:
             return SyncResult(**base, action="skipped", status="unconfirmed", post_id=post["id"],
                               message=self._decision(platform, post["id"], None, dry_run=True))
         if entry and entry["status"] == "unconfirmed" and not req.dry_run:
-            checked = await self.publisher.confirm(user_id, platform, prepared)
+            # Asked about what the uncertain send carried (the post's payload), not the file as it is now: an edit since
+            # would give DEV's lookup other content to compare, and the article the send made would go unfound (#396).
+            sent = Prepared.from_dict(json.loads(post["payload"])) if post is not None else prepared
+            checked = await self.publisher.confirm(user_id, platform, sent)
             if checked is not None and checked.status == "unavailable":  # rate-limited, unreachable: ask again next time
                 if post is not None:  # the person's to decide meanwhile, like any unconfirmed post (#226)
                     return SyncResult(**base, action="skipped", status="unconfirmed", post_id=post["id"],
