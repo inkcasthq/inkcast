@@ -19,7 +19,7 @@ from urllib.parse import urljoin
 import httpx2
 
 from inkcast.cli import sync_main
-from test_e2e import Harness
+from test_e2e import Harness, connect_through_page
 from test_split_mode import SplitHarness
 
 
@@ -41,7 +41,7 @@ class GitPublishing(Harness):
             async with httpx2.AsyncClient(timeout=30) as c:
                 for pid, fields in (("devto", {"api_key": "devto-key"}), ("medium", {"token": "medium-token"})):
                     link = (await c.post(f"{cls.base}/api/v1/platforms/{pid}/connect-link", headers=h)).json()
-                    await c.post(link["url"], data=fields)
+                    await connect_through_page(c, link["url"], fields)
                 r = await c.post(f"{cls.base}/api/v1/tokens", headers=h,
                                  json={"name": "blog CI", "scopes": ["stories:sync", "posts:read"]})
                 return r.json()

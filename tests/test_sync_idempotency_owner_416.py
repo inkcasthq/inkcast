@@ -25,7 +25,7 @@ import httpx2
 
 from inkcast.libs.db import Store
 from inkcast.libs.http.rest import ApiError
-from test_e2e import Harness
+from test_e2e import Harness, connect_through_page
 from test_git_publishing import story
 
 KEY = "k" * 40
@@ -46,7 +46,7 @@ class ARequestFreesOnlyItsOwnReservation(Harness):
         async def setup():
             async with httpx2.AsyncClient(timeout=30) as c:
                 link = (await c.post(f"{cls.base}/api/v1/platforms/devto/connect-link", headers=h)).json()
-                await c.post(link["url"], data={"api_key": "devto-key"})
+                await connect_through_page(c, link["url"], {"api_key": "devto-key"})
                 r = await c.post(f"{cls.base}/api/v1/tokens", headers=h, json={"name": "blog CI", "scopes": ["stories:sync"]})
                 return r.json()
         cls.pat = asyncio.run(setup())

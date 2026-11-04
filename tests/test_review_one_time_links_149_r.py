@@ -80,18 +80,18 @@ class ProviderDownAfterARecentSignIn(unittest.TestCase):
     def test_a_link_opened_while_the_provider_is_down_can_be_opened_again_after_a_recent_sign_in(self):
         from starlette.testclient import TestClient
 
-        from test_deletion_link_consumption import AUTHORIZE, PUBLIC_URL, Provider, a_link, keycloak_app
+        from test_deletion_link_consumption import AUTHORIZE, PUBLIC_URL, Provider, a_link, keycloak_app, press_continue
         provider = Provider(up=True)
         app, ctx = keycloak_app(provider)
         with TestClient(app, base_url=PUBLIC_URL, follow_redirects=False) as c:
-            self.assertEqual(c.get(f"/account/delete/{a_link(ctx)}").status_code, 302, "a sign-in this hour")
+            self.assertEqual(press_continue(c, a_link(ctx)).status_code, 302, "a sign-in this hour")
             provider.up = False
             ticket = a_link(ctx)
-            down = c.get(f"/account/delete/{ticket}")
+            down = press_continue(c, ticket)                   # the page's Continue is the use (issue #401)
             self.assertEqual(down.status_code, 502, f"sent to {down.headers.get('location')}")
             self.assertIsNotNone(ctx.store.deletion_request_by_link(ticket), "the link is not used up")
             provider.up = True
-            back = c.get(f"/account/delete/{ticket}")
+            back = press_continue(c, ticket)
             self.assertEqual(back.status_code, 302, back.text)
             self.assertTrue(back.headers["location"].startswith(AUTHORIZE + "?"))
             self.assertIsNone(ctx.store.deletion_request_by_link(ticket), "used up now, with the redirect ready")

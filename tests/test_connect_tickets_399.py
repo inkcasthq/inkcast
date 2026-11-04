@@ -12,9 +12,12 @@ The rule for a POST whose verification fails: the ticket stays good. The form co
 and the same link, so a mistyped key costs a second try, not a new link from the assistant (``test_e2e`` relies on it:
 "wrong key shows the error and keeps the link; right key consumes it"). What a leaked link lets its holder do, attach
 their own platform account, verifies at the first try either way, so using the link up on a failed verification would
-protect nothing; the per-client rate limit on the POST bounds the tries."""
+protect nothing; the per-client rate limit on the POST bounds the tries.
+
+Every POST carries the form's token, read from the page it was served with (issue #401)."""
 
 import asyncio
+import re
 import unittest
 from unittest import mock
 
@@ -61,6 +64,11 @@ def a_ticket(ctx) -> tuple[str, str]:
     return user, ctx.store.create_ticket(user, "devto", ttl=900)
 
 
+def csrf_of(page: str) -> str:
+    """The token the connect form binds its POST to (issue #401)."""
+    return re.search(r'name=csrf value="([^"]*)"', page).group(1)
+
+
 class TwoPostsWithOneTicket(Case):
     def test_two_posts_that_both_verified_save_once(self):
         """Both POSTs have DEV's answer before either reaches the ticket: the consume decides, once."""
@@ -82,11 +90,12 @@ class TwoPostsWithOneTicket(Case):
 
         async def two_posts():
             async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app=app), base_url=PUBLIC_URL) as c:
+                csrf = csrf_of((await c.get(f"/connect/{ticket}")).text)
                 with mock.patch.object(DevtoPlatform, "verify", verify_then_wait), \
                         mock.patch.object(ctx.store, "save_credentials", wraps=ctx.store.save_credentials) as saved:
-                    first, second = await asyncio.gather(c.post(f"/connect/{ticket}", data={"api_key": GOOD_KEY}),
-                                                         c.post(f"/connect/{ticket}", data={"api_key": GOOD_KEY}))
-                third = await c.post(f"/connect/{ticket}", data={"api_key": GOOD_KEY})
+                    first, second = await asyncio.gather(c.post(f"/connect/{ticket}", data={"api_key": GOOD_KEY, "csrf": csrf}),
+                                                         c.post(f"/connect/{ticket}", data={"api_key": GOOD_KEY, "csrf": csrf}))
+                third = await c.post(f"/connect/{ticket}", data={"api_key": GOOD_KEY, "csrf": csrf})
             return first, second, third, saved.call_count
 
         first, second, third, saves = asyncio.run(two_posts())
@@ -108,10 +117,11 @@ class TwoPostsWithOneTicket(Case):
         user, ticket = a_ticket(ctx)
         with TestClient(app, base_url=PUBLIC_URL) as c, \
                 mock.patch.object(ctx.store, "save_credentials", wraps=ctx.store.save_credentials) as saved:
-            done = c.post(f"/connect/{ticket}", data={"api_key": GOOD_KEY})
+            csrf = csrf_of(c.get(f"/connect/{ticket}").text)
+            done = c.post(f"/connect/{ticket}", data={"api_key": GOOD_KEY, "csrf": csrf})
             self.assertEqual(done.status_code, 200, done.text[:200])
             self.assertIn("DEV connected", done.text)
-            again = c.post(f"/connect/{ticket}", data={"api_key": GOOD_KEY})
+            again = c.post(f"/connect/{ticket}", data={"api_key": GOOD_KEY, "csrf": csrf})
             self.assertEqual(again.status_code, 400, again.text[:200])
             self.assertIn("Link expired", again.text)
             self.assertEqual(c.get(f"/connect/{ticket}").status_code, 400)
@@ -127,14 +137,15 @@ class AFailedVerification(Case):
         user, ticket = a_ticket(ctx)
         with TestClient(app, base_url=PUBLIC_URL) as c, \
                 mock.patch.object(ctx.store, "save_credentials", wraps=ctx.store.save_credentials) as saved:
-            wrong = c.post(f"/connect/{ticket}", data={"api_key": "wrong"})
+            csrf = csrf_of(c.get(f"/connect/{ticket}").text)
+            wrong = c.post(f"/connect/{ticket}", data={"api_key": "wrong", "csrf": csrf})
             self.assertEqual(wrong.status_code, 200, wrong.text[:200])
             self.assertIn("<p class=err>", wrong.text, "the form again, with the platform's reason")
             self.assertIn(f'action="/connect/{ticket}"', wrong.text, "for the same ticket")
             self.assertIsNotNone(ctx.store.get_ticket(ticket), "the ticket is still good")
             self.assertEqual(saved.call_count, 0)
             self.assertEqual(ctx.store.connected_accounts(user), {})
-            right = c.post(f"/connect/{ticket}", data={"api_key": GOOD_KEY})
+            right = c.post(f"/connect/{ticket}", data={"api_key": GOOD_KEY, "csrf": csrf})
             self.assertEqual(right.status_code, 200, right.text[:200])
             self.assertIn("DEV connected", right.text)
             self.assertIsNone(ctx.store.get_ticket(ticket), "used up by the POST that connected")

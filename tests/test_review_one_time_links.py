@@ -50,10 +50,13 @@ class ADeletionLinkOpenedInTime(Harness):
         return link.url, made
 
     async def open_and_sign_in(self, c: httpx2.AsyncClient, url: str, opened: float, back: float) -> httpx2.Response:
-        """Open the link at ``opened``; the fresh sign-in at Keycloak brings the browser back at ``back``."""
+        """Open the link at ``opened`` and press Continue (the POST that is the use, issue #401); the fresh sign-in at
+        Keycloak brings the browser back at ``back``."""
         self.now = opened
-        r = await c.get(url)
-        self.assertIn(r.status_code, (302, 303), r.text[:300])    # the link opened: off to sign in again
+        page = await c.get(url)
+        self.assertEqual(page.status_code, 200, page.text[:300])  # the link's page: nothing used up yet
+        r = await c.post(url, data={"csrf": re.search(r'name=csrf value="([^"]*)"', page.text).group(1)})
+        self.assertIn(r.status_code, (302, 303), r.text[:300])    # Continue: off to sign in again
         self.now = back
         for _ in range(8):
             if r.status_code not in (302, 303) or "/auth/consent" in r.headers["location"]:

@@ -96,11 +96,17 @@ def through_inkcast(b: Browser, base: str, user: str, password: str, tokens: lis
     url = link.json()["url"]
     print("1. one-time link from POST /api/v1/account/deletion-link, expires in", link.json()["expires_in"], "s")
 
-    r = c.get(url)
+    start = c.get(url)                                                # the link's page: opening it changes nothing (#401)
+    if start.status_code != 200 or "Nothing is deleted yet" not in start.text:
+        fail(f"the link did not show Inkcast's page (HTTP {start.status_code}): {start.text[:300]}")
+    csrf = re.search(r'name=csrf value="([^"]*)"', start.text)
+    if not csrf:
+        fail("Inkcast's page carries no form token for Continue")
+    r = c.post(url, data={"csrf": csrf.group(1)})                      # Continue: the POST that is the use
     while r.is_redirect and urljoin(str(r.url), r.headers["location"]).startswith(base):
         r = c.get(urljoin(str(r.url), r.headers["location"]))
     r = b.sign_in_at_keycloak(r, user, password)                      # a fresh sign-in, as /tokens/new asks
-    print("2. signed in again at Keycloak for the deletion page")
+    print("2. the link's page (nothing deleted yet), Continue, and signed in again at Keycloak for the deletion page")
     for _ in range(10):
         if not r.is_redirect or "/auth/consent" in r.headers["location"]:
             break

@@ -102,6 +102,14 @@ class Browser:
         return AuthorizationCodeResult(code=self.result["code"], state=self.result["state"])
 
 
+async def connect_through_page(c: httpx2.AsyncClient, url: str, fields: dict) -> httpx2.Response:
+    """Open a connect link's page and submit ``fields`` with the form's token (issue #401): what a person does."""
+    page = await c.get(url)
+    assert page.status_code == 200, page.text[:300]
+    csrf = re.search(r'name=csrf value="([^"]*)"', page.text).group(1)
+    return await c.post(url, data={**fields, "csrf": csrf})
+
+
 class Harness(unittest.TestCase):
     """The running stack (fake IdP + platforms, Inkcast at public_url) and client helpers; no tests."""
 
@@ -158,9 +166,8 @@ class Harness(unittest.TestCase):
     async def fill_connect_page(self, link_text: str, fields: dict):
         link = re.search(r"(http://\S+/connect/\S+)", link_text).group(1)
         async with httpx2.AsyncClient() as c:
-            page = await c.get(link)
-            assert "never shown to the AI" in page.text
-            done = await c.post(link, data=fields)
+            assert "never shown to the AI" in (await c.get(link)).text
+            done = await connect_through_page(c, link, fields)
             again = await c.get(link)
         return done.text, again.status_code
 
@@ -349,7 +356,7 @@ class EndToEnd(Harness):
                 me = (await c.get(f"{base}/api/v1/me", headers=h)).json()
                 plats = (await c.get(f"{base}/api/v1/platforms", headers=h)).json()
                 link = (await c.post(f"{base}/api/v1/platforms/devto/connect-link", headers=h)).json()
-                await c.post(link["url"], data={"api_key": "devto-key"})
+                await connect_through_page(c, link["url"], {"api_key": "devto-key"})
                 preview = await c.post(f"{base}/api/v1/posts", headers=h, json={"markdown": STORY, "dry_run": True})
                 invalid = await c.post(f"{base}/api/v1/posts", headers=h, json={"markdown": "x", "platforms": ["devto"]})
                 notjson = await c.post(f"{base}/api/v1/posts", headers=h, content=b"{")
@@ -395,7 +402,7 @@ class EndToEnd(Harness):
             from inkcast.services.insights import poller
             async with httpx2.AsyncClient(timeout=30) as c:
                 link = (await c.post(f"{base}/api/v1/platforms/devto/connect-link", headers=h)).json()
-                await c.post(link["url"], data={"api_key": "devto-key"})
+                await connect_through_page(c, link["url"], {"api_key": "devto-key"})
                 poller(self.insights_context()).drain()                  # other tests of this class emitted events too
                 start = await c.get(f"{base}/api/v1/insights/summary?days=7", headers=h)
                 start_series = await c.get(f"{base}/api/v1/insights/kpis?names=posts_published,posts_cancelled,sync_results"
@@ -752,8 +759,12 @@ class AccountDeletion(Harness):
         return re.search(rf"({self.base}/account/delete/\S+)", out[0]).group(1)
 
     async def to_confirm_page(self, c: httpx2.AsyncClient, link: str) -> httpx2.Response:
-        """Open the link: a fresh sign-in at (the fake) Keycloak, then Inkcast's confirm page."""
-        r = await c.get(link)
+        """Open the link and press Continue (the POST; opening alone changes nothing, issue #401): a fresh sign-in at
+        (the fake) Keycloak, then Inkcast's confirm page."""
+        start = await c.get(link)
+        self.assertEqual(start.status_code, 200, start.text[:300])
+        self.assertIn("Nothing is deleted yet", start.text)
+        r = await c.post(link, data={"csrf": re.search(r'name=csrf value="([^"]*)"', start.text).group(1)})
         for _ in range(8):
             if not (r.status_code in (302, 303)) or "/auth/consent" in r.headers["location"]:
                 break

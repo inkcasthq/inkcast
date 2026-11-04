@@ -107,8 +107,9 @@ def openapi_document(public_url: str) -> dict[str, Any]:
                                       scope=None, service=pub)},
             "/api/v1/account/deletion-link": {"post": _op(
                 "createDeletionLink", "One-time link to delete your account", "Account", _resp("DeletionLink", "The link"),
-                scope=None, service=idn, errors=(409,), description="Needs an OAuth token. The person opens the link, "
-                "signs in again, reads what goes and what stays, and continues to the sign-in provider (Keycloak), which "
+                scope=None, service=idn, errors=(409,), description="Needs an OAuth token. The person opens the link (a page; opening "
+                "it does not use the link up), presses Continue, signs in again, reads what goes and what stays, and "
+                "continues to the sign-in provider (Keycloak), which "
                 "asks them to confirm and deletes the account; Inkcast then erases their data. Nothing is deleted by this "
                 "call. 409 when the sign-in provider or its user sync is not configured for it.")},
             "/api/v1/tokens": {

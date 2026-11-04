@@ -48,7 +48,7 @@ More detail on the design is in [docs/architecture.md](docs/architecture.md).
 | Tool | What it does |
 |---|---|
 | `inkcast_platforms` | Lists the platforms and which ones you've connected. |
-| `inkcast_connect` | Returns a one-time link where you enter a platform's credentials. |
+| `inkcast_connect` | Returns a one-time link where you enter a platform's credentials. Opening the link only shows the form; a key the platform accepts uses the link up, and a refused one leaves it good for another try. |
 | `inkcast_disconnect` | Deletes your stored credentials for a platform. |
 | `inkcast_destinations` | Lists Medium publications, or finds DEV organizations. |
 | `inkcast_publish` | Publishes now, schedules, or creates drafts on one or more platforms. Supports `dry_run`. |
@@ -57,7 +57,7 @@ More detail on the design is in [docs/architecture.md](docs/architecture.md).
 | `inkcast_resend` | Sends an unconfirmed post again, now, as one new post, on your decision; the old one is cancelled. Inkcast never sends an unconfirmed post again on its own. |
 | `inkcast_sync` | Syncs files from a repository: publishes new ones, updates changed ones in place, skips the rest. |
 | `inkcast_create_token` | Gives you a link to create a personal access token for CI. You see the token; the AI never does. |
-| `inkcast_delete_account` | Gives you a one-time link to delete your account. You sign in again, read what goes and what stays, and confirm at the sign-in provider (Keycloak); Inkcast then erases your data. The AI deletes nothing. |
+| `inkcast_delete_account` | Gives you a one-time link to delete your account. Opening the link only shows a page (a link previewer cannot use it up); its Continue button starts a fresh sign-in, you read what goes and what stays, and confirm at the sign-in provider (Keycloak); Inkcast then erases your data. The AI deletes nothing. |
 
 ## Publish from Git
 
