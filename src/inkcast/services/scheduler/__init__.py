@@ -16,6 +16,7 @@ import asyncio
 import logging
 import time
 
+from ...libs.db.database import frame_count
 from ...libs.events import CONSUMERS
 from ...libs.runtime import Context
 from ...libs.service import ServiceSpec
@@ -70,8 +71,9 @@ def housekeeping(ctx: Context) -> None:
     finally:
         busy, frames, _ = ctx.store.checkpoint_wal()
         if busy:
-            log.warning("The write-ahead log was not cut (readers held an older snapshot): %d frame(s), with what "
-                        "erasures and purges overwrote since it last was, stay until the next housekeeping", frames,
+            log.warning("The write-ahead log was not cut (another connection held it: a reader on an older snapshot, a "
+                        "writer, or another checkpoint): %s, with what erasures and purges overwrote since it last was, "
+                        "stay until the next housekeeping", frame_count(frames),
                         extra={"event": "scheduler.housekeeping.wal_pending", "frames": frames})
 
 

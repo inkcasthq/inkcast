@@ -60,7 +60,7 @@ import time
 from typing import Any, Mapping
 
 from ..kpi.store import MEMBER_ERASED, PERSON_DIMS
-from .database import Database
+from .database import Database, frame_count
 
 log = logging.getLogger(__name__)
 
@@ -254,9 +254,9 @@ class ErasureRepo(Database):
                         "after the erasure failed (%s)", exc, extra={"event": "identity.erasure.wal_pending", "frames": -1})
             return False
         if busy:
-            log.warning("The erased rows' bytes stay in the write-ahead log (%d frames) until housekeeping's checkpoint: "
-                        "readers held an older snapshot", frames, extra={"event": "identity.erasure.wal_pending",
-                                                                         "frames": frames})
+            log.warning("The erased rows' bytes stay in the write-ahead log (%s) until housekeeping's checkpoint: another "
+                        "connection held it (a reader on an older snapshot, a writer, or another checkpoint)",
+                        frame_count(frames), extra={"event": "identity.erasure.wal_pending", "frames": frames})
         return not busy
 
     def backfill_erasure_hashes(self) -> int:

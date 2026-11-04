@@ -43,6 +43,12 @@ WAL_CHECKPOINT_WAIT_MS = 250
 WAL_CHECKPOINT_RETRY_MS = 10
 
 
+def frame_count(frames: int) -> str:
+    """``checkpoint_wal``'s frame count for a log line: SQLite answers -1 when another checkpoint held the lock, which
+    is no count at all (issue #470)."""
+    return f"{frames} frame(s)" if frames >= 0 else "frames not counted: another checkpoint held its lock"
+
+
 class Database:
     SCHEMAS: tuple[str, ...] = ()
     # Columns added after a table first shipped: (table, column, declaration). CREATE TABLE IF NOT EXISTS never
