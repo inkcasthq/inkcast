@@ -559,7 +559,11 @@ class EveryPlaceAPostIsMarkedPublished(Harness):
         self.assertEqual((found.url, found.remote_id, found.status), (None, None, "published"))
         self.store.save_credentials(self.user, devto.id, {"api_key": "k"}, {"id": "1", "name": "n"})
         checked = asyncio.run(Publisher(self.store, {devto.id: devto}).confirm(self.user, devto, prepared))
-        self.assertIsNone(checked, "a find naming nothing is \"can't tell\", not a confirmed publish")
+        # "Can't tell", never a confirmed publish: since #428 an outcome that says so (unconfirmed, with the reason), where
+        # it was None.
+        self.assertEqual((checked.status, checked.url, checked.remote_id), ("unconfirmed", None, None),
+                         "a find naming nothing is \"can't tell\", not a confirmed publish")
+        self.assertEqual(checked.message, "DEV found a post it could not name as this one")   # a nameless answer with no notes
 
 
 # ---- item 3: 301/302 on a create stay definite failures, by design -----------------------------------------------
