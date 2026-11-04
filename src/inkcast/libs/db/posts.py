@@ -137,9 +137,10 @@ class PostsRepo(Database):
     def same_copy(row: dict[str, Any], remote_id: str | None, url: str | None) -> bool:
         """Whether the copy ``row`` records is the one an answer names. Ids tell two posts apart, so they are compared
         when both have one; the URL only when either has none: a platform may name every post by the account's
-        profile URL (the review of #390)."""
+        profile URL (the review of #390). The column is text, so an id a plug-in hands on as a number is compared as
+        the text it is stored as, as SQL's affinity compared it before."""
         if row["remote_id"] is not None and remote_id is not None:
-            return row["remote_id"] == remote_id
+            return row["remote_id"] == str(remote_id)
         return row["result_url"] is not None and row["result_url"] == url
 
     @staticmethod
