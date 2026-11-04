@@ -117,6 +117,8 @@ Restoring from such a copy puts files back as they were. A volume restore of `in
 
 Story E7.F7.6.S2 covers object-storage replication.
 
+**The key apart from the data.** `secret-key`, which opens every backup here, is never copied to the same place as the backups: its copy is the cluster backup of `inkcast-secrets` into a storage location of its own, with its own bucket and its own credential ([env-secrets.md](env-secrets.md), step 1; [ADR-0020](../adr/0020-root-secret-copy-in-its-own-storage-location.md)). Whatever E7.F7.6.S2 copies `inkcast-backups` to, it is another location, never `root-secrets`.
+
 ---
 <!-- inkcast-nav -->
 [Docs](../README.md) · [Licensing](../../LICENSING.md) · [Legal](../../legal/README.md) · [Contributing](../../CONTRIBUTING.md) · [Security](../../SECURITY.md) · [Inkcast README](../../README.md)

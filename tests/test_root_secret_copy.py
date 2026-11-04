@@ -216,7 +216,7 @@ class Scripts(unittest.TestCase):
 
     def test_the_install_applies_in_order_and_proves_a_backup_in_the_bucket(self):
         text = INSTALL.read_text()
-        order = [text.index(f"deploy/kustomize/shared/{d}") for d in ("oadp-operator", "seaweedfs-access", "seaweedfs", "oadp")]
+        order = [text.index(f'apply -k "$ROOT/deploy/kustomize/shared/{d}"') for d in ("oadp-operator", "seaweedfs-access", "seaweedfs", "oadp")]
         self.assertEqual(order, sorted(order), "operator, the Job's right, the store, then the DPA")
         for needed in ("installplan", '{"spec":{"approved":true}}', "Succeeded", "velero.io/schedule-name",
                        "status.progress.itemsBackedUp", "Available", "Reconciled", "weed shell", "velero-backup.json",
@@ -228,13 +228,14 @@ class Scripts(unittest.TestCase):
 
     def test_the_drill_deletes_one_secret_restores_by_label_and_compares_by_hash(self):
         text = DRILL.read_text()
-        self.assertEqual(text.count("delete secret"), 1, "the one destructive step")
-        self.assertIn('$k -n "$ns" delete secret "$secret"', text)
+        commands = [line for line in text.splitlines() if "delete secret" in line and not line.lstrip().startswith("#")]
+        self.assertEqual(commands, ['$k -n "$ns" delete secret "$secret"'], "the one destructive step, and the only Secret")
         self.assertIn("secret=inkcast-secrets", text)
-        steps = [text.index(s) for s in ("umask 077", "the safety copy", "a backup from Schedule", "THE LOSS",
-                                         "the restore, limited to secrets", "every value the same (by SHA-256)",
-                                         "the CronJob's run now", "sealed credentials still read")]
+        steps = [text.index(f'step "{s}') for s in ("1. the safety copy", "2. a backup from Schedule", "3. THE LOSS",
+                                                   "4. the restore, limited to secrets", "5. the Secret is back",
+                                                   "6. the CronJob's run now", "7. sealed credentials still read")]
         self.assertEqual(steps, sorted(steps))
+        self.assertLess(text.index("umask 077"), steps[0], "the copy's mode is set before anything is written")
         for needed in ("trap 'rm -rf \"$work\"' EXIT", "hashlib.sha256", ".hexdigest()[:12]", '"existingResourcePolicy": "none"',
                        '"includedResources": ["secrets"]', "labelSelector", "every generated Secret is present and in agreement.",
                        "from inkcast.libs.secrets import Sealer", "INKCAST_SECRET_KEY_FILE", "SELECT sealed FROM credentials",

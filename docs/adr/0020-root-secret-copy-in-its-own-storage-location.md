@@ -1,0 +1,69 @@
+# ADR-0020: The root Secret's copy, an OADP Schedule into a storage location of its own
+
+**Status:** accepted, 2026-11-04 (the owner: option A, with an in-cluster object store on the lab; the integrator: SeaweedFS as that store, once MinIO's images were found withdrawn; issue #436) · **Epic:** E3.F3.9 (the generated Secrets), with E7.F7.6 (disaster recovery)
+
+## Context
+
+Each lab environment's root Secret, `inkcast-secrets`, holds two values held nowhere else: `secret-key`, which seals every platform credential at rest (`libs/secrets/value.py`, `Sealer`) and derives the PKCE and nonce HMAC keys, and `fga-api-token`, OpenFGA's preshared key. From PR #423 the CronJob `inkcast-env-secrets` runs `inkcast env-secrets --repair-only`: it copies a value that one side of a pair still holds and never makes a new one, so a deleted `inkcast-secrets` fails the run, which names the two values as lost ([the runbook](../runbooks/env-secrets.md)).
+
+The runbook's step 1 said "restore the Secret from a copy", and the repository made none. `inkcast backup` copies the SQLite file, and that file is useless without `secret-key`. Without a copy the remedy is a restart of OpenFGA's pod: its init container makes a new `secret-key`, every sealed credential becomes unreadable for good, in the database and in every SQLite backup, and every platform must be connected again by its owner.
+
+Two rules bound the choice:
+
+- A key kept where the data it decrypts is kept protects nothing. Percona's operator documentation on encrypted backups: when the key is lost or rotated the backup cannot be recovered, and a restore on another cluster needs the same key supplied from outside. A third-party guide on Rancher backups says the same.
+- Restoring the copy must never overwrite a value the pods are running on: a new value cuts them off what they hold (the runbook, "A root value is lost").
+
+## Decision
+
+**An OADP (Red Hat's build of Velero) Schedule per environment copies the labelled root Secret, and nothing else, into a BackupStorageLocation of its own; the restore is Velero's, which never overwrites.**
+
+- **The label.** `inkcast-secrets` carries `inkcast.io/root-secret: "true"`. `inkcast env-secrets` sets it when it creates the Secret and adds it, by the same merge patch it adds a missing key with, to a Secret that lacks it, in both of its modes (`src/inkcast/env_secrets.py`, `ROOT_SECRET_LABEL`): a label cuts no pod off anything. Every manifest that defines the Secret carries it too (the CI overlays' `secretGenerator`, `deploy/dev`, the ExternalSecret's template). `tests/test_root_secret_copy.py` keeps the code's label and the Schedules' selector equal.
+- **The operator**, `deploy/kustomize/shared/oadp-operator`: OADP through OLM in `openshift-adp`, the namespace its documentation uses, pinned with `installPlanApproval: Manual` and `startingCSV` (1.6.2 on OpenShift Local 4.22), so an upgrade is a change in Git; `scripts/lab/root-secret-copy.sh` approves the one InstallPlan that carries that CSV.
+- **The copy**, `deploy/kustomize/shared/oadp`: one DataProtectionApplication, Velero alone (`nodeAgent.enable: false`: no DaemonSet, no volume backups; `backupImages: false`: no registry), one BackupStorageLocation `root-secrets` with its own bucket `inkcast-root-secrets` and its own credential `cloud-credentials-root-secrets`, `default: false` so a future location for the SQLite backups' off-cluster copies (E7.F7.6.S2) becomes the default and nothing lands here by omission. Two Schedules, `inkcast-staging-root-secret` and `inkcast-prod-root-secret`: `includedResources: [secrets]`, the label selector, that environment's namespace, no cluster resource, no volume, daily at 03:47 UTC, `ttl` 90 days. The bound on the TTL is the oldest SQLite backup the key must open, `INKCAST_BACKUP_KEEP` days (14 in both environments; the test reads each environment's value); six times that leaves eleven weeks to notice a Schedule that stopped. The GDPR bound on backups does not apply: the Secret holds keys and no personal data.
+- **The restore** (the runbook, step 1): a `Restore` of the latest backup limited to `secrets` carrying the label in the namespace. Velero's default `existingResourcePolicy: none` "will never overwrite data that already exists in your cluster", and "the same selector syntax works on restore". Then the CronJob's next run exits 0 and the sealed credentials read: `scripts/ops/root-secret-drill.sh` proves it, with a safety copy first, the comparison by SHA-256 only, and every stored credential unsealed inside the server's pod with the key it mounts (no endpoint or command unseals on demand).
+- **Production** points the location at an off-cluster bucket encrypted with a KMS key (SSE-KMS: Velero stores a Secret as a manifest in its tarball, so the bucket's encryption and access policy are what protect it), with an IAM key for that bucket alone in `cloud-credentials-root-secrets`, made by the cloud's secrets process. The DPA's `config` block (`s3Url`, `s3ForcePathStyle`) is the lab's and goes.
+- **The lab's stand-in**, `deploy/kustomize/shared/seaweedfs` and `shared/seaweedfs-access`: SeaweedFS 4.52 as one process (`weed mini`) in its own namespace, on a volume of its own, with one bucket declared on the server and one identity, `velero`, allowed Read, Write and List on that bucket and nothing else. The identity's key pair is generated in the cluster by the Job `seaweedfs-setup` from the kernel's CSPRNG, written once as the store's identities file and once as Velero's credentials file, never printed and never on a command line; a re-run keeps what exists and copies a side that is absent, as env-secrets treats a pair. A NetworkPolicy admits Velero's pods on the S3 port and the Job, and nothing else; the hop is plain HTTP in the cluster, as the repository's other in-cluster hops are (OpenFGA, Mailpit), with the bucket's access scoped by the key. The limit, stated once in the runbook: the store is in the same cluster as the data, so the copy survives a deleted Secret, not the loss of the cluster, and the volume is not encrypted.
+
+## Options considered
+
+| Option | For | Against |
+|---|---|---|
+| **A. OADP (Velero) Schedule** of the labelled root Secret into a storage location of its own (chosen) | OpenShift's supported cluster backup, already named by the runbook. Non-destructive restore by default. Label selection on backup and restore. A DPA takes several locations, each with its own credential, so the key's location never shares a bucket with the data's. No Inkcast code beyond a label | Needs an S3-compatible object store; Velero stores the Secret as a manifest, so the bucket's own encryption and access policy protect it |
+| B. External Secrets Operator `PushSecret` into a secrets manager (Vault/OpenBao, AWS Secrets Manager) | The manager becomes the key's home; `deletionPolicy` keeps the provider's copy by default; Inkcast already reads from these managers | Needs a secrets manager, which neither the lab nor production has today; an in-cluster Vault for this alone would be a lab-only stand-in |
+| C. A sealed export by `inkcast env-secrets`, encrypted to an operator's public key | No new infrastructure; Vault's `operator init -pgp-keys` is the precedent | New cryptography and a new dependency in a central path, plus a private key someone must hold; it repeats what A gives without code |
+
+The lab's store, measured on 2026-11-04 (anonymous reads with `skopeo inspect --raw`, digests with `docker buildx imagetools inspect`, the method `scripts/images.py` uses):
+
+| Store | Measured | Verdict |
+|---|---|---|
+| MinIO (the owner's first word) | `quay.io/minio/minio` and `docker.io/minio/minio` refuse every tag anonymously (`latest`, the 2024 and 2025 releases), from two networks; `dl.min.io`'s release binaries answer HTTP 410; the project's repository is archived and its README says "THIS REPOSITORY IS NO LONGER MAINTAINED" and "distributed as source code only" (2025-10-23 per Chainguard). The only MinIO images in the lab's catalog are `quay.io/minio/aistor/*`, the commercial product, behind a subscription | Not deployable registry-first; a build from an archived source would be ours to maintain |
+| **SeaweedFS 4.52** (`docker.io/chrislusf/seaweedfs:4.52`, Apache-2.0, released 2026-11-02, multi-arch) | Readable and pinnable by digest; one binary runs master, volume, filer and S3; identities from a file, so the generated key lives only in a Secret; actions scoped per bucket; the image carries `curl` for the setup Job | Chosen |
+| versitygw v1.10.0 (Apache-2.0) | Readable, pinnable, single binary; a root key from the environment, an internal IAM for a second user; the bucket needs an S3 client to create | A close second |
+| RustFS 1.0.4 (Apache-2.0) | Readable, pinnable; a MinIO-shaped API | Young (1.0.x in October 2026); its admin path for a scoped user not verified |
+| Garage v2.5.0 (AGPL-3.0) | Readable, pinnable, tiny | Needs a TOML configuration with its own `rpc_secret` and a layout step before it serves |
+| Chainguard's free MinIO image | Keeps the name | `latest` only, built from an archived codebase: no version to pin, no upstream fixes |
+
+## Consequences
+
+- No Inkcast code beyond the label; the restore is Velero's. `tests/test_env_secrets.py` (`RootSecretLabel`) holds the label's cases; `tests/test_root_secret_copy.py` holds the manifests, the scripts and the runbook.
+- The copies are Velero's tarballs of the Secret's manifest, one a day per environment, garbage-collected after 90 days; the bucket's encryption and access policy are the protection. On the lab the bucket is in the same cluster and its volume is not encrypted: the stand-in, not the standard.
+- A Secret put back by hand, or made before the label existed, gets the label from the CronJob's next run (or the init container's), so the next copy holds it. Until the release that carries this change runs, `scripts/lab/root-secret-copy.sh` labels the existing Secrets by hand, which `inkcast env-secrets` then keeps.
+- An OADP upgrade is a change to `subscription.yaml`, approved by the install script, and drilled before it is called done. A changed identities file on the lab takes a rollout restart of the store.
+- `components/backup`'s note "store the key elsewhere" now names where: the runbook's step 1. E7.F7.6.S2's off-cluster copy of `inkcast-backups` goes to another location, never `root-secrets`.
+
+## Sources
+
+- Percona, [encrypted backups](https://docs.percona.com/percona-operator-for-mysql/backups-encrypted.html): the key apart from the backup.
+- OneUptime, [Rancher backups](https://oneuptime.com/blog/post/2026-03-19-rancher-encrypt-backups/view): the same rule.
+- Velero, [restore reference](https://velero.io/docs/main/restore-reference/): "it will never overwrite data that already exists in your cluster"; `existingResourcePolicy`; the labels a restore adds.
+- Velero, [resource filtering](https://velero.io/docs/main/resource-filtering/): `--include-resources`, `--selector`, "the same selector syntax works on restore".
+- OKD, [multiple BackupStorageLocations](https://docs.okd.io/latest/backup_and_restore/application_backup_and_restore/installing/configuring-oadp-multiple-bsl.html): one credential per location.
+- External Secrets Operator, [PushSecret](https://external-secrets.io/latest/guides/pushsecrets/) (option B) and [templating](https://external-secrets.io/latest/guides/templating/) (`mergePolicy`).
+- OADP at `oadp-1.6`: `api/v1alpha1/dataprotectionapplication_types.go` (`backupImages` nil is true, `nodeAgent.enable`, `podConfig.resourceAllocations`), `internal/controller/validator.go` (no location has to be the default; a location's credential must exist), `internal/controller/velero.go` (Velero's labels and default requests), `docs/install_olm.md` (the credentials file).
+- Velero at v1.17.0: `pkg/builder/backup_builder.go` (`FromSchedule`), `pkg/apis/velero/v1/labels_annotations.go`, the [Schedule API](https://velero.io/docs/v1.17/api-types/schedule/) (`ttl` defaults to 30 days), the [MinIO guide](https://velero.io/docs/v1.17/contributions/minio/) (`s3ForcePathStyle`, `s3Url`); velero-plugin-for-aws, `backupstoragelocation.md` (`checksumAlgorithm`, `region`) and its IAM actions.
+- SeaweedFS at 4.52: `weed/command/mini.go` (`-bucket`, `-s3.config`, the ports), `weed/s3api/auth_credentials.go` (static identities, `Action:bucket`), `weed/s3api/s3_constants/s3_actions.go`, `docker/entrypoint.sh`, `docker/Dockerfile.go_build`; the wiki's [S3 Credentials](https://github.com/seaweedfs/seaweedfs/wiki/S3-Credentials).
+- MinIO: [the repository's README](https://github.com/minio/minio) (archived; source-only); Chainguard, [Secure and Free MinIO Chainguard Containers](https://www.chainguard.dev/de-DE/unchained/secure-and-free-minio-chainguard-containers) (the 2025-10-23 withdrawal).
+
+---
+<!-- inkcast-nav -->
+[Docs](../README.md) · [Licensing](../../LICENSING.md) · [Legal](../../legal/README.md) · [Contributing](../../CONTRIBUTING.md) · [Security](../../SECURITY.md) · [Inkcast README](../../README.md)

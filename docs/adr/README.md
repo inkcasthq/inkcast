@@ -23,6 +23,7 @@ Each ADR records one significant decision: the context, the options considered, 
 | [0017](0017-a-post-waiting-for-its-retry-is-changed-in-place.md) | A post waiting for its retry is changed in place; the post records the time asked for (`requested_at`) and the platform's wait (`not_before`) | Accepted |
 | [0018](0018-disabled-accounts-notice-export-and-erasure.md) | A cut-off account is told, can download its data, and is erased `INKCAST_KEYCLOAK_ERASE_AFTER_DAYS` (30) after the notice, by a daily cleanup job; replaces F9.5.S6's "a disabled person is never erased" | Accepted |
 | [0019](0019-a-backfill-post-has-no-deadline.md) | A post made after its time is a backfill: sent after every promise whose time has come, measured by no deadline; a promise's lag is the scheduler's clock against the time as written | Accepted |
+| [0020](0020-root-secret-copy-in-its-own-storage-location.md) | The root Secret's copy: an OADP Schedule copies the labelled `inkcast-secrets`, and nothing else, into a storage location of its own, apart from the data backups; Velero's non-destructive restore; on the lab an in-cluster SeaweedFS stands in for the KMS-encrypted bucket | Accepted |
 
 ---
 <!-- inkcast-nav -->
