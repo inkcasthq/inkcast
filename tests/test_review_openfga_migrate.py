@@ -132,3 +132,44 @@ class MigrateScript(unittest.TestCase):
         self.assertIn('"current version":5', log)
         self.assertEqual(self.sql("SELECT indisvalid FROM pg_index WHERE indexrelid = to_regclass('idx_user_lookup')"), "t")
         self.assertEqual(self.sql("SELECT count(*) FROM goose_db_version WHERE version_id = 6"), "1")
+
+    def command_lines_holding(self, needle: str) -> list[str]:
+        """Every command line in the container that holds NEEDLE, read from /proc there (the needle travels in the
+        probe's environment, so the probe's own command line never matches)."""
+        probe = ('for p in /proc/[0-9]*; do c="$(tr "\\0" " " < "$p/cmdline" 2>/dev/null)";'
+                 ' [[ "$c" == *"$NEEDLE"* ]] && echo "$c"; done; true')
+        done = subprocess.run(["docker", "exec", "-e", f"NEEDLE={needle}", self.container, "bash", "-c", probe],
+                              capture_output=True, text=True, timeout=60, check=True)
+        return done.stdout.splitlines()
+
+    def test_the_password_reaches_no_command_line_and_no_log(self):
+        """The psql session that holds the lock lives for the whole run, and a process's command line is readable by
+        every user of the node (/proc/<pid>/cmdline is mode 0444; `ps`), while its environment is its own (environ,
+        0400): the password must not be in psql's argv. And libpq quotes a URI it cannot parse, or the token it
+        cannot decode, in its error, which migrate.sh logs while it waits for the database."""
+        key = re.search(r'lock_key="\$\{LOCK_KEY:-(\d+)\}"', SCRIPT.read_text())[1]
+        holder = subprocess.Popen(["docker", "exec", self.container, "psql", "-h", "/tmp", "-U", "postgres", "-d", "openfga",
+                                   "-Atc", f"SELECT pg_advisory_lock({key}), pg_sleep(5)"],
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.addCleanup(holder.wait, 60)
+        runner = subprocess.Popen(self.migrate_command(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        session = []
+        for _ in range(40):   # the session psql, while the runner waits for the lock the holder keeps
+            session = self.command_lines_holding("psql -X -q -At")
+            if session:
+                break
+            time.sleep(0.25)
+        leaked = self.command_lines_holding(PASSWORD)
+        log, _ = runner.communicate(timeout=120)
+        self.assertTrue(session, "the runner's psql session was never seen")
+        self.assertEqual(leaked, [], "the password in a command line")
+        self.assertEqual(runner.returncode, 0, log)
+        self.assertIn("waiting for the migration lock", log)
+        self.assertNotIn(PASSWORD, log)
+        for uri in (f"postgres://openfga:{PASSWORD}%zz@127.0.0.1:5432/openfga",   # a token libpq cannot decode
+                    f"postgres://openfga:{PASSWORD}@[::1:5432/openfga"):            # a URI libpq cannot parse
+            with self.subTest(uri=uri.replace(PASSWORD, "<password>")):
+                code, log = self.migrate(uri=uri, connect_timeout="1")
+                self.assertEqual(code, 1, log)
+                self.assertIn("no database after 1 s", log)
+                self.assertNotIn(PASSWORD, log)

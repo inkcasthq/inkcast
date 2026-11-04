@@ -29,8 +29,13 @@
 #      it again from step 1. What `openfga migrate` did between the loss and the retry ran without the lock: the
 #      retry's repair covers 006, and a retry finds the revision current otherwise.
 #
-# Nothing here prints a credential: libpq's errors name the host, the port and the user, never the password, and the
-# URI itself is never echoed. The lab's e2e proofs are scripts/dev/openfga-recovery-e2e.sh.
+# This script shows no credential: psql connects with the URI less its password and reads the password from
+# PGPASSWORD, because a process's argv is readable by every user of the node (/proc/<pid>/cmdline, mode 0444; `ps`)
+# while its environment is its own (environ, 0400), and because libpq quotes a URI it cannot parse in the errors the
+# wait for the database logs; otherwise they name the host, the port and the user. The URI itself is never echoed.
+# OpenFGA does print a URI that Go's net/url refuses, password included ("invalid database uri: parse ...", a raw `|`
+# in the password, measured with v1.22.0), so the Secret's URI must be percent-encoded, as RFC 3986 requires.
+# The lab's e2e proofs are scripts/dev/openfga-recovery-e2e.sh.
 set -euo pipefail
 : "${OPENFGA_DATASTORE_URI:?OPENFGA_DATASTORE_URI is not set: the Secret openfga-db-app, key uri}"
 OPENFGA_BINARY="${OPENFGA_BINARY:-/opt/openfga/openfga}"
@@ -40,6 +45,15 @@ connect_timeout="${CONNECT_TIMEOUT:-600}"
 # itself, inside the run this session wraps, would wait on this session for ever.
 lock_key="${LOCK_KEY:-1473304569}"
 export PGAPPNAME=openfga-migrate PGCONNECT_TIMEOUT=10
+# psql's URI, less the password, which goes to PGPASSWORD percent-decoded as libpq decodes it (the header says why).
+db_uri="$OPENFGA_DATASTORE_URI"
+if [[ "$db_uri" =~ ^([^:/?#]+://[^:@/?#]*):([^@/?#]*)@(.*)$ ]]; then
+  encoded="${BASH_REMATCH[2]//%/\\x}"
+  printf -v PGPASSWORD '%b' "$encoded"
+  export PGPASSWORD
+  db_uri="${BASH_REMATCH[1]}@${BASH_REMATCH[3]}"
+  unset encoded
+fi
 log() { printf '%s migrate: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 
 [ -x "$OPENFGA_BINARY" ] || { log "no OpenFGA binary at $OPENFGA_BINARY: is the image volume mounted?"; exit 1; }
@@ -47,7 +61,7 @@ log() { printf '%s migrate: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 # 1. The database, with its role and its database created: a connection as the role, not a bare ping.
 deadline=$(( $(date +%s) + connect_timeout ))
 attempt=0
-while ! out="$(psql -X -qAt -v ON_ERROR_STOP=1 -c 'SELECT 1' "$OPENFGA_DATASTORE_URI" 2>&1)"; do
+while ! out="$(psql -X -qAt -v ON_ERROR_STOP=1 -c 'SELECT 1' "$db_uri" 2>&1)"; do
   attempt=$(( attempt + 1 ))
   if [ "$(date +%s)" -ge "$deadline" ]; then
     log "no database after ${connect_timeout} s (${attempt} attempts): ${out%%$'\n'*}"
@@ -64,7 +78,7 @@ log "database reachable (${attempt} failed attempts); taking the migration lock 
 # coprocess, and an exit inside one would not end the run), so a dead session really ends the run: ON_ERROR_STOP
 # makes an SQL error end psql (exit 3) and psql exits on its own (2) when the connection is lost. Results are plain
 # lines (tuples only, unaligned).
-coproc PSQL { psql -X -q -At -v ON_ERROR_STOP=1 "$OPENFGA_DATASTORE_URI"; }
+coproc PSQL { psql -X -q -At -v ON_ERROR_STOP=1 "$db_uri"; }
 # shellcheck disable=SC2153  # PSQL_PID: bash sets NAME_PID for a coprocess named NAME
 psql_pid=$PSQL_PID
 reply=""
