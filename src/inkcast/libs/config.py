@@ -697,7 +697,7 @@ class Config:
     # Retention (F1.10.S3, issue #91): INKCAST_OUTBOX_RETENTION_DAYS (7, 1-30) keeps domain events every consumer has
     # passed, the replay window; INKCAST_KPI_HOURLY_RETENTION_DAYS (90, 31-400, never shorter than the outbox's) keeps
     # hourly KPI buckets and the kpi_applied rows that make a replay harmless. Daily buckets are kept. The scheduler's
-    # housekeeping hands it to Store.purge_expired every 90 ticks.
+    # housekeeping hands it to Store.purge_expired every 30 minutes (services/scheduler HOUSEKEEPING_EVERY).
     retention: RetentionPolicy = RetentionPolicy()
     log_format: str = "text"  # "json" in containers
     log_level: str = "INFO"
