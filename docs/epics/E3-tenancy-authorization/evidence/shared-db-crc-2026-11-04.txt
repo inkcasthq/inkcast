@@ -1,0 +1,33 @@
+# F3.9.S5 (#296) on OpenShift Local: scripts/dev/shared-db-proof.sh, run on the lab as its header says, exit 0.
+# Both environments on sha256:cebf0fa203cc (staging #379, production #381); no Secret value is in this output.
+measured 2026-11-04T09:26:23Z on CRC version: 2.64.0+, OpenShift 4.22.14
+== 1. the cluster
+PASS  inkcast-pg: Cluster in healthy state
+== 2. one database per side, owned by its role
+PASS  openfga_staging owned by openfga_staging
+PASS  openfga_prod owned by openfga_prod
+== 3. each environment migrated in its own database
+PASS  inkcast-staging reads postgres://openfga_staging:<redacted>@inkcast-pg-rw.inkcast-db.svc:5432/openfga_staging?sslmode=require
+PASS  openfga_staging at goose version 6 (newest applied row = highest version)
+PASS  inkcast-staging: migrate Job succeeded
+PASS  inkcast-prod reads postgres://openfga_prod:<redacted>@inkcast-pg-rw.inkcast-db.svc:5432/openfga_prod?sslmode=require
+PASS  openfga_prod at goose version 6 (newest applied row = highest version)
+PASS  inkcast-prod: migrate Job succeeded
+== 4. pg_hba, with no password sent
+PASS  user openfga_staging, database openfga_prod, sslmode require: pg_hba.conf rejects connection for host "169.254.0.5", user "openfga_staging", database "openfga_prod", SSL encryption
+PASS  user openfga_prod, database openfga_staging, sslmode require: pg_hba.conf rejects connection for host "169.254.0.5", user "openfga_prod", database "openfga_staging", SSL encryption
+PASS  user openfga_staging, database openfga_staging, sslmode disable: pg_hba.conf rejects connection for host "169.254.0.5", user "openfga_staging", database "openfga_staging", no encryption
+PASS  user app, database app, sslmode require: pg_hba.conf rejects connection for host "169.254.0.5", user "app", database "app", SSL encryption
+PASS  user openfga_staging, database openfga_staging, sslmode require: psql: error: connection to server at "inkcast-pg-rw.inkcast-db.svc" (10.217.5.155), port 5432 failed: fe_sendauth: no password supplied
+PASS  user openfga_prod, database openfga_prod, sslmode require: psql: error: connection to server at "inkcast-pg-rw.inkcast-db.svc" (10.217.5.155), port 5432 failed: fe_sendauth: no password supplied
+== 5. the NetworkPolicy admits 5432 from OpenFGA's pods only
+PASS  a pod in ldap-testing (not OpenFGA): no response on 5432
+PASS  a pod in inkcast-staging (not OpenFGA): no response on 5432
+PASS  control, the database pod (admitted): accepting connections
+== 6. each app namespace pulls the image with ghcr-pull
+PASS  inkcast-staging: ServiceAccount inkcast names ghcr-pull
+PASS  inkcast-staging: running pod pulled ghcr.io/inkcasthq/inkcast@sha256:cebf0fa203ccd5f01c6100a47f35ce74df86c16dd94cf3207ae877515ac8579c with ghcr-pull
+PASS  inkcast-prod: ServiceAccount inkcast names ghcr-pull
+PASS  inkcast-prod: running pod pulled ghcr.io/inkcasthq/inkcast@sha256:cebf0fa203ccd5f01c6100a47f35ce74df86c16dd94cf3207ae877515ac8579c with ghcr-pull
+== result
+ALL PASS

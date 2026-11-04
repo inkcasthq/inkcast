@@ -484,9 +484,10 @@ features:
       TLS, a NetworkPolicy admitting 5432 from OpenFGA''s pods only); passwords one Secret per side, written once by
       scripts/deploy/openfga-db-credentials.sh; the private image''s pull Secret named on the ServiceAccount and on
       every Inkcast-image pod spec, in the environments only (scripts/deploy/ghcr-pull-secret.sh)'
-    status: in-progress
+    status: done
     issue: 296
-    change: new
+    change: 'new; issue #296; built in PR #304; proved on OpenShift Local 2026-11-04 by scripts/dev/shared-db-proof.sh
+      (docs/epics/E3-tenancy-authorization/evidence/shared-db-crc-2026-11-04.txt)'
     acceptance:
     - environments/staging and environments/production render no Cluster, set their namespaces and keep OpenFGA on
       Secret openfga-db-app key uri; the kubernetes, openshift and ci-openfga overlays keep the per-namespace Cluster
