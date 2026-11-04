@@ -17,7 +17,11 @@ Each class is one finding, and fails on the PR's head (732cf8f):
 * ``TheRunbookTellsWhichDatabaseIsInPlace``: the runbook's way to tell, after "its log does not say", read
   "different inodes mean it did [swap]" of ``inkcast.db`` and the newest ``before-restore`` copy. A restore killed
   before its swap sets no copy aside, so the newest one is an older restore's, on another inode: the rule then says
-  "replaced" about a database that was not. Only a copy stamped with this restore's time tells."""
+  "replaced" about a database that was not. Only a copy stamped with this restore's time tells.
+* ``ARestoreThatSQLiteFails``: ``_restore`` logged an outcome for ``BackupError`` and ``OSError`` only. A full data
+  volume fails the copy with ``sqlite3.OperationalError: database or disk is full``: a traceback, no
+  ``restore.refused`` line, so restore.sh said "its log does not say whether it had swapped" about a restore that
+  refused cleanly. Measured with the PR's image: a 6 MB backup onto a 3 MB tmpfs, a traceback and exit 1."""
 
 import os
 import pathlib
@@ -146,6 +150,44 @@ class TheRunbookTellsWhichDatabaseIsInPlace(unittest.TestCase):
         self.assertNotIn("different inodes mean it did", text,
                          "the runbook reads an older restore's copy as this restore's swap")
         self.assertIn("stamped at or after the time in the job's name", text)
+
+
+# Runs `inkcast restore` through the launcher, as the Job does, with the staging copy's connection failing as a full
+# volume fails it (SQLite's own error, raised from an audit hook as the connection opens).
+_DISK_FULL = r"""
+import sqlite3, sys
+from inkcast.launcher import main
+
+def full(event, args):
+    if event == "sqlite3.connect" and str(args[0]).endswith(".restoring"):
+        raise sqlite3.OperationalError("database or disk is full")
+
+sys.addaudithook(full)
+main(["restore", sys.argv[1], "--database", sys.argv[2], "--force"])
+"""
+
+
+class ARestoreThatSQLiteFails(unittest.TestCase):
+    def setUp(self):
+        self.base = pathlib.Path(tempfile.mkdtemp(prefix="review-restore-full-"))
+        self.addCleanup(shutil.rmtree, self.base, True)
+        self.db = self.base / "data" / "inkcast.db"
+        self.db.parent.mkdir()
+        store = Store(str(self.db), "k" * 40)
+        store.upsert_user("local:owner", "owner", None, None)
+        self.backup = take_backup(self.db, self.base / "backups").path
+        store.upsert_user("local:second", "second", None, None)
+        store.close()
+
+    def test_a_full_volume_is_logged_as_refused(self):
+        env = {**os.environ, "PYTHONPATH": str(ROOT / "src"), "INKCAST_LOG_FORMAT": "json"}
+        done = subprocess.run([sys.executable, "-c", _DISK_FULL, str(self.backup), str(self.db)], env=env,
+                              capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn('"event": "restore.refused"', done.stdout, done.stderr)
+        self.assertNotIn("Traceback", done.stderr)
+        self.assertEqual(users(self.db), 2)
+        self.assertFalse(self.db.with_name(".inkcast.db.restoring").exists())
 
 
 if __name__ == "__main__":

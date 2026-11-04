@@ -21,6 +21,7 @@ import logging
 import os
 import pathlib
 import signal
+import sqlite3
 import sys
 import threading
 
@@ -133,7 +134,7 @@ def _restore(argv: list[str], stop: threading.Event) -> int:
     except RestoreStopped as exc:
         log.error("Restore stopped: %s", exc, extra={"event": "restore.stopped", "backup": str(path)})
         return 1
-    except (BackupError, OSError) as exc:
+    except (BackupError, OSError, sqlite3.Error) as exc:     # sqlite3.Error: a full volume, before any swap
         log.error("Restore refused: %s", exc, extra={"event": "restore.refused", "backup": str(path)})
         return 1
     log.info("Restored %s into %s%s", path.name, args.database,
