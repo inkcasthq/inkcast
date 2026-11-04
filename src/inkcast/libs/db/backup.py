@@ -30,7 +30,8 @@
   and Ctrl-C: ``inkcast`` is PID 1 in the image, where a signal without a handler is dropped) or the clock passes
   ``not_after`` (restore.sh's own deadline); past its last check the swap goes through whatever arrives (#128). The
   copy a restore stages beside the database (``.<db>.restoring``) goes with whatever ends the restore early; only a
-  kill leaves it, and the next backup removes it when no restore holds the data directory's lock (issue #404).
+  kill leaves it, and the next backup removes it when no restore holds the data directory's lock (issue #404); a
+  removal that fails is a warning, and the backup is taken all the same (#470).
 
 A backup is as sensitive as the database: platform credentials inside are encrypted with INKCAST_SECRET_KEY (keep
 the key, or the backup can't be used, and never store the two together), and tokens are stored only as hashes.
@@ -318,7 +319,11 @@ def take_backup(database: pathlib.Path, directory: pathlib.Path, *, keep: int = 
         raise BackupError("keep must be at least 1.")
     directory.mkdir(parents=True, exist_ok=True)
     now = now or time.time()
-    _remove_staging(database)           # a killed restore's copy beside the database: not a copy in the rotation (#404)
+    try:
+        _remove_staging(database)       # a killed restore's copy beside the database: not a copy in the rotation (#404)
+    except OSError as exc:              # best effort: the backup is what this run is for (#470)
+        log.warning("The staging copy a killed restore left beside the database could not be removed (%s, errno %s): "
+                    "the backup goes on, and the next one tries again", type(exc).__name__, exc.errno)
     taken = _content_time(database, now)
     if _aged_out(datetime.fromtimestamp(taken, timezone.utc), now, keep):
         raise BackupError(f"{database.name} is {keep} or more days old: it has aged out, and a backup of it would too.")

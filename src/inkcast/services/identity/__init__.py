@@ -330,8 +330,8 @@ def _routes(ctx: Context) -> list[Route]:
             return pages.message("Nothing was deleted", "The sign-in provider still has your account, so Inkcast has "
                                  "erased nothing. If you still want it gone, confirm the deletion there, or start again "
                                  "from your MCP client or the API.")
-        if user is not None:
-            erase_person(store, ctx.metrics, user, "return")
+        if user is not None:                                     # off the loop: its checkpoint can wait for a reader (#470)
+            await asyncio.to_thread(erase_person, store, ctx.metrics, user, "return")
             row = store.get_user(user["id"])
             if row is not None:                                  # not as read: nothing erased (#102); the sync judges them
                 if row["last_login_at"] != user["last_login_at"]:     # afresh, the record stays. A sign-in landed between

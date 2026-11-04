@@ -16,6 +16,7 @@ import asyncio
 import logging
 import time
 
+from ...libs.db.database import frame_count
 from ...libs.events import CONSUMERS
 from ...libs.runtime import Context
 from ...libs.service import ServiceSpec
@@ -55,19 +56,25 @@ def housekeeping(ctx: Context) -> None:
     table, the rows left by writes in the instant of an erasure before the guard refused them (issue #196), logged
     as counts only: no new erasure, and no audit row; and last a checkpoint that cuts the write-ahead log
     (``checkpoint_wal``), so what every deletion above and every erasure since the last one overwrote is out of the
-    files on disk within HOUSEKEEPING_EVERY even where the erasure's own checkpoint met a reader on an older snapshot
-    (issue #404). A reader holding one now keeps the log until the next run; that costs 250 ms here and is logged."""
-    sync_consumers(ctx)
-    ctx.store.purge_expired(ctx.config.retention)
-    swept = ctx.store.sweep_orphans()
-    if swept:
-        rows = sum(swept.values())
-        log.warning("Removed %d row(s) from %d table(s) left for people erased before the write-time guard", rows,
-                    len(swept), extra={"event": "identity.erasure.orphans_swept", "rows": rows, "tables": len(swept)})
-    busy, frames, _ = ctx.store.checkpoint_wal()
-    if busy:
-        log.info("The write-ahead log was not cut (readers held an older snapshot): %d frame(s) stay until the next "
-                 "housekeeping", frames)
+    files on disk even where the erasure's own checkpoint met a reader on an older snapshot (issue #404). It runs
+    whatever the steps before it did, a step that raised included. A reader holding one now keeps the log until the
+    next run that finds none; that costs WAL_CHECKPOINT_WAIT_MS here, and each such run is a warning an alert can
+    count (``scheduler.housekeeping.wal_pending``, #470)."""
+    try:
+        sync_consumers(ctx)
+        ctx.store.purge_expired(ctx.config.retention)
+        swept = ctx.store.sweep_orphans()
+        if swept:
+            rows = sum(swept.values())
+            log.warning("Removed %d row(s) from %d table(s) left for people erased before the write-time guard", rows,
+                        len(swept), extra={"event": "identity.erasure.orphans_swept", "rows": rows, "tables": len(swept)})
+    finally:
+        busy, frames, _ = ctx.store.checkpoint_wal()
+        if busy:
+            log.warning("The write-ahead log was not cut (another connection held it: a reader on an older snapshot, a "
+                        "writer, or another checkpoint): %s, with what erasures and purges overwrote since it last was, "
+                        "stay until the next housekeeping", frame_count(frames),
+                        extra={"event": "scheduler.housekeeping.wal_pending", "frames": frames})
 
 
 def housekeeping_due(ctx: Context, now: float | None = None) -> bool:

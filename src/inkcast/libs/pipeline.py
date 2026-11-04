@@ -653,7 +653,8 @@ class Publisher:
         either is logged (``scheduler.tick.failed``, ``scheduler.housekeeping.failed``) and costs the other nothing.
         How often it does anything is its own business (the scheduler's runs every HOUSEKEEPING_EVERY, timed in the
         database so a restart does not put it off; it ran on every 90th successful tick before, so a scheduler that
-        restarted more often, or whose ticks kept failing, never purged; issue #141)."""
+        restarted more often, or whose ticks kept failing, never purged; issue #141). It runs in a worker thread: its
+        checkpoint can wait WAL_CHECKPOINT_WAIT_MS for a reader, and the loop serves meanwhile (#470)."""
         log.info("Scheduler running every %.0fs", interval)
         while not stop.is_set():
             try:
@@ -669,7 +670,7 @@ class Publisher:
                 log.exception("Scheduler tick failed", extra={"event": "scheduler.tick.failed"})
             if housekeeping:
                 try:
-                    housekeeping()
+                    await asyncio.to_thread(housekeeping)
                 except Exception:
                     log.exception("Housekeeping failed", extra={"event": "scheduler.housekeeping.failed"})
             try:
