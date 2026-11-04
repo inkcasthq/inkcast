@@ -562,10 +562,11 @@ features:
       in agreement)
   - id: F3.9.S8
     title: "OpenFGA's schema migration runs as an init container: no Job to delete and re-apply"
-    status: planned
+    status: done
     issue: 337
     change: 'new 2026-10-28; issue #337 (the review of #317 found K1, an immutable Job template, and K2, a Job failed
-      for good)'
+      for good); built in PR #374, proved on kind by CI''s kind job and on OpenShift Local 2026-11-04
+      (docs/epics/E3-tenancy-authorization/evidence/openfga-migrate-init-crc-2026-11-04.txt)'
     acceptance:
     - openfga migrate runs as an init container of the openfga Deployment, after env-secrets where present, with the
       server's pinned image under restricted-v2

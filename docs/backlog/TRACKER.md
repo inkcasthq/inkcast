@@ -4,7 +4,7 @@
 
 This page lists every story in the backlog and the order in which the work is done. To change a story, edit its epic file in `docs/backlog/`. To change the order, edit `docs/backlog/order.yaml`. Then run `scripts/backlog/tracker.py`. The tests fail when this page is out of date.
 
-The backlog holds 310 stories: 86 done, 4 in progress and 220 planned.
+The backlog holds 310 stories: 87 done, 4 in progress and 219 planned.
 
 Tracked in [#360](https://github.com/inkcasthq/inkcast/issues/360): Backlog tracker: every story in one execution order, reviewed wave by wave.
 
@@ -14,7 +14,7 @@ Tracked in [#360](https://github.com/inkcasthq/inkcast/issues/360): Backlog trac
 |---|---|---:|---:|---:|---:|
 | E1 | Platform foundations | 30 | 3 | 2 | 35 |
 | E2 | Git publishing | 17 | 0 | 3 | 20 |
-| E3 | Tenancy, data and authorization (OpenFGA) | 14 | 0 | 50 | 64 |
+| E3 | Tenancy, data and authorization (OpenFGA) | 15 | 0 | 49 | 64 |
 | E4 | SaaS web app | 8 | 0 | 26 | 34 |
 | E5 | Billing, entitlements and metering | 0 | 1 | 39 | 40 |
 | E6 | Admin portal | 0 | 0 | 15 | 15 |
@@ -27,14 +27,14 @@ Tracked in [#360](https://github.com/inkcasthq/inkcast/issues/360): Backlog trac
 
 Work the waves from top to bottom, and the items in each wave in the order listed. An item is a story, or an open issue that is not a story. Each wave names its delivery phase (see the epics index): the phases run 1 to 5 in order, and the ongoing waves are worked beside them.
 
-### W1: Finish what is in flight (phase 1, 3 of 7 stories done)
+### W1: Finish what is in flight (phase 1, 4 of 7 stories done)
 
 Open loops on the lab and the repository cost the most while they stay open. Each item is partly built or waits on one proof.
 
 | # | Item | Status | Title | Epic | Issue |
 |---:|---|---|---|---|---|
 | 1 | F3.9.S5 | done | OpenShift Local: staging and prod in inkcast-staging and inkcast-prod, OpenFGA on one shared CloudNativePG cluster in inkcast-db (a database and a login role per side, pg_hba gating each role to its own database over TLS, a NetworkPolicy admitting 5432 from OpenFGA's pods only); passwords one Secret per side, written once by scripts/deploy/openfga-db-credentials.sh; the private image's pull Secret named on the ServiceAccount and on every Inkcast-image pod spec, in the environments only (scripts/deploy/ghcr-pull-secret.sh) | E3 | [#296](https://github.com/inkcasthq/inkcast/issues/296) |
-| 2 | F3.9.S8 | planned | OpenFGA's schema migration runs as an init container: no Job to delete and re-apply | E3 | [#337](https://github.com/inkcasthq/inkcast/issues/337) |
+| 2 | F3.9.S8 | done | OpenFGA's schema migration runs as an init container: no Job to delete and re-apply | E3 | [#337](https://github.com/inkcasthq/inkcast/issues/337) |
 | 3 | F9.1.S3 | done | Keycloak production component on CloudNativePG | E9 | [#386](https://github.com/inkcasthq/inkcast/issues/386) |
 | 4 | F3.1.S9 | done | SQLite stopgap until F3.1.S5: inkcast backup/restore/backups, the backup component (daily CronJob, own volume, deny-all network), InkcastBackupMissing, restore runbook, restore drill in CI on kind | E3 |  |
 | 5 | F1.8.S1 | in-progress | Protect main with a ruleset: required checks, squash only, no force-push or deletion | E1 | [#34](https://github.com/inkcasthq/inkcast/issues/34) |
@@ -484,7 +484,7 @@ Outside the product. Worked only when the owner asks.
 | F2.7.S2 | planned | WordPress plug-in: the REST API with an application password; markdown to HTML; tags and categories by name |  | 223 (W16) |
 | F2.7.S3 | planned | Ghost plug-in: the Admin API with an Admin API key (a short-lived HS256 JWT per request) |  | 224 (W16) |
 
-### E3: Tenancy, data and authorization (OpenFGA) (14 of 64 done)
+### E3: Tenancy, data and authorization (OpenFGA) (15 of 64 done)
 
 | Story | Status | Title | Issue | Order |
 |---|---|---|---|---|
@@ -546,7 +546,7 @@ Outside the product. Worked only when the owner asks.
 | F3.9.S5 | done | OpenShift Local: staging and prod in inkcast-staging and inkcast-prod, OpenFGA on one shared CloudNativePG cluster in inkcast-db (a database and a login role per side, pg_hba gating each role to its own database over TLS, a NetworkPolicy admitting 5432 from OpenFGA's pods only); passwords one Secret per side, written once by scripts/deploy/openfga-db-credentials.sh; the private image's pull Secret named on the ServiceAccount and on every Inkcast-image pod spec, in the environments only (scripts/deploy/ghcr-pull-secret.sh) | [#296](https://github.com/inkcasthq/inkcast/issues/296) | 1 (W1) |
 | F3.9.S6 | done | Write and pin the OpenFGA model from the deployment, with no manual step: the init container authz-model (components/openfga) runs inkcast authz write-model with the pod's own image before the server, on every pod start; INKCAST_FGA_STORE_NAME pins by name at start-up (the store and the version equal to the packaged model), with a named refusal while they are missing | [#315](https://github.com/inkcasthq/inkcast/issues/315) |  |
 | F3.9.S7 | done | The cluster generates every environment Secret: no secret scripts, no copied values (inkcast env-secrets, the init container of OpenFGA's pod in each lab environment, components/env-secrets) | [#323](https://github.com/inkcasthq/inkcast/issues/323) |  |
-| F3.9.S8 | planned | OpenFGA's schema migration runs as an init container: no Job to delete and re-apply | [#337](https://github.com/inkcasthq/inkcast/issues/337) | 2 (W1) |
+| F3.9.S8 | done | OpenFGA's schema migration runs as an init container: no Job to delete and re-apply | [#337](https://github.com/inkcasthq/inkcast/issues/337) | 2 (W1) |
 | F3.10.S1 | done | libs/cache: CacheBackend, MemoryCache, RedisCache (RESP client), FakeRedis, distributed rate limiter with fallback; INKCAST_CACHE_URL/INKCAST_CACHE_PASSWORD |  |  |
 | F3.10.S2 | planned | Valkey Kustomize component (OpenShift restricted-v2, non-root image, mirrored), egress NetworkPolicy rule for 6379 (namespace + pod selectors), password from the secrets store; kind CI runs split mode with Valkey |  | 49 (W4) |
 | F3.10.S3 | planned | PostgreSQL egress rule (5432) and PgBouncer Pooler; the same for OpenFGA's database |  | 48 (W4) |

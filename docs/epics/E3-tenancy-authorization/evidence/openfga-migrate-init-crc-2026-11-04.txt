@@ -1,0 +1,16 @@
+# F3.9.S8 (#337) on OpenShift Local: OpenFGA's migration as an init container, after env-secrets, under restricted-v2.
+# inkcast-staging deployed from main eb76d3c (promotion #443, sha256:42887e7df09f); the openfga-migrate Job the repository
+# no longer renders was deleted from the namespace after the rollout. No Secret value is in this output.
+measured 2026-11-04T15:22:07Z on CRC 2.64.0+, OpenShift 4.22.14
+deploy/openfga: strategy Recreate; init containers env-secrets migrate; image ghcr.io/cloudnative-pg/postgresql:18.6-system-trixie@sha256:44d17e8570dc25055376148a2918840def5bef0193969be3e79101afa25eafc2
+pod/openfga-558b65c6c6-szpnx: scc=restricted-v2 init exit codes=0 0 ready=true restarts=0
+-- migrate init container log
+2026-11-04T15:13:41Z migrate: database reachable (0 failed attempts); taking the migration lock 1473304569
+2026-11-04T15:13:41Z migrate: migration lock taken by pid 18943 at 2026-11-04 15:13:41.34771+00
+2026-11-04T15:13:41Z migrate: lock held by pid 18943, running openfga migrate
+{"level":"info","timestamp":1793805221.55139,"msg":"db info","build.version":"v1.22.0","build.commit":"a38d5d0f65a964b6030e0b1afd2a831f62309159","current version":6}
+{"level":"info","timestamp":1793805221.5516338,"msg":"running all migrations","build.version":"v1.22.0","build.commit":"a38d5d0f65a964b6030e0b1afd2a831f62309159"}
+{"level":"info","timestamp":1793805221.5531769,"msg":"migration done","build.version":"v1.22.0","build.commit":"a38d5d0f65a964b6030e0b1afd2a831f62309159"}
+2026-11-04T15:13:41Z migrate: migration lock released by pid 18943 at 2026-11-04 15:13:41.55894+00
+2026-11-04T15:13:41Z migrate: done
+-- jobs named openfga-migrate in inkcast-staging: 0
