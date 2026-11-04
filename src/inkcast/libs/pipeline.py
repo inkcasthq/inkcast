@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from .platforms import Account, Platform, PlatformError, Prepared
+from .platforms.base import wait_text
 from .config import RetryPolicy
 from .db import Store
 from .db.posts import backfill
@@ -37,6 +38,13 @@ from .events import DomainEvent
 log = logging.getLogger(__name__)
 
 STUCK_AFTER = 600  # a post 'publishing' for longer than this was interrupted (the HTTP timeout is 30 s)
+
+
+def _sentence(text: str) -> str:
+    """``text`` ended as a sentence, so the next one reads apart: "Could not reach X: [Errno 61] Connection refused"
+    has no full stop of its own (#445)."""
+    text = text.rstrip()
+    return text if text.endswith((".", "!", "?")) else f"{text}."
 
 
 def _named(url: str | None, remote_id: str | None) -> str:
@@ -679,9 +687,10 @@ class Publisher:
                     raise Disconnected(f"{exc} Post {post_id} was not resent and is still unconfirmed. {reconnect}") from exc
                 # A check that can't be made just now (a 429, unreachable): the send would very likely fail the same
                 # way, and a resend's send is never queued, so the old post would be cancelled for a new one that fails
-                # at once (#445). Refused instead, for now: the wait is the platform's Retry-After, when it gave one.
-                raise Unavailable(f"{exc} Post {post_id} was not resent and is still unconfirmed. Try again "
-                                  f"{self._wait(platform, getattr(exc, 'retry_after', None))}.") from exc
+                # at once (#445). Refused instead, for now: the wait is the platform's Retry-After, when it gave one,
+                # in the words its own 429 uses, so a reply that quotes both states one wait.
+                raise Unavailable(f"{_sentence(str(exc))} Post {post_id} was not resent and is still unconfirmed: "
+                                  f"resend it {wait_text(exc.retry_after)}.") from exc
             # Read again: a disconnect while verify was out would cancel the old post for a new one that fails at once.
             connected = self.store.get_credentials(user_id, platform.id)
         if not connected:
@@ -697,16 +706,6 @@ class Publisher:
             raise self._not_resendable(post_id, self.store.get_post(post_id) or row)
         prepared = Prepared.from_dict(json.loads(row["payload"]))
         return await self._send(new_id, user_id, platform, prepared, attempts=1, held=0)
-
-    @staticmethod
-    def _wait(platform: Platform, asked: Any) -> str:
-        """When to try a refused resend again: the platform's Retry-After (``asked``, seconds; None or unreadable for
-        none, as ``_asked_beyond_cap`` reads it), or a few minutes."""
-        try:
-            seconds = math.ceil(float(asked)) if asked is not None else 0
-        except (TypeError, ValueError, OverflowError):  # a string; nan; inf
-            seconds = 0
-        return f"in {seconds} s, as {platform.name}'s Retry-After asks" if seconds > 0 else "in a few minutes"
 
     def _not_resendable(self, post_id: str, current: dict[str, Any]) -> PlatformError:
         """Why ``current`` can't be resent: it isn't 'unconfirmed'. One resent already names the post that resend made

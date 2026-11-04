@@ -41,7 +41,7 @@ class FindingARetryableVerifyErrorRefusesTheResend(RateLimitedCheck):
         message = caught.exception.message
         self.assertIn("Findable rate limit hit.", message)
         self.assertIn(f"Post {old_id} was not resent and is still unconfirmed", message)
-        self.assertIn("Try again in 900 s", message, "the platform's Retry-After is not named")
+        self.assertIn("resend it in 15 minutes.", message, "the platform's Retry-After is not named")
         self.assertEqual((self.status(old_id), len(self.posts()), self.platform.sent, self.platform.verified),
                          ("unconfirmed", 1, [], 1), "something was cancelled or sent")
         self.assertEqual([t for t, _, _ in self.events(old_id)], [], "a decision was recorded")
@@ -54,7 +54,7 @@ class FindingARetryableVerifyErrorRefusesTheResend(RateLimitedCheck):
             asyncio.run(self.service.resend(self.user, old_id))
         self.assertEqual((caught.exception.status, caught.exception.code), (409, "platform_unavailable"))
         self.assertIn("Findable is unreachable.", caught.exception.message)
-        self.assertIn("Try again in a few minutes", caught.exception.message)
+        self.assertIn("resend it shortly.", caught.exception.message)
         self.assertEqual((self.status(old_id), len(self.posts()), self.platform.sent), ("unconfirmed", 1, []))
 
 
