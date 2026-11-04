@@ -43,7 +43,7 @@ class OldEntry(SyncHarness):
 
     def assert_waits_for_an_edit(self, result) -> None:
         self.assertEqual((result.action, result.status, result.post_id), ("skipped", "unconfirmed", None))
-        self.assertIn("edit this file to publish it as a new post", result.message, "the person is not told what to do")
+        self.assertIn("edit this file: the edit is published as a new post", result.message, "the person is not told what to do")
         self.assertIn("no post of it to resend or cancel", result.message)
         self.assertIn(f"remove the first copy on {self.platform.name} if it did arrive", result.message)
         self.assertNotIn("inkcast_resend", result.message, "a resend of a post that doesn't exist")

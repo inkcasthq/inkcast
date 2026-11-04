@@ -489,7 +489,7 @@ class GitSync:
         platform (#444, option B). ``said``: what the platform said, or that this dry run asked it nothing."""
         return (f"The last publish to {platform.name} may or may not have gone through, and {said}. Inkcast has no post of "
                 f"it to resend or cancel, and never publishes it again on its own: check {platform.name}, then edit this "
-                f"file to publish it as a new post, and remove the first copy on {platform.name} if it did arrive.")
+                f"file: the edit is published as a new post, so remove the first copy on {platform.name} if it did arrive.")
 
     def _after_error(self, user_id: str, src: str, path: str, pid: str, digest: str, post_id: str | None,
                      said: str | None = None) -> None:
