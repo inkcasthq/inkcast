@@ -1,14 +1,18 @@
 # SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 # Copyright 2026 ScalarOps Technologies LLC
-"""Issue #112, item 5: an erasure stays one erasure, and a key rotation cannot silently leave people un-erased.
+"""Issue #112, items 5 and 6: an erasure stays one erasure, a key rotation cannot silently leave people un-erased, and
+a copy taken after an erasure carries none of the deleted content.
 
-* A second erasure of a person already erased neither counts nor audits again: the Keycloak sync's ``erase_person``
-  runs twice on the same row as read, as two passes or two replicas would, and the record, the counter and the log
-  all say one (in place since #102; kept as a regression test).
+* A second erasure of a person already erased neither counts nor audits again (item 5): the Keycloak sync's
+  ``erase_person`` runs twice on the same row as read, as two passes or two replicas would, and the record, the
+  counter and the log all say one (in place since #102; kept as a regression test).
 * The record of an erasure carries the hash stored with the person's row (#113), so a rotation of ``INKCAST_SECRET_KEY``
   does not stop a restored row from matching it. The one case left is a row that had no hash in the backup (one from
   before the column) and is filled under the current key: if the key was rotated since the record was made, nothing
-  matches. The start-up that fills rows beside existing records warns, with counts only."""
+  matches. The start-up that fills rows beside existing records warns, with counts only (item 5).
+* ``PRAGMA secure_delete`` is on for every connection the store opens (item 6), so a deleted person's content is
+  overwritten rather than left in free pages, and a backup taken after the erasure carries none of it; the image's
+  SQLite is built with it on, and this pins it whatever the build (this machine's is not)."""
 
 import logging
 import pathlib
@@ -17,9 +21,11 @@ import shutil
 import sqlite3
 import tempfile
 import unittest
+import uuid
 
 from inkcast.libs.config import Config
 from inkcast.libs.db import Store
+from inkcast.libs.db.backup import take_backup
 from inkcast.libs.runtime import open_store
 from inkcast.services.identity.keycloak_sync import erase_person
 
@@ -116,6 +122,36 @@ class AFillBesideRecords(unittest.TestCase):
         raw.close()
         with self.assertNoLogs("inkcast.runtime", logging.WARNING):
             open_store(self.config).close()                            # filled, but no record to miss
+
+
+class DeletedContent(unittest.TestCase):
+    def setUp(self):
+        self.dir = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.db = self.dir / "inkcast.db"
+        self.store = Store(str(self.db), KEY)
+        self.addCleanup(self.store.close)
+
+    def test_every_store_connection_overwrites_deleted_content(self):
+        self.assertEqual(self.store._conn.execute("PRAGMA secure_delete").fetchone()[0], 1)
+        other = Store(str(self.db), KEY)
+        self.addCleanup(other.close)
+        self.assertEqual(other._conn.execute("PRAGMA secure_delete").fetchone()[0], 1)
+
+    def test_a_backup_taken_after_an_erasure_holds_nothing_of_the_person(self):
+        marker = "copies-112-" + uuid.uuid4().hex
+        user = self.store.upsert_user(f"oidc:kc#{marker}", marker, f"{marker}@example.test", marker)
+        for i in range(20):
+            self.store.create_post(group_id=f"g{i}", user_id=user["id"], platform="fake", title=f"{marker} {i}",
+                                   status="scheduled", run_at=4e9, payload={**PAYLOAD, "body": f"{marker} " * 50})
+        self.store.upsert_user("oidc:kc#bob", "Bob", None, None)       # someone stays: the tables are not dropped
+        b = take_backup(self.db, self.dir / "backups", version="test", now=4e9)
+        self.assertTrue(marker.encode() in b.path.read_bytes(), "before the erasure, the backup holds them")
+        self.assertEqual(self.store.erase_user(user["id"])["posts"], 20)
+        after = take_backup(self.db, self.dir / "backups", version="test", now=4e9 + 1)
+        self.assertFalse(marker.encode() in after.path.read_bytes(), "after it, nothing of them is in the copy")
+        self.store._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        self.assertFalse(marker.encode() in self.db.read_bytes(), "nor in the database file's free space")
 
 
 if __name__ == "__main__":

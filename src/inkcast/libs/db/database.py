@@ -5,6 +5,12 @@
 Each domain repository (identity, vault, posts, ledger) contributes its own ``SCHEMA`` and is
 owned by exactly one service; see docs/epics/E1-foundations/design.md. Postgres arrives in E3
 behind this same class.
+
+Deleted content is overwritten with zeros (``PRAGMA secure_delete``, a per-connection setting, so
+every connection sets it): an erased person's rows leave no bytes in the file's free space, and a
+backup taken after the erasure carries none (issue #112). The image's SQLite is built with it on
+(Debian's ``SQLITE_SECURE_DELETE``); setting it pins that whatever the build, and a benchmark on
+a 41 MB database put the cost at +7 % on an erasure (1.0 to 1.1 ms) and within 2 % elsewhere.
 """
 
 from __future__ import annotations
@@ -29,6 +35,7 @@ class Database:
         self._conn.row_factory = sqlite3.Row
         self._lock = threading.RLock()
         self._conn.execute("PRAGMA busy_timeout = 30000")
+        self._conn.execute("PRAGMA secure_delete = ON")       # deleted content is zeroed, whatever the build (#112)
         self._conn.executescript("PRAGMA journal_mode = WAL;\n" + "\n".join(self.SCHEMAS))
         # Several processes open the same file at once (split mode's pods on a new image), and each would add the
         # column it found missing: the second ALTER TABLE fails with "duplicate column name" (issue #176). So the

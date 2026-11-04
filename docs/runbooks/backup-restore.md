@@ -29,7 +29,7 @@ The copy only counts if all of these hold:
 
 Retention removes the copies `INKCAST_BACKUP_KEEP` or more days old (the day in the file's name, UTC), and only after a good backup. A failed backup removes nothing, so while the CronJob fails the older copies stay: that is what [InkcastBackupMissing](alerts.md#inkcastbackupmissing) reports, and the first good backup removes them.
 
-**A backup is as sensitive as the database.** Platform credentials inside it are encrypted with `INKCAST_SECRET_KEY`, so the backup is useless without that key, and the two must never be stored together. Files are written `0640`, and the backup pod has no network at all (its NetworkPolicy denies everything).
+**A backup is as sensitive as the database.** Platform credentials inside it are encrypted with `INKCAST_SECRET_KEY`, so the backup is useless without that key, and the two must never be stored together. Files are written `0640`, and the backup pod has no network at all (its NetworkPolicy denies everything). Deleted content is overwritten in the database (`PRAGMA secure_delete`, set by every connection the server opens), so a backup taken after an erasure carries none of the erased rows' bytes in its free space; one taken before holds them whole, until it ages out.
 
 ## Take one now
 
