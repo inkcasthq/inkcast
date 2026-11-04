@@ -587,7 +587,9 @@ class KeycloakSync:
                 self._person_failed(str(user["id"]), "reconcile", exc)
                 continue
             read.append((user, keycloak_id, state))
-            if state != "deleted":
+            if state != "deleted":                   # Keycloak has them: they leave a pass now, pending or claimed by
+                self.store.release_breaker_people(   # an operator since, not after the people still to read (#161)
+                    [str(user["id"])], None if state == "active" else BREAKER_GONE)    # present, still disabled: as gone
                 continue
             try:                                     # their events now, before the people known to hang use the budget
                 if await self.deleted_own_account(keycloak_id):
@@ -601,10 +603,6 @@ class KeycloakSync:
         disabled = [(user, keycloak_id) for user, keycloak_id, state in read if state == "disabled"]
         held = self._breaker(gone, disabled, len(read), untried)
         deferred = held is None                      # the breaker could not count: what it would hold waits (#152)
-        # Keycloak has them again: a pass that held them, pending or claimed by an operator since the reads (#161),
-        # no longer does, so its confirmation does not cut them off. One read when no pass holds anyone.
-        self.store.release_breaker_people([str(user["id"]) for user, _, state in read if state == "active"])
-        self.store.release_breaker_people([str(user["id"]) for user, _ in disabled], BREAKER_GONE)   # present, still disabled
         for user, keycloak_id, state in read:
             if state == "deleted":
                 continue
