@@ -246,30 +246,48 @@ class Publisher:
 
         self._observe("inkcast_publish_duration_seconds", time.perf_counter() - started, platform=platform.id)
         status = result.status if result.status in ("draft", "unlisted") else "published"
-        # Only at this send's own attempt count (``held``). A success is the truth about this request, so it is written
-        # over whatever the post became at that count while the send was out past STUCK_AFTER: taken over as stuck,
-        # cancelled (the post is out, and the person needs its URL to remove it: #216). Once another worker has re-sent
-        # the post (an attempt on) and that send is out or has answered, the row is that send's: this answer must not
-        # replace its outcome, nor undo its send in flight (#214). A re-send that certainly never took effect (queued
-        # again, 'failed', or cancelled while it waited) leaves this success the only copy, so it is written: the
-        # retry would post it twice (``unless_resent_since``). Otherwise the caller is told what the post is now
-        # (``_as_now``), and the answer is logged: its URL or id is the only record of a copy the post no longer names.
+        # The platform's success is the truth, and wins (#214): it is written over whatever the post became while this
+        # send was out past STUCK_AFTER. Taken over as stuck; cancelled (the post is out, and the person needs its URL to
+        # remove it: #216); re-sent by another worker and queued again, 'failed' or cancelled (that request never took
+        # effect: this copy is the only one). A re-send still out, or answered without saying (recovering, unconfirmed,
+        # cancelled from one of those), may have arrived too: this copy is recorded and that one noted, in #226's words,
+        # for the person to check; its own late answers then fall to the fences above (a failure or a 429 over a
+        # published post is refused, so nothing is sent again, and the URL stays). The one thing a success never
+        # replaces is another send's confirmed copy already on the row (``unless_other_copy``): the platform has two
+        # posts, the row keeps the one it names, and this one is noted beside it.
+        notes = list(result.notes)
+        before = self.store.get_post(post_id)
+        if before is not None and before["attempts"] != held and before["status"] not in ("scheduled", "failed"):
+            notes.append(f"Attempt {before['attempts']} was sent by another worker while this one was out, and may have "
+                         f"arrived too: a second copy may be on {platform.name}. Check {platform.name}, and remove the "
+                         f"extra copy there if it is.")
         written = self.store.update_post(post_id, status=status, result_url=result.url, remote_id=result.remote_id,
-                                         error="; ".join(result.notes) or None, unless_resent_since=held,
+                                         error="; ".join(notes) or None, unless_other_copy=(result.remote_id, result.url),
                                          events=self._event("post.published", post_id, user_id, platform.id, status=status,
                                                             scheduled=scheduled, attempts=attempts,
                                                             lag_seconds=round(lag, 3) if lag is not None else None))
-        answer = Outcome(platform.id, status, post_id=post_id, url=result.url, notes=result.notes, prepared=prepared,
+        answer = Outcome(platform.id, status, post_id=post_id, url=result.url, notes=notes, prepared=prepared,
                          remote_id=result.remote_id)
-        outcome = self._as_now(written, answer)
         if written:
             self._count(platform.id, status)
-        else:  # re-sent by another worker (an attempt on), or the row is gone (its owner erased: ``_as_now`` kept the answer)
-            log.warning("Post %s on %s: a send taken over as stuck answered %s (%s), but the post is not this send's any "
-                        "more (%s), so that answer is not recorded", post_id, platform.id, status,
-                        result.url or result.remote_id, "erased" if outcome is answer else f"{outcome.status} now",
-                        extra={"event": "publish.late_answer", "post_id": post_id, "platform": platform.id})
-        return outcome
+            if len(notes) > len(result.notes):
+                log.warning("Post %s on %s was published by a send taken over as stuck; attempt %s, sent meanwhile, may "
+                            "have posted a second copy", post_id, platform.id, before["attempts"],
+                            extra={"event": "publish.second_copy", "post_id": post_id, "platform": platform.id})
+            return answer
+        now = self.store.get_post(post_id)
+        if now is None:  # erased meanwhile: the row is left alone, and the send keeps its answer (as ``_as_now``)
+            return answer
+        extra = (f"Attempt {attempts} also published this post ({result.url or result.remote_id}): a second copy is on "
+                 f"{platform.name}. Remove the extra copy there.")
+        self.store.update_post(post_id, error=f"{now['error']}; {extra}" if now["error"] else extra,
+                               only_if=now["status"], if_attempts=now["attempts"])
+        log.warning("Post %s on %s: attempt %s answered %s (%s), but the post already records another send's copy (%s); "
+                    "the platform has two", post_id, platform.id, attempts, status, result.url or result.remote_id,
+                    now["result_url"] or now["remote_id"],
+                    extra={"event": "publish.second_copy", "post_id": post_id, "platform": platform.id})
+        return Outcome(platform.id, now["status"], post_id=post_id, url=now["result_url"], remote_id=now["remote_id"],
+                       message=now["error"])
 
     def _crashed(self, post_id: str, user_id: str, platform: Platform, exc: BaseException, held: int = 0) -> Outcome:
         """A plug-in bug while sending. It may have crashed after the platform accepted the post (reading the reply),

@@ -2,22 +2,25 @@
 # Copyright 2026 ScalarOps Technologies LLC
 """Issue #214 (from the adversarial reviews of PRs #189 and #192): the writes after a send, and an empty 2xx.
 
-1. The writes after a send must be the send's own: a worker whose claim expired (its send outlasted STUCK_AFTER and
-   another worker took the post over and re-sent it) must not overwrite that worker's outcome. The failure writes
-   were fenced by #226 (``only_if="publishing", if_attempts=held``; tests/test_person_decides.py), and the uncertain
-   write yields to a cancel and to a lookup that found this very send. The success write had no fence at all: a late
-   2xx wrote 'published' over another worker's re-send while its request was still out, and over that re-send's own
-   record. Fixed here with the attempt count alone (``if_attempts=held``), not the status: a success is the truth
-   about its request, and #216 decided it is written over a cancel (tests/test_review_recovering_posts.py), so only a
-   re-send by another worker makes the row not this send's.
+1. The writes after a send and the claim. The failure writes were fenced by #226 (``only_if="publishing",
+   if_attempts=held``; tests/test_person_decides.py), and the uncertain write yields to a cancel and to a lookup that
+   found this very send. The success write had no fence at all, and the PR's first fence (the attempt count alone)
+   dropped a late success wrongly: its re-send's failure then read 'failed' with the post out, and its 429 posted it
+   twice (the review of PR #390). The rule now: **the platform's success is the truth and wins.** A late 2xx is written
+   over whatever the post became while the send was out (taken over as stuck; cancelled, as #216 decided; re-sent and
+   queued again, failed or cancelled), except over another send's confirmed copy already on the row. Where the platform
+   may have two copies (the re-send was still out or answered without saying; both sends succeeded) the row keeps one
+   URL and its error names the other, for a person to remove (``publish.second_copy``). The re-send's own late answers
+   then fall to #226's fences: a failure or a 429 over a published post is refused, so nothing is sent again.
 2. A 2xx that names neither the post's URL nor its id (a 204, a 202 with no body, a JSON body without the post) marked
    the post 'published' with nothing to find it by. The platform accepted the request (RFC 9110 §15.3), so the post is
    probably out, but where is unknown: that is an uncertain answer, 'unconfirmed' for a person like a lost one. Fixed
-   here at the one place a post is marked 'published', so every plug-in is covered.
+   at the one place a send is marked 'published', and at ``confirm``, which both recovery and Git sync's check read.
 3. 301/302 on a create stay definite failures, by design: see ``RedirectsOnACreate``.
 
-The ``LateSuccess…`` tests and the ``EmptySuccess…`` tests (but the id-or-URL-alone one) failed on main before the fix
-committed with them; the ``Held…`` tests, that one and item 3's pin what holds."""
+The ``LateSuccess…`` and ``EmptySuccess…`` tests (but the id-or-URL-alone one) and ``EveryPlaceAPostIsMarkedPublished``
+failed on main, or on the PR's earlier head, before the fix committed with them; the ``Held…`` tests, that one and
+item 3's pin what holds."""
 
 import asyncio
 import logging
@@ -34,12 +37,14 @@ from inkcast.libs.platforms import Account, Platform, PlatformError, Prepared, P
 from inkcast.libs.platforms.devto import DevtoPlatform
 from inkcast.libs.platforms.medium import MediumPlatform
 
+DAY = 24 * 3600
+
 
 class Findable(Platform):
     """A platform that can be checked (``find``): it finds what reached it (``sent``), or refuses every lookup with a
-    429 while ``refuse`` is set. ``during_publish(prepared)`` (an async hook) runs inside the next publish while the
-    request is out, before it reaches the platform; it unsets itself first. ``answer`` is what the next publish
-    returns instead of the usual result."""
+    429 while ``refuse`` is set, or finds it without naming it while ``nameless`` is set. ``during_publish(prepared)``
+    (an async hook) runs inside the next publish while the request is out, before it reaches the platform; it unsets
+    itself first. ``answer`` is what the next publish returns instead of the usual result, or raises."""
 
     id, name, default_api_url, credential_fields = "findable", "Findable", "https://findable.invalid", []
     capabilities = frozenset({"find"})
@@ -48,8 +53,9 @@ class Findable(Platform):
         super().__init__(httpx2.AsyncClient())
         self.sent: list[str] = []
         self.refuse = False
+        self.nameless = False
         self.during_publish = None
-        self.answer: PublishResult | None = None
+        self.answer: PublishResult | PlatformError | None = None
 
     async def verify(self, creds):
         return Account(id="1", name="findable")
@@ -61,17 +67,24 @@ class Findable(Platform):
         if self.during_publish:
             hook, self.during_publish = self.during_publish, None
             await hook(prepared)
-        self.sent.append(prepared.title)
         if self.answer is not None:
             answer, self.answer = self.answer, None
+            if isinstance(answer, Exception):
+                raise answer
+            self.sent.append(prepared.title)
             return answer
+        self.sent.append(prepared.title)
         return PublishResult(url=f"https://findable/{len(self.sent)}", remote_id=str(len(self.sent)), status="published")
 
     async def find_existing(self, creds, account, prepared):
         if self.refuse:
             raise PlatformError("Findable rate limit hit; try again in 15 minutes.", retryable=True, retry_after=900)
-        return (PublishResult(url="https://findable/found", remote_id="found", status="published")
-                if prepared.title in self.sent else None)
+        if prepared.title not in self.sent:
+            return None
+        if self.nameless:
+            return PublishResult(url=None, remote_id=None, status="published")
+        n = self.sent.index(prepared.title) + 1                               # the copy as publish named it
+        return PublishResult(url=f"https://findable/{n}", remote_id=str(n), status="published")
 
 
 class Harness(unittest.TestCase):
@@ -109,17 +122,100 @@ class Harness(unittest.TestCase):
     def published_events(self, post_id: str) -> int:
         return sum(1 for e in self.store.poll("audit", limit=200) if e.subject == post_id and e.type == "post.published")
 
+    def second_copies(self, logged) -> list[str]:
+        return [r.getMessage() for r in logged.records if getattr(r, "event", None) == "publish.second_copy"]
 
-# ---- item 1: the success write is the send's own, at its attempt count, like the failure writes ----------------
+
+# ---- item 1: a send's late success is the platform's truth, and wins ---------------------------------------------
 
 
-class LateSuccessIsNotWrittenOverAnotherWorkersSend(Harness):
-    def test_a_success_landing_after_another_worker_re_sent_the_post_keeps_that_workers_record(self):
+class LateSuccessIsTheTruth(Harness):
+    def a_success_lands_while_b_re_sends(self, b_answer: PlatformError | None = None) -> tuple[str, list, list]:
         """Worker A's send is out past STUCK_AFTER. Worker B's stuck pass takes the post over, is told "missing" (A's
-        request has not arrived yet), re-queues it and sends it: 'published' with B's URL, at one attempt more. A's
-        2xx then lands. Written unconditionally, it replaced B's URL and id with A's and wrote a second post.published
-        event: the row named A's copy, the ledger and the person B's. A's answer is written only at A's own attempt
-        count, logged otherwise, and A is told what the post is now."""
+        request has not arrived yet), re-queues it and starts sending it; B's request is out when A's 2xx lands. B's
+        request then answers: a success, or ``b_answer`` (raised before it reaches the platform)."""
+        post_id = self.post()
+        b = self.replica()
+        b_out, release = asyncio.Event(), asyncio.Event()
+        seen = []
+
+        async def b_sends(prepared):                                          # inside B's publish: hold its request
+            b_out.set()
+            await release.wait()
+            if b_answer is not None:
+                raise b_answer
+
+        async def while_a_waits(prepared):                                    # inside A's publish
+            self.platform.during_publish = b_sends
+            self.tasks.append(asyncio.create_task(b.run_due(now=time.time() + STUCK_AFTER + 1)))   # B: missing → re-queued → sending
+            await b_out.wait()
+            seen.append(("b out", self.status(post_id), self.store.get_post(post_id)["attempts"]))
+
+        async def run():
+            self.tasks = []
+            (outcome,) = await self.publisher.run_due(now=time.time())        # A's tick: its 2xx lands while B's is out
+            seen.append(("a done", self.status(post_id), outcome.status, outcome.url))
+            release.set()
+            await asyncio.gather(*self.tasks)
+            post = self.store.get_post(post_id)
+            seen.append(("b done", post["status"], post["result_url"]))
+
+        self.platform.during_publish = while_a_waits
+        with self.assertLogs("inkcast.libs.pipeline", level="WARNING") as logged:
+            asyncio.run(run())
+        return post_id, seen, self.second_copies(logged)
+
+    def test_a_success_landing_while_another_worker_re_sends_is_written_and_both_copies_are_named(self):
+        """Reversed from the PR's first head (bdecbf2), which refused A's success here (the attempt-count fence) and
+        pinned the post 'publishing' until B answered. The review measured what that cost: when B's send then failed,
+        the post read 'failed' with no URL though A's copy was out; when B got a 429, the post went out a third time.
+        The integrator's rule: the platform's success is the truth and wins. A's 2xx is written over B's send in
+        flight, with a note that attempt 2 may have arrived too; B's own success is then refused (A's copy is on the
+        row) and noted beside it, so the person has both URLs and removes the extra copy."""
+        post_id, seen, logged = self.a_success_lands_while_b_re_sends()
+        self.assertEqual(seen[0], ("b out", "publishing", 2))
+        self.assertEqual(seen[1], ("a done", "published", "published", "https://findable/1"), "A's success was dropped")
+        self.assertEqual(seen[2], ("b done", "published", "https://findable/1"), "B's copy replaced A's on the row")
+        post = self.store.get_post(post_id)
+        self.assertEqual((post["remote_id"], post["attempts"], self.platform.sent), ("1", 2, ["t", "t"]))
+        self.assertIn("Attempt 2 was sent by another worker while this one was out, and may have arrived too", post["error"])
+        self.assertIn("Attempt 2 also published this post (https://findable/2)", post["error"])
+        self.assertIn("remove the extra copy", post["error"].lower())
+        self.assertEqual(self.published_events(post_id), 1, "one record, one event")
+        self.assertEqual(len(logged), 2, "A's override and B's refused copy are both in the log")
+        self.assertIn("https://findable/2", logged[1])
+
+    def test_the_re_sends_definite_failure_after_it_is_refused_and_the_url_stays(self):
+        post_id, seen, _ = self.a_success_lands_while_b_re_sends(PlatformError("Findable refused the post (422)."))
+        self.assertEqual(seen[1:], [("a done", "published", "published", "https://findable/1"),
+                                    ("b done", "published", "https://findable/1")], "B's failure was written over A's copy")
+        self.assertEqual(asyncio.run(self.publisher.run_due(now=time.time() + DAY)), [])
+        self.assertEqual(self.platform.sent, ["t"])
+        self.assertIn("may have arrived too", self.store.get_post(post_id)["error"])
+
+    def test_the_re_sends_429_after_it_is_refused_and_nothing_is_sent_again(self):
+        post_id, seen, _ = self.a_success_lands_while_b_re_sends(
+            PlatformError("Findable rate limit hit; try again in 1 minute.", retryable=True, retry_after=60))
+        self.assertEqual(seen[1:], [("a done", "published", "published", "https://findable/1"),
+                                    ("b done", "published", "https://findable/1")], "B's retry was queued over A's copy")
+        for later in (120, DAY):
+            self.assertEqual(asyncio.run(self.publisher.run_due(now=time.time() + later)), [], "sent again")
+        self.assertEqual((self.status(post_id), self.platform.sent), ("published", ["t"]))
+
+    def test_the_re_sends_uncertain_answer_after_it_keeps_the_url_and_the_note(self):
+        """B's request may have arrived too; A's note already says so, and A's URL stays on the row."""
+        post_id, seen, _ = self.a_success_lands_while_b_re_sends(
+            PlatformError("Findable timed out after the request was sent.", uncertain=True))
+        self.assertEqual(seen[2], ("b done", "published", "https://findable/1"))
+        post = self.store.get_post(post_id)
+        self.assertIn("Attempt 2 was sent by another worker while this one was out, and may have arrived too", post["error"])
+        self.assertEqual(asyncio.run(self.publisher.run_due(now=time.time() + DAY)), [])
+
+    def test_a_success_landing_after_another_worker_re_sent_the_post_keeps_that_workers_copy_and_names_its_own(self):
+        """B's re-send has already published (B's URL, one attempt more) when A's 2xx lands. Written unconditionally
+        (main), it replaced B's URL and id and wrote a second post.published event: the row named A's copy, the ledger
+        and the person B's. A's copy is the extra one: refused, named in the row's error, logged, and A is told what
+        the post is now."""
         post_id = self.post()
         b = self.replica()
         seen = []
@@ -136,55 +232,19 @@ class LateSuccessIsNotWrittenOverAnotherWorkersSend(Harness):
         self.assertEqual((post["status"], post["result_url"], post["remote_id"], post["attempts"]),
                          ("published", "https://findable/1", "1", 2), "A's late success replaced B's record")
         self.assertEqual((outcome.status, outcome.url), ("published", "https://findable/1"), "what the post is now")
+        self.assertIn("Attempt 1 also published this post (https://findable/2)", post["error"])
         self.assertEqual(self.published_events(post_id), 1, "one record, one event")
         self.assertEqual(self.platform.sent, ["t", "t"], "two copies went out: the lookup raced A's request")
-        late = [r for r in logged.records if getattr(r, "event", None) == "publish.late_answer"]
-        self.assertEqual(len(late), 1, "the copy the post no longer names is in the log")
-        self.assertIn("https://findable/2", late[0].getMessage())
-
-    def test_a_success_landing_while_another_worker_re_sends_is_not_written_over_that_send(self):
-        """Worker A's send is out. Worker B's stuck pass takes the post, is told "missing" (A's request has not
-        arrived yet), re-queues it and starts sending it; B's request is out when A's 2xx lands. Written over B's
-        'publishing', the post read 'published' with A's URL while B's send was still out, and B's own answer then
-        wrote a second post.published event over it. A's answer is written only at A's own attempt count."""
-        post_id = self.post()
-        b = self.replica()
-        b_out, release = asyncio.Event(), asyncio.Event()
-        seen = []
-
-        async def b_sends(prepared):                                          # inside B's publish: hold its request
-            b_out.set()
-            await release.wait()
-
-        async def while_a_waits(prepared):                                    # inside A's publish
-            self.platform.during_publish = b_sends
-            self.tasks.append(asyncio.create_task(b.run_due(now=time.time() + STUCK_AFTER + 1)))   # B: missing → re-queued → sending
-            await b_out.wait()
-            seen.append(("b out", self.status(post_id), self.store.get_post(post_id)["attempts"]))
-
-        async def run():
-            self.tasks = []
-            (outcome,) = await self.publisher.run_due(now=time.time())        # A's tick
-            seen.append(("a done", self.status(post_id), outcome.status))
-            release.set()
-            await asyncio.gather(*self.tasks)
-
-        self.platform.during_publish = while_a_waits
-        asyncio.run(run())
-        self.assertEqual(seen[0], ("b out", "publishing", 2))
-        self.assertEqual(seen[1], ("a done", "publishing", "publishing"), "A's late success was written over B's send")
-        post = self.store.get_post(post_id)
-        self.assertEqual((post["status"], post["result_url"], post["attempts"]), ("published", "https://findable/2", 2))
-        self.assertEqual(self.published_events(post_id), 1, "one send's answer, one event")
+        self.assertEqual(len(self.second_copies(logged)), 1)
 
 
 class HeldTheSendersOwnSuccessIsStillWritten(Harness):
     def test_a_success_at_the_sends_own_attempt_count_is_the_truth_over_a_takeover_or_a_cancel(self):
-        """The fence is the attempt count alone, not the status: a 2xx says this request published the post, so it is
-        written over what the post became while the send was out, as long as nobody re-sent it. Over a takeover
-        whose lookup the platform refused ('recovering'): published, and the next stuck pass leaves it. Over the
-        person's cancel of that recovering post: published, as #216 decided (tests/test_review_recovering_posts.py:
-        the post is out, and the person needs its URL to remove it)."""
+        """A 2xx says this request published the post, so it is written over what the post became while the send was
+        out. Over a takeover whose lookup the platform refused ('recovering'): published, and the next stuck pass
+        leaves it. Over the person's cancel of that recovering post: published, as #216 decided
+        (tests/test_review_recovering_posts.py: the post is out, and the person needs its URL to remove it). No
+        other send was made, so nothing says a second copy."""
         for cancel in (False, True):
             with self.subTest(cancelled_meanwhile=cancel):
                 post_id = self.post()
@@ -200,10 +260,27 @@ class HeldTheSendersOwnSuccessIsStillWritten(Harness):
                 self.platform.during_publish = while_a_waits
                 (outcome,) = asyncio.run(self.publisher.run_due(now=time.time()))
                 post = self.store.get_post(post_id)
-                self.assertEqual((outcome.status, post["status"], post["attempts"]), ("published", "published", 1))
+                self.assertEqual((outcome.status, post["status"], post["attempts"], post["error"]),
+                                 ("published", "published", 1, None))
                 self.assertEqual(post["result_url"], outcome.url)
                 asyncio.run(b.run_due(now=time.time() + 2 * (STUCK_AFTER + 1)))   # the next stuck pass: nothing to do
                 self.assertEqual(self.status(post_id), "published")
+
+    def test_a_success_found_first_by_another_workers_lookup_is_the_same_copy_recorded_again(self):
+        """B's stuck pass finds A's post (A's request had arrived) and records it; A's own 2xx then names the same
+        post: not another copy, so it is written again, and nothing says a second copy."""
+        post_id = self.post()
+        b = self.replica()
+
+        async def while_a_waits(prepared):
+            self.platform.sent.append(prepared.title)                         # A's request has reached the platform
+            await b.run_due(now=time.time() + STUCK_AFTER + 1)                # B: recovering → found → published
+            self.platform.sent.pop()                                          # A's own publish appends it below
+
+        self.platform.during_publish = while_a_waits
+        (outcome,) = asyncio.run(self.publisher.run_due(now=time.time()))
+        post = self.store.get_post(post_id)
+        self.assertEqual((outcome.status, post["status"], post["remote_id"], post["error"]), ("published", "published", "1", None))
 
     def test_a_success_with_nobody_else_holding_the_post_is_recorded_from_every_entry_point(self):
         """The scheduler's claim holds the post at its attempt count; a "now" post's row and a resend's new row still
