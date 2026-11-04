@@ -60,7 +60,7 @@ import time
 from typing import Any, Mapping
 
 from ..kpi.store import MEMBER_ERASED, PERSON_DIMS
-from .database import Database
+from .database import Database, frame_count
 
 log = logging.getLogger(__name__)
 
@@ -243,9 +243,10 @@ class ErasureRepo(Database):
         """The erased rows' bytes out of the files on disk (issue #404): the transaction just committed left the zeroed
         pages in the write-ahead log and the person's own pages in the database file until a checkpoint, and the log
         keeps every frame it held until it is cut. ``checkpoint_wal`` does both. A reader on an older snapshot (a
-        backup's copy, another process's long read) keeps the log in use past the wait: the bytes then stay until
-        housekeeping's checkpoint, within HOUSEKEEPING_EVERY, and that is logged, with the frame count only. Whether
-        the files are clean now."""
+        backup's copy, another process's long read) keeps the log in use past the wait: the bytes then stay until a
+        housekeeping checkpoint cuts it (every HOUSEKEEPING_EVERY; a run a reader still holds off logs
+        ``scheduler.housekeeping.wal_pending``), and that is logged, with the frame count only. Whether the files are
+        clean now."""
         try:
             busy, frames, _ = self.checkpoint_wal()
         except sqlite3.Error as exc:
@@ -253,9 +254,9 @@ class ErasureRepo(Database):
                         "after the erasure failed (%s)", exc, extra={"event": "identity.erasure.wal_pending", "frames": -1})
             return False
         if busy:
-            log.warning("The erased rows' bytes stay in the write-ahead log (%d frames) until housekeeping's checkpoint: "
-                        "readers held an older snapshot", frames, extra={"event": "identity.erasure.wal_pending",
-                                                                         "frames": frames})
+            log.warning("The erased rows' bytes stay in the write-ahead log (%s) until housekeeping's checkpoint: another "
+                        "connection held it (a reader on an older snapshot, a writer, or another checkpoint)",
+                        frame_count(frames), extra={"event": "identity.erasure.wal_pending", "frames": frames})
         return not busy
 
     def backfill_erasure_hashes(self) -> int:

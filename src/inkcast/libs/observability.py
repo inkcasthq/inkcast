@@ -59,8 +59,17 @@ EVENTS: dict[str, tuple[str, str]] = {
     "http.request.rejected": ("warning", "A request was refused before a handler ran (body too large)."),
     "gateway.upstream.unreachable": ("critical", "The built-in Gateway could not reach a service."),
     "scheduler.tick.failed": ("critical", "A scheduler tick crashed; the next tick retries."),
-    "scheduler.housekeeping.failed": ("warning", "Housekeeping crashed (the outbox cursor sync, a purge or the orphan "
-                                                 "sweep); the ticks go on, and it is tried again HOUSEKEEPING_EVERY later."),
+    "scheduler.housekeeping.failed": ("warning", "Housekeeping crashed (the outbox cursor sync, a purge, the orphan "
+                                                 "sweep or the checkpoint, which runs after a step that crashed too); "
+                                                 "the ticks go on, and it is tried again HOUSEKEEPING_EVERY later."),
+    "scheduler.housekeeping.wal_pending": ("warning", "Housekeeping's checkpoint could not cut the write-ahead log: "
+                                                      "another connection held it past the wait (a reader on an older "
+                                                      "snapshot, as a backup's copy is; a writer; another checkpoint). "
+                                                      "What erasures and purges overwrote since the log was last cut "
+                                                      "stays in the -wal file until a run finds none, HOUSEKEEPING_EVERY "
+                                                      "later at the soonest; one line per run, with the frame count, -1 "
+                                                      "when another checkpoint held its lock. A volume snapshot taken "
+                                                      "meanwhile copies it (#470)."),
     "publish.unconfirmed": ("warning", "A platform may or may not have published a post; it is never retried automatically."),
     "publish.recovered": ("warning", "A post left 'publishing' by a restart was resolved: confirmed, rescheduled or unconfirmed."),
     "publish.recovery.deferred": ("warning", "A post left 'publishing' by a restart could not be checked yet (the platform "
@@ -99,10 +108,13 @@ EVENTS: dict[str, tuple[str, str]] = {
     "identity.erasure.reapplied": ("warning", "A restore brought back rows of a person erased before; they were erased again at "
                                               "start-up, before anything served (id and count only; not a new deletion)."),
     "identity.erasure.wal_pending": ("warning", "An erasure committed, but the checkpoint after it could not cut the "
-                                                "write-ahead log (a reader on an older snapshot, or it failed), so the "
-                                                "erased rows' bytes stay in the -wal file, and their pages in the database "
-                                                "file, until housekeeping's checkpoint within 30 minutes (frame count "
-                                                "only). A volume snapshot taken meanwhile copies them (#404)."),
+                                                "write-ahead log (another connection held it: a reader on an older "
+                                                "snapshot, a writer, another checkpoint; or it failed), so the erased "
+                                                "rows' bytes stay in the -wal file, and their pages in the database file, "
+                                                "until a housekeeping checkpoint cuts it: housekeeping runs every 30 "
+                                                "minutes, and each run still held off logs "
+                                                "scheduler.housekeeping.wal_pending (frame count only, -1 when not "
+                                                "counted). A volume snapshot taken meanwhile copies them (#404)."),
     "identity.erasure_hash.backfill": ("info", "The one-off fill of users.erasure_hash at start-up, after the upgrade to it or "
                                                "a restore of a backup from before it, one line per batch: rows filled so far, "
                                                "of the rows without a hash at this start, and batches. A start cut short "

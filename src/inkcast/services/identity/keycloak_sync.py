@@ -440,10 +440,11 @@ class KeycloakSync:
 
     # ---- what Inkcast does about it ------------------------------------------------------------------------
 
-    def _erase(self, user: dict[str, Any], via: str) -> bool:
+    async def _erase(self, user: dict[str, Any], via: str) -> bool:
         """``erase_person`` for ``user``, their row as this pass read it before it read Keycloak about them (#102);
-        whether rows were erased now."""
-        return any(erase_person(self.store, self.metrics, user, via).values())
+        whether rows were erased now. In a worker thread: the erasure's checkpoint can wait for a reader on an older
+        snapshot, and the process serves meanwhile (#470)."""
+        return any((await asyncio.to_thread(erase_person, self.store, self.metrics, user, via)).values())
 
     def _cut_off(self, user: dict[str, Any], state: str, via: str) -> bool | None:
         """``cut_off_person`` for ``user``, their row as this pass read it before it read Keycloak about them (#102):
@@ -533,7 +534,7 @@ class KeycloakSync:
             if not user:
                 continue
             try:
-                if await self.person(keycloak_id) == "deleted" and self._erase(user, "event"):
+                if await self.person(keycloak_id) == "deleted" and await self._erase(user, "event"):
                     done["erased"] += 1
             except PersonError as exc:
                 self._person_failed(str(user["id"]), "event", exc)
@@ -662,7 +663,7 @@ class KeycloakSync:
                 done["disabled"] += 1
         for user, keycloak_id, own_deletion in gone:
             if own_deletion:                         # an event the pass missed: erased, as the pass would have
-                if self._erase(user, "reconcile"):   # as listed: nothing in this pass has touched them since
+                if await self._erase(user, "reconcile"):   # as listed: nothing in this pass has touched them since
                     done["erased"] += 1
             elif held or deferred or self._signed_in_since(user):
                 continue                             # held for an operator, or Keycloak let them in after the 404
@@ -672,7 +673,7 @@ class KeycloakSync:
                 if burst and user.get("deleted_at") is not None and float(user["deleted_at"]) >= since:
                     continue                         # gone as listed, within the window: part of a burst still open
                 over = self._grace_over(user)        # their row now, cut off; what the erasure re-checks
-                if over is not None and self._erase(over, "reconcile"):
+                if over is not None and await self._erase(over, "reconcile"):
                     done["erased"] += 1
         return untried
 

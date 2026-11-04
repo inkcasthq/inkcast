@@ -27,15 +27,26 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+import time
 from contextlib import contextmanager
 from typing import Any, Iterator
 
 BUSY_TIMEOUT_MS = 30_000        # how long a statement waits for the write lock
 # How long a checkpoint waits for readers on an older snapshot before it gives up (busy): a statement's snapshot lasts
 # well under a millisecond, a backup's copy seconds, and a checkpoint that cannot complete is run again by housekeeping,
-# so it waits for the first and never for the second. Measured: 269 ms to give up against a held snapshot; 0.7 to 13 ms
-# to copy 0.85 to 27 MB of frames once the reader is gone (PR for #404).
+# so it waits for the first and never for the second. Measured: 256.7 to 264.2 ms to give up against a held snapshot,
+# in attempts WAL_CHECKPOINT_RETRY_MS apart (#470); 0.7 to 13 ms to copy 0.85 to 27 MB of frames once the reader is
+# gone (PR for #404).
 WAL_CHECKPOINT_WAIT_MS = 250
+# The pause between two attempts of that checkpoint: it waits here, outside SQLite, rather than in SQLite's busy
+# handler, which holds the database's write lock meanwhile (issue #470).
+WAL_CHECKPOINT_RETRY_MS = 10
+
+
+def frame_count(frames: int) -> str:
+    """``checkpoint_wal``'s frame count for a log line: SQLite answers -1 when another checkpoint held the lock, which
+    is no count at all (issue #470)."""
+    return f"{frames} frame(s)" if frames >= 0 else "frames not counted: another checkpoint held its lock"
 
 
 class Database:
@@ -106,17 +117,23 @@ class Database:
         and the write-ahead log cut to zero bytes, so nothing a transaction overwrote (an erased person's rows, #404)
         stays in either file. Returns the pragma's row, ``(busy, frames, checkpointed)``: ``busy`` is 1 when a reader on
         an older snapshot kept the log in use for longer than WAL_CHECKPOINT_WAIT_MS, and the log then keeps its frames
-        (``frames`` of them) until a checkpoint completes, which housekeeping runs every HOUSEKEEPING_EVERY. Under this
-        connection's lock, so no thread of this process reads meanwhile; other processes' writers wait while it runs
-        (their busy_timeout), their readers do not (sqlite.org/c3ref/wal_checkpoint_v2.html). Outside a transaction only:
-        the callers run it after their commit."""
-        with self._lock:
-            self._conn.execute(f"PRAGMA busy_timeout = {WAL_CHECKPOINT_WAIT_MS}")
-            try:
-                busy, frames, checkpointed = self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
-            finally:
-                self._conn.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
-        return int(busy), int(frames), int(checkpointed)
+        (``frames`` of them) until a checkpoint completes, which housekeeping runs every HOUSEKEEPING_EVERY. Each attempt
+        gives up at once (no busy handler: it would hold the database's write lock while it waits, and a write from
+        any connection would wait with it; sqlite.org/c3ref/wal_checkpoint_v2.html), under this connection's lock for
+        the attempt alone, so this process reads and writes between attempts (issue #470). The wait is the caller's
+        thread sleeping: async code runs it in a worker thread. Outside a transaction only: the callers run it after
+        their commit."""
+        deadline = time.monotonic() + WAL_CHECKPOINT_WAIT_MS / 1000
+        while True:
+            with self._lock:
+                self._conn.execute("PRAGMA busy_timeout = 0")
+                try:
+                    busy, frames, checkpointed = self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+                finally:
+                    self._conn.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
+            if not busy or time.monotonic() >= deadline:
+                return int(busy), int(frames), int(checkpointed)
+            time.sleep(WAL_CHECKPOINT_RETRY_MS / 1000)
 
     def close(self) -> None:
         with self._lock:
