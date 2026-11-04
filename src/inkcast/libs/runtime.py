@@ -55,6 +55,11 @@ def build_metrics(store: Store | None, registry: dict[str, Platform], config: Co
     m.gauge("inkcast_build_info", "Inkcast version and installed platform plug-ins.",
             lambda: {(("platforms", ",".join(registry)), ("version", __version__)): 1})
     m.counter("inkcast_publish_total", "Publish attempts by platform and outcome.")
+    # At 0 from the start: increase() sees no rise in a series' first sample, so InkcastPostsCannotBeSent would miss a
+    # scheduler's first post it can't send after every restart (#472; Prometheus, "Avoid missing metrics").
+    for platform in registry:
+        for status in ("send_failed", "recovery_failed"):
+            m.inc("inkcast_publish_total", 0, platform=platform, status=status)
     m.counter("inkcast_scheduler_ticks_total", "Completed scheduler ticks.")
     m.counter("inkcast_sync_total", "Git publishing sync results by platform and action.")
     m.counter("inkcast_gateway_requests_total", "Requests proxied by the built-in gateway, by upstream and status class.")

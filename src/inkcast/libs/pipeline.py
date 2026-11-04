@@ -642,9 +642,12 @@ class Publisher:
             except Exception:
                 # Raised outside the send's own guard (credentials sealed under another INKCAST_SECRET_KEY, a payload this
                 # version can't read): the post stays claimed, so recovery takes it after STUCK_AFTER, as when the tick
-                # stopped here, and the batch's other posts, other people's too, are sent now (#446).
+                # stopped here, and the batch's other posts, other people's too, are sent now (#446). Counted, as a
+                # recovery that can't be made is: the scheduler goes on ticking, and on a platform that can't be asked
+                # (Medium) recovery never reads the credentials, so this is the count every such post makes (#472).
                 log.exception("Post %s on %s could not be sent; left for recovery", row["id"], row["platform"],
-                              extra={"post_id": row["id"], "platform": row["platform"]})
+                              extra={"event": "publish.send.failed", "post_id": row["id"], "platform": row["platform"]})
+                self._count(row["platform"], "send_failed")
         return outcomes
 
     async def run_forever(self, interval: float, stop: asyncio.Event, housekeeping: Any = None,

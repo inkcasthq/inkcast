@@ -2,14 +2,20 @@
 # Copyright 2026 ScalarOps Technologies LLC
 """Issue #472: a scheduler on the wrong INKCAST_SECRET_KEY, from the reviews of #451 (#446) and #454 (#445).
 
-A resend of a post whose credentials were sealed under another key answered 500: ``Publisher.resend`` read them with
-``store.get_credentials``, and ``Sealer.unseal`` raised ``RuntimeError: Stored credentials can't be decrypted``. It is
-refused now, before anything is cancelled, as a disconnected platform's is: 409 ``not_connected``, naming the
-reconnect, through the use case, REST and MCP alike.
+* A resend of a post whose credentials were sealed under another key answered 500: ``Publisher.resend`` read them with
+  ``store.get_credentials``, and ``Sealer.unseal`` raised ``RuntimeError: Stored credentials can't be decrypted``. It
+  is refused now, before anything is cancelled, as a disconnected platform's is: 409 ``not_connected``, naming the
+  reconnect, through the use case, REST and MCP alike.
+* No alert fired. Since #446 a scheduler that can't read a post's credentials goes on ticking, so
+  InkcastSchedulerStalled is quiet. ``recovery_failed`` rises only on a platform that can be asked whether a post
+  arrived (DEV): on one that can't (Medium) recovery never reads the credentials. The send that can't be made is what
+  every such post makes, on every platform, so it is counted too (``send_failed``, ``publish.send.failed``), and
+  InkcastPostsCannotBeSent fires on either.
 
 Each test failed on main (d70d55a6)."""
 
 import asyncio
+import pathlib
 import tempfile
 import time
 import unittest
@@ -19,19 +25,29 @@ from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 from inkcast.launcher import build, resolve
+from inkcast.libs.alerting import ALERTS, prometheus_rule
+from inkcast.libs.config import Config
 from inkcast.libs.db import Store
 from inkcast.libs.http.app import compose
-from inkcast.libs.observability import EVENTS
+from inkcast.libs.observability import EVENTS, Metrics
+from inkcast.libs.pipeline import STUCK_AFTER, Publisher
 from inkcast.libs.platforms import Prepared
+from inkcast.libs.runtime import build_metrics
 from inkcast.services.publishing.usecases import ServiceError
 
 from test_e2e import free_port, serve
 from test_one_time_link_setting import by_hand, oauth_token
-from test_person_decides import Harness
+from test_person_decides import Blind, Findable, Harness
 from test_person_decides_followups import Refusing
 from test_review_person_decides_234_r import Disconnecting
 
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+RUNBOOK = ROOT / "docs" / "runbooks" / "alerts.md"
 OTHER_KEY = "j" * 40                                  # the key the credentials were sealed with; the stores run on k * 40
+
+
+def alert(name: str):
+    return next((a for a in ALERTS if a.name == name), None)
 
 
 # ---- a resend of credentials sealed under another key is refused ----------------------------------------------------
@@ -161,6 +177,99 @@ class FindingRestAndMcpAnswerTheRefusal(unittest.TestCase):
         self.assertIn("Medium's stored credentials can't be decrypted", text)
         self.assertIn(f"then resend post {post_id}", text)
         self.assertEqual(self.ctx.store.get_post(post_id)["status"], "unconfirmed")
+
+
+# ---- an alert for a scheduler that can't send or recover a post ----------------------------------------------------
+
+
+class WrongKeyScheduler(Harness):
+    """The posts' credentials were sealed under another key than the scheduler's (``wrong``) runs on."""
+
+    def setUp(self):
+        super().setUp()
+        wrong = Store(self.path, OTHER_KEY)
+        self.addCleanup(wrong.close)
+        self.wrong = Publisher(wrong, self.platforms, metrics=Metrics())
+
+    def counted(self, status: str) -> float:
+        return self.wrong.metrics.snapshot().get("inkcast_publish_total", {}).get(
+            (("platform", self.platform.id), ("status", status)), 0)
+
+
+class FindingEveryPostASchedulerCannotSendIsCounted(WrongKeyScheduler):
+    platform_class = Blind
+
+    def test_a_platform_that_cannot_be_asked_counts_the_send_that_could_not_be_made(self):
+        """On a platform that can't be asked whether a post arrived (Medium), recovery never reads the credentials:
+        the post went 'unconfirmed' at the next stuck pass, counted 'recovered', and nothing the alert could see rose."""
+        post_id = self.post("scheduled")
+        with self.assertLogs("inkcast.libs.pipeline", level="ERROR") as logged:
+            self.tick(publisher=self.wrong)
+        failed = [r for r in logged.records if getattr(r, "event", None) == "publish.send.failed"]
+        self.assertEqual([(r.post_id, r.platform) for r in failed], [(post_id, "blind")], "the post is not named")
+        self.assertIn("publish.send.failed", EVENTS)
+        self.assertEqual((self.counted("send_failed"), self.status(post_id), self.platform.sent), (1, "publishing", []))
+        self.tick(later=STUCK_AFTER + 1, publisher=self.wrong)
+        self.assertEqual((self.counted("send_failed"), self.counted("recovery_failed")), (1, 0))
+
+
+class FindingAPlatformThatCanBeAskedCountsTheSendAndEveryRecovery(WrongKeyScheduler):
+    platform_class = Findable
+
+    def test_the_send_then_every_stuck_pass_is_counted(self):
+        """Only the stuck passes were counted (``recovery_failed``): the send that could not be made was not."""
+        post_id = self.post("scheduled")
+        self.tick(publisher=self.wrong)
+        self.tick(later=STUCK_AFTER + 1, publisher=self.wrong)
+        self.tick(later=2 * (STUCK_AFTER + 1), publisher=self.wrong)
+        self.assertEqual((self.counted("send_failed"), self.counted("recovery_failed"), self.status(post_id)),
+                         (1, 2, "recovering"))
+
+
+class FindingTheCountsStartAtZero(unittest.TestCase):
+    def test_every_platform_exposes_both_counts_at_zero_from_the_start(self):
+        """A counter's series is made at its first increment, and Prometheus's ``increase()`` sees no rise in a series'
+        first sample: the alert missed a scheduler's first post it could not send, after every restart."""
+        cfg = Config(public_url="http://localhost:8787", secret_key="k" * 40, database_path=":memory:")
+        rendered = build_metrics(None, {"devto": None, "medium": None}, cfg).render()
+        for platform in ("devto", "medium"):
+            for status in ("send_failed", "recovery_failed"):
+                with self.subTest(platform=platform, status=status):
+                    self.assertIn(f'inkcast_publish_total{{platform="{platform}",status="{status}"}} 0', rendered)
+
+
+class FindingTheAlertAndItsRunbook(unittest.TestCase):
+    def test_the_rule_counts_both_and_names_the_log_lines_and_the_key(self):
+        """No rule watched either count: InkcastSchedulerStalled stopped firing with #446, and only
+        InkcastPostRecoveringTooLong, an hour later and on a platform that can be asked, was left."""
+        rule = alert("InkcastPostsCannotBeSent")
+        self.assertIsNotNone(rule, "no alert for posts the scheduler cannot send")
+        self.assertEqual(rule.expr, 'sum by (platform) (increase(inkcast_publish_total{status=~"send_failed|recovery_failed"}'
+                                    '[30m])) > 0')
+        self.assertEqual((rule.severity, rule.service, rule.for_), ("critical", "scheduler-worker", "0m"))
+        for named in ("publish.send.failed", "publish.recovery.failed", "INKCAST_SECRET_KEY", "InkcastSchedulerStalled"):
+            self.assertIn(named, rule.description)
+        rules = [r for g in prometheus_rule()["spec"]["groups"] for r in g["rules"] if r.get("alert") == rule.name]
+        self.assertEqual([r["expr"] for r in rules], [rule.expr])
+        self.assertTrue(rules[0]["annotations"]["runbook_url"].endswith("#inkcastpostscannotbesent"))
+
+    def test_the_runbook_section_says_how_to_check_the_key(self):
+        text = RUNBOOK.read_text()
+        self.assertIn("## InkcastPostsCannotBeSent", text)
+        section = text.split("## InkcastPostsCannotBeSent", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("oc -n \"$NS\" get secret inkcast-secrets -o jsonpath='{.data.secret-key}' | base64 -d | sha256sum",
+                      section)
+        self.assertIn('oc -n "$NS" exec deploy/inkcast-scheduler-worker -- sha256sum /var/run/secrets/inkcast/secret-key',
+                      section)
+        for named in ("publish.send.failed", "publish.recovery.failed", "publish.resend.unreadable", "409 `not_connected`"):
+            self.assertIn(named, section)
+
+    def test_recovering_too_long_names_the_recovery_that_could_not_be_made(self):
+        """Its description named only the ``publish.recovery.deferred`` lines, the platform refusing the lookup."""
+        description = alert("InkcastPostRecoveringTooLong").description
+        self.assertIn("publish.recovery.deferred", description)
+        self.assertIn("publish.recovery.failed", description)
+        self.assertIn("InkcastPostsCannotBeSent", description)
 
 
 if __name__ == "__main__":
