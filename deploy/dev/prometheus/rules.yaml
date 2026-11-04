@@ -47,7 +47,8 @@ groups:
     annotations:
       summary: The oldest due post has waited more than 5 minutes
       description: 'Head-of-line lag is {{ $value | humanizeDuration }}: ticks are slow (a platform is slow, or the batch
-        is too small for the load). Not yet overdue.'
+        is too small for the load), or a Git import of files dated in the past is draining at the batch rate, 20 a tick, which
+        never becomes overdue (ADR-0019). Not yet overdue.'
       runbook_url: https://github.com/inkcasthq/inkcast/blob/main/docs/runbooks/alerts.md#inkcastqueueheadlaghigh
   - alert: InkcastUnconfirmedPublishes
     expr: sum(increase(inkcast_publish_total{status="unconfirmed"}[1h])) > 0

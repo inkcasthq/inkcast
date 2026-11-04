@@ -36,6 +36,12 @@ features:
       before their DELETEs, in the same transaction; the conditional UPDATEs (disable_user, hold_user, mark_user_deleted,
       claim_breaker_person) stay one statement each (#102, #161)'
     - 'tests/test_erasure_recheck.py and tests/test_review_races_161.py pass on PostgreSQL with two connections racing'
+    - 'The posts queue''s scalar MAX(a, b) (SQLite) is GREATEST(a, b) on PostgreSQL: PostsRepo.claim_due_posts (the order),
+      oldest_due_age and list_posts (libs/db/posts.py); the ORDER BY on created_at > COALESCE(requested_at, run_at)
+      sorts a boolean, false first, on both (#222, ADR-0019)'
+    - 'One clock for the queue: posts.created_at is stamped by the server (now()), not by the API pod, so a backfill
+      (created_at > COALESCE(requested_at, run_at)) is classed and ordered on one clock whatever a pod''s skew; the lag
+      itself stays the scheduler''s clock against run_at (ADR-0019)'
   - id: F3.1.S2
     title: Versioned, reversible migrations
     status: planned

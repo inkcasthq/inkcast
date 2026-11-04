@@ -1,6 +1,6 @@
 # ADR-0015: A `publish_at` is always a scheduled post
 
-**Status:** accepted, 2026-10-26 (owner); its rule for a post waiting for a retry, and the first half of its "Open" bullet, superseded by [ADR-0017](0017-a-post-waiting-for-its-retry-is-changed-in-place.md) · **Epic:** E2 (Git publishing) · **Issue:** #205
+**Status:** accepted, 2026-10-26 (owner); its rule for a post waiting for a retry, and the first half of its "Open" bullet, superseded by [ADR-0017](0017-a-post-waiting-for-its-retry-is-changed-in-place.md); its first consequence (the lag, the overdue count and the claim order measured from the later of a post's time and its creation) superseded by [ADR-0019](0019-a-backfill-post-has-no-deadline.md) · **Epic:** E2 (Git publishing) · **Issue:** #205
 
 ## Context
 

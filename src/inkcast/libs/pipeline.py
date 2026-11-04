@@ -30,6 +30,7 @@ from typing import Any, Callable
 from .platforms import Account, Platform, PlatformError, Prepared
 from .config import RetryPolicy
 from .db import Store
+from .db.posts import backfill
 from .content.story import Story
 from .events import DomainEvent
 
@@ -501,12 +502,14 @@ class Publisher:
         for row in self.store.claim_due_posts(now):
             if not self.store.renew_claim(row["id"], row["attempts"]):
                 continue  # another worker took it over as stuck while this batch was being sent: it is theirs now
-            # Lag from when the post could first be sent: its time, or its creation when that came later (a Git file
-            # dated in the past is scheduled at that time and due at once, ADR-0015). Measured from its time alone, a
-            # file dated a week ago read as a week late on the first tick after it was known, burning the
-            # schedule-timeliness SLO and the customer's on-time rate for a post sent as soon as it could be.
-            lag = max(0.0, now - max(float(row["run_at"]), float(row["created_at"])))
-            self._observe("inkcast_publish_lag_seconds", lag, platform=row["platform"])
+            # Lag: this clock against the time as written, one measure on one clock. A backfill (made after its time: a
+            # Git file dated in the past, due at once, ADR-0015) has no time to be on time for, so its send is not
+            # measured: not in the histogram (the schedule-timeliness SLO) and not in the customer's on-time rate
+            # (``lag_seconds`` None on the event). Measured from its creation, an import of 200 files burnt the SLO at
+            # the batch rate, and the API pod's stamp against this clock read as lag (ADR-0019).
+            lag = None if backfill(row) else max(0.0, now - float(row["run_at"]))
+            if lag is not None:
+                self._observe("inkcast_publish_lag_seconds", lag, platform=row["platform"])
             platform = self.platforms.get(row["platform"])
             if platform is None:
                 self.store.update_post(row["id"], status="failed", error=f"Platform plug-in {row['platform']!r} is not installed.",

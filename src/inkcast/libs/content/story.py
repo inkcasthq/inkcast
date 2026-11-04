@@ -22,7 +22,7 @@ import yaml
 # OpenAPI document): one number, so every accepted schedule can be listed and cancelled (#95).
 SCHEDULE_HORIZON_DAYS = 730
 # The least a schedule may be ahead when a person publishes (MCP, REST, the CLI): nearer, omit publish_at and publish
-# now. Git publishing keeps any time as written (ADR-0015) and uses it only as its clocks' tolerance (sync._one).
+# now. Git publishing keeps any time as written (ADR-0015) and compares it exactly (sync.same_time; ADR-0017).
 SCHEDULE_LEAD = timedelta(minutes=2)
 
 _FRONT_MATTER = re.compile(r"\A﻿?---[ \t]*\r?\n(.*?)\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|\Z)", re.S)
@@ -320,9 +320,9 @@ def read_when(value: Any) -> datetime:
                 f"publish_at {value!r} isn't an ISO 8601 date-time, e.g. 2026-10-21T09:00:00-05:00."
             ) from exc
     if when.tzinfo is None:
-        raise StoryError(
-            f"publish_at {value!r} has no time zone. Add a UTC offset, e.g. 2026-10-21T09:00:00-05:00."
-        )
+        # YAML reads an unquoted date-time as a datetime: shown as written, not as a datetime's repr.
+        shown = when.isoformat() if isinstance(value, datetime) else repr(value)
+        raise StoryError(f"publish_at {shown} has no time zone. Add a UTC offset, e.g. 2026-10-21T09:00:00-05:00.")
     try:
         return when.astimezone(timezone.utc)
     except OverflowError as exc:  # e.g. 9999-12-31T23:00:00-05:00, which is in year 10000 in UTC

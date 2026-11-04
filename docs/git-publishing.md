@@ -75,10 +75,11 @@ Front matter must be values JSON can carry. A file with any of these reports `fa
 A file with a `publish_at` is always a scheduled post, at the time as written ([ADR-0015](adr/0015-publish-at-is-always-scheduled.md)):
 
 - **In the future:** the post waits for that time, even if it is only seconds away when you push. It is never sent before it.
-- **Already passed** (files are often re-read long after their date): the post is due at once, and the scheduler sends it at its next tick, with the usual retries if the platform is rate-limited or down.
+- **Already passed** (files are often re-read long after their date): the post is due at once, and the scheduler sends it at its next tick, with the usual retries if the platform is rate-limited or down. Such a post is a backfill ([ADR-0019](adr/0019-a-backfill-post-has-no-deadline.md)): it goes out after every post whose time has come, in the order the files were synced, 20 a tick, so a large import of old files drains over minutes without delaying anything you scheduled. It counts in your `posts_scheduled` and `posts_published` and, having no time to be on time for, in neither `posts_on_time` nor `posts_late`. A file pushed after the time it names is a backfill too.
 - **Changed:** a time moved earlier or later re-schedules the post at the new time; a time removed makes it a "now" post, published on the next sync.
 - **Changed while the platform makes it wait** (it was rate-limited, and its `Retry-After` has not passed): the same post takes the change and keeps the wait. It goes out at the new time or when the wait ends, whichever is later; with the time removed or moved into the past, when the wait ends ([ADR-0017](adr/0017-a-post-waiting-for-its-retry-is-changed-in-place.md)).
 - **No `publish_at`:** the file is published on the sync itself.
+- **Changed on a post you cancelled by hand:** a push that changes only the file's `publish_at` is reported `unchanged`; change the content too, and the file is published as a new post at the new time (an open exception of [ADR-0015](adr/0015-publish-at-is-always-scheduled.md)).
 
 Publishing by hand (`inkcast_publish`, `POST /api/v1/posts`) is different: there a past time, or one under two minutes away, is refused; omit it to publish now.
 
@@ -91,7 +92,7 @@ Publishing by hand (`inkcast_publish`, `POST /api/v1/posts`) is different: there
 | `unchanged` | Same content as last time: nothing sent |
 | `stale` | Changed, but the platform can't edit posts (Medium). Edit it by hand at the URL shown; Inkcast won't post it again |
 | `skipped` | The platform isn't connected, another sync of the file is running, or the file's post needs your decision: its last publish is `unconfirmed` (resend or cancel it, below), or its send was interrupted and Inkcast is still asking the platform whether it arrived (`recovering`; cancel it if you don't want it) |
-| `failed` | Invalid file or platform error; the next sync tries again |
+| `failed` | Invalid file or platform error; the next sync tries again. A file that fails validation changes nothing: a post its last valid version scheduled stays and goes out at its time, and the message names it |
 | `removed` | The file was removed from the repository: its pending post was cancelled, or, if it had been published, left on the platform (the status and message say which) |
 
 Files are matched to earlier posts by repository, path and platform. If you rename a file, it counts as a new story; to keep it linked, keep the path.
