@@ -43,10 +43,10 @@ def _routes(ctx: Context) -> list[Route]:
         except PlatformError as exc:                 # the ticket stays good: the form again, with the reason
             return pages.connect_form(ticket, p.name, p.connect_help, p.credential_fields, error=str(exc))
         # Used up now, by one conditional statement, before anything is saved: of two POSTs with the same ticket that
-        # both verified, the second finds nothing and saves nothing (issue #399).
-        if not store.consume_ticket(ticket):
+        # both verified, the second finds nothing and saves nothing (issue #399). One transaction with the save, so a
+        # save that fails leaves the link good.
+        if not store.consume_ticket_and_save(ticket, row["user_id"], p.id, creds, account.to_dict()):
             return expired()
-        store.save_credentials(row["user_id"], p.id, creds, account.to_dict())
         who = account.handle or account.name
         return pages.message(f"{p.name} connected", f"Connected as {who}. You can close this tab and go back to Claude.")
 
