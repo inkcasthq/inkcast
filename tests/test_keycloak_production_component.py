@@ -253,16 +253,21 @@ def commands(script: str) -> list[str]:
 # not met (`|| { ... exit 1; }` or `sys.exit`), anchored at the start of a command line.
 PROOF_COMMANDS = {
     "the server is started with `start`": r'^has "\$args" \'"start"\' \|\| \{.*exit 1',
+    "neither start-dev nor --optimized": r'^if has "\$args" "start-dev" \|\| has "\$args" "optimized"; then .*exit 1; fi$',
     "two ready replicas": r'^\[ "\$ready" = "2/2" \] \|\| \{.*exit 1',
     "the realms are rows of the database": r'^realms="\$\(psql_keycloak "select .* from realm.*"\)"$',
     "each realm is there": r'^for realm in master inkcast-staging inkcast-prod; do has "\$realms" "\$realm" \|\| \{.*exit 1',
     "the connections are counted from pg_stat_ssl": r'^ssl="\$\(psql_keycloak ".*pg_stat_ssl.*usename = \'keycloak\'.*"\)"$',
+    "keycloak holds connections at all": r'^case "\$ssl" in 0/\*\|\*/0\) .*exit 1 ;; esac$',
     "every connection is TLS": r'^\[ "\$\{ssl%/\*\}" = "\$\{ssl#\*/\}" \] \|\| \{.*exit 1',
     "the issuer is the patched hostname": r'^\s*\[ "\$issuer" = "\$hostname/realms/\$realm" \] \|\| \{.*exit 1',
     "keycloak-0 is deleted": r'^\$k -n "\$ns" delete pod keycloak-0 --wait=true',
     "the recreated keycloak-0 is waited for": r'^\$k -n "\$ns" wait --for=create --for=condition=Ready pod/keycloak-0',
     "the recreated pod answers through its own forward": r'^\$k -n "\$ns" port-forward pod/keycloak-0 (\d+):8443',
+    "the recreated pod is asked": r'^issuer="\$\(discovery inkcast-staging \d+\)"$',
+    "its issuer is the patched hostname": r'^\[ "\$issuer" = "\$hostname/realms/inkcast-staging" \] \|\| \{.*exit 1',
     "the policy probes run": r'^probe "\$(ns|outsider)" np-\S+ "\{.*\}" [02]$',
+    "each probe's answer is checked": r'^\s*has "\$out" "exit=\$4" \|\| \{.*exit 1',
 }
 
 
