@@ -64,8 +64,9 @@ class ASecondRestoreInTheSameSecond(unittest.TestCase):
         later = restore_backup(self.backup, self.db, now=self.now + 1)
         self.assertNotEqual(later, self.aside)
         self.assertEqual([p.name for p in aside_copies(self.db)], [self.aside.name, later.name])
-        # #402: a copy a restore sets aside ages out with the backups; the names this change produces are the same.
-        done = take_backup(self.db, self.base / "backups", keep=1, now=self.now + 2 * 86400)
+        # #402: a copy a restore sets aside ages out with the backups; the names this change produces are the same. A
+        # day on, with keep=1: a longer gap is what #405 refuses to prune after.
+        done = take_backup(self.db, self.base / "backups", keep=1, now=self.now + 86400)
         self.assertEqual(done.removed_copies, 2)
         self.assertEqual(aside_copies(self.db), [])
 

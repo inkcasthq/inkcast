@@ -77,9 +77,12 @@ class TheWayBackToAPreRestoreCopy(Base):
         self.store = Store(str(self.db), KEY)
         self.assertEqual(self.store.erase_user(person["id"])["users"], 1)  # erased five days after the restore
         erased_at = DAY0 + 5 * DAY
-        # The runbook's way back, on day 13: a backup of the copy, to restore from.
+        # The runbook's way back, on day 13: a backup of the copy, to restore from. The daily backups go on meanwhile
+        # (days 7 and 14): a gap longer than KEEP days is what #405 refuses to prune after.
+        take_backup(self.db, self.backups, keep=KEEP, now=DAY0 + 7 * DAY)
         back = take_backup(aside, self.backups, keep=KEEP, now=DAY0 + 13 * DAY)
         self.assertIn(marker.encode(), back.path.read_bytes())
+        take_backup(self.db, self.backups, keep=KEEP, now=DAY0 + 14 * DAY)
         # The promise: within KEEP days of the erasure, no copy on either volume holds the person.
         take_backup(self.db, self.backups, keep=KEEP, now=erased_at + KEEP * DAY)
         self.store._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")       # the live WAL's old frames: not this test's

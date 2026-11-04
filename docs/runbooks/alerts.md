@@ -127,7 +127,7 @@ SLO burn-rate alerts carry `slo`, `burn_rate`, `long_window` and `short_window` 
 
 **Meaning:** the `inkcast-backup` CronJob (the `backup` component) has not succeeded for more than 26 hours, so a lost volume would lose more than a day.
 
-1. `oc get cronjob inkcast-backup` and `oc get jobs -l app.kubernetes.io/component=backup`; the failed Job's log has a `backup.failed` line with the reason.
+1. `oc get cronjob inkcast-backup` and `oc get jobs -l app.kubernetes.io/component=backup`; the failed Job's log has a `backup.failed` line with the reason, or a `backup.done` line followed by `backup.retention.refused`: the backup was taken and is good, but the newest earlier backup is `INKCAST_BACKUP_KEEP` days old or more (2 or more with `1`), so nothing aged out (#405). That is the node's clock jumped ahead (check `date -u` on the node; fix it, nothing else is needed) or a gap that long in backups (nothing is needed: the next good backup removes them). Details: [backup and restore runbook](backup-restore.md#how-a-backup-works).
 2. Common reasons: the backup volume is full (lower `--keep` or grow `inkcast-backups`), or the Job could not schedule next to the Inkcast pod (both mount the ReadWriteOnce data volume, so they must share a node).
 3. Take one now: `oc create job inkcast-backup-now --from=cronjob/inkcast-backup`. Restores: [backup and restore runbook](backup-restore.md).
 4. Needs kube-state-metrics (OpenShift ships it). With PostgreSQL (E3) this alert moves to the database operator's backups.

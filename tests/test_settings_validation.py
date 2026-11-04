@@ -341,7 +341,7 @@ class BackupCommand(unittest.TestCase):
         def fake_take_backup(database, directory, *, keep, version):
             seen.append(keep)
             return mock.Mock(name="backup", manifest={"size": 1, "sha256": "0" * 64, "rows": {"users": 0}},
-                             removed_backups=0, removed_copies=0)
+                             removed_backups=0, removed_copies=0, refused="")
 
         stderr = io.StringIO()
         environ = {**{k: v for k, v in os.environ.items() if k != BACKUP_KEEP}, **env}   # unset unless the test sets it
