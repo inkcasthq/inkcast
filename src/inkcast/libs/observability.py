@@ -64,9 +64,9 @@ EVENTS: dict[str, tuple[str, str]] = {
                                              "rate-limited or unreachable); it stays 'recovering' and is checked again."),
     "publish.recovery.capped": ("warning", "A post 'recovering' for INKCAST_PUBLISH_RECOVERY_MAX_HOURS, the platform never "
                                            "saying whether it arrived, is unconfirmed for a person: never sent late on its own."),
-    "publish.late_answer": ("warning", "A send taken over as stuck succeeded after another worker re-sent the post (or its "
-                                       "row was erased): the answer is not recorded, and its URL or id (in the line) names "
-                                       "a copy the post no longer does; check the platform for two."),
+    "publish.second_copy": ("warning", "A post may be on its platform twice: a send taken over as stuck succeeded after "
+                                       "another worker re-sent the post. The post's error names the extra copy (or says "
+                                       "which attempt may have made one); a person removes it on the platform."),
     "auth.login.refused": ("warning", "A sign-in was refused by the allow-list, role or password check."),
     "cache.backend.unavailable": ("warning", "Redis/Valkey did not answer; rate limits are per replica until it is back."),
     "outbox.consumer.failed": ("warning", "An event sink failed on a batch; the cursor stayed and the batch is retried."),
