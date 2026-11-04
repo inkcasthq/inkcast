@@ -46,7 +46,7 @@ docs/                  you are here; epics/ hold design, stories, implementation
 - **Typed settings.** New settings go through `_Env` in `libs/config.py`, which is typed and raises `ConfigError` naming the variable. A new credential also goes in `SECRET_SETTINGS` with the `needs` it belongs to.
 - **Unauthenticated endpoints are rate-limited**: wrap them with `limited()` from `libs/http/ratelimit.py`.
 - **Before any retry**, ask: "could the first attempt have succeeded?" If yes, confirm with the platform (`find_existing`) or mark the post `unconfirmed`. Never re-send blindly.
-- **A time written is a time kept.** A Git file with a `publish_at` is always a scheduled post at that time, due at once if it has passed, and nothing is sent before its written time; only a file with no `publish_at` is a "now" post. A person publishing by hand is refused a past or near time instead ([ADR-0015](adr/0015-publish-at-is-always-scheduled.md)).
+- **A time written is a time kept.** A Git file with a `publish_at` is always a scheduled post at that time, due at once if it has passed, and nothing is sent before its written time; only a file with no `publish_at` is a "now" post. A person publishing by hand is refused a past or near time instead ([ADR-0015](adr/0015-publish-at-is-always-scheduled.md)). A post made after its time is a backfill: sent after every post whose time has come, and measured by no deadline ([ADR-0019](adr/0019-a-backfill-post-has-no-deadline.md)).
 - **Check your config before deploying:** `inkcast checks` prints the security posture table.
 
 ## Recipes

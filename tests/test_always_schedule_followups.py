@@ -295,11 +295,25 @@ class FindingAnInvalidTimeNamesThePostThatStands(Followups):
                 self.assertEqual((self.status(created.post_id), self.platform.sends), ("scheduled", 0), "unchanged")
 
     def test_a_file_with_no_post_fails_with_the_reason_alone(self):
-        """A new file that fails validation names no post: there is none."""
+        """A new file that fails validation names no post: there is none. YAML reads an unquoted date-time as a
+        datetime, and the reason showed its repr (``datetime.datetime(2026, 11, 5, 9, 0)``); it shows it as written."""
         failed = self.sync("2026-11-05T09:00:00")
         self.assertEqual(failed.action, "failed")
-        self.assertIn("time zone", failed.message)
+        self.assertIn("publish_at 2026-11-05T09:00:00 has no time zone", failed.message)
+        self.assertNotIn("datetime.datetime", failed.message)
         self.assertNotIn("goes out", failed.message)
+
+
+class HeldWhatStaysOpen(Followups):
+    def test_a_schedule_only_change_to_a_post_a_person_cancelled_reads_unchanged(self):
+        """ADR-0015's open exception, now stated in docs/git-publishing.md: a file whose post a person cancelled is
+        published again only once its content changes; a push that moves only its time is ``unchanged``."""
+        created = self.sync(at(3600))
+        self.publisher.cancel(self.user, created.post_id)
+        self.assertEqual(self.sync(at(7200)).action, "unchanged", "the time alone moved: ignored (open)")
+        edited = self.sync(at(7200), body="New body.")
+        self.assertEqual((edited.action, edited.status), ("create", "scheduled"), "the content changed: a new post")
+        self.assertNotEqual(edited.post_id, created.post_id)
 
 
 if __name__ == "__main__":
