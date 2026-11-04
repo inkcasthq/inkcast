@@ -14,6 +14,7 @@ Each ``Finding`` failed on main; the ``Held`` pins what holds."""
 import asyncio
 import contextlib
 import io
+import re
 import unittest
 
 from inkcast.cli import sync_main
@@ -114,7 +115,8 @@ class FindingTheHelpNamesTheEdit(unittest.TestCase):
         help_text = " ".join(out.getvalue().split())
         option = help_text[help_text.rindex("--fail-on-decision"):].split("--removed-since")[0]
         self.assertIn("edit", option, "the help names no edit for an entry with no post")
-        self.assertIn("edit", (ROOT / "action" / "action.yml").read_text().split("fail-on-decision:")[1].split("\n  ")[0])
+        block = re.search(r"\n  fail-on-decision:\n((?:    .*\n)+)", (ROOT / "action" / "action.yml").read_text()).group(1)
+        self.assertIn("edit", block, "the action's input names no edit for an entry with no post")
         docs = (ROOT / "docs" / "git-publishing.md").read_text()
         self.assertIn("no post to resend or cancel", docs)
         self.assertIn("until you edit it", docs)

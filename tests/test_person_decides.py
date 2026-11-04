@@ -455,9 +455,10 @@ class FindingABlindPlatformSaysTheSame(SyncHarness):
         self.assertEqual((self.platform.sent, len(self.posts())), ([], 1))
 
 
-class HeldAnUnconfirmedEntryWithoutAPostStillResolvesItself(SyncHarness):
-    def test_an_entry_from_before_posts_were_recorded_is_created_when_missing(self):
-        """Nothing to decide on: no post row. The lookup decides, as before."""
+class HeldAnEditedFileWithAnUnconfirmedEntryWithoutAPostIsANewPost(SyncHarness):
+    def test_an_entry_from_before_posts_were_recorded_is_created_once_the_file_is_edited(self):
+        """Nothing to decide on: no post row. The edit decides (the entry's hash is not the file's), and the lookup no
+        longer sends an unedited file late (#444, option B; ``test_sync_old_unconfirmed_entry_444``)."""
         self.store.put_entry(self.user, SOURCE, PATH, self.platform.id, status="unconfirmed", content_hash="h")
         result = self.sync()
         self.assertEqual((result.action, result.status, self.platform.sent), ("create", "published", ["Hello"]))
