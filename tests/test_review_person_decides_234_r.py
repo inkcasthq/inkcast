@@ -12,7 +12,7 @@ import time
 from inkcast.libs.pipeline import STUCK_AFTER, _lost
 from inkcast.libs.platforms import PlatformError, PublishResult
 
-from test_person_decides import Findable, Harness
+from test_person_decides import Findable, Harness, SyncHarness
 
 
 class Lagging(Findable):
@@ -102,3 +102,21 @@ class FindingRecoveryFoundOverUnconfirmedKeepsTheLostNote(Harness):
         self.assertEqual((post["status"], post["result_url"], self.platform.sent),
                          ("published", "https://findable/2", ["t", "t"]))
         self.assertIn(lost, post["error"] or "", "two copies on the platform, and the post reads as any published post")
+
+
+class FindingGitSyncsFoundAnswerKeepsTheLostNote(SyncHarness):
+    def test_the_syncs_check_records_the_post_and_keeps_the_second_copy_flag(self):
+        """The sync asks the platform about an unconfirmed post and records it when found (``GitSync._resolve``), with
+        error=None. A post 'unconfirmed' because an earlier send's answer landed over a re-send carries the note that
+        a second copy may be there (the state ``test_person_decides_followups`` drives, its ``seen[1]``): the check
+        erased it, and nothing else says so. ``record_success`` documents the note as one "only a person clears"."""
+        self.platform.answer = PlatformError("Findable timed out after the request was sent.", uncertain=True)
+        first = self.sync()
+        self.assertEqual(first.status, "unconfirmed")
+        lost = _lost(self.platform)
+        self.store.update_post(first.post_id, error=f"Findable timed out after the request was sent.; {lost}")
+        self.platform.sent.append("Hello")                                    # the platform has it (at least once)
+        again = self.sync()
+        post = self.store.get_post(first.post_id)
+        self.assertEqual((again.status, post["status"]), ("published", "published"))
+        self.assertIn(lost, post["error"] or "", "the sync's check erased the second-copy flag")

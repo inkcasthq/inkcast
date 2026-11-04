@@ -42,7 +42,7 @@ from ...libs.db import Store
 from ...libs.db.ledger import CLAIM_TTL
 from ...libs.events import DomainEvent
 from ...libs.observability import Metrics
-from ...libs.pipeline import Outcome, Publisher
+from ...libs.pipeline import Outcome, Publisher, _lost
 from ...libs.platforms import Platform, PlatformError, Prepared
 
 
@@ -469,8 +469,11 @@ class GitSync:
                 self.store.update_post(entry["post_id"], status="failed", only_if="unconfirmed",
                                        error=f"Not found on {platform.name}; it was never published.")
             return self.store.put_entry(user_id, src, path, platform.id, status="missing", message=None)
+        # A note that a second copy may be there (an earlier send's answer landed over a re-send, #234) stays: the
+        # lookup found one copy, which doesn't say there is no other (``keep``).
         if entry["post_id"] and not self.store.update_post(entry["post_id"], status=o.status, result_url=o.url,
-                                                           remote_id=o.remote_id, error=None, only_if="unconfirmed"):
+                                                           remote_id=o.remote_id, error=None, keep=_lost(platform),
+                                                           only_if="unconfirmed"):
             # Decided meanwhile: a resend re-pointed the entry at its new post; a cancel left it on this one.
             current = self.store.get_entry(user_id, src, path, platform.id) or entry
             post = self.store.get_post(current["post_id"]) if current["post_id"] else None
