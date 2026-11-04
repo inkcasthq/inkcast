@@ -47,12 +47,14 @@
 #
 # Two instances (`instances`, Keycloak's `replicas`), discovering each other through the database (the default
 # `jdbc-ping` stack in Keycloak 26). Resources: the operator's defaults are 1700Mi requested and 2Gi limited
-# (application.properties); Keycloak's sized blueprint requests 1250M and limits 2250M per pod. 1Gi requested and
-# 2Gi limited here, from a measurement on kind (scripts/dev/keycloak-production-e2e.sh prints the cgroup's
-# memory.current): with both lab realms imported the two pods held 644 and 689 MiB (465 and 511 MiB anonymous, the
-# rest the file cache of the augmented distribution), and a pod peaked at 1024 MiB during its start. The JVM sizes
-# its heap from the limit (Keycloak's default -XX:MaxRAMPercentage=70). No ServiceAccount token: the server never
-# calls the Kubernetes API (`automountServiceAccountToken`, KeycloakSpec; the operator's default is true).
+# (application.properties); Keycloak's sized blueprint requests 1250M and limits 2250M per pod
+# (docs/guides/high-availability/single-cluster/deploy-keycloak.adoc at 26.6.4). 1250Mi requested and 2Gi limited
+# here. The request covers a start, measured on kind (scripts/dev/keycloak-production-e2e.sh prints the cgroup's
+# memory.current): a pod peaked at 1042 MiB while it augmented the distribution and committed its initial heap, which
+# kc.sh sizes from the limit (JAVA_OPTS_KC_HEAP: -XX:InitialRAMPercentage=50 -XX:MaxRAMPercentage=70 at 26.6.4, so
+# 1Gi committed and up to 1.4Gi of heap under 2Gi); with both lab realms imported the two pods then held 644 and 689
+# MiB (465 and 511 MiB anonymous, the rest the file cache). No ServiceAccount token: the server never calls the
+# Kubernetes API (`automountServiceAccountToken`, KeycloakSpec; the operator's default is true).
 #
 # Pod Security: the operator sets no securityContext on its pods (none in operator/src/main at 26.6.4). On OpenShift
 # the restricted-v2 SCC supplies one, as for the lab's Keycloak; on plain Kubernetes under Pod Security "restricted"
@@ -89,5 +91,5 @@ spec:
   hostname:
     hostname: https://keycloak.example.invalid
   resources:
-    requests: {cpu: 500m, memory: 1Gi}
+    requests: {cpu: 500m, memory: 1250Mi}
     limits: {memory: 2Gi}
