@@ -12,6 +12,7 @@
 * ``verify_backup``: the checksum against the manifest, then the integrity check.
 * ``restore_backup``: verifies first, refuses while the scheduler's heartbeat is fresh (the server is still running),
   and never deletes the current database: it is moved aside as ``<db>.before-restore-<time>`` with its WAL files.
+  That name is to the second, so a second restore in the same second is refused before it copies anything (#202).
   That copy holds whoever is erased after the restore, so it ages out with the backups: ``take_backup`` removes it,
   with those files, once it is ``keep`` or more days old (issue #112), and ``aside_copies`` lists what is there.
   The ``user_erasures`` audit rows of the database being replaced are carried into the restored copy (issue #94): a
@@ -31,6 +32,8 @@ data too; the deletion pages say so.
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import hashlib
 import json
 import logging
@@ -39,6 +42,7 @@ import pathlib
 import sqlite3
 import threading
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -329,14 +333,49 @@ def restore_backup(path: pathlib.Path, database: pathlib.Path, *, force: bool = 
     ``stop`` set, or the clock past ``not_after`` (seconds since the epoch), ends the restore before its swap with
     ``RestoreStopped`` (see ``_check_stop``). A restore that stops or fails once the staging copy exists removes it;
     only a kill leaves it (issue #404)."""
+    database.parent.mkdir(parents=True, exist_ok=True)
+    incoming = database.with_name(f".{database.name}.restoring")
+    with _one_restore(incoming):
+        return _restore(path, database, incoming, force=force, now=now, stop=stop, not_after=not_after)
+
+
+@contextlib.contextmanager
+def _one_restore(incoming: pathlib.Path) -> Iterator[None]:
+    """One restore of a database at a time (#202): two at once share the staging file ``incoming`` and, in the same
+    second, the name of the copy set aside, and the second failed after its copy with whatever the first had done to
+    the file. The lock is the data directory's, taken before anything is checked or copied: no file of its own, and
+    not the SQLite file's, whose own locks it would meet (on macOS it blocks them). The kernel drops it with the
+    process, so a killed restore leaves none held; a file system that cannot lock a directory (NFS) restores
+    without it, as before. While it is held the staging file is this restore's: whatever ends the restore early
+    removes it."""
+    fd = os.open(incoming.parent, os.O_RDONLY)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise BackupError("Another restore of this database is running: wait for it to end.") from None
+        except OSError as exc:
+            log.warning("Restoring without the lock that keeps a second restore out: %s", exc)
+        try:
+            yield
+        except BaseException:
+            incoming.unlink(missing_ok=True)
+            raise
+    finally:
+        os.close(fd)
+
+
+def _restore(path: pathlib.Path, database: pathlib.Path, incoming: pathlib.Path, *, force: bool, now: float | None,
+             stop: threading.Event | None, not_after: float | None) -> pathlib.Path | None:
     now = now or time.time()
     manifest = verify_backup(path)
     age = _heartbeat_age(database, now)
     if age is not None and age < FRESH_HEARTBEAT_SECONDS and not force:
         raise BackupError(f"The server looks alive (a heartbeat {age:.0f} s ago): stop it first (scale to 0), "
                           "or pass --force if it is really stopped.")
-    database.parent.mkdir(parents=True, exist_ok=True)
-    incoming = database.with_name(f".{database.name}.restoring")
+    taken = database.with_name(f"{database.name}{ASIDE}{_stamp(now)}")     # the name the swap below will use
+    if taken.exists():                                  # a restore this very second: refused before any copy (#202)
+        raise BackupError(f"{taken.name} is already there: a restore ran this second; try again in a second.")
     try:
         old_umask = os.umask(0o027)
         try:
