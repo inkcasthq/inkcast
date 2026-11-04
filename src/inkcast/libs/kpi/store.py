@@ -25,6 +25,17 @@ def bucket_start(at: float, grain: str) -> int:
     return int(at // size) * size
 
 
+# The dims keys whose value is a person's id. A team KPI (``Rule.member``, libs/kpi/rollup.py) is written at workspace
+# and org scope with the member's user id under ``MEMBER_DIM``, never at user scope. An erasure folds such a row into
+# the row of the tombstone ``MEMBER_ERASED`` (libs/db/erasure.py): the workspace keeps its totals, which are the
+# organization's data, and nothing names the person (docs/design/observability-and-kpis.md §6; issue #212). The
+# erasure's condition, the owner guard and the index are generated from ``PERSON_DIMS``, and
+# tests/test_architecture.py requires every other dims key a KPI keeps to be declared impersonal there.
+MEMBER_DIM = "member"
+MEMBER_ERASED = "user:deleted"      # no user id looks like this (``usr_`` and hex), so it names nobody
+PERSON_DIMS: tuple[str, ...] = (MEMBER_DIM,)
+
+
 @dataclass(frozen=True)
 class Increment:
     kpi: str
@@ -63,4 +74,5 @@ class KpiStore(ABC):
         """Drop hourly buckets older than the retention; daily buckets are kept."""
 
 
-__all__ = ["GRAIN_SECONDS", "Grain", "Increment", "KpiStore", "Point", "bucket_start"]
+__all__ = ["GRAIN_SECONDS", "Grain", "Increment", "KpiStore", "MEMBER_DIM", "MEMBER_ERASED", "PERSON_DIMS", "Point",
+           "bucket_start"]

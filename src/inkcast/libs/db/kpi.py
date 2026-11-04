@@ -12,7 +12,7 @@ import json
 import time
 from typing import Any
 
-from ..kpi.store import GRAIN_SECONDS, Increment, KpiStore, Point, bucket_start
+from ..kpi.store import GRAIN_SECONDS, PERSON_DIMS, Increment, KpiStore, Point, bucket_start
 from .database import Database
 
 SCHEMA = """
@@ -23,7 +23,12 @@ CREATE TABLE IF NOT EXISTS kpi_rollups (
 );
 CREATE INDEX IF NOT EXISTS kpi_rollups_scope ON kpi_rollups(scope_kind, scope_id, kpi, grain, bucket);
 CREATE TABLE IF NOT EXISTS kpi_applied (event_id TEXT PRIMARY KEY, at REAL NOT NULL);
-"""
+""" + "".join(
+    # The rows that name a person in a dim (a team KPI's member), so an erasure finds them as it finds the rows at
+    # their scope, through an index and not a scan of the table (issue #212); partial, so only such rows are in it.
+    f"CREATE INDEX IF NOT EXISTS kpi_rollups_{dim} ON kpi_rollups(json_extract(dims, '$.{dim}'))"
+    f" WHERE json_extract(dims, '$.{dim}') IS NOT NULL;\n"
+    for dim in PERSON_DIMS)
 
 
 class KpiRepo(Database, KpiStore):

@@ -18,7 +18,7 @@ from typing import Any, Callable
 
 from ..events import DomainEvent, EventSink
 from .catalogue import BY_NAME, ON_TIME_SECONDS
-from .store import Increment, KpiStore
+from .store import MEMBER_DIM, Increment, KpiStore
 
 Predicate = Callable[[DomainEvent], bool]
 Value = Callable[[DomainEvent], float]
@@ -31,18 +31,18 @@ class Rule:
     dims: tuple[str, ...] = ("platform",)           # attrs copied into dims (missing ones become "unknown")
     when: Predicate | None = None                   # only events that match
     value: Value | None = None                      # default 1.0
-    member: bool = False                            # a team KPI: workspace/org scope with dims.member = user_id
+    member: bool = False                            # a team KPI: workspace/org scope with dims[MEMBER_DIM] = user_id
 
     def increments(self, e: DomainEvent) -> list[Increment]:
         if self.when and not self.when(e):
             return []
         value = self.value(e) if self.value else 1.0
-        dims = {d: str(e.attrs.get(d, "unknown")) for d in self.dims if d != "member"}
+        dims = {d: str(e.attrs.get(d, "unknown")) for d in self.dims if d != MEMBER_DIM}
         out: list[Increment] = []
         if self.member:
             for kind, scope in (("workspace", e.workspace_id), ("org", e.org_id)):
                 if scope and e.user_id:
-                    out.append(Increment(self.kpi, kind, scope, {**dims, "member": e.user_id}, value))
+                    out.append(Increment(self.kpi, kind, scope, {**dims, MEMBER_DIM: e.user_id}, value))
             return out
         for kind, scope in (("user", e.user_id), ("workspace", e.workspace_id), ("org", e.org_id)):
             if scope:
