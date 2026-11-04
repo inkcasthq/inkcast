@@ -44,6 +44,22 @@ fetch_pinned() {  # fetch_pinned URL FILE SHA256: download, compare, refuse what
 psql_keycloak() {  # a read-only query against the keycloak database, as postgres over the instance's local socket
   $k -n "$ns" exec keycloak-db-1 -c postgres -- psql -U postgres -d keycloak -tAc "$1"
 }
+wait_import() {  # wait_import NAME: Done within 600 s; HasErrors=True ends the wait at once with the condition's message
+  local i conditions
+  for i in $(seq 1 120); do
+    conditions="$($k -n "$ns" get keycloakrealmimport "$1" -o jsonpath='{range .status.conditions[*]}{.type}={.status} {end}')"
+    case "$conditions" in
+      *"HasErrors=True"*)
+        echo "$1: $conditions" >&2
+        $k -n "$ns" get keycloakrealmimport "$1" -o jsonpath='{.status.conditions[?(@.type=="HasErrors")].message}{"\n"}' >&2
+        return 1 ;;
+      *"Done=True"*) return 0 ;;
+    esac
+    sleep 5
+  done
+  echo "$1: not Done after 600 s: $conditions" >&2
+  return 1
+}
 discovery() {  # discovery REALM [PORT]: the realm's OIDC discovery document through an HTTPS port-forward, parsed
   curl -sfk "https://localhost:${2:-28443}/realms/$1/.well-known/openid-configuration" | python3 -c '
 import json, sys
@@ -147,7 +163,7 @@ done
 $k apply -f "$ROOT/deploy/kustomize/shared/keycloak-realms/realm-inkcast-staging.yaml" \
   -f "$ROOT/deploy/kustomize/shared/keycloak-realms/realm-inkcast-prod.yaml"
 for realm in inkcast-staging inkcast-prod; do
-  $k -n "$ns" wait --for=condition=Done "keycloakrealmimport/$realm" --timeout=600s
+  wait_import "$realm"   # Done, or HasErrors at once (review of #391, K8)
   $k -n "$ns" get keycloakrealmimport "$realm" -o go-template='{{range .status.conditions}}CONDITION: {{.type}}  STATUS: {{.status}}  MESSAGE: {{.message}}{{"\n"}}{{end}}'
   errors="$($k -n "$ns" get keycloakrealmimport "$realm" -o jsonpath='{.status.conditions[?(@.type=="HasErrors")].status}')"
   [ "$errors" = "False" ] || { echo "$realm: HasErrors=$errors" >&2; exit 1; }

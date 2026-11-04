@@ -252,7 +252,7 @@ class KindJob(unittest.TestCase):
         for needed in ("KEYCLOAK_OPERATOR_VERSION", "KEYCLOAK_OPERATOR_CRD_KEYCLOAKS_SHA256",
                        "KEYCLOAK_OPERATOR_CRD_REALMIMPORTS_SHA256", "KEYCLOAK_OPERATOR_MANIFEST_SHA256",
                        "CNPG_MANIFEST_SHA256", "apply --server-side", "overlays/ci-keycloak-production",
-                       "shared/keycloak-realms", "condition=Ready keycloak/keycloak", "condition=Done",
+                       "shared/keycloak-realms", "condition=Ready keycloak/keycloak", "wait_import",
                        "pg_stat_ssl", "openid-configuration", "delete pod keycloak-0"):
             self.assertIn(needed, script)
         self.assertNotIn("sha256sum -c", script, "not on macOS: compare the digest as scripts/kind-tools.sh does")
@@ -276,6 +276,20 @@ class KindJob(unittest.TestCase):
         rollout = script.index("rollout status statefulset/keycloak")
         count = script.index("jsonpath='{.status.readyReplicas}/{.spec.replicas}'")
         self.assertLess(rollout, count, "the count is read after the rollout")
+
+    def test_an_import_that_reports_errors_fails_the_proof_at_once(self):
+        """Review of #391, K8: `kubectl wait --for=condition=Done` on an import that failed (Done=False,
+        HasErrors=True, its Job's pod in error) sits out the whole timeout. wait_import polls the conditions and
+        returns non-zero on HasErrors=True before Done, with the condition's message."""
+        script = (ROOT / "scripts" / "dev" / "keycloak-production-e2e.sh").read_text()
+        self.assertNotIn("wait --for=condition=Done", script)
+        body = re.search(r"^wait_import\(\) \{.*?^\}", script, re.M | re.S)
+        self.assertIsNotNone(body, "a wait_import function")
+        body = body.group(0)
+        self.assertLess(body.index("HasErrors=True"), body.index("Done=True"), "errors are checked before Done")
+        self.assertIn("return 1", body[:body.index("Done=True")], "and end the wait")
+        self.assertIn("sleep", body, "polling")
+        self.assertRegex(script, r'(?m)^\s*wait_import "\$realm"', "step 2 waits through it")
 
 
 if __name__ == "__main__":
