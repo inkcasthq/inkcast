@@ -12,6 +12,7 @@
 * ``verify_backup``: the checksum against the manifest, then the integrity check.
 * ``restore_backup``: verifies first, refuses while the scheduler's heartbeat is fresh (the server is still running),
   and never deletes the current database: it is moved aside as ``<db>.before-restore-<time>`` with its WAL files.
+  That name is to the second, so a second restore in the same second is refused before it copies anything (#202).
   That copy holds whoever is erased after the restore, so it ages out with the backups: ``take_backup`` removes it,
   with those files, once it is ``keep`` or more days old (issue #112), and ``aside_copies`` lists what is there.
   The ``user_erasures`` audit rows of the database being replaced are carried into the restored copy (issue #94): a
@@ -312,6 +313,9 @@ def restore_backup(path: pathlib.Path, database: pathlib.Path, *, force: bool = 
     if age is not None and age < FRESH_HEARTBEAT_SECONDS and not force:
         raise BackupError(f"The server looks alive (a heartbeat {age:.0f} s ago): stop it first (scale to 0), "
                           "or pass --force if it is really stopped.")
+    taken = database.with_name(f"{database.name}{ASIDE}{_stamp(now)}")     # the name the swap below will use
+    if taken.exists():                                  # a restore this very second: refused before any copy (#202)
+        raise BackupError(f"{taken.name} is already there: a restore ran this second; try again in a second.")
     database.parent.mkdir(parents=True, exist_ok=True)
     incoming = database.with_name(f".{database.name}.restoring")
     old_umask = os.umask(0o027)
