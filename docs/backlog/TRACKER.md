@@ -4,7 +4,7 @@
 
 This page lists every story in the backlog and the order in which the work is done. To change a story, edit its epic file in `docs/backlog/`. To change the order, edit `docs/backlog/order.yaml`. Then run `scripts/backlog/tracker.py`. The tests fail when this page is out of date.
 
-The backlog holds 310 stories: 85 done, 5 in progress and 220 planned.
+The backlog holds 310 stories: 86 done, 4 in progress and 220 planned.
 
 Tracked in [#360](https://github.com/inkcasthq/inkcast/issues/360): Backlog tracker: every story in one execution order, reviewed wave by wave.
 
@@ -20,14 +20,14 @@ Tracked in [#360](https://github.com/inkcasthq/inkcast/issues/360): Backlog trac
 | E6 | Admin portal | 0 | 0 | 15 | 15 |
 | E7 | Reliability, observability and operations | 7 | 0 | 41 | 48 |
 | E8 | Social platforms | 0 | 0 | 8 | 8 |
-| E9 | Identity on Keycloak | 9 | 1 | 18 | 28 |
+| E9 | Identity on Keycloak | 10 | 0 | 18 | 28 |
 | E10 | Tiers, subscriptions and entitlements strategy (spike) | 0 | 0 | 18 | 18 |
 
 ## Execution order
 
 Work the waves from top to bottom, and the items in each wave in the order listed. An item is a story, or an open issue that is not a story. Each wave names its delivery phase (see the epics index): the phases run 1 to 5 in order, and the ongoing waves are worked beside them.
 
-### W1: Finish what is in flight (phase 1, 2 of 7 stories done)
+### W1: Finish what is in flight (phase 1, 3 of 7 stories done)
 
 Open loops on the lab and the repository cost the most while they stay open. Each item is partly built or waits on one proof.
 
@@ -35,7 +35,7 @@ Open loops on the lab and the repository cost the most while they stay open. Eac
 |---:|---|---|---|---|---|
 | 1 | F3.9.S5 | done | OpenShift Local: staging and prod in inkcast-staging and inkcast-prod, OpenFGA on one shared CloudNativePG cluster in inkcast-db (a database and a login role per side, pg_hba gating each role to its own database over TLS, a NetworkPolicy admitting 5432 from OpenFGA's pods only); passwords one Secret per side, written once by scripts/deploy/openfga-db-credentials.sh; the private image's pull Secret named on the ServiceAccount and on every Inkcast-image pod spec, in the environments only (scripts/deploy/ghcr-pull-secret.sh) | E3 | [#296](https://github.com/inkcasthq/inkcast/issues/296) |
 | 2 | F3.9.S8 | planned | OpenFGA's schema migration runs as an init container: no Job to delete and re-apply | E3 | [#337](https://github.com/inkcasthq/inkcast/issues/337) |
-| 3 | F9.1.S3 | in-progress | Keycloak production component on CloudNativePG | E9 | [#386](https://github.com/inkcasthq/inkcast/issues/386) |
+| 3 | F9.1.S3 | done | Keycloak production component on CloudNativePG | E9 | [#386](https://github.com/inkcasthq/inkcast/issues/386) |
 | 4 | F3.1.S9 | done | SQLite stopgap until F3.1.S5: inkcast backup/restore/backups, the backup component (daily CronJob, own volume, deny-all network), InkcastBackupMissing, restore runbook, restore drill in CI on kind | E3 |  |
 | 5 | F1.8.S1 | in-progress | Protect main with a ruleset: required checks, squash only, no force-push or deletion | E1 | [#34](https://github.com/inkcasthq/inkcast/issues/34) |
 | 6 | F1.8.S5 | in-progress | Remove the stale publish.yml:codeql code-scanning configuration | E1 | [#38](https://github.com/inkcasthq/inkcast/issues/38) |
@@ -723,13 +723,13 @@ Outside the product. Worked only when the owner asks.
 | F8.3.S1 | planned | Batch review queue: reviews API, inkcast_submit_for_review, per-post consent, web and mobile screens (docs/issues 35) |  | 219 (W16) |
 | F8.3.S2 | planned | Engagement inbox (later): read, draft, approve, send through official APIs (docs/issues 36) |  | 221 (W16) |
 
-### E9: Identity on Keycloak (9 of 28 done)
+### E9: Identity on Keycloak (10 of 28 done)
 
 | Story | Status | Title | Issue | Order |
 |---|---|---|---|---|
 | F9.1.S1 | done | Realm export deploy/keycloak/realm-inkcast.json (clients, roles, policies; no secrets) |  |  |
 | F9.1.S2 | done | kind CI: Keycloak with the realm; end-to-end sign-in against it in single and split mode |  |  |
-| F9.1.S3 | in-progress | Keycloak production component on CloudNativePG | [#386](https://github.com/inkcasthq/inkcast/issues/386) | 3 (W1) |
+| F9.1.S3 | done | Keycloak production component on CloudNativePG | [#386](https://github.com/inkcasthq/inkcast/issues/386) | 3 (W1) |
 | F9.2.S1 | done | Registration, email verification, terms; default role inkcast-user |  |  |
 | F9.2.S2 | planned | First login creates the Inkcast user and their personal organization (owner tuple; emits org.created) |  | 56 (W5) |
 | F9.2.S3 | planned | Realm email in each environment: Keycloak sends verify-email and reset-password mail through the environment's SMTP relay, settings as code, the password from a Secret |  | 104 (W7) |
