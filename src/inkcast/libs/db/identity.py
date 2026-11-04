@@ -396,10 +396,17 @@ class IdentityRepo(Database):
                    "del_" + uuid.uuid4().hex[:16], user_id, token_hash(ticket), now, now + ttl)
         return ticket
 
+    def deletion_request_by_link(self, ticket: str) -> dict[str, Any] | None:
+        """The request behind a link, read only: the link stays good. A visit checks this before it builds the sign-in
+        redirect, so a provider that is down does not use the link up (issue #149). None when unknown, used or expired."""
+        row = self._one("SELECT * FROM deletion_requests WHERE link_hash = ? AND expires_at > ?", token_hash(ticket), time.time())
+        return dict(row) if row else None
+
     def open_deletion_link(self, ticket: str, ttl: float = 900) -> dict[str, Any] | None:
         """The request behind a link, consuming the link (a second visit finds nothing); None when unknown or expired.
-        The request then lives ``ttl`` more seconds, the sign-in it starts (``create_pending``'s), not what was left
-        of the link's lifetime."""
+        One transaction (``BEGIN IMMEDIATE``): of two visits that both read the link, only the first to get here
+        consumes it, the other gets None. The request then lives ``ttl`` more seconds, the sign-in it starts
+        (``create_pending``'s), not what was left of the link's lifetime."""
         with self._tx() as c:
             now = time.time()
             row = c.execute("SELECT * FROM deletion_requests WHERE link_hash = ? AND expires_at > ?",
