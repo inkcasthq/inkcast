@@ -42,9 +42,11 @@ EVENT_TYPES: dict[str, str] = {
 
 # The outbox's consumers, by name, each with the service that runs it (``CONSUMER`` next to that service's
 # ``ServiceSpec``; a test checks both ways). The scheduler's housekeeping makes ``outbox_cursors`` match this list
-# before it purges (``sync_consumers``, issue #141): a cursor under any other name is a retired consumer's, and would
-# hold the purge forever, so it goes; a listed consumer with no cursor yet (new in this release, or its process not
-# up) gets one at 0, where its first poll starts anyway, so the purge waits for it as for any consumer behind.
+# before it purges (``sync_consumers``, issue #141): a cursor under any other name that no poller has touched for
+# ``RETIRE_IDLE`` is a retired consumer's, and would hold the purge forever, so it goes; a listed consumer with no
+# cursor yet (new in this release, or its process not up) gets one at 0, where its first poll starts anyway, so the
+# purge waits for it as for any consumer behind. A consumer added here therefore replays every event still retained
+# on its first run: its sinks must apply an event once however often they see it (``kpi_applied``, for insights).
 CONSUMERS: dict[str, str] = {
     "insights": "InsightsService",
 }
