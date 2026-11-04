@@ -9,7 +9,9 @@
   rule, with its WAL files, at the next good backup; a file whose name carries no time is never touched. The runbook
   says so.
 * The CronJob reads ``INKCAST_BACKUP_KEEP`` from the ``inkcast-config`` ConfigMap the server reads (item 2): one
-  source, in every overlay and environment that renders the backup component."""
+  source, in every overlay and environment that renders the backup component.
+* The runbook says that an off-cluster copy (a volume snapshot, Velero) keeps the promise only with a retention of at
+  most as many days (item 4)."""
 
 import logging
 import pathlib
@@ -163,6 +165,12 @@ class TheAlertAndTheRunbook(unittest.TestCase):
     def test_the_runbook_says_the_restore_s_copy_ages_out(self):
         (line,) = [line for line in RUNBOOK.read_text().splitlines() if "inkcast.db.before-restore-<time>" in line]
         self.assertIn("INKCAST_BACKUP_KEEP", line, "the copy a restore leaves ages out within the same days")
+
+    def test_the_runbook_bounds_the_retention_of_off_cluster_copies(self):
+        off_cluster = RUNBOOK.read_text().split("## Off-cluster copies", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("at most `INKCAST_BACKUP_KEEP` days", off_cluster)
+        for word in ("snapshot", "Velero", "inkcast-data"):
+            self.assertIn(word, off_cluster)
 
 
 if __name__ == "__main__":

@@ -104,6 +104,10 @@ The same rules apply: the restore carries the erasure records of the database it
 - volume snapshots of `inkcast-backups` replicated by the storage platform (OpenShift Data Foundation, a CSI driver with snapshot classes); or
 - a Velero schedule for the namespace.
 
+**Their retention must be at most `INKCAST_BACKUP_KEEP` days.** A snapshot or a Velero backup is a copy outside the rotation above: nothing here removes it, and the deletion pages promise that copies of a person's data age out within `INKCAST_BACKUP_KEEP` days, so a longer retention on the snapshot schedule or the Velero schedule (`--ttl`) makes the pages understate it. Set it to that many days or fewer, and when `INKCAST_BACKUP_KEEP` changes, change it too. A snapshot of `inkcast-data` (the live database, with the copies restores leave beside it) is bound by the same days.
+
+Restoring from such a copy puts files back as they were. A volume restore of `inkcast-backups` brings the backups back, and `inkcast restore` from one of them carries the erasure records and the server re-erases, as above. A volume restore of `inkcast-data` puts a whole database in place with no carry: that is the lost-database case of the limitation above, so the people erased since that copy was taken are known only to Keycloak, and the first sync pass after start-up erases or cuts them off as described there.
+
 Story E7.F7.6.S2 covers object-storage replication.
 
 ---
