@@ -142,7 +142,11 @@ class ErasureRepo(Database):
 
     @staticmethod
     def _as_read(c: sqlite3.Connection, user_id: str, as_read: Mapping[str, Any]) -> bool:
-        """Whether the person's row is still there, standing as the caller read it, inside the caller's transaction."""
+        """Whether the person's row is still there, standing as the caller read it, inside the caller's transaction.
+        A plain SELECT, atomic with the DELETEs that follow under SQLite's ``BEGIN IMMEDIATE`` (one writer at a time).
+        On PostgreSQL (E3.F3.1) it must be ``SELECT ... FOR UPDATE``, as ``rotate_refresh`` notes for its own select;
+        that story's acceptance says so (#161). The conditional UPDATEs (``disable_user``, ``hold_user``,
+        ``mark_user_deleted``, ``claim_breaker_person``) are each one statement, and need nothing more there."""
         row = c.execute("SELECT last_login_at, deleted_at, disabled_at, held_at FROM users WHERE id = ?", (user_id,)).fetchone()
         return row is not None and all(row[column] == as_read[column] for column in STANDING)
 
