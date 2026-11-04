@@ -167,7 +167,7 @@ class WritesAfterTheErasure(TwoConnections):
         self.assertTrue(made["applied"])
         self.assertEqual(self.api.read("posts_published", "day", "user", ada, 0, time.time() + 1), [])
         self.assertTrue(self.api.read("posts_published", "day", "platform", "fake", 0, time.time() + 1))
-        self.assertIsNone(made["idempotency"])
+        self.assertIsInstance(made["idempotency"], float)                 # an owner token that names no row (#416)
         self.assertIsInstance(made["tuple"], NoSuchUser)
         self.assertEqual([p["user_id"] for p in self.api.breaker_trip_people(made["pass"])], [bob])
         self.assertEqual(rows_of(self.api, bob), {**before, "sync_breaker_people": before["sync_breaker_people"] + 1})

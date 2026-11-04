@@ -202,7 +202,7 @@ class DevtoPlatform(Platform):
                 + (["other content"] if theirs is not None and not same_body else []) \
                 + ([] if self._published(a) == article["published"] else ["another status"])
             if differs:
-                unsure.append(f"id {a.get('id')} ({', '.join(differs)})")
+                unsure.append(f"{self._named(a)} ({', '.join(differs)})")
             else:
                 same.append(a)
         if len(same) == 1:
@@ -214,12 +214,20 @@ class DevtoPlatform(Platform):
             # send's article is on a page not read, so "none here" is not "missing".
             reason = f"none of the {len(mine)} articles DEV listed (a full page) is it, and the rest were not read"
         elif same:
-            reason = f"{len(same)} articles agree with it: " + ", ".join(f"id {a.get('id')}" for a in same)
+            reason = f"{len(same)} articles agree with it: " + ", ".join(self._named(a) for a in same)
         else:
             reason = (f"{'an article shares' if len(unsure) == 1 else 'articles share'} its title or canonical URL but not "
                       f"the rest: {', '.join(unsure)}")
         return PublishResult(url=None, remote_id=None, status="published",
                              notes=[f"DEV can't say which article is this post: {reason}."])
+
+    @staticmethod
+    def _named(a: dict[str, Any]) -> str:
+        """A listed article as the reason names it: by its id when DEV gave one as it does (an integer); without one
+        otherwise. The reason reaches the person as the post's error (#428), so nothing of DEV's answer but ids and
+        fixed text is ever in it."""
+        article_id = a.get("id")
+        return f"id {article_id}" if isinstance(article_id, int) and not isinstance(article_id, bool) else "an article without an id"
 
     @staticmethod
     def _published(a: dict[str, Any]) -> bool:

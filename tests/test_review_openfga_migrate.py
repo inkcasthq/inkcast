@@ -23,6 +23,9 @@ COMPONENT = ROOT / "deploy" / "kustomize" / "components" / "openfga"
 SCRIPT = COMPONENT / "migrate.sh"
 PASSWORD = "Pw-review-374-not-a-secret"
 URI = f"postgres://openfga:{PASSWORD}@127.0.0.1:5432/openfga?sslmode=disable"
+# A raw `|` in the password (issue #410): outside RFC 3986's userinfo, so Go's net/url refuses the URI, while libpq
+# and pgx (its own parser, as libpq's: pgconn/parse_url.go at v5.11.0) accept it. A hand-written Secret can hold it.
+RAW_PASSWORD = "Pw|410-not-a-secret"
 
 
 def pinned_images() -> tuple[str, str]:
@@ -188,6 +191,55 @@ class MigrateScript(unittest.TestCase):
                 self.assertIn("no database after 1 s", log)
                 self.assertNotIn(PASSWORD, log)
 
+    def test_a_password_net_url_refuses_reaches_no_log_of_the_init_container_or_the_server(self):
+        """Issue #410: `openfga migrate` parses its URI with Go's net/url before it applies any override
+        (pkg/storage/migrate/migrate.go:80-94 at v1.22.0) and prints the URI it refuses, password included ("invalid
+        database uri: parse ...: net/url: invalid userinfo", measured with the pinned image), while libpq and the
+        server's pgx accept the same URI. So a Secret with a raw `|` in the password let psql take the lock and
+        `openfga migrate` fail, logging the password once a run. migrate.sh gives OpenFGA the URI less the password
+        and the password as OPENFGA_DATASTORE_PASSWORD (cmd/migrate/migrate.go:42: "overwrite the password in the
+        connection string"). The server keeps the whole URI and no override: pgx parses on its own and redacts every
+        error (pgconn/errors.go, redactURLPassword, at v5.11.0), and with an override the server parses the URI with
+        net/url too (pkg/storage/postgres/postgres.go:68-72), which does print it (measured)."""
+        _, openfga = pinned_images()
+        self.sql(f"ALTER ROLE openfga PASSWORD '{RAW_PASSWORD}'", "postgres")
+        self.addCleanup(self.sql, f"ALTER ROLE openfga PASSWORD '{PASSWORD}'", "postgres")
+        uri = f"postgres://openfga:{RAW_PASSWORD}@127.0.0.1:5432/openfga?sslmode=disable"
+        code, log = self.migrate(uri=uri)
+        self.assertNotIn(RAW_PASSWORD, log, "the password in the init container's log")
+        self.assertEqual(code, 0, log)
+        self.assertEqual(self.sql("SELECT max(version_id) FROM goose_db_version"), "6")
+        # The URI env-secrets and CloudNativePG write, percent-encoded: decoded for PGPASSWORD, encoded again by OpenFGA.
+        code, log = self.migrate(uri=uri.replace("|", "%7C"))
+        self.assertEqual(code, 0, log)
+        self.assertNotIn(RAW_PASSWORD, log)
+        self.assertIn('"current version":6', log)
+        # The server, from its own image, on the same database with the same URI: serving, its log without the password.
+        server = f"{self.container}-server"
+        env = ["-eOPENFGA_DATASTORE_ENGINE=postgres", "-eOPENFGA_LOG_FORMAT=json"]
+        subprocess.run(["docker", "run", "-d", "--name", server, "--network", f"container:{self.container}",
+                        *env, f"-eOPENFGA_DATASTORE_URI={uri}", openfga, "run"], check=True, capture_output=True, timeout=60)
+        self.addCleanup(subprocess.run, ["docker", "rm", "-f", server], capture_output=True, timeout=60)
+        health = "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2).read().decode())"
+        status = ""
+        for _ in range(60):
+            status = subprocess.run(["docker", "exec", self.container, "python3", "-c", health],
+                                    capture_output=True, text=True, timeout=30).stdout.strip()
+            if "SERVING" in status:
+                break
+            time.sleep(0.5)
+        done = subprocess.run(["docker", "logs", server], capture_output=True, text=True, timeout=60)
+        log = done.stdout + done.stderr
+        self.assertIn('"SERVING"', status, log)
+        self.assertNotIn(RAW_PASSWORD, log, "the password in the server's log")
+        # A token pgx cannot decode: the server refuses the URI and prints it redacted (`openfga:xxxxx@`).
+        bad = f"postgres://openfga:{RAW_PASSWORD}%zz@127.0.0.1:5432/openfga?sslmode=disable"
+        done = subprocess.run(["docker", "run", "--rm", "--network", f"container:{self.container}", *env,
+                               f"-eOPENFGA_DATASTORE_URI={bad}", openfga, "run"], capture_output=True, text=True, timeout=120)
+        self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("openfga:xxxxx@", done.stdout + done.stderr)
+        self.assertNotIn(RAW_PASSWORD, done.stdout + done.stderr, "the password in the server's log")
+
     def test_a_killed_runner_leaves_no_statement_running_without_the_lock(self):
         """A pod deleted while it migrates: SIGTERM ends bash, PID 1, at once (measured: exit 143 in under a second)
         and the kubelet kills the rest. The lock goes with psql's session, but OpenFGA's own backend keeps running
@@ -233,6 +285,75 @@ class MigrateScript(unittest.TestCase):
         self.assertIn("repair: idx_user_lookup is INVALID", log)
         self.assertEqual(self.sql("SELECT indisvalid FROM pg_index WHERE indexrelid = to_regclass('idx_user_lookup')"), "t")
         self.assertEqual(self.sql("SELECT count(*) FROM goose_db_version WHERE version_id = 6"), "1")
+
+    def test_a_lock_session_that_dies_alone_ends_the_migration_within_10_s(self):
+        """Issue #409: the psql session that holds the lock can die while its runner lives (pg_terminate_backend,
+        SIGTERM to that one backend, signalfuncs.c:237-251 at REL_18_6; a middlebox dropping an idle connection),
+        and the lock goes with it ("held until explicitly released or the session ends", mvcc.sgml "Advisory Locks"),
+        while `openfga migrate` ran on, unlocked, to the end, beside whichever runner took the lock next. migrate.sh
+        now probes the session while `openfga migrate` runs in the background, ends the run when it is gone and
+        kills the migration; its backend's statement in flight, here 006's CREATE INDEX CONCURRENTLY held by a
+        snapshot, ends with its client (client_connection_check_interval, the F4 of PR #374). The run exits non-zero
+        and leaves no process, and the next run repairs what the interrupted 006 left."""
+        self.assertMigrated()
+        self.sql("DELETE FROM goose_db_version WHERE version_id = 6")
+        self.sql("DROP INDEX idx_user_lookup")
+        snapshot = subprocess.Popen(["docker", "exec", self.container, "psql", "-h", "/tmp", "-U", "postgres", "-d", "openfga",
+                                     "-c", "BEGIN ISOLATION LEVEL REPEATABLE READ; SELECT count(*) FROM goose_db_version;"
+                                     " SELECT pg_sleep(60); COMMIT;"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        end_snapshot = ("SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity"
+                        " WHERE query LIKE '%pg_sleep(60)%' AND pid <> pg_backend_pid()")
+        self.addCleanup(snapshot.wait, 60)
+        self.addCleanup(self.sql, end_snapshot)
+        time.sleep(1)
+        runner = subprocess.Popen(self.migrate_command(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        self.addCleanup(runner.wait, 120)
+        self.addCleanup(runner.kill)
+        building = "SELECT count(*) FROM pg_stat_progress_create_index"
+        for _ in range(80):
+            if self.sql(building) == "1":
+                break
+            time.sleep(0.25)
+        self.assertEqual(self.sql(building), "1", "006's build never started")
+        # The lock session alone: the one backend that holds the advisory lock; OpenFGA's own connections live on.
+        self.assertEqual(self.sql("SELECT count(pg_terminate_backend(pid)) FROM pg_locks WHERE locktype = 'advisory' AND granted"), "1")
+        died = time.monotonic()
+        running = "SELECT count(*) FROM pg_stat_activity WHERE application_name = 'openfga-migrate' AND state = 'active'"
+        while self.sql(running) != "0" and time.monotonic() - died < 10:
+            time.sleep(0.5)
+        self.assertEqual(self.sql("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND granted"), "0")
+        self.assertEqual(self.sql(running), "0", "a migration statement still runs 10 s after its lock session died, without the lock")
+        try:
+            log, _ = runner.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            self.fail("the run did not end within 10 s of its lock session's death")
+        self.assertNotEqual(runner.returncode, 0, log)
+        self.assertIn("the database session ended", log)
+        self.assertEqual(self.command_lines_holding("/opt/openfga/openfga migrate"), [], "openfga migrate left running")
+        self.sql(end_snapshot)
+        log = self.assertMigrated()   # the next run: the repair drops the invalid index, 006 builds it
+        self.assertIn("repair: idx_user_lookup is INVALID", log)
+        self.assertEqual(self.sql("SELECT indisvalid FROM pg_index WHERE indexrelid = to_regclass('idx_user_lookup')"), "t")
+        self.assertEqual(self.sql("SELECT count(*) FROM goose_db_version WHERE version_id = 6"), "1")
+
+    def test_a_runner_beside_another_session_of_its_role_waits_the_hand_over_grace(self):
+        """Issue #409, the hand-over: a runner whose lock session died alone still migrates until its next probe,
+        and `openfga migrate` takes no fencing token the database could check, so the runner that takes the lock
+        next waits out that time (twice the probe interval, plus the server's client check: 6 s) before it touches
+        the schema, as leader election hands a lease over, when another session of its role exists. Alone, it
+        waits nothing: the schema is current and the server starts at once."""
+        log = self.assertMigrated()
+        self.assertNotIn("other session(s) of this role", log)
+        other = subprocess.Popen(["docker", "exec", self.container, "psql", "-h", "/tmp", "-U", "openfga", "-d", "openfga",
+                                  "-Atc", "SELECT pg_sleep(30)"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.addCleanup(other.wait, 60)
+        self.addCleanup(self.sql, "SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE usename = 'openfga'")
+        time.sleep(1)
+        started = time.monotonic()
+        log = self.assertMigrated()
+        self.assertIn("1 other session(s) of this role: waiting 6 s", log)
+        self.assertGreaterEqual(time.monotonic() - started, 6)
+        self.assertLess(log.index("waiting 6 s"), log.index("running openfga migrate"), "the grace before the migration")
 
 
 @unittest.skipIf(UNAVAILABLE, UNAVAILABLE)

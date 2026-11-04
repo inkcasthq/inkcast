@@ -167,7 +167,10 @@ def openapi_document(public_url: str) -> dict[str, Any]:
                             "an unconfirmed post again on its own, and Git sync never creates one again: a file whose "
                             "post is unconfirmed is reported as needing this decision. 409 `not_connected` when the "
                             "platform isn't connected or refuses the stored credentials: nothing is cancelled, and the "
-                            "message names the reconnect step. 409 `not_resendable` when the post is not `unconfirmed` "
+                            "message names the reconnect step. 409 `platform_unavailable` when the platform couldn't be "
+                            "asked just now whether it still accepts them (rate-limited, unreachable): nothing is "
+                            "cancelled, and the message names when to try again, from the platform's Retry-After when "
+                            "it gave one. 409 `not_resendable` when the post is not `unconfirmed` "
                             "(cancelled, or resent already); for a post resent already the body also carries `post_id`, "
                             "the post that resend made, so a client whose first reply was lost can follow it.")},
             "/api/v1/preview": {"post": _op(
@@ -190,7 +193,9 @@ def openapi_document(public_url: str) -> dict[str, Any]:
                              "(`Idempotent-Replayed: true`), unless that response has a `skipped` or `failed` result, "
                              "which asks for a re-run: then the repeat runs, and the ledger keeps what the first run did; a "
                              "repeat while the first is still running gets 409 "
-                             "`idempotency_key_in_use` (retry shortly); the same key with a different body gets "
+                             "`idempotency_key_in_use` (retry shortly), for 15 minutes from the first's start: a sync "
+                             "that runs longer no longer holds the key, and the repeat runs anew; the same key with a "
+                             "different body gets "
                              "422 `idempotency_key_reused` while the first response is kept, and runs once it "
                              "isn't."))},
             "/api/v1/ledger": {"get": _op(

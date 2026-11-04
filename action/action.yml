@@ -40,7 +40,8 @@ inputs:
   fail-on-decision:
     description: >-
       Fail while a file's post waits for a person's decision (its last publish is unconfirmed, or still recovering):
-      every push fails until they resend or cancel it (inkcast resend | cancel <post-id>).
+      every push fails until they resend or cancel it (inkcast resend | cancel <post-id>), or, for an old entry with
+      no post to resend or cancel, edit the file (published as a new post).
     default: "false"
   python-version:
     default: "3.12"
