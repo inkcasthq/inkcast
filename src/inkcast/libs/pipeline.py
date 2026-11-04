@@ -550,7 +550,22 @@ class Publisher:
 
     async def run_due(self, now: float | None = None) -> list[Outcome]:
         now = now or time.time()
-        outcomes = [await self.recover(row, now) for row in self.store.claim_stuck(older_than=now - STUCK_AFTER, now=now)]
+        outcomes = []
+        for row in self.store.claim_stuck(older_than=now - STUCK_AFTER, now=now):
+            try:
+                outcomes.append(await self.recover(row, now))
+            except sqlite3.Error:
+                raise  # the store, not this row: the next row's write would fail the same way, so the tick stops
+            except Exception:
+                # One row whose recovery can't even be made (its credentials sealed under another INKCAST_SECRET_KEY,
+                # which ``confirm`` reads outside its guard; a payload this version can't read) must not end the pass
+                # for every row claimed after it, other people's posts included, for the whole of the cap (#446). The
+                # row stays 'recovering', with its clock, and is taken again at the next stuck pass; past the cap
+                # ``recover`` ends it. Counted and logged by post id, so an alert can name a row that keeps failing.
+                log.exception("Post %s on %s: its recovery could not be made; left for the next stuck pass", row["id"],
+                              row["platform"], extra={"event": "publish.recovery.failed", "post_id": row["id"],
+                                                      "platform": row["platform"]})
+                self._count(row["platform"], "recovery_failed")
         for row in self.store.claim_due_posts(now):
             if not self.store.renew_claim(row["id"], row["attempts"]):
                 continue  # another worker took it over as stuck while this batch was being sent: it is theirs now

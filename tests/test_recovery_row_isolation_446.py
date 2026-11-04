@@ -68,9 +68,10 @@ class FindingOneRowsRecoveryErrorDoesNotStopThePass(TwoPeoplesStuckRows):
         self.assertEqual((self.status(self.first), self.recovery_failures()), ("recovering", 2))
 
         self.store.save_credentials(self.user, self.platform.id, {"k": "v"}, {"id": "1", "name": "findable"})   # reconnected
-        self.tick(later=2 * (STUCK_AFTER + 1))
-        self.assertEqual(self.status(self.first), "scheduled", "a row whose error is gone was not recovered")
-        self.assertEqual(self.recovery_failures(), 2)
+        self.tick(later=2 * (STUCK_AFTER + 1))                                # missing: queued again, and due at once
+        self.assertIn(("post.recovered", self.user, {"platform": "findable", "status": "scheduled"}), self.events(self.first),
+                      "a row whose error is gone was not recovered")
+        self.assertEqual((self.status(self.first), self.recovery_failures()), ("published", 2))
 
 
 class HeldAStoreErrorStillStopsThePass(TwoPeoplesStuckRows):
