@@ -125,13 +125,15 @@ class MediumPlatform(Platform):
         if fields.get("canonical_url"):
             payload["canonicalUrl"] = fields["canonical_url"]
         if fields.get("license"):
-            if fields["license"] not in LICENSES:
+            chosen = str(fields["license"])  # as written: a list from the front matter isn't hashable, so never `in` (#130)
+            if chosen not in LICENSES:
                 raise PlatformError(f"medium.license must be one of {', '.join(sorted(LICENSES))}.")
-            payload["license"] = fields["license"]
+            payload["license"] = chosen
         if "notify_followers" in fields:
             payload["notifyFollowers"] = bool(fields["notify_followers"])
 
         destination = fields.get("destination") or fields.get("publication")
+        destination = str(destination) if destination else None  # the pipeline resolves a name; a list has no strip() (#130)
         preview = {
             "title": title,
             "subtitle": subtitle if subtitle and fields.get("subtitle_in_body", True) else "(none)",

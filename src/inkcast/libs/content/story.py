@@ -9,9 +9,10 @@ separate fields).
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable
 from urllib.parse import urljoin, urlparse
 
@@ -32,6 +33,9 @@ _H2 = re.compile(r"^##\s+(.+)$")
 # start, which is quadratic or worse (a 1 MB body took hours).
 _MD_IMAGE = re.compile(r"(!\[[^\[\]]*\]\()\s*<?([^()\s>]+)>?((?:\s+[\"'][^\"']*[\"'])?\s*\))")
 _HTML_IMAGE = re.compile(r"(<img\b[^<>]*?\bsrc\s*=\s*[\"'])([^\"']+)([\"'])", re.I)
+# A surrogate code point in a str. Python has no pairs (a pair in JSON or YAML is decoded to one character), so any
+# left is unpaired, and no UTF-8 encoder takes it: the JSON response, the database row, the request to the platform.
+_LONE_SURROGATE = re.compile("[\ud800-\udfff]")
 
 # Common front-matter spellings mapped to Inkcast's names.
 _ALIASES = {
@@ -48,6 +52,19 @@ _ALIASES = {
 
 class StoryError(ValueError):
     """Input that can't become a story; the message says how to fix it."""
+
+
+def lone_surrogate(text: str) -> str | None:
+    """Why ``text`` can't be stored or sent, or None: its first unpaired surrogate, by position and code point. The
+    escape `"\\ud800"` in a request's JSON, or in the front matter, is a str Python's parsers accept and no UTF-8
+    encoder takes, which was a 500 when the response was encoded, or an unconfirmed post when the request to the
+    platform was (#130). The REST and MCP inputs (contracts.models.Input) and the front matter (split_front_matter)
+    refuse it with this message, each naming the field."""
+    match = _LONE_SURROGATE.search(text)
+    if match is None:
+        return None
+    return (f"has an unpaired surrogate, U+{ord(match.group()):04X} at character {match.start() + 1}, which isn't a "
+            "character and can't be stored or sent; remove it")
 
 
 class _RefusedValue(Exception):
@@ -180,6 +197,8 @@ def split_front_matter(markdown: str) -> tuple[dict[str, Any], str]:
         raise StoryError(f"The front matter isn't valid YAML: {exc}") from exc
     if not isinstance(data, dict):
         raise StoryError("The front matter must be a YAML mapping (key: value lines).")
+    # PyYAML's reader refuses a raw lone surrogate; its scanner builds one from the escape `"\ud800"`, anywhere.
+    _refuse_lone_surrogates(data, "")
     return data, markdown[match.end():]
 
 
@@ -191,7 +210,72 @@ def _pick(meta: dict[str, Any], name: str) -> Any:
     return None
 
 
-def _as_tags(value: Any) -> list[str]:
+def _named(where: str, key: Any) -> str:
+    """``key`` under ``where``, for a message: `devto.series`, or `tags` at the top. A key that isn't short plain text
+    isn't echoed (a line break would start a line in a CI log; a lone surrogate can't be sent: #129)."""
+    if isinstance(key, str) and key.isprintable() and len(key) <= 80:
+        return f"{where}.{key}" if where else key
+    return f"The value under a key in {where or 'the front matter'}"
+
+
+def _refuse_lone_surrogates(value: Any, where: str) -> None:
+    """The front matter's strings, keys and values at any depth (``lone_surrogate``), each named by its path."""
+    if isinstance(value, str):
+        if why := lone_surrogate(value):
+            raise StoryError(f"{where or 'The front matter'} {why}.")
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            _refuse_lone_surrogates(key, f"A key in {where or 'the front matter'}")
+            _refuse_lone_surrogates(item, _named(where, key))
+    elif isinstance(value, (list, tuple, set)):
+        for i, item in enumerate(value):
+            _refuse_lone_surrogates(item, f"{where}[{i}]")
+
+
+def _json_safe(value: Any, where: str) -> Any:
+    """``value`` as JSON carries it, for a plug-in's ``prepare`` and the post row that stores its result: text,
+    numbers, true/false and null as they are; a date or time (YAML reads `series: 2027-01-01` as a date) as its ISO
+    8601 text; a list or mapping of those. Binary data (`!!binary`), a set (`!!set`), NaN, infinity and a key that
+    isn't text are refused, named by their path: `json.dumps` failed on them long after parsing, in the sync's payload
+    hash or the post's row, a 500 for the whole request (#130)."""
+    if value is None or isinstance(value, (str, int)):  # a bool is an int
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise StoryError(f"{where} is {value}, which JSON can't carry; write a finite number.")
+        return value
+    if isinstance(value, date):  # a datetime is a date
+        return value.isoformat()
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item, f"{where}[{i}]") for i, item in enumerate(value)]
+    if isinstance(value, dict):
+        out: dict[str, Any] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise StoryError(f"{where} has a key that isn't text ({repr(key)[:80]}); quote it, or remove it.")
+            out[key] = _json_safe(item, _named(where, key))
+        return out
+    kind = {bytes: "binary data (!!binary)", set: "a set (!!set)"}.get(type(value), f"a {type(value).__name__}")
+    raise StoryError(f"{where} is {kind}, which JSON can't carry; write text, a number, true/false, a list or a mapping.")
+
+
+def _platform_block(pid: str, block: dict[Any, Any]) -> dict[str, Any]:
+    """A platform block's values as the plug-in's ``prepare`` and the post row can take them: JSON-safe
+    (``_json_safe``), tags a list of names, URLs checked like the top-level ones. Refused here, the file's error like
+    any other front matter: ``for_platform`` made the tags at prepare time, where only PlatformError is handled, so
+    `devto: {tags: 5}` was a 500 for the request, or for a whole sync (#130)."""
+    out: dict[str, Any] = {}
+    for key, value in _json_safe(block, pid).items():
+        if key in _ALIASES["tags"]:
+            value = _as_tags(value, _named(pid, key))
+        elif value and key in _ALIASES["canonical_url"] + _ALIASES["cover_image"]:  # the same rule as the top-level URLs
+            value = check_url(value, _named(pid, key))
+        out[key] = value
+    return out
+
+
+def _as_tags(value: Any, what: str = "tags") -> list[str]:
+    """``what`` names the field in a refusal: `tags`, `platforms`, `devto.tags`."""
     if value in (None, ""):
         return []
     if isinstance(value, str):
@@ -199,11 +283,14 @@ def _as_tags(value: Any) -> list[str]:
     elif isinstance(value, (list, tuple)):
         items = value
     else:
-        raise StoryError("tags must be a list or a comma-separated string.")
+        raise StoryError(f"{what} must be a list or a comma-separated string.")
     tags: list[str] = []
     for item in items:
         if isinstance(item, dict):
             item = item.get("value") or item.get("label") or ""
+        elif item is not None and not isinstance(item, (str, int, float, date)):
+            # A nested list, say: str() would make `['a', 'b']` one name, which DEV would post as the tag `ab`.
+            raise StoryError(f"{what} must be a list of names or a comma-separated string; {repr(item)[:80]} isn't a name.")
         tag = str(item).strip().lstrip("#").strip()
         if tag and tag.lower() not in {t.lower() for t in tags}:
             tags.append(tag)
@@ -340,7 +427,7 @@ def parse_story(
     cover = cover_image or _pick(meta, "cover_image")
     base = image_base_url or _pick(meta, "image_base_url")
 
-    chosen = platforms or _as_tags(_pick(meta, "platforms")) or []
+    chosen = platforms or _as_tags(_pick(meta, "platforms"), "platforms") or []
     chosen = list(dict.fromkeys(p.strip().lower() for p in chosen))  # once each: a repeat would post twice
     unknown = [p for p in chosen if p not in known]
     if unknown:
@@ -350,10 +437,7 @@ def parse_story(
     for pid in known:
         block = meta.get(pid)
         if isinstance(block, dict):
-            overrides[pid] = dict(block)
-            for key, value in block.items():  # the same rule as the top-level URLs
-                if value and key in _ALIASES["canonical_url"] + _ALIASES["cover_image"]:
-                    overrides[pid][key] = check_url(value, f"{pid}.{key}")
+            overrides[pid] = _platform_block(pid, block)
     for pid, dest in (destinations or {}).items():
         pid = pid.strip().lower()
         if pid not in known:

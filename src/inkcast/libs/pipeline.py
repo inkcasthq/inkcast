@@ -105,10 +105,19 @@ class Publisher:
         ready: list[Prepared] = []
         problems: list[Outcome] = []
         for pid in platform_ids:
+            platform = self.platforms[pid]
             try:
-                ready.append(self.platforms[pid].prepare(story.for_platform(pid), story.body))
+                ready.append(platform.prepare(story.for_platform(pid), story.body))
             except PlatformError as exc:
                 problems.append(Outcome(pid, "failed", message=str(exc)))
+            except Exception:
+                # A plug-in bug on this story's values, with no I/O done: this platform fails, and the others, and a
+                # sync's other files, are still answered, instead of a 500 for the whole request (#130). The
+                # exception's text stays in the log: it may quote the story.
+                log.exception("Platform %s crashed preparing a story", pid)
+                problems.append(Outcome(pid, "failed", message=(
+                    f"Internal error in the {platform.name} plug-in while preparing this story; check its `{pid}:` "
+                    "block in the front matter.")))
         return ready, problems
 
     async def publish(self, user_id: str, story: Story, platform_ids: list[str],
