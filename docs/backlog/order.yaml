@@ -13,7 +13,6 @@ waves:
   items:
   - F3.9.S5
   - F3.9.S8
-  - '#342'
   - F9.1.S3
   - F3.1.S9
   - F1.8.S1
@@ -25,25 +24,21 @@ waves:
   why: 'Follow-ups in code that already runs: links written to the log, double-sends, lost posts and data kept after erasure.
     These are the failures a writer or an auditor notices first (handover, suggested order 1), so they come before new screens.'
   items:
-  - '#214'
-  - '#392'
-  - '#396'
-  - '#149'
-  - '#212'
-  - '#112'
-  - '#161'
-  - '#139'
-  - '#128'
-  - '#202'
-  - '#130'
-  - '#280'
-  - '#290'
-  - '#291'
   - '#222'
   - '#234'
-  - '#219'
-  - '#141'
-  - '#159'
+  - '#399'
+  - '#400'
+  - '#401'
+  - '#404'
+  - '#405'
+  - '#409'
+  - '#410'
+  - '#416'
+  - '#417'
+  - '#427'
+  - '#428'
+  - '#435'
+  - '#436'
 - id: W3
   phase: 1
   title: The writer web app
@@ -380,21 +375,9 @@ tooling:
 issues:
   59: "DEV destinations: list the organizations this person has already published to (DEV's API can't list a user's organizations)"
   72: "Authz hardening from the adversarial review (PR #70): smaller concerns"
-  112: "Erasure: copies outside the backup rotation keep erased data indefinitely"
-  128: "restore: 'Nothing was replaced' can be false when the restore is stopped (PID 1 ignores SIGTERM)"
-  130: "Publishing: a bad value in a platform block, or a lone surrogate in a field, still answers 500"
   136: "Token lifetimes: follow-ups from the review of #132"
-  139: "Keycloak sync breaker: a scripted mass delete or disable through the admin API is acted on one person at a time"
-  141: "Outbox housekeeping: retired consumers block purging forever, and housekeeping can starve"
-  149: "Account-deletion links are written in clear to the access log"
-  159: "Test-order dependence: NoBearerLinksInLogs fails when run after the breaker tests"
-  161: "Erasure and cut-off races: the remaining shapes after #102"
-  202: "Restore: two restores stamped in the same second leave a full copy on the data volume"
   207: "Alerts: InkcastIdentitySyncReconcileEndingEarly can't fire near the top of the reconcile interval"
-  212: "Erasure: workspace member KPIs keep the person's id in dims.member"
-  214: "Publishing: writes after a send don't check the claim, and an empty 2xx is published with no URL"
   215: "Rate limits: wording and docs left from #188"
-  219: "Owner guards: rollbacks drop newer guards, and the orphan sweep can stop early"
   222: "Always-schedule follow-ups: large imports can page, clock skew in the lag measure, stale wording"
   227: "tokensave fork: workspaces, agent and model discovery, and a local token dashboard"
   234: "Person decides: follow-ups from the review of #231"
@@ -406,11 +389,18 @@ issues:
   271: "tokensave fork S6: propose S1–S3 to tokensave upstream"
   272: "Fix tokensave global.db writers waiting on dashboard reads"
   273: "Fix the tokensave saving rate under tool, model and effort filters"
-  280: "Git sync: a replacement remade after a failed run loses the replaced post's created_at"
-  290: "Git sync: a re-run within 24 h replays the first skipped result"
-  291: "inkcast sync --removed-since: glob_pattern matches more than glob.glob"
   299: "OpenFGA to PostgreSQL with cert-manager client certificates instead of passwords"
-  342: "Bring a deleted generated Secret back without restarting OpenFGA"
-  392: "Git sync: an edit made while a send is out is lost when that send succeeds"
-  396: "Stop DEV's recovery lookup from taking an older article with the same title"
+  399: "Connect links: two POSTs with one ticket both save credentials"
+  400: "Rate limit: HEAD requests on GET routes are never counted"
+  401: "One-time links: only a POST from the person uses a link up, not a GET or a previewer"
+  404: "Erasure: the live WAL and a killed restore's file keep erased data"
+  405: "Backups: one run on a clock that jumped ahead removes every earlier backup"
+  409: "OpenFGA migration: a lock session that dies alone leaves the migration running unlocked"
+  410: "OpenFGA logs its datastore password when the URI doesn't parse"
+  416: "Git sync: a request frees only its own Idempotency-Key reservation"
+  417: "inkcast sync: collect lists what git can report removed (symlinks, directories, case)"
+  427: "Publishing: the 'changed while this send was out' note promises an update that may never come"
+  428: "Publishing: an unconfirmed post's error names the platform's reason it can't tell"
+  435: "env-secrets e2e proof 4: retry the --previous log read when containerd can't retrieve it"
+  436: "Keep a copy of inkcast-secrets beside the backups' key, so a lost secret-key can be restored"
   360: "Backlog tracker: every story in one execution order, reviewed wave by wave"
