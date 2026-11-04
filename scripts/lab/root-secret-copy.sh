@@ -84,9 +84,11 @@ for plan in json.load(sys.stdin).get("items", []):
     if names == [wanted]:
         print(plan["metadata"]["name"]); break
     if wanted in names:
-        sys.exit(f"InstallPlan {plan[chr(109)+chr(101)+chr(116)+chr(97)+chr(100)+chr(97)+chr(116)+chr(97)][chr(110)+chr(97)+chr(109)+chr(101)]} carries {wanted} beside {[n for n in names if n != wanted]}: not approved. Approve by hand what you mean, or wait for a plan of the pinned version alone.")' "$csv"
+        sys.stderr.write(f"InstallPlan {plan[chr(109)+chr(101)+chr(116)+chr(97)+chr(100)+chr(97)+chr(116)+chr(97)][chr(110)+chr(97)+chr(109)+chr(101)]} carries {wanted} beside {[n for n in names if n != wanted]}: not approved. Approve by hand what you mean, or wait for a plan of the pinned version alone.\n"); sys.exit(3)' "$csv"
 }
-has_plan() { [ -n "$(plan_for_csv)" ]; }
+# A refusal (status 3) stops the script here: in a condition (`until`) `set -e` ignores it, and the wait would run
+# out its deadline repeating it. Any other failure (the API, an empty answer) is waited through, as before.
+has_plan() { local found status=0; found="$(plan_for_csv)" || status=$?; [ "$status" -ne 3 ] || exit 1; [ -n "$found" ]; }
 wait_for 300 "OLM's InstallPlan for $csv alone" has_plan
 plan="$(plan_for_csv)"
 if [ "$(field "$adp" "installplan/$plan" '{.spec.approved}')" != "true" ]; then

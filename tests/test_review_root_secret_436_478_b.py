@@ -6,6 +6,7 @@ that fail when a guard stops guarding. No cluster is reached: the scripts' own b
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import pathlib
 import re
@@ -173,6 +174,70 @@ class AdmissionProbes(Stubbed):
                 done = self.probes(lacks)
                 self.assertNotEqual(done.returncode, 0, done.stdout)
                 self.assertIn(named, done.stderr)
+
+
+
+# The stub `oc` for step 1: $PLANS (JSON) is the namespace's InstallPlans; a patch is logged, nothing else changes.
+PLAN_STUB = """\
+args = sys.argv[1:]
+with open(pathlib.Path(os.environ["STUB_DIR"], "calls.log"), "a") as log:
+    log.write(json.dumps(args) + "\\n")
+plans = json.loads(os.environ["PLANS"])
+if "patch" in args:
+    sys.exit(0)
+answered = pathlib.Path(os.environ["STUB_DIR"], "answered")
+if args[-2:] == ["-o", "json"] and os.environ.get("FIRST_LIST_FAILS") and not answered.exists():
+    answered.touch()
+    sys.exit("Error from server: the server is currently unable to handle the request")
+if args[-2:] == ["-o", "json"]:
+    print(json.dumps({"items": plans}))
+elif any(a.startswith("installplan/") for a in args):
+    (plan,) = [p for p in plans if "installplan/" + p["metadata"]["name"] in args]
+    print("true" if plan["spec"].get("approved") else "false", end="")
+else:
+    sys.exit(1)
+"""
+
+
+class InstallPlanApproval(Stubbed):
+    """Step 1's approval, run as the script runs it with `oc` stubbed. A plan that carries the pinned CSV beside
+    another is named and stops the script (the script's own words): measured before the fix, the refusal ran inside
+    `has_plan`'s command substitution, which `set -e` ignores in a condition, so the script waited out its 300 s
+    printing the refusal every 5 s before it stopped on the timeout."""
+
+    def approve(self, plans: list[list[str]], first_list_fails: bool = False) -> subprocess.CompletedProcess:
+        self.stub("oc", PLAN_STUB)
+        items = [{"metadata": {"name": f"install-{i}"}, "spec": {"clusterServiceVersionNames": names, "approved": False}}
+                 for i, names in enumerate(plans)]
+        script = "\n".join([function("field"), function("wait_for"), 'k=oc; adp=openshift-adp; csv=oadp-operator.v1.6.2',
+                            until("plan_for_csv() {", "csv_succeeded() {")])
+        try:
+            return self.bash(script, {"PLANS": json.dumps(items), "FIRST_LIST_FAILS": "1" if first_list_fails else ""},
+                             timeout=20)
+        except subprocess.TimeoutExpired as e:
+            self.fail(f"still waiting after {e.timeout} s on a plan it refuses: {e.stderr.decode() if isinstance(e.stderr, bytes) else e.stderr}")
+
+    def patches(self) -> list[str]:
+        return [line for line in (self.dir / "calls.log").read_text().splitlines() if '"patch"' in line]
+
+    def test_a_plan_carrying_another_csv_stops_the_script_at_once_naming_it(self):
+        done = self.approve([["oadp-operator.v1.6.2", "something-else.v9"]])
+        self.assertNotEqual(done.returncode, 0, done.stdout)
+        self.assertEqual(done.stderr.count("not approved"), 1, done.stderr)
+        self.assertIn("install-0", done.stderr)
+        self.assertEqual(self.patches(), [], "a plan carrying another CSV was approved")
+
+    def test_the_plan_of_the_pinned_csv_alone_is_approved(self):
+        done = self.approve([["oadp-operator.v1.7.0"], ["oadp-operator.v1.6.2"]])
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("InstallPlan install-1 approved (oadp-operator.v1.6.2 alone)", done.stdout)
+        (patch,) = self.patches()
+        self.assertIn('"install-1"', patch)
+
+    def test_a_failed_listing_is_waited_through_not_taken_for_a_refusal(self):
+        done = self.approve([["oadp-operator.v1.6.2"]], first_list_fails=True)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("InstallPlan install-0 approved", done.stdout)
 
 
 if __name__ == "__main__":
