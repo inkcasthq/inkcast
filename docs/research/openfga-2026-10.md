@@ -76,6 +76,26 @@ These are OpenFGA **server** settings. If a deployment changes them (`OPENFGA_MA
    - every `rel from parent` must exist on every type `parent` allows;
    - never rely on a group being a member of itself.
 
+## 6. `openfga migrate`: no lock, and what an interrupted run leaves
+
+*Added 2026-11-04 for E3.F3.9.S8 (issue #337) and the review of PR #374. Read over git at the tags v1.22.0 and v1.22.1 (the files below are the same blobs at both), goose v3.28.0 (OpenFGA's `go.mod:35`), PostgreSQL `REL_18_STABLE`, Kubernetes v1.37.0.*
+
+| Fact | Where |
+|---|---|
+| `openfga migrate` opens the database, pings it with a back-off bounded by `OPENFGA_TIMEOUT` (that is the flag's only use), reads the version with the package-level `goose.GetDBVersion` and runs the package-level `goose.Up`. **No lock**: goose's PostgreSQL session lock exists only on its `Provider` API, behind `WithSessionLocker`, which OpenFGA does not construct. | `pkg/storage/migrate/migrate.go:23-24,113-141`; `cmd/migrate/flags.go:29-30`; goose `up.go:161-168`, `provider_run.go:291-295`, `provider_options.go` |
+| goose plans every file above the table's highest version once and applies them in order without re-reading the table between files. | goose `up.go:63-117` |
+| goose's version table has no unique constraint on `version_id`; the current version is the **newest applied row by id**. | goose `internal/dialects/postgres.go:19-26,44-47`; `migrate.go:216-252` |
+| A transactional file runs its statements and its version row in one transaction; a `-- +goose NO TRANSACTION` file runs each statement and then the version row on their own. | goose `migration_sql.go:27-89` |
+| Migration 003 creates `idx_reverse_lookup_user`; 006 (`NO TRANSACTION`) creates `idx_user_lookup` with `CREATE INDEX CONCURRENTLY IF NOT EXISTS` and drops `idx_reverse_lookup_user`. So two runners that both planned 003-006 can let the slower one's 003 **succeed again** after the faster one's 006 dropped the index, leaving a newer row at version 3; its 004 then fails (the column exists) and nothing rolls the 003 row back. | `assets/migrations/postgres/003_add_reverse_lookup_index.sql:2`, `006_add_collate_index.sql:1-11`, `004_add_authorization_model_serialized_protobuf.sql:2` |
+| That database reports revision 3 to goose and to OpenFGA, and v1.22 needs at least 4: `/healthz` stays NOT_SERVING and no retry repairs it. | `internal/build/build.go:16-18`; `pkg/storage/sqlcommon/sqlcommon.go:1244-1269` |
+| An interrupted `CREATE INDEX CONCURRENTLY` leaves the index in the catalog marked INVALID; `IF NOT EXISTS` checks the name only, so a later 006 skips the build and records version 6 over an unusable index. Recovery is to drop it and build again. | PostgreSQL `doc/src/sgml/ref/create_index.sgml`, "Building Indexes Concurrently" |
+| A session-level advisory lock is keyed by the database it is taken in (`MyDatabaseId`), blocks other takers of the same key until released, and is released by the server when the session ends, however it ends. `pg_locks` shows a bigint key split as `classid` (high half) and `objid` (low half) with `objsubid` 1. | `src/backend/utils/adt/lockfuncs.c` (`SET_LOCKTAG_INT64`), `src/include/storage/lock.h` (`SET_LOCKTAG_ADVISORY`), `doc/src/sgml/mvcc.sgml` "Advisory Locks" |
+| psql exits 2 when the connection is lost in a non-interactive session, and 3 on an SQL error with `ON_ERROR_STOP`; `ON_ERROR_STOP` does not act on a failed `\!` shell command, which only sets `SHELL_ERROR` and `SHELL_EXIT_CODE` (measured 2026-11-04 on psql 18.6). | `doc/src/sgml/ref/psql-ref.sgml`, "Exit Status", `SHELL_ERROR` |
+| The kubelet starts a later init container for the first time only after an earlier sidecar's startup probe succeeded, but restarts a **failed** init container from its own exited state, without waiting for that probe again: a lock held by a sidecar would not cover a retried migration. | `pkg/kubelet/kuberuntime/kuberuntime_container.go`, `computeInitContainerActions` (the `ContainerStateRunning` and `ContainerStateExited` cases) |
+| `volumes[].image` (an image volume) is stable from Kubernetes 1.36 and on by default from 1.35, which OpenShift 4.22 runs (4.22.1: Kubernetes 1.35.5; the fork keeps the default), and is admitted by Pod Security "restricted". | kubernetes/website `feature-gates/ImageVolume.md`; openshift/kubernetes `release-4.22` `pkg/features/kube_features.go` (`ImageVolume`); pod-security-admission v0.37.0 `policy/check_restrictedVolumes.go` |
+
+**What Inkcast does (E3.F3.9.S8):** `deploy/kustomize/components/openfga/migrate.sh`, run by the init container `migrate` with the PostgreSQL image and OpenFGA's own image as an image volume, holds one session-level advisory lock (key 1473304569, CRC-32 of `inkcast/openfga-migrate`, derived as goose derives its own 4097083626 and deliberately not that one) across the version discovery, the repair of an INVALID `idx_user_lookup` (dropped, and goose's version-6 rows removed so 006 runs again) and the whole `openfga migrate`; the Deployment is `strategy: Recreate` with one replica. The proofs are `scripts/dev/openfga-recovery-e2e.sh`.
+
 ## Sources
 
 - [OpenFGA's Move to Weighted Graph Resolution: What's Changing](https://openfga.dev/blog/weighted-graph-upcoming-changes), 21 July 2026.

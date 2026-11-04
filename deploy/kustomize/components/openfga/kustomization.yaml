@@ -34,6 +34,13 @@ configMapGenerator:
       - INKCAST_FGA_API_URL=http://openfga:8080
       - INKCAST_FGA_API_TOKEN_FILE=/var/run/secrets/inkcast/fga-api-token
       - INKCAST_FGA_STORE_NAME=inkcast
+  # The migration script the init container migrate runs (deployment.yaml), one file, mounted read-only. No name
+  # hash, as the rest of the repository's ConfigMaps: an apply updates it in place, so a change to the script alone
+  # reaches the next start of OpenFGA's pod (`rollout restart deploy/openfga`); a change with the Deployment rolls it.
+  - name: openfga-migrate
+    options: {disableNameSuffixHash: true}
+    files:
+      - migrate.sh
 patches:
   # Every Inkcast Deployment whose processes check permissions: the all-in-one `inkcast`, or each service of
   # components/split-services but its Gateway (launcher.BUILTIN: the Gateway alone does not need authz).

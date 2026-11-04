@@ -34,6 +34,12 @@ KUSTOMIZE = ROOT / "deploy" / "kustomize"
 COMPONENT = KUSTOMIZE / "components" / "openfga"
 OPENFGA_IMAGE = re.compile(r"^openfga/openfga:v1\.22\.0@sha256:[0-9a-f]{64}$")
 POSTGRES_IMAGE = re.compile(r"^ghcr\.io/cloudnative-pg/postgresql:[0-9][A-Za-z0-9._-]*@sha256:[0-9a-f]{64}$")
+MIGRATE_SCRIPT = COMPONENT / "migrate.sh"
+# The pod's volumes, both read-only: OpenFGA's own image for its binary, and the migration script (E3.F3.9.S8).
+MIGRATE_VOLUMES = {"openfga": "image", "migrate": "configMap"}
+MIGRATE_MOUNTS = [{"name": "openfga", "mountPath": "/opt/openfga", "readOnly": True},
+                  {"name": "migrate", "mountPath": "/opt/inkcast", "readOnly": True}]
+GOOSE_LOCK_ID = 4097083626   # goose v3.28.0, lock/session_locker_options.go: CRC-32 of "goose"
 
 
 def render(path: str) -> list[dict]:
@@ -53,16 +59,22 @@ def pod_spec(obj: dict) -> dict:
 
 def assert_restricted_v2(case: unittest.TestCase, pod: dict, what: str) -> None:
     """What the restricted-v2 SCC and Pod Security "restricted" admit, and nothing that only one of them would:
-    no uid, gid or fsGroup (the SCC assigns them; the image's numeric USER satisfies runAsNonRoot elsewhere)."""
+    no uid, gid or fsGroup (the SCC assigns them; the image's numeric USER satisfies runAsNonRoot elsewhere). The
+    pod's only volumes are read-only (an image volume and a ConfigMap, both admitted by "restricted"), mounted by
+    the init container migrate alone: the server writes nothing and mounts nothing."""
     case.assertEqual(pod["securityContext"], {"runAsNonRoot": True, "seccompProfile": {"type": "RuntimeDefault"}}, what)
-    case.assertFalse(pod.get("volumes"), f"{what}: the binary writes nothing, so no volume and no fsGroup")
+    case.assertEqual({v["name"]: [k for k in v if k != "name"] for v in pod.get("volumes", [])},
+                     {name: [kind] for name, kind in MIGRATE_VOLUMES.items()}, f"{what}: read-only volumes only, so no fsGroup")
     case.assertFalse(pod.get("hostNetwork") or pod.get("hostPID") or pod.get("hostIPC"), what)
     case.assertIs(pod["automountServiceAccountToken"], False, what)
     for container in pod["containers"] + pod.get("initContainers", []):
         sc = container["securityContext"]
         case.assertEqual(sc, {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True,
                               "capabilities": {"drop": ["ALL"]}}, f"{what}: {container['name']}")
-        case.assertRegex(container["image"], OPENFGA_IMAGE, f"{what}: {container['name']}")
+        image = POSTGRES_IMAGE if container["name"] == "migrate" else OPENFGA_IMAGE
+        case.assertRegex(container["image"], image, f"{what}: {container['name']}")
+        case.assertEqual(container.get("volumeMounts", []), MIGRATE_MOUNTS if container["name"] == "migrate" else [],
+                         f"{what}: {container['name']}")
 
 
 class ComponentFiles(unittest.TestCase):
@@ -72,19 +84,69 @@ class ComponentFiles(unittest.TestCase):
         return [d for d in yaml.safe_load_all((COMPONENT / name).read_text()) if d]
 
     def test_the_server_and_its_migrate_init_container_fit_restricted_v2(self):
-        """The schema migration is an init container of the server's pod (E3.F3.9.S8, issue #337), not a Job: the
-        same pinned image as the server, the same security context, run to completion (no sidecar restartPolicy)."""
+        """The schema migration is an init container of the server's pod (E3.F3.9.S8, issue #337), not a Job. It runs
+        migrate.sh with the PostgreSQL image the Cluster runs (one build of psql, pinned by digest: cluster.yaml's)
+        and OpenFGA's own image, the server's pin, mounted read-only as an image volume for its binary; the same
+        security context as the server; run to completion (no sidecar restartPolicy), one process that locks and
+        migrates. `strategy: Recreate` (the owner's decision on PR #374) ends the old pod before the new one starts,
+        with `rollingUpdate: null` so an apply clears what an earlier RollingUpdate left on the object."""
         (deployment,) = self.load("deployment.yaml")
         pod = pod_spec(deployment)
         assert_restricted_v2(self, pod, "Deployment openfga")
         (migrate,) = pod["initContainers"]
         (server,) = pod["containers"]
-        self.assertEqual((migrate["name"], migrate["args"]), ("migrate", ["migrate"]))
-        self.assertEqual(migrate["image"], server["image"], "one image, one digest, for the migration and the server")
+        self.assertEqual((migrate["name"], migrate["command"]), ("migrate", ["bash", "/opt/inkcast/migrate.sh"]))
+        self.assertNotIn("args", migrate)
+        (cluster,) = self.load("cluster.yaml")
+        self.assertEqual(migrate["image"], cluster["spec"]["imageName"], "psql from the build the Cluster runs")
         self.assertNotIn("restartPolicy", migrate, "an init container that runs to completion, not a sidecar")
+        volumes = {v["name"]: v for v in pod["volumes"]}
+        self.assertEqual(volumes["openfga"]["image"], {"reference": server["image"], "pullPolicy": "IfNotPresent"},
+                         "OpenFGA's binary from the server's own pin")
+        self.assertEqual(volumes["migrate"]["configMap"], {"name": "openfga-migrate"})
         self.assertEqual(server["args"], ["run"])
-        self.assertEqual(deployment["spec"]["replicas"], 1, "v1.22.0 takes no lock around its migrations (deployment.yaml)")
+        self.assertEqual(deployment["spec"]["replicas"], 1)
+        self.assertEqual(deployment["spec"]["strategy"], {"type": "Recreate", "rollingUpdate": None})
         self.assertFalse(list(COMPONENT.glob("job*.yaml")), "the Job is gone: nothing immutable, nothing to delete")
+
+    def test_the_migration_script_locks_the_database_and_repairs_an_interrupted_006(self):
+        """migrate.sh (E3.F3.9.S8, the review of PR #374): OpenFGA v1.22 takes no lock around its migrations, so the
+        script holds a session-level advisory lock across the version discovery, the repair and `openfga migrate`,
+        in one psql session it drives as a coprocess. The lock is taken by polling pg_try_advisory_lock, idle in
+        between, as goose's own locker does: a waiter blocked in pg_advisory_lock holds a snapshot, and the holder's
+        006 (CREATE INDEX CONCURRENTLY) waits on it while it waits on the holder, a deadlock measured on kind. It
+        drops an INVALID idx_user_lookup (an interrupted 006) and removes goose's version-6 rows so that 006 is
+        applied again; a failed migration fails the run with its exit code, so the kubelet retries. The lock key is
+        derived as goose derives its own and is not goose's. Nothing prints the URI. The file is valid bash (and
+        clean under shellcheck where it is installed)."""
+        import zlib
+        script = MIGRATE_SCRIPT.read_text()
+        self.assertTrue(script.startswith("#!/usr/bin/env bash\n# SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0\n"
+                                          "# Copyright 2026 ScalarOps Technologies LLC\n"))
+        self.assertIn("set -euo pipefail", script)
+        self.assertIn("ON_ERROR_STOP=1", script)
+        self.assertIn("coproc PSQL", script)
+        for needed in ("SELECT pg_try_advisory_lock(${lock_key})", "SELECT pg_advisory_unlock(${lock_key})",
+                       "NOT coalesce((SELECT indisvalid FROM pg_index WHERE indexrelid = to_regclass('idx_user_lookup')), true)",
+                       'query "DROP INDEX CONCURRENTLY idx_user_lookup"', 'query "DELETE FROM goose_db_version WHERE version_id = 6"',
+                       'EXISTS (SELECT 1 FROM goose_db_version WHERE version_id = 6)',
+                       '"$OPENFGA_BINARY" migrate', "waiting for the migration lock, held by"):
+            self.assertIn(needed, script)
+        self.assertNotIn("pg_advisory_lock(", script.replace("pg_try_advisory_lock(", ""), "never the blocking form: a waiter must hold no snapshot")
+        self.assertLess(script.index("pg_try_advisory_lock("), script.index("DROP INDEX CONCURRENTLY"), "the repair under the lock")
+        self.assertLess(script.index("DELETE FROM goose_db_version"), script.index('"$OPENFGA_BINARY" migrate'), "the repair before the migration")
+        self.assertLess(script.index('"$OPENFGA_BINARY" migrate'), script.index("pg_advisory_unlock"), "the migration under the lock")
+        self.assertNotIn("set -x", script)
+        self.assertNotRegex(script, r"(echo|log|printf)[^\n]*OPENFGA_DATASTORE_URI", "never the URI, which carries the password")
+        self.assertNotRegex(script, r"(INSERT|UPDATE|DELETE)[^\n]*(tuple|authorization_model|store\b)", "no tuple, no model, no store")
+        (key,) = re.findall(r'lock_key="\$\{LOCK_KEY:-(\d+)\}"', script)
+        self.assertEqual(int(key), zlib.crc32(b"inkcast/openfga-migrate"))
+        self.assertNotEqual(int(key), GOOSE_LOCK_ID, "an OpenFGA that one day locks on goose's key must not wait on us")
+        self.assertIn('OPENFGA_BINARY="${OPENFGA_BINARY:-/opt/openfga/openfga}"', script)
+        self.assertEqual(MIGRATE_MOUNTS[0]["mountPath"], "/opt/openfga")
+        subprocess.run(["bash", "-n", str(MIGRATE_SCRIPT)], check=True)
+        if shutil.which("shellcheck"):
+            subprocess.run(["shellcheck", str(MIGRATE_SCRIPT)], check=True)
 
     def test_openfga_reads_its_settings_by_the_server_s_own_names(self):
         """cmd/run/flags.go and cmd/migrate/flags.go at v1.22.0: the datastore from the operator's Secret, the
@@ -99,7 +161,9 @@ class ComponentFiles(unittest.TestCase):
             for name, e in env.items():
                 self.assertNotIn("KEY", {k for k in e if k == "value" and "KEY" in name}, f"{what}: {name} as a literal")
         migrate_env = {e["name"]: e for e in migrate["env"]}
-        self.assertEqual(migrate_env["OPENFGA_TIMEOUT"]["value"], "10m", "the first connection, while the Cluster bootstraps")
+        self.assertEqual(migrate_env["CONNECT_TIMEOUT"]["value"], "600", "migrate.sh waits for the database: a Cluster bootstraps")
+        self.assertEqual(migrate_env["OPENFGA_TIMEOUT"]["value"], "5s", "OpenFGA's own retry, after the script has connected and locked")
+        self.assertEqual(migrate_env["OPENFGA_LOG_FORMAT"]["value"], "json")
         self.assertNotIn("OPENFGA_AUTHN_PRESHARED_KEYS", migrate_env, "the migration needs no API key")
         server = {e["name"]: e for e in pod_spec(deployment)["containers"][0]["env"]}
         self.assertEqual(server["OPENFGA_AUTHN_METHOD"]["value"], "preshared")
@@ -123,14 +187,19 @@ class ComponentFiles(unittest.TestCase):
         out = subprocess.run([sys.executable, str(ROOT / "scripts" / "images.py"), "list"], capture_output=True, text=True,
                              check=True, cwd=ROOT).stdout
         mine = [line for line in out.splitlines() if "components/openfga/" in line]
-        self.assertEqual(len(mine), 3, out)
+        self.assertEqual(len(mine), 4, out)   # the Cluster's image; the migrate container's, the server's, the image volume's
         self.assertFalse([line for line in mine if "not pinned" in line], mine)
         self.assertTrue(any("cluster.yaml" in line and "postgresql:" in line for line in mine), mine)
+        postgres = {line.split()[-1] for line in mine if "postgresql:" in line}
+        self.assertEqual(len(postgres), 1, f"one PostgreSQL build for the Cluster and for psql: {postgres}")
+        self.assertEqual(len([line for line in mine if "deployment.yaml" in line and "openfga/openfga:" in line]), 2,
+                         "the server's image and the image volume's reference, both seen by verify")
 
     def test_inkcast_reaches_openfga_and_reads_the_same_key(self):
         k = yaml.safe_load((COMPONENT / "kustomization.yaml").read_text())
-        (gen,) = k["configMapGenerator"]
+        gen, script = k["configMapGenerator"]
         self.assertEqual((gen["name"], gen["behavior"]), ("inkcast-config", "merge"))
+        self.assertEqual(script, {"name": "openfga-migrate", "options": {"disableNameSuffixHash": True}, "files": ["migrate.sh"]})
         self.assertEqual(set(gen["literals"]), {"INKCAST_AUTHZ_ENGINE=openfga", "INKCAST_FGA_API_URL=http://openfga:8080",
                                                 "INKCAST_FGA_API_TOKEN_FILE=/var/run/secrets/inkcast/fga-api-token",
                                                 "INKCAST_FGA_STORE_NAME=inkcast"})   # the Job's and the pods' store (E3.F3.9.S6)
@@ -195,15 +264,17 @@ class Rendered(unittest.TestCase):
                 if name.startswith("environments/"):
                     init = pod["initContainers"].pop(0)
                     self.assertEqual(init["name"], "env-secrets")
-                    self.assertEqual([v["name"] for v in pod.pop("volumes")], ["api-token"])
+                    self.assertEqual(pod["volumes"].pop()["name"], "api-token", "appended after the component's")
                 self.assertEqual([c["name"] for c in pod["initContainers"]], ["migrate"])
                 assert_restricted_v2(self, pod, f"{name}: Deployment")
 
     def test_the_migration_is_an_init_container_of_the_server_s_pod_and_no_job_anywhere(self):
-        """E3.F3.9.S8 (issue #337): every overlay and environment renders the init container migrate with the server's
-        own pinned image, reading the datastore URI from the Secret and key the server reads; after env-secrets where
-        that component is present (it makes the Secret); replicas 1 (no lock in v1.22.0's migrate); and no Job named
-        openfga-migrate, or anything labelled authz-migrate, is rendered anywhere."""
+        """E3.F3.9.S8 (issue #337): every overlay and environment renders the init container migrate, running
+        migrate.sh from the rendered ConfigMap with psql's image and the server's own pinned image as an image
+        volume, reading the datastore URI from the Secret and key the server reads; after env-secrets where that
+        component is present (it makes the Secret); replicas 1 and `strategy: Recreate` with `rollingUpdate: null`
+        (the owner's decision on PR #374); and no Job named openfga-migrate, or anything labelled authz-migrate, is
+        rendered anywhere."""
         for name in self.docs:
             with self.subTest(overlay=name):
                 docs = self.docs[name]
@@ -213,13 +284,19 @@ class Rendered(unittest.TestCase):
                 names = [c["name"] for c in pod["initContainers"]]
                 self.assertEqual(names, ["env-secrets", "migrate"] if name.startswith("environments/") else ["migrate"])
                 migrate = pod["initContainers"][-1]
-                self.assertEqual(migrate["image"], server["image"])
-                self.assertRegex(migrate["image"], OPENFGA_IMAGE)
+                self.assertRegex(migrate["image"], POSTGRES_IMAGE)
+                self.assertEqual(migrate["command"], ["bash", "/opt/inkcast/migrate.sh"])
+                volumes = {v["name"]: v for v in pod["volumes"]}
+                self.assertEqual(volumes["openfga"]["image"]["reference"], server["image"], "the server's own build migrates")
+                self.assertRegex(server["image"], OPENFGA_IMAGE)
+                self.assertEqual(one(docs, "ConfigMap", "openfga-migrate")["data"], {"migrate.sh": MIGRATE_SCRIPT.read_text()})
+                self.assertEqual(migrate["volumeMounts"], MIGRATE_MOUNTS)
                 uri = {e["name"]: e for e in migrate["env"]}["OPENFGA_DATASTORE_URI"]
                 self.assertEqual(uri, {e["name"]: e for e in server["env"]}["OPENFGA_DATASTORE_URI"])
                 self.assertEqual(uri["valueFrom"]["secretKeyRef"], {"name": "openfga-db-app", "key": "uri"})
                 self.assertEqual(deployment["spec"]["replicas"], 1)
-                self.assertNotIn("strategy", deployment["spec"], "the default rolling update: the old pod serves while the new one migrates")
+                self.assertEqual(deployment["spec"]["strategy"], {"type": "Recreate", "rollingUpdate": None},
+                                 "a rollout ends the old pod before the new one migrates; the lock covers the rest")
                 self.assertFalse([d for d in docs if d["kind"] == "Job" and d["metadata"]["name"] == "openfga-migrate"])
                 self.assertFalse([d for d in docs if d["metadata"].get("labels", {}).get("app.kubernetes.io/component") == "authz-migrate"])
 
@@ -467,7 +544,8 @@ class KindJob(unittest.TestCase):
         self.assertRegex(versions["CNPG_MANIFEST_SHA256"], r"^[0-9a-f]{64}$")
         script = (ROOT / "scripts" / "dev" / "openfga-e2e.sh").read_text()
         for needed in ("CNPG_MANIFEST_SHA256", "apply --server-side", "overlays/ci-openfga", "-c migrate",
-                       '"current version":0', "set image deploy/openfga", "-c authz-model", "rollout restart deploy/inkcast",
+                       '"current version":0', "migration lock taken by pid", "migration lock released by pid",
+                       "set image deploy/openfga", "unavailable for", "-c authz-model", "rollout restart deploy/inkcast",
                        "/readyz", "model written", "model unchanged"):
             self.assertIn(needed, script)
         self.assertNotIn("openfga-migrate", script, "no Job to wait for (E3.F3.9.S8)")
@@ -480,18 +558,24 @@ class KindJob(unittest.TestCase):
         self.assertNotIn("openfga-migrate", ci)
 
     def test_the_recovery_proofs_are_a_script_on_request_with_their_output_committed(self):
-        """E3.F3.9.S8 (issue #337): two pods migrating one fresh database at once, and a database outage longer than
-        the old Job's 30-minute deadline while a rollout is pending, are proven by scripts/dev/openfga-recovery-e2e.sh
-        on request (too long for every CI run) and its recorded output is committed beside the epic."""
+        """E3.F3.9.S8 (issue #337) and the review of PR #374: two pods migrating one fresh database at once, two
+        runners really overlapping (held behind a lock taken from outside, then serialised: no duplicate goose row,
+        the newest applied row the highest version), an INVALID idx_user_lookup with version 6 recorded repaired
+        before the migration, and a database outage longer than the old Job's 30-minute deadline while a rollout is
+        pending, are proven by scripts/dev/openfga-recovery-e2e.sh on request (too long for every CI run) and its
+        recorded output is committed beside the epic."""
         script = (ROOT / "scripts" / "dev" / "openfga-recovery-e2e.sh").read_text()
         for needed in ("scale deploy/openfga --replicas=2", "goose_db_version", "cnpg.io/hibernation=on", "cnpg.io/hibernation=off",
-                       'OUTAGE_SECONDS="${OUTAGE_SECONDS:-1860}"', "rollout restart deploy/openfga", "-c migrate"):
+                       'OUTAGE_SECONDS="${OUTAGE_SECONDS:-1860}"', "rollout restart deploy/openfga", "-c migrate",
+                       "pg_advisory_lock(", "waiting for the migration lock", "count(DISTINCT version_id)", "indisvalid",
+                       "ORDER BY id DESC LIMIT 1", "CREATE INDEX CONCURRENTLY idx_user_lookup", "PASS overlap:", "PASS repair:"):
             self.assertIn(needed, script)
-        self.assertNotIn("openfga-migrate", script)
+        self.assertNotIn("job/openfga-migrate", script, "no Job: the runners' sessions are named openfga-migrate, the Job is gone")
         self.assertNotIn("apply", script.split("rehydrating the Cluster")[1].split("PASS outage")[0], "self-healed: no apply after the outage")
         evidence = (ROOT / "docs" / "epics" / "E3-tenancy-authorization" / "evidence" / "openfga-recovery-e2e.txt").read_text()
-        self.assertIn("PASS race:", evidence)
-        self.assertIn("PASS outage:", evidence)
+        for passed in ("PASS race:", "PASS overlap:", "PASS repair:", "PASS outage:"):
+            self.assertIn(passed, evidence)
+        self.assertIn("waiting for the migration lock, held by pid", evidence, "a runner that really waited")
         (seconds,) = re.findall(r"the database away (\d+) s while a rollout is pending", evidence)
         self.assertGreater(int(seconds), 1800, "longer than the Job's activeDeadlineSeconds was")
         self.assertNotIn("/Users/", evidence, "no local path in the record")
