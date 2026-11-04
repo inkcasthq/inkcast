@@ -271,14 +271,12 @@ class IdentityRepo(Database):
         confirmation under way claims each person before it acts (``claim_breaker_person``), so a release that lands
         first spares them, where one that touched pending passes only was lost once the pass was claimed. With
         ``kind``, only the rows of that kind (a person read present but disabled leaves a pass as gone, not as
-        disabled). ``user_ids`` may be everyone a reconcile read; the people held are few, so their rows are read
-        first and only theirs are deleted (one read of that table, and no delete, when no pass holds anyone)."""
+        disabled). Each id is a look-up on the table's key (pass_id, user_id) over the passes, which are few, never a
+        scan of the table: a pass can hold everyone, and a scan per person held the write lock for seconds."""
         with self._tx() as c:
-            held = {r["user_id"] for r in c.execute("SELECT user_id FROM sync_breaker_people" + (" WHERE kind = ?" if kind else ""),
-                                                    [kind] if kind else [])}
-            return sum(c.execute("DELETE FROM sync_breaker_people WHERE user_id = ?" + (" AND kind = ?" if kind else ""),
-                                 (user_id, *([kind] if kind else []))).rowcount
-                       for user_id in sorted(held.intersection(user_ids)))
+            return sum(c.execute("DELETE FROM sync_breaker_people WHERE user_id = ? AND pass_id IN (SELECT id FROM sync_breaker_trips)"
+                                 + (" AND kind = ?" if kind else ""), (user_id, *([kind] if kind else []))).rowcount
+                       for user_id in user_ids)
 
     # ---- OAuth clients -------------------------------------------------------
 
