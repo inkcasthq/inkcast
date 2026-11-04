@@ -271,7 +271,8 @@ def sync_main(argv: list[str]) -> int:
     parser.add_argument("--fail-on-stale", action="store_true", help="exit 1 if a changed file couldn't be updated")
     parser.add_argument("--fail-on-decision", action="store_true",
                         help="exit 1 if a file's post waits for a person's decision (its last publish is unconfirmed, "
-                             "or still recovering): resend or cancel it (inkcast resend | cancel <post-id>)")
+                             "or still recovering): resend or cancel it (inkcast resend | cancel <post-id>); an old "
+                             "entry with no post to resend or cancel waits for an edit of the file, published as a new post")
     parser.add_argument("--removed-since", metavar="REV", default=None,
                         help="also report the matching files removed between REV and HEAD (git diff), so their pending "
                              "posts are cancelled; the GitHub action passes the commit before the push")

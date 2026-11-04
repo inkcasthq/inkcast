@@ -43,7 +43,7 @@ In your blog repository, add the secret `INKCAST_TOKEN` and the variable `INKCAS
 | `dry-run` | `auto` | `auto` means a dry run on pull requests and a real sync on pushes |
 | `comment` | `false` | comment the preview on the pull request (needs `pull-requests: write`) |
 | `fail-on-stale` | `false` | fail when a changed file couldn't be updated (Medium) |
-| `fail-on-decision` | `false` | fail while a file's post waits for your decision (`unconfirmed` or `recovering`, [below](#when-inkcast-isnt-sure-a-post-went-out)); every push fails until you resend or cancel it |
+| `fail-on-decision` | `false` | fail while a file's post waits for your decision (`unconfirmed` or `recovering`, [below](#when-inkcast-isnt-sure-a-post-went-out)); every push fails until you resend or cancel it, or edit a file whose old entry has no post to resend or cancel |
 
 Outputs: `results` (JSON) and `urls`. A table of results is added to the job summary.
 
@@ -92,7 +92,7 @@ Publishing by hand (`inkcast_publish`, `POST /api/v1/posts`) is different: there
 | `update` | Changed: edited in place (DEV), or re-scheduled if it hadn't gone out yet |
 | `unchanged` | Same content as last time: nothing sent |
 | `stale` | Changed, but the platform can't edit posts (Medium), or its answer to the publish named no id for the post, which an update needs. Edit it by hand at the URL shown; Inkcast won't post it again |
-| `skipped` | The platform isn't connected, another sync of the file is running, or the file's post needs your decision: its last publish is `unconfirmed` (resend or cancel it, below), or its send was interrupted and Inkcast is still asking the platform whether it arrived (`recovering`; cancel it if you don't want it) |
+| `skipped` | The platform isn't connected, another sync of the file is running, or the file's post needs your decision: its last publish is `unconfirmed` (resend or cancel it, below; one from before posts were recorded has no post to resend: edit the file to publish it, below), or its send was interrupted and Inkcast is still asking the platform whether it arrived (`recovering`; cancel it if you don't want it) |
 | `failed` | Invalid file or platform error; the next sync tries again. A file that fails validation changes nothing: a post its last valid version scheduled stays and goes out at its time, and the message names it |
 | `removed` | The file was removed from the repository: its pending post was cancelled, or, if it had been published, left on the platform (the status and message say which) |
 
@@ -140,6 +140,8 @@ A publish can end `unconfirmed`: the platform's answer was lost after the reques
 - Check the platform first: the first send may have arrived.
 - **Resend it** (`inkcast resend <post-id>` from the CLI, `inkcast_resend`, or `POST /api/v1/posts/{id}/resend`, with a `posts:write` token): one new post goes out now, the old one is cancelled, and the file follows the new post. The platform must be connected: a resend while it isn't, or while it refuses the stored credentials, is refused (`409 not_connected`) before anything is cancelled, and the reply names the reconnect step. One while the platform can't be asked just now whether it still accepts the stored credentials (rate-limited, unreachable) is refused too (`409 platform_unavailable`): nothing is cancelled, the post stays `unconfirmed`, and the reply names when to try again, from the platform's `Retry-After` when it gave one. A retried resend (its first reply lost) is refused too (`409 not_resendable`), and the reply names the post the first one made (`post_id` in the body), so follow that one.
 - **Cancel it** (`inkcast cancel <post-id>`, `inkcast_cancel`, or `POST /api/v1/posts/{id}/cancel`): nothing is sent; an edit of the file is then published as a new post, so remove the first copy on the platform if it did arrive.
+
+A file whose entry is from before Inkcast recorded post ids (`unconfirmed`, naming no post) has no post to resend or cancel. It is `skipped` on every push, on every platform, until you edit it: the edit is published as a new post, so check the platform first and remove the first copy if it did arrive. The sync still asks the platform, and records the post if the platform has it; it never sends such a file again on its own, whatever the platform says.
 
 The sync result names the post id and both calls. From the CLI, with a `posts:write` token in `INKCAST_TOKEN`:
 
