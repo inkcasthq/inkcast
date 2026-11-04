@@ -59,6 +59,8 @@ EVENTS: dict[str, tuple[str, str]] = {
     "http.request.rejected": ("warning", "A request was refused before a handler ran (body too large)."),
     "gateway.upstream.unreachable": ("critical", "The built-in Gateway could not reach a service."),
     "scheduler.tick.failed": ("critical", "A scheduler tick crashed; the next tick retries."),
+    "scheduler.housekeeping.failed": ("warning", "Housekeeping crashed (the outbox cursor sync, a purge or the orphan "
+                                                 "sweep); the ticks go on, and it is tried again HOUSEKEEPING_EVERY later."),
     "publish.unconfirmed": ("warning", "A platform may or may not have published a post; it is never retried automatically."),
     "publish.recovered": ("warning", "A post left 'publishing' by a restart was resolved: confirmed, rescheduled or unconfirmed."),
     "publish.recovery.deferred": ("warning", "A post left 'publishing' by a restart could not be checked yet (the platform "
@@ -72,6 +74,10 @@ EVENTS: dict[str, tuple[str, str]] = {
     "auth.login.refused": ("warning", "A sign-in was refused by the allow-list, role or password check."),
     "cache.backend.unavailable": ("warning", "Redis/Valkey did not answer; rate limits are per replica until it is back."),
     "outbox.consumer.failed": ("warning", "An event sink failed on a batch; the cursor stayed and the batch is retried."),
+    "outbox.consumer.retired": ("warning", "Housekeeping removed the cursor of a consumer the code no longer has (its "
+                                           "name only): the events only it had not passed are purged by retention."),
+    "outbox.consumer.registered": ("info", "Housekeeping gave a consumer the code has, but that has not run yet, its "
+                                           "cursor at the start (its name only): the purge waits for it."),
     "identity.user.disabled": ("warning", "Keycloak disabled or deleted a person: their Inkcast tokens and PATs were cut off."),
     "identity.user.held": ("warning", "Keycloak reports a person disabled while the sync's breaker holds a pass: their OAuth "
                                       "tokens were cut, their PATs are refused but not revoked, until an operator decides."),

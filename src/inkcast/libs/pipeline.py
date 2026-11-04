@@ -479,24 +479,30 @@ class Publisher:
 
     async def run_forever(self, interval: float, stop: asyncio.Event, housekeeping: Any = None,
                           on_tick: Any = None) -> None:
-        """Tick until ``stop`` is set. A tick in progress always finishes (no half-sent posts on SIGTERM)."""
+        """Tick until ``stop`` is set. A tick in progress always finishes (no half-sent posts on SIGTERM).
+        ``housekeeping`` is called after every tick, whether the tick succeeded or failed, on its own: a failure of
+        either is logged (``scheduler.tick.failed``, ``scheduler.housekeeping.failed``) and costs the other nothing.
+        How often it does anything is its own business (the scheduler's runs every HOUSEKEEPING_EVERY, timed in the
+        database so a restart does not put it off; it ran on every 90th successful tick before, so a scheduler that
+        restarted more often, or whose ticks kept failing, never purged; issue #141)."""
         log.info("Scheduler running every %.0fs", interval)
-        ticks = 0
         while not stop.is_set():
             try:
                 for o in await self.run_due():
                     log.info("Scheduled post %s on %s: %s %s", o.post_id, o.platform, o.status, o.url or o.message or "",
                              extra={"post_id": o.post_id, "platform": o.platform, "status": o.status})
-                ticks += 1
                 self.last_tick = time.time()
                 if on_tick:
                     on_tick()
                 if self.metrics:
                     self.metrics.inc("inkcast_scheduler_ticks_total")
-                if housekeeping and ticks % 90 == 0:
-                    housekeeping()
             except Exception:
                 log.exception("Scheduler tick failed", extra={"event": "scheduler.tick.failed"})
+            if housekeeping:
+                try:
+                    housekeeping()
+                except Exception:
+                    log.exception("Housekeeping failed", extra={"event": "scheduler.housekeeping.failed"})
             try:
                 await asyncio.wait_for(stop.wait(), timeout=interval)
             except asyncio.TimeoutError:

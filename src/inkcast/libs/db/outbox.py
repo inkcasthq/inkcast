@@ -8,7 +8,9 @@ Repositories append events inside their own transaction with ``insert_events(con
 else writes this table. ``poll`` returns the next batch after a consumer's cursor; ``advance`` moves the
 cursor once the consumer has handled the batch. ``purge_outbox`` drops rows every cursor has passed and
 that are older than the retention (INKCAST_OUTBOX_RETENTION_DAYS, handed down by ``Store.purge_expired``),
-so the table never grows without bound.
+so the table never grows without bound; ``sync_consumers`` first makes the cursor rows match the code's
+consumers (``libs.events.CONSUMERS``), so a retired consumer's cursor can't hold the purge forever and a
+consumer that has not run yet is waited for (issue #141).
 """
 
 from __future__ import annotations
@@ -67,9 +69,31 @@ class OutboxRepo(Database):
             out[row["consumer"]] = (pending, age)
         return out
 
+    def sync_consumers(self, consumers: Iterable[str]) -> tuple[list[str], list[str]]:
+        """Make the cursor rows match the code's consumers (``libs.events.CONSUMERS``), in one transaction, before
+        ``purge_outbox`` (issue #141). A cursor under a name not in ``consumers`` is a retired consumer's: it would
+        hold the purge forever, so it goes, and the events only it had not passed are purged by retention. A listed
+        name with no cursor is a consumer that has not run yet (new in this release, or its process not up): it gets
+        one at 0, where its first poll starts anyway, so the purge waits for it as for any consumer behind and it
+        misses nothing. (The names retired, the names registered.) An empty list is refused: it would retire every
+        consumer at once, and each would then replay the outbox from its start."""
+        names = sorted(set(consumers))
+        if not names:
+            raise ValueError("sync_consumers needs at least one consumer: an empty list would retire every cursor")
+        with self._tx() as c:
+            have = {r["consumer"] for r in c.execute("SELECT consumer FROM outbox_cursors")}
+            retired, registered = sorted(have - set(names)), [n for n in names if n not in have]
+            if retired:
+                c.execute(f"DELETE FROM outbox_cursors WHERE consumer IN ({', '.join('?' * len(retired))})", retired)
+            now = time.time()
+            for name in registered:
+                c.execute("INSERT INTO outbox_cursors VALUES (?, 0, ?)", (name, now))
+        return retired, registered
+
     def purge_outbox(self, keep_seconds: float) -> int:
         """Delete events older than ``keep_seconds`` that every consumer has passed. The retention is the caller's
-        (``Config.retention.outbox_seconds``): nothing here decides how long the replay window is."""
+        (``Config.retention.outbox_seconds``): nothing here decides how long the replay window is. "Every consumer" is
+        every cursor row: housekeeping runs ``sync_consumers`` first, so those are the code's consumers."""
         row = self._one("SELECT MIN(seq) AS seq FROM outbox_cursors")
         if not row or row["seq"] is None:
             return 0

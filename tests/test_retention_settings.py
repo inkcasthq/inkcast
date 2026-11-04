@@ -410,7 +410,7 @@ class SchedulerHousekeeping(unittest.TestCase):
         self.assertEqual([e.id for e in ctx.store.poll("audit")], [young.id])
         captured["on_tick"]()                                              # the heartbeat still beats
 
-    def test_the_real_loop_runs_it_every_90_ticks(self):
+    def test_the_real_loop_runs_it(self):
         ctx = self.context(RetentionPolicy(outbox_days=2, kpi_hourly_days=31))
         old, young = self.seed(ctx.store)
 

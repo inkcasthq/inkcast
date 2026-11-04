@@ -92,6 +92,7 @@ SLO burn-rate alerts carry `slo`, `burn_rate`, `long_window` and `short_window` 
 1. InsightsService pod and its readiness (`outbox consumer: no tick recently`).
 2. `outbox.consumer.failed` log lines name the sink and the batch; a bug in a rollup rule fails the same batch forever. Fix forward; replays are safe (idempotent by event id).
 3. `inkcast_outbox_pending` tells how far behind; the consumer catches up at 200 events per pass.
+4. A consumer name the code no longer has (`CONSUMERS` in `libs/events.py`) is a retired one whose cursor a pod of the old release re-created during a rollout: housekeeping removes it within 30 minutes (`outbox.consumer.retired` in the scheduler's log), and the series goes with it.
 
 ## InkcastCacheBackendErrors
 
@@ -119,7 +120,7 @@ SLO burn-rate alerts carry `slo`, `burn_rate`, `long_window` and `short_window` 
 
 **Meaning:** the SQLite volume has under 10% free.
 
-1. Grow the PVC (most storage classes allow online expansion) or purge: `purge_expired` runs every 90 ticks and drops expired tokens, tickets, outbox rows older than `INKCAST_OUTBOX_RETENTION_DAYS` (7) that every consumer has passed, and hourly KPI rows older than `INKCAST_KPI_HOURLY_RETENTION_DAYS` (90); shortening either frees space at the next run. A consumer behind holds every outbox row it hasn't passed, whatever the setting: see InkcastOutboxConsumerLag first.
+1. Grow the PVC (most storage classes allow online expansion) or purge: housekeeping runs every 30 minutes (timed by the `housekeeping` heartbeat in the database, so restarts don't put it off; `scheduler.housekeeping.failed` in the scheduler's log when it crashes) and drops expired tokens, tickets, outbox rows older than `INKCAST_OUTBOX_RETENTION_DAYS` (7) that every consumer has passed, and hourly KPI rows older than `INKCAST_KPI_HOURLY_RETENTION_DAYS` (90); shortening either frees space at the next run. A consumer behind holds every outbox row it hasn't passed, whatever the setting: see InkcastOutboxConsumerLag first.
 2. With PostgreSQL (E3) this alert belongs to the database operator.
 
 ## InkcastBackupMissing

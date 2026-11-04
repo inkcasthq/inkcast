@@ -4,7 +4,7 @@
 
 A ``DomainEvent`` is written in the **same transaction** as the state change it describes (the
 transactional outbox, ``libs/db/outbox.py``): a post that became ``published`` always has its
-``post.published`` event, and never twice. Consumers read the outbox in order through an
+``post.published`` event, and never twice. Consumers (``CONSUMERS``) read the outbox in order through an
 ``OutboxPoller`` (one cursor per consumer) and hand each batch to ``EventSink``s:
 
 * today: the KPI rollup engine (``libs/kpi``), run by ``InsightsService``;
@@ -38,6 +38,15 @@ EVENT_TYPES: dict[str, str] = {
     "post.resent": "A person resent an unconfirmed post as a new one (attrs.new_post_id); the old one is cancelled. "
                    "user_id is who decided.",
     "sync.result": "One (file, platform) outcome of a Git publishing sync (attrs.action).",
+}
+
+# The outbox's consumers, by name, each with the service that runs it (``CONSUMER`` next to that service's
+# ``ServiceSpec``; a test checks both ways). The scheduler's housekeeping makes ``outbox_cursors`` match this list
+# before it purges (``sync_consumers``, issue #141): a cursor under any other name is a retired consumer's, and would
+# hold the purge forever, so it goes; a listed consumer with no cursor yet (new in this release, or its process not
+# up) gets one at 0, where its first poll starts anyway, so the purge waits for it as for any consumer behind.
+CONSUMERS: dict[str, str] = {
+    "insights": "InsightsService",
 }
 
 
@@ -94,4 +103,4 @@ class MemorySink(EventSink):
         self.events.extend(events)
 
 
-__all__ = ["DomainEvent", "EVENT_TYPES", "EventSink", "MemorySink", "post_event"]
+__all__ = ["CONSUMERS", "DomainEvent", "EVENT_TYPES", "EventSink", "MemorySink", "post_event"]
