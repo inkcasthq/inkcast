@@ -27,15 +27,19 @@ HOUSEKEEPING = "housekeeping"     # the heartbeat that times housekeeping: when 
 # Seconds between housekeeping runs: what 90 ticks of the default 20 s loop were. A technical cadence, not a policy:
 # the retentions (INKCAST_*_RETENTION_DAYS) say what is kept; this says how soon what they release is freed.
 HOUSEKEEPING_EVERY = 30 * 60.0
+# A cursor under a name CONSUMERS lacks is retired only once no poller has touched it for this long: a live poller
+# refreshes its row every pass (INKCAST_INSIGHTS_INTERVAL, 10 s), and during a rollout or a rollback a pod of another
+# release can poll a name this release does not know. Two housekeeping runs: a retired name goes within 90 minutes.
+RETIRE_IDLE = 2 * HOUSEKEEPING_EVERY
 
 
 def sync_consumers(ctx: Context) -> None:
     """The outbox cursors made to match the code's consumers (``CONSUMERS``; issue #141), so a retired consumer's cursor
-    can't hold the purge and one that has not run yet is waited for: at the scheduler's start, so a consumer this
-    release retired holds nothing from the first tick on, and in every housekeeping, for a cursor a pod of the old
-    release re-created during the rollout. Each change is logged with the consumer's name: the code's own, never a
-    person's."""
-    retired, registered = ctx.store.sync_consumers(CONSUMERS)
+    can't hold the purge and one that has not run yet is waited for: at the scheduler's start, so a cursor left
+    long idle holds nothing from the first tick on, and in every housekeeping. A retired name goes once no poller has
+    touched it for RETIRE_IDLE, never while a pod of another release still polls it. Each change is logged with the
+    consumer's name: the code's own, never a person's."""
+    retired, registered = ctx.store.sync_consumers(CONSUMERS, RETIRE_IDLE)
     for name in retired:
         log.warning("Outbox consumer %s is no longer in the code: its cursor is removed, and the events only it had not "
                     "passed are purged by retention", name, extra={"event": "outbox.consumer.retired", "consumer": name})
@@ -78,7 +82,7 @@ def housekeeping_if_due(ctx: Context) -> bool:
 
 
 async def run_scheduler(ctx: Context, stop: asyncio.Event) -> None:
-    sync_consumers(ctx)                 # before the first tick: a cursor this release retired holds nothing (0.1 ms)
+    sync_consumers(ctx)                 # before the first tick: a retired cursor left idle holds nothing (0.1 ms)
     await ctx.publisher.run_forever(ctx.config.scheduler_interval_seconds, stop,
                                     housekeeping=lambda: housekeeping_if_due(ctx),
                                     on_tick=lambda: ctx.store.beat(HEARTBEAT))

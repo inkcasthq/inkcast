@@ -74,8 +74,9 @@ EVENTS: dict[str, tuple[str, str]] = {
     "auth.login.refused": ("warning", "A sign-in was refused by the allow-list, role or password check."),
     "cache.backend.unavailable": ("warning", "Redis/Valkey did not answer; rate limits are per replica until it is back."),
     "outbox.consumer.failed": ("warning", "An event sink failed on a batch; the cursor stayed and the batch is retried."),
-    "outbox.consumer.retired": ("warning", "Housekeeping removed the cursor of a consumer the code no longer has (its "
-                                           "name only): the events only it had not passed are purged by retention."),
+    "outbox.consumer.retired": ("warning", "Housekeeping removed the cursor of a consumer the code no longer has, idle "
+                                           "for RETIRE_IDLE (its name only): the events only it had not passed are "
+                                           "purged by retention."),
     "outbox.consumer.registered": ("info", "Housekeeping gave a consumer the code has, but that has not run yet, its "
                                            "cursor at the start (its name only): the purge waits for it."),
     "identity.user.disabled": ("warning", "Keycloak disabled or deleted a person: their Inkcast tokens and PATs were cut off."),

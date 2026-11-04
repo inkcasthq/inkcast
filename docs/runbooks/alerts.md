@@ -92,7 +92,7 @@ SLO burn-rate alerts carry `slo`, `burn_rate`, `long_window` and `short_window` 
 1. InsightsService pod and its readiness (`outbox consumer: no tick recently`).
 2. `outbox.consumer.failed` log lines name the sink and the batch; a bug in a rollup rule fails the same batch forever. Fix forward; replays are safe (idempotent by event id).
 3. `inkcast_outbox_pending` tells how far behind; the consumer catches up at 200 events per pass.
-4. A consumer name the code no longer has (`CONSUMERS` in `libs/events.py`) is a retired one whose cursor a pod of the old release re-created during a rollout: the scheduler removes it at its next start or housekeeping, within 30 minutes (`outbox.consumer.retired` in its log), and the series goes with it.
+4. A consumer name the code no longer has (`CONSUMERS` in `libs/events.py`) is a retired one, or one a pod of another release still polls during a rollout or a rollback: the scheduler removes its cursor once no pod has polled under it for an hour (`RETIRE_IDLE`), at its next start or housekeeping, so within 90 minutes (`outbox.consumer.retired` in its log), and the series goes with it.
 
 ## InkcastCacheBackendErrors
 

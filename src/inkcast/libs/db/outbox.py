@@ -69,23 +69,27 @@ class OutboxRepo(Database):
             out[row["consumer"]] = (pending, age)
         return out
 
-    def sync_consumers(self, consumers: Iterable[str]) -> tuple[list[str], list[str]]:
+    def sync_consumers(self, consumers: Iterable[str], idle_seconds: float) -> tuple[list[str], list[str]]:
         """Make the cursor rows match the code's consumers (``libs.events.CONSUMERS``), in one transaction, before
-        ``purge_outbox`` (issue #141). A cursor under a name not in ``consumers`` is a retired consumer's: it would
-        hold the purge forever, so it goes, and the events only it had not passed are purged by retention. A listed
-        name with no cursor is a consumer that has not run yet (new in this release, or its process not up): it gets
-        one at 0, where its first poll starts anyway, so the purge waits for it as for any consumer behind and it
-        misses nothing. (The names retired, the names registered.) An empty list is refused: it would retire every
-        consumer at once, and each would then replay the outbox from its start."""
+        ``purge_outbox`` (issue #141). A cursor under a name not in ``consumers`` that no poller has touched for
+        ``idle_seconds`` is a retired consumer's: it would hold the purge forever, so it goes, and the events only it
+        had not passed are purged by retention. One touched more recently is left alone: a pod of another release
+        still polls it (a consumer a newer release added, or an older one retired, during a rollout or a rollback),
+        and a poller refreshes its row on every pass, so removing it would purge what that consumer has not handled
+        and restart it from seq 0. A listed name with no cursor is a consumer that has not run yet (new in this
+        release, or its process not up): it gets one at 0, where its first poll starts anyway, so the purge waits for
+        it as for any consumer behind and it misses nothing. (The names retired, the names registered.) An empty list
+        is refused: it would retire every consumer at once, and each would then replay the outbox from its start."""
         names = sorted(set(consumers))
         if not names:
             raise ValueError("sync_consumers needs at least one consumer: an empty list would retire every cursor")
         with self._tx() as c:
-            have = {r["consumer"] for r in c.execute("SELECT consumer FROM outbox_cursors")}
-            retired, registered = sorted(have - set(names)), [n for n in names if n not in have]
+            now = time.time()
+            have = {r["consumer"]: float(r["at"]) for r in c.execute("SELECT consumer, at FROM outbox_cursors")}
+            retired = sorted(n for n, at in have.items() if n not in names and now - at >= idle_seconds)
+            registered = [n for n in names if n not in have]
             if retired:
                 c.execute(f"DELETE FROM outbox_cursors WHERE consumer IN ({', '.join('?' * len(retired))})", retired)
-            now = time.time()
             for name in registered:
                 c.execute("INSERT INTO outbox_cursors VALUES (?, 0, ?)", (name, now))
         return retired, registered

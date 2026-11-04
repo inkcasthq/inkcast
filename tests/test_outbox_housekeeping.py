@@ -35,7 +35,7 @@ from inkcast.libs.outbox import OutboxPoller
 from inkcast.libs.pipeline import Publisher
 from inkcast.services import scheduler
 from inkcast.services.scheduler import (
-    HOUSEKEEPING, HOUSEKEEPING_EVERY, housekeeping, housekeeping_due, housekeeping_if_due, run_scheduler,
+    HOUSEKEEPING, HOUSEKEEPING_EVERY, RETIRE_IDLE, housekeeping, housekeeping_due, housekeeping_if_due, run_scheduler,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -69,23 +69,28 @@ class TheCursorsMatchTheCode(unittest.TestCase):
     def seqs(self, consumer: str) -> list[int]:
         return [e.seq for e in self.store.poll(consumer)]
 
+    def retired(self, consumer: str, seq: int) -> None:
+        """A consumer the code no longer has, stopped at ``seq`` and polled by nothing for RETIRE_IDLE."""
+        self.store.advance(consumer, seq)
+        self.store._exec("UPDATE outbox_cursors SET at = ? WHERE consumer = ?", time.time() - RETIRE_IDLE, consumer)
+
     def test_a_retired_consumers_cursor_no_longer_holds_the_purge(self):
-        self.store.advance("legacy", 1)                     # a consumer the code no longer has, stopped at seq 1
+        self.retired("legacy", 1)                     # a consumer the code no longer has, stopped at seq 1
         self.assertEqual(self.store.purge_outbox(7 * DAY), 1, "on main: only what the retired cursor had passed")
-        self.assertEqual(self.store.sync_consumers(CONSUMERS), (["legacy"], []))
+        self.assertEqual(self.store.sync_consumers(CONSUMERS, RETIRE_IDLE), (["legacy"], []))
         self.assertEqual(self.store.purge_outbox(7 * DAY), 2, "the rest, held by nobody live")
         self.assertNotIn("legacy", self.store.outbox_lag(), "no series for a consumer that is gone")
-        self.assertEqual(self.store.sync_consumers(CONSUMERS), ([], []), "nothing to do the second time")
+        self.assertEqual(self.store.sync_consumers(CONSUMERS, RETIRE_IDLE), ([], []), "nothing to do the second time")
 
     def test_a_live_consumer_behind_keeps_everything_it_has_not_passed(self):
         self.store.advance("insights", 1)                   # behind: has passed seq 1 only
-        self.assertEqual(self.store.sync_consumers(CONSUMERS), ([], []), "a listed consumer's cursor stays as it is")
+        self.assertEqual(self.store.sync_consumers(CONSUMERS, RETIRE_IDLE), ([], []), "a listed consumer's cursor stays as it is")
         self.assertEqual(self.store.purge_outbox(7 * DAY), 1)
         self.assertEqual(self.seqs("insights"), [2, 3], "8 days old, held for the consumer that has not passed them")
 
     def test_a_consumer_not_run_yet_is_registered_before_the_purge_can_pass_what_it_has_not_seen(self):
         with mock.patch.dict(CONSUMERS, {"webhooks": "WebhooksService"}):
-            self.assertEqual(self.store.sync_consumers(CONSUMERS), ([], ["webhooks"]))
+            self.assertEqual(self.store.sync_consumers(CONSUMERS, RETIRE_IDLE), ([], ["webhooks"]))
             self.assertEqual(self.store.purge_outbox(7 * DAY), 0, "on main: 3, the new consumer being invisible")
         self.assertEqual(self.store.cursor("webhooks"), 0)
         self.assertEqual(self.seqs("webhooks"), [1, 2, 3], "its first poll starts where it would have anyway")
@@ -95,11 +100,11 @@ class TheCursorsMatchTheCode(unittest.TestCase):
 
     def test_the_sync_refuses_an_empty_list_rather_than_retire_everyone(self):
         with self.assertRaisesRegex(ValueError, "at least one consumer"):
-            self.store.sync_consumers(())
+            self.store.sync_consumers((), RETIRE_IDLE)
         self.assertEqual(self.store.cursor("insights"), 3)
 
     def test_housekeeping_syncs_before_it_purges_and_names_what_changed(self):
-        self.store.advance("legacy", 1)
+        self.retired("legacy", 1)
         with mock.patch.dict(CONSUMERS, {"webhooks": "WebhooksService"}):
             with self.assertLogs("inkcast.services.scheduler", level="INFO") as logs:
                 housekeeping(context(self.store))
@@ -117,7 +122,7 @@ class TheCursorsMatchTheCode(unittest.TestCase):
     def test_the_scheduler_syncs_at_its_start_before_the_first_tick(self):
         """A release that retires a consumer: its cursor would otherwise hold the purge, and keep a lag series that
         trips InkcastOutboxConsumerLag, until the first housekeeping, up to HOUSEKEEPING_EVERY later."""
-        self.store.advance("legacy", 1)
+        self.retired("legacy", 1)
         ticks = []
 
         class FakePublisher:
