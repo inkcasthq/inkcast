@@ -86,6 +86,29 @@ class Review474OB3(harness.MigrateScript):
         self.assertNotIn(SECRET, log)
         self.assertEqual(self.sql("SELECT max(version_id) FROM goose_db_version"), "6")
 
+    def test_a_raw_space_at_either_end_of_the_password_is_dropped_as_libpq_and_pgx_drop_it(self):
+        """conninfo_uri_decode (fe-connect.c at REL_18_6) and pgx's uriDecode (pgconn/parse_url.go:304-355 at
+        v5.11.0) drop a component's leading and trailing raw spaces, so the server, which parses the whole URI with
+        pgx, takes this password without them. uri_decode kept them, and psql failed authentication on every run
+        (measured on 8aeb85bc), K4's failure the other way round."""
+        for written in (f"{harness.PASSWORD} ", f" {harness.PASSWORD}"):
+            with self.subTest(space="trailing" if written.endswith(" ") else "leading"):
+                self.setUp()
+                code, log = self.migrate(uri=f"postgres://openfga:{written}@127.0.0.1:5432/openfga?sslmode=disable",
+                                         connect_timeout="5")
+                self.assertEqual(code, 0, log)
+                self.assertNotIn(harness.PASSWORD, log)
+                self.assertEqual(self.sql("SELECT max(version_id) FROM goose_db_version"), "6")
+
+    def test_a_password_libpq_cannot_decode_is_refused_before_psql(self):
+        """A raw space inside the password, a `%` without two hex digits after it, and `%00` make libpq and pgx refuse
+        the URI, libpq quoting the password in its error (conninfo_uri_decode). uri_decode made another password of
+        each, and psql failed authentication for CONNECT_TIMEOUT (measured on 8aeb85bc)."""
+        for written in (f"{SECRET} x", f"{SECRET}%4g", f"{SECRET}%", f"{SECRET}%4", f"{SECRET}%00x"):
+            with self.subTest(written=written.replace(SECRET, "...")):
+                log = self.refused(f"postgres://openfga:{written}@127.0.0.1:5432/openfga?sslmode=disable")
+                self.assertIn("%20", log)
+
 
 def load_tests(loader: unittest.TestLoader, standard_tests: unittest.TestSuite, pattern: str | None) -> unittest.TestSuite:
     """This file's tests only: its class inherits the harness's own, which run in their module."""

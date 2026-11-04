@@ -70,11 +70,18 @@ export PGAPPNAME=openfga-migrate PGCONNECT_TIMEOUT=10
 # table takes) without the lock. OpenFGA's pgx reads PGOPTIONS too (pgconn/config.go at v5.11.0). The proofs are
 # tests/test_review_openfga_migrate.py.
 export PGOPTIONS="-c tcp_keepalives_idle=20 -c tcp_keepalives_interval=5 -c tcp_keepalives_count=3 -c client_connection_check_interval=2s"
-# $1 percent-decoded into `decoded` as libpq decodes (conninfo_uri_decode at REL_18_6): each %XX, and nothing else.
-# Its backslashes are doubled first, or printf's %b would read a `\n` or a `\c` in a password as an escape (#474).
+log() { printf '%s migrate: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
+# $1 percent-decoded into `decoded` as libpq decodes (conninfo_uri_decode at REL_18_6, as pgx's uriDecode at v5.11.0):
+# its leading and trailing spaces dropped, then each %XX, and nothing else; what libpq refuses there (a space left
+# inside, a % without two hex digits after it, %00) refused in words that quote none of it. Its backslashes are
+# doubled first, or printf's %b would read a `\n` or a `\c` in a password as an escape (#474).
 uri_decode() {
-  local escaped="${1//\\/\\\\}"
-  printf -v decoded '%b' "${escaped//%/\\x}"
+  local value="${1#"${1%%[! ]*}"}" invalid='%([^0-9A-Fa-f]|.[^0-9A-Fa-f]|.?$)|%00'
+  value="${value%"${value##*[! ]}"}"
+  [[ "$value" != *' '* && ! "$value" =~ $invalid ]] ||
+    { log "the datastore URI (the Secret openfga-db-app, key uri) is refused: its password or a key of its query holds a space inside it, a % without two hex digits after it, or %00, which libpq and pgx refuse (a space must be percent-encoded: %20, a % as %25)"; exit 1; }
+  value="${value//\\/\\\\}"
+  printf -v decoded '%b' "${value//%/\\x}"
 }
 # psql's URI, less the password, which goes to PGPASSWORD percent-decoded as libpq decodes it (the header says why).
 # Split where libpq and pgx split: the userinfo ends at the first `@` before any `/`, so a raw `?` or `#` is part of
@@ -86,7 +93,6 @@ if [[ "$db_uri" =~ ^([^:/?#]+://[^:@/]*):([^@/]*)@(.*)$ ]]; then
   export PGPASSWORD="$decoded"
   unset decoded
 fi
-log() { printf '%s migrate: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 
 # A URI no split makes safe, refused in words that quote none of it (#474): a string that is no URI (keyword=value),
 # which psql takes whole on its command line and `openfga migrate` cannot read, whatever `://` it holds, since libpq
