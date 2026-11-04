@@ -13,6 +13,9 @@
   whatever iterating it gave, so ``{"posts": 1}`` counted ``posts`` as swept and its orphans stayed; one that iterates
   to something else (``[1]``) failed only after every table had been read and swept, at every housekeeping. Now any
   other marker is refused before a table is read, naming the marker and what to do.
+* The rows removed per table are for the tables that had any: a table whose orphans another process removed first is
+  left out, not reported with 0 (``sweep_orphans`` adds only a batch that removed rows; a mutant that adds every batch
+  passed the PR's tests).
 """
 
 from __future__ import annotations
@@ -26,8 +29,8 @@ import unittest
 from unittest import mock
 
 from inkcast.libs.db import Store
-from inkcast.libs.db.erasure import ORPHANS_SWEPT, OWNERS, ErasureRepo
-from test_erasure_orphans import KEY, PAYLOAD, orphan, rows_of, seed
+from inkcast.libs.db.erasure import ORPHANS_SWEPT, OWNERS, ErasureRepo, orphan_condition
+from test_erasure_orphans import KEY, PAYLOAD, TwoConnections, orphan, rows_of, seed
 
 
 class RacingOpener:
@@ -116,6 +119,25 @@ class AMarkerOfAnotherForm(unittest.TestCase):
         self.assertNotIn("posts", swept)
         self.assertEqual(rows_of(store, ada)["posts"], 1, "posts is listed: not read again")
         self.assertEqual(store.sweep_orphans(), {})
+
+
+class AnotherProcessTookEveryOrphan(TwoConnections):
+    def test_the_table_is_left_out_of_the_rows_removed(self):
+        ada, _ = seed(self.api, "ada")
+        orphan(self.api, ada)
+        condition = orphan_condition("posts", "posts")
+        real_tx, raced = Store._tx, []
+
+        def other_process_first(store):
+            if not raced:                           # the sweep's first delete is posts'
+                raced.append(self.identity._exec(f"DELETE FROM posts WHERE {condition}"))
+            return real_tx(store)
+        with mock.patch.object(Store, "_tx", other_process_first):
+            swept = self.api.sweep_orphans()
+        self.assertEqual(raced, [1], "the other process removed her post first")
+        self.assertNotIn("posts", swept, "no rows removed there by this sweep")
+        self.assertEqual(sum(rows_of(self.api, ada).values()), 0, "and every other table of hers swept")
+        self.assertTrue(all(swept.values()), swept)
 
 
 if __name__ == "__main__":
