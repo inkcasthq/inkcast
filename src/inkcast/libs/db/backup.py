@@ -87,14 +87,20 @@ def _aged_out(stamp: datetime, now: float, keep: int) -> bool:
 
 
 def _prune_backups(directory: pathlib.Path, keep: int, now: float) -> int:
-    """Remove the backups in ``directory`` that are ``keep`` or more days old, with their manifests; how many went."""
+    """Remove the backups in ``directory`` that are ``keep`` or more days old, with their manifests; how many went.
+    What a backup killed midway left goes by the same rule: a backup renamed into place without its manifest (counted)
+    and a ``.partial`` copy (a SIGTERM at the Job's deadline runs no cleanup), each a whole copy (issue #112)."""
     removed = 0
-    for old in list_backups(directory):
+    for old in sorted(directory.glob(f"{PREFIX}*{SUFFIX}")):     # with or without its manifest
         stamp = _stamped(old.name[len(PREFIX):-len(SUFFIX)])
         if stamp is not None and _aged_out(stamp, now, keep):
             old.unlink(missing_ok=True)
             _manifest_path(old).unlink(missing_ok=True)
             removed += 1
+    for partial in directory.glob(f".{PREFIX}*{SUFFIX}.partial"):
+        stamp = _stamped(partial.name[len(PREFIX) + 1:-len(SUFFIX + ".partial")])
+        if stamp is not None and _aged_out(stamp, now, keep):
+            partial.unlink(missing_ok=True)
     return removed
 
 
