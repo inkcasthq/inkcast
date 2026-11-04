@@ -179,7 +179,8 @@ fi
 # kubelet ends this container: a child terminated by a signal and left to whatever is PID 1 is a crash to a
 # postmaster (measured: "untracked child process ... terminated by signal 15", then recovery). The probe holds no
 # snapshot once it has answered, so 006's concurrent build never waits on this session. The trap goes once the
-# migration has ended on its own.
+# migration has ended on its own. Each interval ends early when the migration does: `wait -n` returns with whichever
+# of the two ends first, and bash keeps the migration's status for the `wait` below.
 query "SELECT format('lock held by pid %s, running openfga migrate', pg_backend_pid())"
 log "$reply"
 end_migration() {  # the EXIT trap while `openfga migrate` runs: this run takes the migration with it
@@ -191,9 +192,11 @@ end_migration() {  # the EXIT trap while `openfga migrate` runs: this run takes 
 "$OPENFGA_BINARY" migrate &
 migrate_pid=$!
 trap end_migration EXIT
-while sleep "$probe_seconds"; kill -0 "$migrate_pid" 2>/dev/null; do
+while sleep "$probe_seconds" & probe_pid=$!; wait -n "$probe_pid" "$migrate_pid"; kill -0 "$migrate_pid" 2>/dev/null; do
   query "SELECT 1"
 done
+kill "$probe_pid" 2>/dev/null || true
+wait "$probe_pid" 2>/dev/null || true
 trap - EXIT
 if wait "$migrate_pid"; then :; else
   code=$?

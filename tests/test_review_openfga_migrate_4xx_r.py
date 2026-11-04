@@ -7,6 +7,7 @@ images must already be present, as there."""
 from __future__ import annotations
 
 import subprocess
+import time
 import unittest
 
 import test_review_openfga_migrate as harness
@@ -18,7 +19,7 @@ class Review409(harness.MigrateScript):
     def migrate_with(self, **env: str) -> tuple[int, str]:
         """migrate.sh as the init container runs it, with ENV added to its environment: its exit code and its log."""
         command = self.migrate_command()
-        command[2:2] = [f"-e{name}={value}" for name, value in env.items()]   # after `docker exec`
+        command[-3:-3] = [f"-e{name}={value}" for name, value in env.items()]   # after the defaults, which they override
         done = subprocess.run(command, capture_output=True, text=True, timeout=300)
         return done.returncode, done.stdout + done.stderr
 
@@ -36,6 +37,23 @@ class Review409(harness.MigrateScript):
                 self.assertIn("PROBE_SECONDS", log)
                 self.assertNotIn("database reachable", log)
                 self.assertEqual(self.sql("SELECT to_regclass('goose_db_version') IS NULL"), "t")
+
+    def test_a_run_ends_when_its_migration_does_not_a_probe_interval_later(self):
+        """The normal path, unchanged: the probe loop slept its interval before it looked at `openfga migrate`, so
+        every run, a schema already current included, ended up to PROBE_SECONDS after its migration (measured with
+        the default 2 s: 2.08 s a run against 0.10 s before #453, over 30 runs), and with `strategy: Recreate` that
+        is downtime at every rollout. The run ends with the migration, with OpenFGA's own exit code."""
+        self.assertMigrated()
+        started = time.monotonic()
+        code, log = self.migrate_with(PROBE_SECONDS="4")
+        took = time.monotonic() - started
+        self.assertEqual(code, 0, log)
+        self.assertIn('"current version":6', log)
+        self.assertLess(took, 2, f"a run on a current schema took {took:.1f} s with PROBE_SECONDS=4")
+        code, log = self.migrate_with(PROBE_SECONDS="4", OPENFGA_DATASTORE_ENGINE="review-409")
+        self.assertEqual(code, 1, log)
+        self.assertIn("unknown datastore engine type: review-409", log)
+        self.assertIn("openfga migrate exited 1: this run fails", log)
 
 
 def load_tests(loader: unittest.TestLoader, standard_tests: unittest.TestSuite, pattern: str | None) -> unittest.TestSuite:
