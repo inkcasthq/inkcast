@@ -6,8 +6,9 @@
 #
 #   scripts/ops/root-secret-drill.sh <inkcast-staging|inkcast-prod>     # the lab, after the owner's yes
 #
-# 1. a safety copy of the Secret on this host only (mode 600, removed when the script ends however it ends), so a
-#    failed restore is not a loss; its values are never printed, only each one's SHA-256 prefix; and a marker sealed
+# 1. a safety copy of the Secret on this host only (mode 600, removed at the end), so a failed restore is not a loss:
+#    a drill that stops after step 3 puts an absent Secret back from it, and keeps it, naming it, when the Secret is
+#    present with other values; its values are never printed, only each one's SHA-256 prefix; and a marker sealed
 #    by the server's pod with the key it mounts, to be unsealed after the restore;
 # 2. a backup from the environment's Schedule, built as `velero backup create --from-schedule` builds it, waited to
 #    Completed with one item;
@@ -29,6 +30,9 @@ k="${KUBECTL:-oc}"
 adp="${VELERO_NAMESPACE:-openshift-adp}"
 secret=inkcast-secrets
 label_key=inkcast.io/root-secret
+# The label's JSONPath: a dot in a key is escaped. kubectl's and oc's `['inkcast.io/root-secret']` answer nothing
+# (measured with kubectl 1.37 and oc 4.22), so a labelled Secret would read as unlabelled.
+label_path="{.metadata.labels.${label_key//./\\.}}"
 case "$ns" in
   inkcast-staging) schedule=inkcast-staging-root-secret ;;
   inkcast-prod) schedule=inkcast-prod-root-secret ;;
@@ -37,7 +41,25 @@ esac
 stamp="$(date -u +%Y%m%d%H%M%S)"
 umask 077
 work="$(mktemp -d "${TMPDIR:-/tmp}/root-secret-drill.XXXXXX")"
-trap 'rm -rf "$work"' EXIT
+deleted="" restored=""
+# At the end, however it ends. Between the loss (step 3) and the proof that the Secret is back the same (step 5) the
+# safety copy is the only one the drill holds: an absent Secret is put back from it, and a Secret that is present
+# with other values (made meanwhile: OpenFGA's init container makes one when its pod starts without it) leaves the
+# copy kept, named, for a person. Otherwise the copy is removed.
+finish() {
+  if [ -n "$deleted" ] && [ -z "$restored" ]; then
+    if [ -z "$(field "$ns" "secret/$secret" '{.metadata.name}')" ] && $k -n "$ns" create -f "$work/put-back.json" > /dev/null; then
+      echo "the drill stopped after deleting $ns/$secret: it was put back from the safety copy" >&2
+    else
+      echo "the drill stopped after deleting $ns/$secret, and it was not put back: the safety copy is kept in $work" \
+        "(mode 600). The values the sealed credentials need are its: $k -n $ns replace -f $work/put-back.json" \
+        "(or create, if the Secret is absent), then rm -rf $work." >&2
+      return
+    fi
+  fi
+  rm -rf "$work"
+}
+trap finish EXIT
 
 step() { printf '\n%s\n' "$*"; }
 wait_for() {
@@ -76,8 +98,16 @@ else:
 step "1. the safety copy, on this host only ($work, mode 600, removed at the end)"
 $k -n "$ns" get secret "$secret" -o json > "$work/copy.json"
 hashes < "$work/copy.json" > "$work/before"
+# What a create takes back (no resourceVersion, uid or owner): the type, the name, the labels and the data.
+python3 -c '
+import json, sys
+secret = json.load(sys.stdin)
+meta = secret["metadata"]
+print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": secret.get("type", "Opaque"), "data": secret.get("data", {}),
+                  "metadata": {"name": meta["name"], "namespace": meta["namespace"], "labels": meta.get("labels", {})}}))' \
+  < "$work/copy.json" > "$work/put-back.json"
 echo "copied $secret: $(wc -l < "$work/before" | tr -d ' ') keys ($(cut -d' ' -f1 "$work/before" | tr '\n' ' '))"
-[ "$(field "$ns" "secret/$secret" "{.metadata.labels['$label_key']}")" = true ] || { echo "$ns/$secret lacks $label_key=true: the backup would hold nothing. Label it first (the release with #436 does; scripts/lab/root-secret-copy.sh step 0)." >&2; exit 1; }
+[ "$(field "$ns" "secret/$secret" "$label_path")" = true ] || { echo "$ns/$secret lacks $label_key=true: the backup would hold nothing. Label it first (the release with #436 does; scripts/lab/root-secret-copy.sh step 0)." >&2; exit 1; }
 in_pod seal "$stamp" > "$work/marker"
 echo "a marker sealed by the server with the key it mounts"
 
@@ -105,6 +135,7 @@ echo "backup $backup: Completed, $items item(s)"
 
 step "3. THE LOSS: deleting $ns/$secret"
 $k -n "$ns" delete secret "$secret"
+deleted=yes
 [ -z "$(field "$ns" "secret/$secret" '{.metadata.name}')" ] || { echo "$secret still exists" >&2; exit 1; }
 
 step "4. the restore, limited to secrets carrying $label_key=true in $ns"
@@ -136,8 +167,9 @@ if diff "$work/before" "$work/after" > "$work/diff"; then
 else
   echo "the restored Secret differs from the copy (key hash):" >&2; cat "$work/diff" >&2; exit 1
 fi
-if [ "$(field "$ns" "secret/$secret" "{.metadata.labels['$label_key']}")" = true ]; then
+if [ "$(field "$ns" "secret/$secret" "$label_path")" = true ]; then
   echo "  label $label_key=true: present"
+  restored=yes
 else
   echo "the restored Secret lacks $label_key" >&2; exit 1
 fi
