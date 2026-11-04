@@ -138,14 +138,16 @@ else
 fi
 rm -rf "$work"
 
-# 3. The store answers, and holds the bucket the server declares.
+# 3. The store lists the bucket the server declares. The listing itself is the wait: `mini` starts the master before
+# the filer, and the pod may be starting on the identities file this run just wrote, so the shell is asked again
+# until it answers (five minutes), then the answer is judged once.
 i=0
-until [ "$(curl -s -o /dev/null -w '%{http_code}' "http://$store:9333/cluster/status")" = 200 ]; do
+while :; do
+  listing="$(printf 's3.bucket.list\n' | weed shell -master="$store:9333" -filer="$store:8888" 2>&1)" && break
   i=$((i + 1))
-  [ "$i" -le 60 ] || fail "the store did not answer on $store:9333 within five minutes (oc -n $ns logs deploy/seaweedfs)."
+  [ "$i" -le 60 ] || fail "the store did not list its buckets within five minutes (oc -n $ns logs deploy/seaweedfs). weed shell said: $listing"
   sleep 5
 done
-listing="$(printf 's3.bucket.list\n' | weed shell -master="$store:9333" -filer="$store:8888" 2>&1)" || true
 case "$listing" in
   *"$bucket"*) say "bucket $bucket: present" ;;
   *) fail "bucket $bucket is absent on the store (the server creates it at start: deployment.yaml, -bucket). weed shell said: $listing" ;;

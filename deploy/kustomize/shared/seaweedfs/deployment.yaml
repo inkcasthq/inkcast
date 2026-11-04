@@ -59,8 +59,11 @@ spec:
             - {name: master-grpc, containerPort: 19333}
             - {name: filer, containerPort: 8888}
             - {name: filer-grpc, containerPort: 18888}
+          # Ready when the S3 port accepts connections: `mini` starts the master first and the gateway last (after
+          # the filer it serves from; measured on the lab, the master answered while the filer's gRPC port still
+          # refused), and S3 is what Velero needs. Alive while the master answers.
           readinessProbe:
-            httpGet: {path: /cluster/status, port: master}
+            tcpSocket: {port: s3}
             periodSeconds: 5
           livenessProbe:
             httpGet: {path: /cluster/status, port: master}

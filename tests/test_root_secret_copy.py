@@ -88,7 +88,7 @@ class Rendered(unittest.TestCase):
         (location,) = spec["backupLocations"]
         self.assertEqual(location["name"], BSL)
         velero = location["velero"]
-        self.assertIs(velero["default"], False, "a future location for the data backups becomes the default, never this")
+        self.assertIs(velero["default"], True, "the operator demands a default of the one location (measured on 1.6.2)")
         self.assertEqual(velero["provider"], "aws")
         self.assertEqual(velero["credential"], {"name": CREDENTIAL, "key": "cloud"})
         self.assertEqual(velero["objectStorage"]["bucket"], BUCKET)

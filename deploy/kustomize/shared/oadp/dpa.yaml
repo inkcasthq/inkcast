@@ -9,11 +9,14 @@
 # (internal/controller/velero.go at oadp-1.6); the lab's node is at half its CPU in requests, and Velero here copies
 # one Secret a day, so podConfig lowers the request; an off-cluster production sets its own.
 #
-# The storage location `root-secrets`, and only it: `default: false`, so a future location for the SQLite backups'
-# off-cluster copies (E7.F7.6.S2) becomes the default and nothing lands here by omission; every Schedule names this
-# location. The operator does not need a default (validator.go at oadp-1.6 sets no error when none is marked).
-# Its credential is the Secret `cloud-credentials-root-secrets`, key `cloud`, an AWS credentials file
-# (`[default]`, aws_access_key_id, aws_secret_access_key: OADP's docs/install_olm.md), which no manifest holds.
+# The storage location `root-secrets`, and only it. It is `default: true` because the operator demands a default of
+# the locations it is given (measured on 1.6.2: without one the DPA stays Reconciled=False, "no default
+# backupstoragelocations configured, ensure that one backupstoragelocation has been configured as the default
+# location"). The default decides nothing here: every Schedule names its location. When E7.F7.6.S2 adds a location
+# for the SQLite backups' off-cluster copies, that one becomes the default and this one goes `false`, so nothing
+# lands in the root Secrets' bucket by omission. Its credential is the Secret `cloud-credentials-root-secrets`,
+# key `cloud`, an AWS credentials file (`[default]`, aws_access_key_id, aws_secret_access_key: OADP's
+# docs/install_olm.md), which no manifest holds.
 #
 # THE LAB'S STAND-IN, marked: the `config` block points at the in-cluster SeaweedFS of shared/seaweedfs
 # (`s3Url`, `s3ForcePathStyle`: Velero's own MinIO guide, "primarily for local storage services" in the aws
@@ -50,7 +53,7 @@ spec:
     - name: root-secrets
       velero:
         provider: aws
-        default: false
+        default: true                 # the operator demands a default; the Schedules name the location anyway
         credential:
           name: cloud-credentials-root-secrets
           key: cloud
