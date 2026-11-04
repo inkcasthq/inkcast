@@ -263,6 +263,20 @@ class KindJob(unittest.TestCase):
                         "after the OpenFGA step, which installs CloudNativePG")
         self.assertIn("keycloak", ci.split("name: Diagnostics")[1])
 
+    def test_the_tls_secret_exists_before_the_cr_and_the_count_is_read_after_the_rollout(self):
+        """Review of #391, K7: a CR applied before its tlsSecret starts without it and rolls when the Secret appears,
+        so the 2/2 could be read mid-roll. The Secret is made first (in the namespace the overlay declares), and the
+        replica count is read once the StatefulSet's rollout is over."""
+        script = (ROOT / "scripts" / "dev" / "keycloak-production-e2e.sh").read_text()
+        namespace = script.index('apply -f "$ROOT/deploy/kustomize/overlays/ci-keycloak-production/namespace.yaml"')
+        secret = script.index("create secret tls keycloak-tls")
+        overlay = script.index('apply -k "$ROOT/deploy/kustomize/overlays/ci-keycloak-production"')
+        self.assertLess(namespace, secret, "the namespace exists before the Secret")
+        self.assertLess(secret, overlay, "the Secret exists before the CR")
+        rollout = script.index("rollout status statefulset/keycloak")
+        count = script.index("jsonpath='{.status.readyReplicas}/{.spec.replicas}'")
+        self.assertLess(rollout, count, "the count is read after the rollout")
+
 
 if __name__ == "__main__":
     unittest.main()

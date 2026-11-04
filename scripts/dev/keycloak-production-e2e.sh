@@ -69,7 +69,14 @@ mkdir -p "$work/operator"
 fetch_pinned "$base/kubernetes.yml" "$work/operator/kubernetes.yml" "$KEYCLOAK_OPERATOR_MANIFEST_SHA256"
 $k apply --server-side -f "$work/crd-keycloaks.yml" -f "$work/crd-realmimports.yml" >/dev/null
 $k wait --for=condition=Established crd/keycloaks.k8s.keycloak.org crd/keycloakrealmimports.k8s.keycloak.org --timeout=60s
-echo "-- the component (namespace keycloak, the CR, its Cluster and NetworkPolicy)"
+echo "-- the server's certificate: a self-signed one for the in-cluster Service name (never committed, never printed)"
+# Made before the CR, in the namespace the overlay declares: a CR whose tlsSecret is missing starts without TLS and
+# rolls when the Secret appears, and a count read during that roll would be of the wrong pods (review of #391, K7).
+$k apply -f "$ROOT/deploy/kustomize/overlays/ci-keycloak-production/namespace.yaml" >/dev/null
+openssl req -x509 -newkey rsa:2048 -nodes -days 7 -subj "/CN=keycloak-service.$ns.svc" \
+  -keyout "$work/tls.key" -out "$work/tls.crt" >/dev/null 2>&1
+$k -n "$ns" create secret tls keycloak-tls --cert="$work/tls.crt" --key="$work/tls.key" --dry-run=client -o yaml | $k apply -f - >/dev/null
+echo "-- the component (namespace keycloak, the CR, its Cluster, NetworkPolicy and PodDisruptionBudget)"
 $k apply -k "$ROOT/deploy/kustomize/overlays/ci-keycloak-production"
 # The upstream install file is namespace-less (applied with -n) and its operator Deployment carries no
 # securityContext, which Pod Security "restricted" requires on kind: the same two blocks the overlay adds to the
@@ -91,14 +98,11 @@ patches:
 YAML
 $k apply -k "$work/operator" >/dev/null
 $k -n "$ns" rollout status deploy/keycloak-operator --timeout=300s
-echo "-- the server's certificate: a self-signed one for the in-cluster Service name (never committed, never printed)"
-openssl req -x509 -newkey rsa:2048 -nodes -days 7 -subj "/CN=keycloak-service.$ns.svc" \
-  -keyout "$work/tls.key" -out "$work/tls.crt" >/dev/null 2>&1
-$k -n "$ns" create secret tls keycloak-tls --cert="$work/tls.crt" --key="$work/tls.key" --dry-run=client -o yaml | $k apply -f - >/dev/null
 
 echo "-- 1. the database Ready, then the Keycloak CR Ready with two pods"
 $k -n "$ns" wait --for=condition=Ready cluster/keycloak-db --timeout=600s
 $k -n "$ns" wait --for=condition=Ready keycloak/keycloak --timeout=900s   # the first start augments the distribution
+$k -n "$ns" rollout status statefulset/keycloak --timeout=600s             # every replica on the current revision
 $k -n "$ns" get keycloak keycloak -o jsonpath='{range .status.conditions[*]}{.type}={.status} {.message}{"\n"}{end}'
 ready="$($k -n "$ns" get statefulset keycloak -o jsonpath='{.status.readyReplicas}/{.spec.replicas}')"
 [ "$ready" = "2/2" ] || { echo "expected 2/2 ready replicas, found $ready" >&2; exit 1; }
