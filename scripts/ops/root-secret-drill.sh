@@ -46,23 +46,43 @@ esac
 stamp="$(date -u +%Y%m%d%H%M%S)"
 umask 077
 work="$(mktemp -d "${TMPDIR:-/tmp}/root-secret-drill.XXXXXX")"
-deleted="" restored=""
+deleted=""
 # At the end, however it ends. Between the loss (step 3) and the proof that the Secret is back the same (step 5) the
 # safety copy is the only one the drill holds: an absent Secret is put back from it, and a Secret that is present
 # with other values (made meanwhile: OpenFGA's init container makes one when its pod starts without it) leaves the
 # copy kept, named, for a person. Otherwise the copy is removed.
+# Recheck at EXIT, including after steps 6-7: a controller can remove or change the restored Secret at any time.
+# A failed read is not proof of agreement. Never discard the copy unless a final read proves the data and label.
+same_secret() {
+  $k -n "$ns" get secret "$secret" -o json > "$work/final.json" 2>/dev/null &&
+    hashes < "$work/final.json" > "$work/final-hashes" &&
+    diff -q "$work/before" "$work/final-hashes" >/dev/null &&
+    [ "$(field "$ns" "secret/$secret" "$label_path")" = true ]
+}
 finish() {
-  if [ -n "$deleted" ] && [ -z "$restored" ]; then
-    if [ -z "$(field "$ns" "secret/$secret" '{.metadata.name}')" ] && $k -n "$ns" create -f "$work/put-back.json" > /dev/null; then
+  local status=$?
+  trap - EXIT
+  if [ -n "$deleted" ]; then
+    if same_secret; then
+      rm -rf "$work"
+      if [ "$status" -eq 0 ]; then
+        echo "Drill passed: backed up, lost, restored the same, the CronJob agrees, sealed credentials read."
+      fi
+      return "$status"
+    fi
+    if [ -z "$(field "$ns" "secret/$secret" '{.metadata.name}')" ] &&
+       $k -n "$ns" create -f "$work/put-back.json" > /dev/null 2>&1 && same_secret; then
       echo "the drill stopped after deleting $ns/$secret: it was put back from the safety copy" >&2
+      rm -rf "$work"
     else
-      echo "the drill stopped after deleting $ns/$secret, and it was not put back: the safety copy is kept in $work" \
+      echo "the drill stopped after deleting $ns/$secret, and it was not put back or did not match: the safety copy is kept in $work" \
         "(mode 600). The values the sealed credentials need are its: $k -n $ns replace -f $work/put-back.json" \
         "(or create, if the Secret is absent), then rm -rf $work." >&2
-      return
     fi
+    exit 1
   fi
   rm -rf "$work"
+  return "$status"
 }
 trap finish EXIT
 
@@ -177,7 +197,6 @@ else
 fi
 if [ "$(field "$ns" "secret/$secret" "$label_path")" = true ]; then
   echo "  label $label_key=true: present"
-  restored=yes
 else
   echo "the restored Secret lacks $label_key" >&2; exit 1
 fi
@@ -201,6 +220,3 @@ esac
 
 step "7. sealed credentials still read, with the key the pod mounts"
 in_pod unseal "$(cat "$work/marker")" | sed 's/^/  /'
-
-echo
-echo "Drill passed: backed up, lost, restored the same, the CronJob agrees, sealed credentials read."
