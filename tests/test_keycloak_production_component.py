@@ -11,11 +11,13 @@ scripts/dev/keycloak-production-e2e.sh."""
 
 from __future__ import annotations
 
+import os
 import pathlib
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 
 import yaml
@@ -360,6 +362,26 @@ class KindJob(unittest.TestCase):
         self.assertIn("kind-*)", guard.group(0))
         self.assertIn("exit 1", guard.group(0))
         self.assertLess(guard.start(), script.index("$k apply"), "before the first apply")
+
+    def test_the_proof_asks_the_cluster_not_the_context_name(self):
+        """Confirmation of #391, K9: a context named kind-<anything> can point at any server, and KUBECTL can carry
+        --context, which `config current-context` ignores. The proof runs against a kubectl that names its context
+        kind-lab and answers for a node that is not kind's, and must stop before it changes anything."""
+        with tempfile.TemporaryDirectory() as tmp:
+            calls = pathlib.Path(tmp, "calls")
+            fake = pathlib.Path(tmp, "kubectl")
+            fake.write_text('#!/bin/sh\necho "$*" >> "$CALLS"\ncase "$*" in\n'
+                            '  "config current-context") echo kind-lab ;;\n'
+                            '  "get nodes"*) echo "aws:///us-east-1a/i-0abc" ;;\nesac\n')
+            fake.chmod(0o755)
+            done = subprocess.run(["bash", str(ROOT / "scripts" / "dev" / "keycloak-production-e2e.sh")],
+                                  env={**os.environ, "KUBECTL": str(fake), "CALLS": str(calls)},
+                                  capture_output=True, text=True, timeout=60)
+            self.assertEqual(done.returncode, 1, done.stderr)
+            self.assertIn("not a kind node", done.stderr)
+            made = calls.read_text().splitlines()
+            self.assertEqual([c for c in made if c.split()[0] not in ("config", "get")], [],
+                             "nothing but the two reads before it stops")
 
 
 if __name__ == "__main__":

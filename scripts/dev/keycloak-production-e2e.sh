@@ -35,6 +35,13 @@ case "$context" in
   kind-*) echo "kubectl context: $context" ;;
   *) echo "refusing: the current kubectl context is '${context}', not a kind cluster (kind-*); this proof must never reach the lab" >&2; exit 1 ;;
 esac
+# The name proves nothing (a context named kind-lab can point anywhere, and KUBECTL can carry --context, which
+# current-context ignores), so the cluster itself is asked: kind's nodes report kind://<provider>/<cluster>/<node>.
+node="$($k get nodes -o jsonpath='{.items[0].spec.providerID}' 2>/dev/null || true)"
+case "$node" in
+  kind://*) echo "kind node: $node" ;;
+  *) echo "refusing: the cluster's first node reports '${node}', not a kind node (kind://); this proof must never reach the lab" >&2; exit 1 ;;
+esac
 work="$(mktemp -d)"
 PIDS=()
 cleanup() { for p in "${PIDS[@]:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null || true; done; rm -rf "$work"; }
