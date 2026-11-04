@@ -113,9 +113,12 @@ class TheBackfillTraced(unittest.TestCase):
         store.close()
         self.assertEqual(hashes(self.db), {f"usr_{n}": user_hash(derive_key(KEY, "erasure"), f"usr_{n}") for n in self.people})
         # The columns the old database lacks are added first, in one write transaction of their own (issue #176).
-        upgrade, *batches = traced.transactions()
+        # Then the owner guards it lacks, in one of their own (issue #219, the review of PR #426).
+        upgrade, guards, *batches = traced.transactions()
         self.assertIn("ALTER TABLE users ADD COLUMN erasure_hash TEXT", upgrade)
         self.assertFalse([s for s in upgrade if not s.startswith(("ALTER TABLE", "PRAGMA table_info"))], upgrade)
+        self.assertFalse([s for s in guards if not s.startswith(("SELECT name, tbl_name FROM sqlite_master", "CREATE TRIGGER"))],
+                         guards)
         self.assertEqual(len(batches), 4, "25 rows in batches of 7: four transactions, not one")
         self.assertEqual([sum(s.startswith("UPDATE users SET erasure_hash") for s in b) for b in batches], [7, 7, 7, 4],
                          "each transaction fills at most one batch")
