@@ -239,14 +239,28 @@ class Publisher:
 
         self._observe("inkcast_publish_duration_seconds", time.perf_counter() - started, platform=platform.id)
         status = result.status if result.status in ("draft", "unlisted") else "published"
-        self.store.update_post(post_id, status=status, result_url=result.url, remote_id=result.remote_id,
-                               error="; ".join(result.notes) or None,
-                               events=self._event("post.published", post_id, user_id, platform.id, status=status,
-                                                  scheduled=scheduled, attempts=attempts,
-                                                  lag_seconds=round(lag, 3) if lag is not None else None))
-        self._count(platform.id, status)
-        return Outcome(platform.id, status, post_id=post_id, url=result.url, notes=result.notes, prepared=prepared,
-                       remote_id=result.remote_id)
+        # Only at this send's own attempt count (``held``). A success is the truth about this request, so it is written
+        # over whatever the post became at that count while the send was out past STUCK_AFTER: taken over as stuck,
+        # cancelled (the post is out, and the person needs its URL to remove it: #216). Once another worker has re-sent
+        # the post (an attempt on), the row is that send's, as it is for the failure writes above: this answer must not
+        # replace its outcome, nor undo its send in flight (#214). The caller is told what the post is now
+        # (``_as_now``), and the answer is logged: its URL or id is the only record of a copy the post no longer names.
+        written = self.store.update_post(post_id, status=status, result_url=result.url, remote_id=result.remote_id,
+                                         error="; ".join(result.notes) or None, if_attempts=held,
+                                         events=self._event("post.published", post_id, user_id, platform.id, status=status,
+                                                            scheduled=scheduled, attempts=attempts,
+                                                            lag_seconds=round(lag, 3) if lag is not None else None))
+        answer = Outcome(platform.id, status, post_id=post_id, url=result.url, notes=result.notes, prepared=prepared,
+                         remote_id=result.remote_id)
+        outcome = self._as_now(written, answer)
+        if written:
+            self._count(platform.id, status)
+        else:  # re-sent by another worker (an attempt on), or the row is gone (its owner erased: ``_as_now`` kept the answer)
+            log.warning("Post %s on %s: a send taken over as stuck answered %s (%s), but the post is not this send's any "
+                        "more (%s), so that answer is not recorded", post_id, platform.id, status,
+                        result.url or result.remote_id, "erased" if outcome is answer else f"{outcome.status} now",
+                        extra={"event": "publish.late_answer", "post_id": post_id, "platform": platform.id})
+        return outcome
 
     def _crashed(self, post_id: str, user_id: str, platform: Platform, exc: BaseException, held: int = 0) -> Outcome:
         """A plug-in bug while sending. It may have crashed after the platform accepted the post (reading the reply),
