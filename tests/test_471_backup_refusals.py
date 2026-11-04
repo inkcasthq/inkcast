@@ -7,18 +7,29 @@ old (2 or more with keep 1) removes nothing and fails, and nothing tied the Cron
 environment") to ``INKCAST_BACKUP_KEEP``: a weekly schedule with keep 7 is refused every week, and no copy ever ages
 out. The process cannot see its schedule (the pod has no service account token and no network), so the binding is a
 manifest test: every overlay and environment that renders the CronJob runs it again before its keep refuses the run,
-by the run's own rule (``_refusal``), on the run after the schedule's longest gap."""
+by the run's own rule (``_refusal``), on the run after the schedule's longest gap.
+
+2. A refused day costs one copy, not three. Each refused attempt kept a whole copy, and the Job's ``backoffLimit: 2``
+gives three attempts, on a volume sized for one copy a day. Now an attempt that finds today's copy of the same database
+there already, on a day whose retention is refused, takes none and is refused the same way: the refusal rests on the
+days before today, so every copy of today was taken by a run refused alike. The first attempt is as before."""
 
 import copy
+import logging
 import pathlib
 import shutil
+import types
 import unittest
 from datetime import date, datetime, timedelta, timezone
+from unittest import mock
 
+from test_backup_clock import DAY, DAY0, JUMP, KEEP, FiveDailyBackups, names, stamp
 from test_openfga_component import KUSTOMIZE, one, render
 
+from inkcast.backup import backup_main
 from inkcast.libs.config import backup_keep_from
-from inkcast.libs.db.backup import _refusal
+from inkcast.libs.db import backup as module
+from inkcast.libs.db.backup import ASIDE, _refusal, list_backups, take_backup
 
 # A cron line's five fields and their bounds, as Kubernetes reads them (robfig/cron's standard parser): minute, hour,
 # day of month, month, day of week (0 is Sunday).
@@ -113,6 +124,56 @@ class TheScheduleAgainstKeep(unittest.TestCase):
         data["INKCAST_BACKUP_KEEP"], spec["schedule"] = "14", "17 3 */14 * *"
         self.assertIn("leaves 14 days between two runs, INKCAST_BACKUP_KEEP is 14: the newest earlier backup",
                       refusal(docs))
+
+
+class ARefusedDay(FiveDailyBackups):
+    """Five daily backups, then a day whose retention is refused: a clock a year ahead, or a gap of 15 days."""
+
+    def attempts(self, now: float) -> list:
+        return [take_backup(self.db, self.backups, keep=KEEP, now=now + i * 60) for i in range(3)]
+
+    def test_three_attempts_on_a_refused_day_leave_one_copy(self):
+        first, *retries = self.attempts(JUMP)
+        self.assertEqual(names(list_backups(self.backups, now=JUMP)), names(d.path for d in self.days) + [first.name])
+        self.assertEqual([r.name for r in retries], [first.name] * 2, "each retry names the copy that holds the day")
+        self.assertEqual([b.copied for b in (first, *retries)], [True, False, False])
+        self.assertTrue(first.refused.endswith("so nothing was removed; the next good backup removes them."),
+                        "the first attempt's refusal as before")
+        for r in retries:
+            self.assertEqual(r.refused, f"{first.refused} Today's copy, {first.name}, is there already, so this run took none.")
+            self.assertEqual((r.removed_backups, r.removed_copies, r.manifest), (0, 0, first.manifest))
+        self.assertTrue(all(d.path.exists() for d in self.days))
+
+    def test_after_a_gap_the_retries_take_none_and_the_next_day_prunes_as_before(self):
+        first, *_ = self.attempts(DAY0 + 19 * DAY)                                  # 15 days after the last one
+        self.assertEqual(len(list_backups(self.backups, now=DAY0 + 19 * DAY)), 6)
+        c = take_backup(self.db, self.backups, keep=KEEP, now=DAY0 + 20 * DAY)    # a day on: a gap of one day
+        self.assertEqual((c.removed_backups, c.refused, c.copied), (5, "", True))
+        self.assertEqual(names(list_backups(self.backups, now=DAY0 + 20 * DAY)), [first.name, c.name])
+
+    def test_the_job_s_three_attempts_each_fail_and_only_the_first_logs_backup_done(self):
+        events, codes = [], []
+        for i in range(3):
+            with mock.patch.object(module, "time", types.SimpleNamespace(time=lambda i=i: JUMP + i * 60)), \
+                    mock.patch("inkcast.backup._logging"), self.assertLogs("inkcast.backup", logging.INFO) as logs:
+                codes.append(backup_main(["--database", str(self.db), "--to", str(self.backups), "--keep", str(KEEP)]))
+            events.append([getattr(r, "event", "") for r in logs.records])
+            refused = logs.records[-1]
+            self.assertEqual((refused.levelno, refused.backup), (logging.ERROR, f"inkcast-{stamp(JUMP)}.db"))
+        self.assertEqual(codes, [1, 1, 1], "every attempt fails, so the Job does and InkcastBackupMissing fires")
+        self.assertEqual(events, [["backup.done", "backup.retention.refused"]] + [["backup.retention.refused"]] * 2)
+        self.assertEqual(len(list_backups(self.backups, now=JUMP)), 6)
+
+    def test_a_backup_of_a_restore_s_copy_on_a_refused_day_is_taken_and_counts_for_no_retry(self):
+        # The runbook's way back to the database a restore replaced: a backup of that copy, named by its time.
+        first, *_ = self.attempts(JUMP)
+        aside = self.db.with_name(f"{self.db.name}{ASIDE}{stamp(JUMP - 3600)}")
+        aside.write_bytes(self.db.read_bytes())
+        copy_of_aside = take_backup(aside, self.backups, keep=KEEP, now=JUMP + 600)
+        self.assertEqual((copy_of_aside.copied, copy_of_aside.name), (True, f"inkcast-{stamp(JUMP - 3600)}.db"))
+        retry = take_backup(self.db, self.backups, keep=KEEP, now=JUMP + 900)
+        self.assertEqual((retry.copied, retry.name), (False, first.name))
+        self.assertEqual(len(list_backups(self.backups, now=JUMP)), 7)
 
 
 if __name__ == "__main__":

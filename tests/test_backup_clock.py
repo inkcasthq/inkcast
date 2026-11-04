@@ -66,15 +66,14 @@ class AClockAYearAhead(FiveDailyBackups):
         self.assertEqual(b.manifest["previous"], stamp(DAY0 + 4 * DAY), "the copy records the day it followed")
 
     def test_a_job_retried_minutes_later_refuses_again(self):
-        # Kubernetes retries a failed Job (backoffLimit 2), each attempt a backup on the same clock: today's copies do
-        # not count as the newest earlier backup, so each attempt judges the clock by the days before it.
+        # Kubernetes retries a failed Job (backoffLimit 2) on the same clock: today's copy does not count as the newest
+        # earlier backup, so each attempt judges the clock by the days before it, and the retries take no other copy
+        # (#471): each names the first attempt's, which leads back to the day before the jump.
         attempts = [take_backup(self.db, self.backups, keep=KEEP, now=JUMP + i * 60) for i in range(3)]
         self.assertEqual([a.removed_backups for a in attempts], [0, 0, 0])
         self.assertTrue(all(a.refused for a in attempts))
         self.assertTrue(all(d.path.exists() for d in self.days))
-        # Each copy records the one before it, so all three lead back to the day before the jump (_dated follows them).
-        self.assertEqual([a.manifest["previous"] for a in attempts],
-                         [stamp(DAY0 + 4 * DAY), stamp(JUMP), stamp(JUMP + 60)])
+        self.assertEqual([a.manifest["previous"] for a in attempts], [stamp(DAY0 + 4 * DAY)] * 3)
 
     def test_the_command_exits_1_after_a_good_backup_so_the_job_fails_and_the_alert_fires(self):
         from inkcast.backup import backup_main
@@ -175,14 +174,14 @@ class ACopyDatedAfterToday(FiveDailyBackups):
         manifest = self.manifest(old.path)
         del manifest["previous"]
         old.path.with_suffix(".json").write_text(json.dumps(manifest))
-        broken = take_backup(self.db, self.backups, keep=KEEP, now=JUMP + 60)
-        manifest = self.manifest(broken.path)
+        broken = old.path.with_name(f"inkcast-{stamp(JUMP + 60)}.db")             # a retry's copy, from before #471
+        shutil.copy(old.path, broken)
         manifest["previous"] = stamp(DAY0 - 30 * DAY)                             # a backup that is gone
-        broken.path.with_suffix(".json").write_text(json.dumps(manifest))
+        broken.with_suffix(".json").write_text(json.dumps(manifest))
         for day in range(5, 25):
             take_backup(self.db, self.backups, keep=KEEP, now=DAY0 + day * DAY)
         self.assertTrue(old.path.exists())
-        self.assertFalse(broken.path.exists(), "dated 30 days before DAY0: aged out")
+        self.assertFalse(broken.exists(), "dated 30 days before DAY0: aged out")
         self.assertEqual(len(list_backups(self.backups)), 15)                    # days 11 to 24, and the old one
 
 
