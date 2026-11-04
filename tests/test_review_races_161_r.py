@@ -84,5 +84,69 @@ class AConfirmationDuringTheReconcilesReads(Base):
         self.raced("disabled")
 
 
+class WhatThePRsTestsLeaveUnpinned(Base):
+    """Behaviour fbf1764 has right that no test pins: each test passes on fbf1764 and fails under the mutant named."""
+
+    def test_the_events_pass_alone_releases_a_person_read_present_from_a_claimed_pass(self):
+        """``TheRestoreRacingAConfirmation``'s events variant runs the reconcile too (its tick is at T0 + 3600 with
+        ``last_reconcile`` at T0), so the reconcile's release spares them there; mutant: the events pass releases
+        only ``if held``, as before #161."""
+        people = sorted((self.person(f"kc-p{i:02d}") for i in range(20)), key=lambda u: u["id"])
+        gone = people[:5]
+        self.kc.gone.update(u["kc"] for u in gone)
+        self.reconcile(self.sync(30))
+        (trip,) = self.trips()
+        self.kc.gone.clear()
+        self.now = T0 + 3600
+        worker = self.other_sync(30)
+        worker.last_reconcile = self.now                                 # not due: the admin-events pass alone
+        for user in gone:
+            self.kc.admin_events.append({"time": int(self.now * 1000) + 1000, "resourceType": "USER",
+                                         "operationType": "UPDATE", "resourcePath": f"users/{user['kc']}"})
+        self.kc.read.clear()
+        landed = self.hook(self.store, "breaker_trip_people", lambda: self.tick(worker), after=True)
+        self.confirm(trip["id"])
+        self.assertEqual(sorted(self.kc.read), sorted(u["kc"] for u in gone), "only the edited were read: no reconcile")
+        self.assertEqual(landed[0]["checked"], 5)
+        for user in gone:
+            self.assert_untouched(user)
+
+    def test_a_person_still_disabled_at_the_next_reconcile_stays_in_the_pass_and_is_cut_off(self):
+        """The reverse of a release: a person Keycloak still has disabled is read so at every reconcile while the pass
+        waits, and must not leave it, or the confirmation spares a person Keycloak really disabled; mutant: the
+        release drops its ``kind``."""
+        people = [self.person(f"kc-p{i:02d}") for i in range(20)]
+        disabled = people[:5]
+        pats = {u["id"]: self.pat(u) for u in disabled}
+        self.kc.disabled.update(u["kc"] for u in disabled)
+        worker = self.sync(30)
+        self.reconcile(worker)
+        (trip,) = self.trips()
+        self.reconcile(worker, T0 + 600)                                 # still disabled: still held, still in the pass
+        self.assertEqual(len(self.store.breaker_trip_people(trip["id"])), 5)
+        line = self.confirmed(self.confirm(trip["id"]))
+        self.assertEqual((line.applied, line.disabled, line.skipped), (5, 5, 0))
+        for user in disabled:
+            self.assert_cut_off(user)
+            self.assertIsNone(self.store.find_api_token(pats[user["id"]]), "their PATs are revoked")
+
+    def test_a_return_visit_whose_erasure_a_pass_elsewhere_declined_is_not_told_it_signed_in(self):
+        """``/account/return``: the erasure declines because a pass elsewhere marked her (``deleted_at``), with no
+        sign-in: the plain finishing page, never "you signed in again"; mutant: the sign-in page always."""
+        from test_review_races_161 import TheReturnVisit
+        ada = self.person("kc-ada")
+        cookie = TheReturnVisit.armed(self, ada)
+        ctx, client = TheReturnVisit.app(self)
+        self.kc.gone.add(ada["kc"])
+        landed = self.hook(ctx.store, "erase_user", lambda: self.other.mark_user_deleted(ada["id"], T0))
+        with client:
+            page = client.get("/account/return", cookies={"inkcast_deletion": cookie})
+        self.assertEqual((page.status_code, landed), (200, [T0]))
+        self.assertIsNotNone(ctx.store.get_user(ada["id"]), "nothing erased: not as read")
+        self.assertIn("once the sign-in provider confirms the account is gone", page.text)
+        self.assertNotIn("you signed in again", page.text)
+        self.assertIsNotNone(self.store.deletion_request_by_cookie(cookie), "the record stays")
+
+
 if __name__ == "__main__":
     unittest.main()
