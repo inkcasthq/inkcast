@@ -103,8 +103,9 @@ class Harness(unittest.TestCase):
         self.store.save_credentials(self.user, self.platform.id, {"k": "v"}, {"id": "1", "name": "findable"})
         self.publisher = Publisher(self.store, self.platforms)
         quiet = logging.getLogger("inkcast.libs.pipeline")
-        level, quiet.level = quiet.level, logging.CRITICAL   # recovery's warnings are expected; keep the run readable
-        self.addCleanup(setattr, quiet, "level", level)
+        level = quiet.level
+        quiet.setLevel(logging.CRITICAL)                    # recovery's warnings are expected; keep the run readable
+        self.addCleanup(quiet.setLevel, level)
 
     def open(self) -> Store:
         store = Store(self.path, "k" * 40)

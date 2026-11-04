@@ -10,9 +10,11 @@ import asyncio
 import base64
 import hashlib
 import json
+import logging
 import re
 import secrets
 import time
+import unittest
 from urllib.parse import urlencode
 
 from starlette.applications import Starlette
@@ -852,6 +854,25 @@ class FakeRedis:
         if rate > 0:
             self._dispatch("PEXPIRE", [keys[0], str(int(capacity / rate * 1000 + 0.999))])
         return repr(wait)
+
+
+def logging_restored(case: unittest.TestCase) -> None:
+    """Put the root logger, and the loggers ``setup_logging`` quiets, back as they were when ``case`` ends. A CLI run
+    in-process (``identity_main``, ``authz_main``, the launcher's ``main``) calls ``setup_logging``, which installs the
+    process's root handler and levels, and a test that ran it would otherwise leave them for every test after (issue
+    #159): logging into the StringIO that run captured, at the level that run chose. Levels go back through
+    ``setLevel``: a write to ``level`` leaves the stdlib's remembered ``isEnabledFor`` answers in place."""
+    root = logging.getLogger()
+    quieted = ("httpx2", "httpcore2", "uvicorn.access")
+    saved = root.handlers[:], root.level, {name: logging.getLogger(name).level for name in quieted}
+
+    def restore() -> None:
+        root.handlers[:] = saved[0]
+        root.setLevel(saved[1])
+        for name, level in saved[2].items():
+            logging.getLogger(name).setLevel(level)
+
+    case.addCleanup(restore)
 
 
 def seed_people(store, *subjects: str) -> None:

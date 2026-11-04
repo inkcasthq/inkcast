@@ -132,10 +132,10 @@ class FindingTheSendersLateAnswerNeitherCountsNorLogsACancelledPost(Harness):
                     raise answer
 
                 self.platform.during_publish = while_a_waits
-                logging.getLogger("inkcast.libs.pipeline").level = logging.NOTSET
+                logging.getLogger("inkcast.libs.pipeline").setLevel(logging.NOTSET)
                 with self.assertLogs("inkcast.libs.pipeline", "WARNING") as logs:
                     (outcome,) = asyncio.run(self.publisher.run_due(now=time.time()))
-                logging.getLogger("inkcast.libs.pipeline").level = logging.CRITICAL
+                logging.getLogger("inkcast.libs.pipeline").setLevel(logging.CRITICAL)
                 self.assertEqual((outcome.status, self.status(post_id)), ("cancelled", "cancelled"))
                 self.assertEqual(self.publisher.metrics.snapshot().get("inkcast_publish_total", {}), {},
                                  "counted for a cancelled post")

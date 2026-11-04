@@ -117,8 +117,9 @@ class Harness(unittest.TestCase):
         self.publisher = Publisher(self.store, self.platforms)
         self.service = InkcastService(self.store, self.platforms, self.publisher, "https://inkcast.example.com")
         quiet = logging.getLogger("inkcast.libs.pipeline")
-        level, quiet.level = quiet.level, logging.CRITICAL   # recovery's warnings are expected; keep the run readable
-        self.addCleanup(setattr, quiet, "level", level)
+        level = quiet.level
+        quiet.setLevel(logging.CRITICAL)                    # recovery's warnings are expected; keep the run readable
+        self.addCleanup(quiet.setLevel, level)
 
     def open(self) -> Store:
         store = Store(self.path, "k" * 40)
@@ -651,7 +652,7 @@ class FindingACancelHoldsAgainstTheCapAndThePluginMissingWrite(Harness):
             api.cancel(self.user, second)
 
         self.platform.meanwhile = the_person_cancels
-        logging.getLogger("inkcast.libs.pipeline").level = logging.NOTSET
+        logging.getLogger("inkcast.libs.pipeline").setLevel(logging.NOTSET)
         with self.assertLogs("inkcast.libs.pipeline", "WARNING") as logs:
             outcomes = self.tick()
         self.assertEqual([(o.post_id, o.status) for o in outcomes][:2], [(first, "scheduled"), (second, "cancelled")])
