@@ -7,15 +7,20 @@
   no daily recovery point. The alert on a missed backup, ``InkcastBackupMissing``, is what covers the days in between.
 * The copy a restore leaves beside the database (``inkcast.db.before-restore-<time>``, item 1) ages out by the same
   rule, with its WAL files, at the next good backup; a file whose name carries no time is never touched. The runbook
-  says so."""
+  says so.
+* The CronJob reads ``INKCAST_BACKUP_KEEP`` from the ``inkcast-config`` ConfigMap the server reads (item 2): one
+  source, in every overlay and environment that renders the backup component."""
 
 import logging
 import pathlib
 import shutil
 import sqlite3
+import subprocess
 import tempfile
 import unittest
 from datetime import datetime, timezone
+
+import yaml
 
 from inkcast.libs.alerting import ALERTS
 from inkcast.libs.db import Store
@@ -112,6 +117,39 @@ class Retention(unittest.TestCase):
         (done,) = [r for r in logs.records if getattr(r, "event", "") == "backup.done"]
         self.assertEqual((done.removed_backups, done.removed_copies), (1, 1))
         self.assertIn("removed 1 backup(s) and 1 pre-restore cop(ies) 1 or more days old", done.getMessage())
+
+
+@unittest.skipUnless(shutil.which("kubectl"), "kubectl renders the kustomizations (CI's manifests job has it)")
+class TheCronJob(unittest.TestCase):
+    """One source for the number of days: the CronJob reads ``INKCAST_BACKUP_KEEP`` from the ConfigMap the server
+    reads, so the deletion pages and the retention cannot disagree."""
+
+    TARGETS = ("overlays/ci", "overlays/kubernetes", "overlays/openshift", "environments/staging",
+               "environments/production")
+
+    @staticmethod
+    def render(path: str) -> list[dict]:
+        out = subprocess.run(["kubectl", "kustomize", str(ROOT / "deploy" / "kustomize" / path)],
+                             capture_output=True, text=True, check=True)
+        return [d for d in yaml.safe_load_all(out.stdout) if d]
+
+    def test_the_cronjob_reads_keep_from_the_configmap_the_server_reads(self):
+        for target in self.TARGETS:
+            with self.subTest(target=target):
+                docs = self.render(target)
+                (cronjob,) = [d for d in docs if d["kind"] == "CronJob" and d["metadata"]["name"] == "inkcast-backup"]
+                (container,) = cronjob["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"]
+                self.assertNotIn("INKCAST_BACKUP_KEEP", [e["name"] for e in container.get("env", [])],
+                                 "the number is not written into the CronJob")
+                self.assertEqual(container.get("envFrom"), [{"configMapRef": {"name": "inkcast-config"}}])
+                config = [d for d in docs if d["kind"] == "ConfigMap" and d["metadata"]["name"] == "inkcast-config"]
+                self.assertEqual(len(config), 1, "the ConfigMap the CronJob names is rendered beside it")
+                servers = [d for d in docs if d["kind"] == "Deployment"
+                           and any(ref.get("configMapRef", {}).get("name") == "inkcast-config"
+                                   for c in d["spec"]["template"]["spec"]["containers"] for ref in c.get("envFrom", []))]
+                self.assertTrue(servers, "the server reads the same ConfigMap")
+                if target.startswith("environments/"):
+                    self.assertIn("INKCAST_BACKUP_KEEP", config[0]["data"], "an environment states the number once")
 
 
 class TheAlertAndTheRunbook(unittest.TestCase):

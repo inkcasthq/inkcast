@@ -39,9 +39,12 @@ spec:
             - name: backup
               image: ghcr.io/inkcasthq/inkcast:0.1.0   # the same image as the server; environments pin both by digest
               args: ["backup", "--to", "/backups"]
+              # INKCAST_BACKUP_KEEP (days a backup is kept) comes from the ConfigMap the server reads, so the deletion
+              # pages and the retention cannot disagree (#112); unset there, both fall back to 14.
+              envFrom:
+                - configMapRef: {name: inkcast-config}
               env:
                 - {name: INKCAST_DATABASE, value: /data/inkcast.db}
-                - {name: INKCAST_BACKUP_KEEP, value: "14"}
                 - {name: INKCAST_LOG_FORMAT, value: json}
               resources:
                 requests: {cpu: 20m, memory: 64Mi}

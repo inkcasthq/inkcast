@@ -76,7 +76,7 @@ configMapGenerator:
       - INKCAST_INSIGHTS_INTERVAL=10
       - INKCAST_SHUTDOWN_GRACE=25
       - INKCAST_RATE_LIMIT_PER_MINUTE=60
-      - INKCAST_BACKUP_KEEP=14           # the backup CronJob's value (components/backup): change both together
+      - INKCAST_BACKUP_KEEP=14           # days; the backup CronJob (components/backup) reads this ConfigMap too
 images:
   - name: ghcr.io/inkcasthq/inkcast
     digest: sha256:cebf0fa203ccd5f01c6100a47f35ce74df86c16dd94cf3207ae877515ac8579c
