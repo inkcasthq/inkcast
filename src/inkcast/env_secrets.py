@@ -6,8 +6,10 @@
 
 It runs as the init container ``env-secrets`` of OpenFGA's pod in the environments (deploy/kustomize/components/
 env-secrets), so it runs at every start of that pod (a fresh environment, every release, since the container runs the
-release's image, a restart or an eviction) and always before OpenFGA reads its Secrets. For the side its namespace
-names (inkcast-staging is staging, inkcast-prod is prod), it writes:
+release's image, a restart or an eviction) and always before OpenFGA reads its Secrets; and as the CronJob
+``inkcast-env-secrets`` of the same component every ten minutes, so a generated Secret that was deleted comes back
+with no restart and no apply (issue #342). For the side its namespace names (inkcast-staging is staging, inkcast-prod
+is prod), it writes:
 
     inkcast-db/inkcast-pg-openfga-<side>  kubernetes.io/basic-auth   username, password: the managed role's password
                                                                      (deploy/kustomize/shared/inkcast-db/cluster.yaml)
@@ -376,7 +378,7 @@ def ensure(kube: Kube, layout: Layout, say: Callable[[str], None]) -> list[str]:
         else:
             return []
     return [f"Another writer kept changing these Secrets through {ATTEMPTS} rounds; nothing more was written. The "
-            "next start of OpenFGA's pod tries again."]
+            "next run (the CronJob's next tick, or the next start of OpenFGA's pod) tries again."]
 
 
 def connect(environ: Mapping[str, str], root: pathlib.Path = SERVICE_ACCOUNT) -> httpx2.Client:
@@ -384,7 +386,7 @@ def connect(environ: Mapping[str, str], root: pathlib.Path = SERVICE_ACCOUNT) ->
     the kubelet in every container), the projected token and the cluster's CA under ``root``. Never through a proxy."""
     host = environ.get("KUBERNETES_SERVICE_HOST", "").strip()
     if not host:
-        raise Refusal("KUBERNETES_SERVICE_HOST is not set: this runs in a pod, as OpenFGA's init container.")
+        raise Refusal("KUBERNETES_SERVICE_HOST is not set: this runs in a pod, as OpenFGA's init container or the CronJob.")
     port = environ.get("KUBERNETES_SERVICE_PORT", "443").strip()
     try:
         bearer = (root / "token").read_text().strip()

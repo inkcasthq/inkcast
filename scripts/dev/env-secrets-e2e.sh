@@ -20,7 +20,11 @@
 #      while the new pod is held; once the wrong key is removed, the kubelet's own retry finishes the rollout, with
 #      no apply;
 #   5. both sides of the role's password lost: the next pod start makes a new pair and that same pod's OpenFGA
-#      connects with it, with no restart after.
+#      connects with it, with no restart after;
+#   6. the role Secret deleted, with no restart and no apply (#342): a run of the CronJob inkcast-env-secrets, made
+#      from its own template, brings it back copied from openfga-db-app, the pair agrees, OpenFGA's pod is untouched
+#      and the run's log holds no value; and the CronJob the cluster runs (schedule, concurrency policy, starting
+#      deadline) is the one environments/staging and environments/production render.
 #
 #   scripts/dev/env-secrets-e2e.sh    # after scripts/dev/openfga-e2e.sh (it installs the CloudNativePG operator),
 #                                     # on a kind cluster with the inkcast:ci image loaded, as in the kind CI job
@@ -287,6 +291,50 @@ check changed "$work/first" password
 check same "$work/first" identity sync
 init_log
 serving
+
+echo "-- 6. the role Secret deleted, no restart and no apply: a run of the CronJob brings it back (#342)"
+# The CronJob inkcast-env-secrets (components/env-secrets/cronjob.yaml) runs `inkcast env-secrets` every ten
+# minutes. CI does not wait for a tick: a Job made from the CronJob's own template (`kubectl create job --from`)
+# runs exactly the pod spec the controller creates at a tick (the same account, token, image and security context),
+# so the run is proven on the cluster; the tick is a manifest fact, proven by comparing what the cluster runs with
+# what both environments render, so what CI runs here is what the lab gets.
+cronjob_spec() {  # target: the schedule, concurrency policy and starting deadline of the CronJob it renders
+  rm -rf "$work/rendered" && mkdir "$work/rendered"   # an existing directory: one file per object (a path that is not one gets one file)
+  $k kustomize "$ROOT/deploy/kustomize/$1" -o "$work/rendered"
+  $k create --dry-run=client -f "$work/rendered/batch_v1_cronjob_inkcast-env-secrets.yaml" \
+    -o jsonpath='{.spec.schedule} {.spec.concurrencyPolicy} {.spec.startingDeadlineSeconds}'
+}
+live="$($k -n "$ns" get cronjob inkcast-env-secrets -o jsonpath='{.spec.schedule} {.spec.concurrencyPolicy} {.spec.startingDeadlineSeconds}')"
+for target in environments/staging environments/production; do
+  rendered="$(cronjob_spec "$target")"
+  [ "$rendered" = "$live" ] || { echo "$target renders the CronJob as '$rendered'; the cluster runs '$live'" >&2; exit 1; }
+done
+echo "the CronJob runs '$live' (schedule, concurrency policy, starting deadline), as both environments render it"
+openfga_pod() {  # OpenFGA's pod and its server container's restart count: a restart or a rollout changes one of them
+  $k -n "$ns" get pods -l app.kubernetes.io/name=openfga,app.kubernetes.io/component=authz \
+    -o jsonpath='{.items[*].metadata.name}/{.items[*].status.containerStatuses[0].restartCount}'
+}
+check fingerprint "$work/fifth"
+before="$(openfga_pod)"
+$k -n inkcast-db delete secret inkcast-pg-openfga-staging
+$k -n "$ns" create job env-secrets-e2e --from=cronjob/inkcast-env-secrets
+$k -n "$ns" wait --for=condition=complete job/env-secrets-e2e --timeout=180s \
+  || { $k -n "$ns" describe job env-secrets-e2e; echo "the run did not complete within 180 s" >&2; exit 1; }
+pod="$($k -n "$ns" get pods -l batch.kubernetes.io/job-name=env-secrets-e2e --field-selector=status.phase=Succeeded \
+  -o jsonpath='{.items[0].metadata.name}')"
+$k -n "$ns" logs "$pod" > "$work/job.log"
+cat "$work/job.log"
+check no-value "$work/job.log"
+case "$(cat "$work/job.log")" in
+  *"inkcast-db/inkcast-pg-openfga-staging: created"*) ;;
+  *) echo "the run's log does not say it created inkcast-db/inkcast-pg-openfga-staging" >&2; exit 1 ;;
+esac
+check agree
+check same "$work/fifth" password identity sync
+after="$(openfga_pod)"
+[ "$before" = "$after" ] || { echo "OpenFGA's pod changed ($before -> $after): the Secret should be back with no restart" >&2; exit 1; }
+echo "back within one run, copied from openfga-db-app, with no apply; OpenFGA's pod untouched ($after)"
+$k -n "$ns" delete job env-secrets-e2e
 
 $k delete namespace "$ns" inkcast-db --wait=false   # frees the node for the next step of the kind job
 echo "PASS: every generated Secret made by the cluster, in agreement, copied back on a rebuild, refused on a disagreement"

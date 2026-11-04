@@ -245,6 +245,8 @@ jobs:
           kubectl -n inkcast-db get cluster,database -o wide || true
           kubectl -n inkcast-staging logs deploy/openfga -c env-secrets --tail=50 || true   # names and keys, never a value
           kubectl -n inkcast-staging logs deploy/openfga -c migrate --tail=50 || true
+          kubectl -n inkcast-staging get cronjob,job || true
+          kubectl -n inkcast-staging logs -l app.kubernetes.io/component=env-secrets --tail=50 || true   # the CronJob's runs (#342): names and keys, never a value
 
   dashboards:
     # The local observability stack under Docker Compose (deploy/dev): Inkcast + fake platforms + Prometheus +

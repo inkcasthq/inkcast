@@ -1,0 +1,65 @@
+# A deleted generated Secret comes back without a restart (issue #342): every ten minutes this runs the same
+# `inkcast env-secrets` as the init container of OpenFGA's pod (openfga.yaml), as the same ServiceAccount, with the
+# same projected token, the same security context and the same image. The image name is the one the environment's
+# `images` entry pins by digest, so one promotion moves this container and the init container together
+# (tests/test_env_secrets_manifests.py fails if they ever differ). A run creates what is absent and copies a lost
+# side of a pair back; it never replaces a value (src/inkcast/env_secrets.py), so a run that finds everything in
+# place changes nothing. The init container stays: it makes the Secrets before OpenFGA's first start.
+#
+# Why a CronJob where a Job was refused (#315, #323): a CronJob's template is mutable (pkg/apis/batch/validation/
+# validation.go at v1.37.0, ValidateCronJobUpdate: no immutable field but the metadata's; a Job's template is
+# immutable unless the Job is suspended, ValidateJobSpecUpdate), so each release's apply updates the digest here
+# and the next run uses it; and a run that failed is not final: the next tick makes a new Job.
+#
+# The bounds, each with its reason, so a run can neither pile up nor hang:
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: inkcast-env-secrets
+  labels: {app.kubernetes.io/name: inkcast-env-secrets, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: env-secrets}
+spec:
+  schedule: "*/10 * * * *"      # ten minutes: the longest a deleted Secret stays missing, and 144 short runs a day
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid     # never two runs at once: a tick that finds a run still active is skipped (counted as missed)
+  startingDeadlineSeconds: 300  # half the interval: a skipped or late tick is started up to 5 min late, never nearer the next one
+  successfulJobsHistoryLimit: 1 # the last good run stays for `oc get jobs`; 144 a day would be noise
+  failedJobsHistoryLimit: 3     # the last three failed runs keep their pods' logs after a later run succeeds
+  jobTemplate:
+    metadata:
+      labels: {app.kubernetes.io/name: inkcast-env-secrets, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: env-secrets}
+    spec:
+      backoffLimit: 2             # two retries (10 s, 20 s) cover a transient API error; a refusal fails every attempt the same way and the next tick tries again
+      activeDeadlineSeconds: 540  # under the interval: a run that hangs (a pull that never finishes, an API that never answers) is failed before the next tick, so Forbid never skips it
+      template:
+        metadata:
+          labels: {app.kubernetes.io/name: inkcast-env-secrets, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: env-secrets}
+        spec:
+          restartPolicy: Never    # each attempt is its own pod, so its log is its own; backoffLimit counts the failed pods
+          serviceAccountName: inkcast-env-secrets
+          automountServiceAccountToken: false
+          enableServiceLinks: false
+          imagePullSecrets:
+            - name: ghcr-pull
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: env-secrets
+              image: ghcr.io/inkcasthq/inkcast
+              args: ["env-secrets"]
+              resources:
+                requests: {cpu: 10m, memory: 96Mi}
+                limits: {memory: 192Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: [ALL]}
+              volumeMounts:
+                - {name: api-token, mountPath: /var/run/secrets/kubernetes.io/serviceaccount, readOnly: true}
+          volumes:
+            - name: api-token
+              projected:
+                sources:
+                  - serviceAccountToken: {path: token, expirationSeconds: 600}
+                  - configMap: {name: kube-root-ca.crt, items: [{key: ca.crt, path: ca.crt}]}
+                  - downwardAPI: {items: [{path: namespace, fieldRef: {fieldPath: metadata.namespace}}]}

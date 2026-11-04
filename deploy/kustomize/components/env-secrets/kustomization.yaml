@@ -20,11 +20,20 @@
 # is the pair both connect with, without a restart. A pod whose run fails never starts the migration or OpenFGA;
 # the Deployment is `strategy: Recreate` (components/openfga/deployment.yaml), so the previous pod is already gone
 # and OpenFGA is unavailable until the run succeeds (scripts/dev/env-secrets-e2e.sh, proof 4, measures that).
+#
+# And the CronJob `inkcast-env-secrets` (cronjob.yaml, issue #342): the init container runs only when the pod
+# starts, and an apply that changes nothing starts no pod, so a generated Secret deleted by mistake stayed missing
+# until someone restarted OpenFGA. The CronJob runs the same command, as the same account, every ten minutes; a run
+# that finds everything in place changes nothing. Neither reason against a Job holds for it: its template is mutable,
+# so each release's apply moves its digest, and a failed run is tried again at the next tick. The ServiceAccount, the
+# Roles and the admission policy are the init container's: the CronJob's pod runs as the same account, so no verb is
+# added and none widened. scripts/dev/env-secrets-e2e.sh, proof 6, deletes a Secret and a run brings it back.
 apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
 resources:
   - serviceaccount.yaml
   - rbac.yaml
+  - cronjob.yaml
 patches:
   # openfga.yaml puts env-secrets FIRST in initContainers, before the component's `migrate` (which reads the Secret
   # env-secrets creates): a JSON patch at index 0, so the order is stated, not left to how a strategic merge happens
