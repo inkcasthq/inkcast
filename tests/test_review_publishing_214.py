@@ -342,5 +342,40 @@ class EmptySuccessFromAnyPlugin(Harness):
         self.assertEqual(asyncio.run(self.publisher.run_due(now=time.time() + 7 * 24 * 3600)), [], "sent again")
 
 
+# ---- item 3: 301/302 on a create stay definite failures, by design -----------------------------------------------
+
+
+class RedirectsOnACreate(unittest.TestCase):
+    """Kept as #173 decided (PR #192): a 301 or 302 to a create is a definite, non-retryable failure; only a 303 is
+    uncertain. RFC 9110 §15.4.2 (301) and §15.4.3 (302) say the target resource "has been assigned a new permanent
+    URI" / "resides temporarily under a different URI" and the client "ought to" re-request there (a user agent "MAY
+    change the request method from POST to GET"): the server has not acted on the request. Only §15.4.4 (303) is
+    "an indirect response to the original request", "the output of a POST action": acted on, result elsewhere. Neither
+    supported platform answers a create with a 3xx after acting: Forem renders ``201`` with the article
+    (app/controllers/concerns/api/articles_controller.rb ``create``), Medium documents ``201`` with a ``data``
+    envelope and errors 400/401/403 (medium-api-docs §3.3). A 301/302 from these APIs is a wrong API URL (http to
+    https, a moved Forem host), for which "failed: check INKCAST_API_URL_<ID>" is the right answer; 'unconfirmed'
+    would park every Git-synced file behind a person's decision instead."""
+
+    def test_301_and_302_on_a_create_stay_definite_and_303_stays_uncertain(self):
+        for status, flags in ((301, (False, False)), (302, (False, False)), (303, (False, True))):
+            requests: list[httpx2.Request] = []
+
+            def handler(request: httpx2.Request, status=status) -> httpx2.Response:
+                requests.append(request)
+                return httpx2.Response(status, headers={"Location": "https://elsewhere.invalid/api/articles/1"})
+
+            http = httpx2.AsyncClient(transport=httpx2.MockTransport(handler))
+            for platform in (DevtoPlatform(http), MediumPlatform(http)):
+                with self.subTest(platform=platform.id, status=status):
+                    prepared = platform.prepare({"title": "t"}, "Body.")
+                    with self.assertRaises(PlatformError) as caught:
+                        asyncio.run(platform.publish({"api_key": "k", "token": "t"}, Account(id="1", name="n"),
+                                                     prepared, None))
+                    self.assertEqual((caught.exception.retryable, caught.exception.uncertain), flags)
+                    self.assertIn(str(status), str(caught.exception))
+            self.assertEqual(len(requests), 2, "the redirect was never followed, so the POST was never replayed")
+
+
 if __name__ == "__main__":
     unittest.main()
