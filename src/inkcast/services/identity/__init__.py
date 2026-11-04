@@ -219,17 +219,29 @@ def _routes(ctx: Context) -> list[Route]:
     # by a cookie, confirmed through the sync's read-only view-users (the person must be gone), and only then
     # erased (via=return). Cancel and errors come back through /auth/callback with nothing deleted. The sync's
     # DELETE_ACCOUNT reader (via=event) erases anyone the return visit never confirmed.
+    # The link is used up only once the sign-in redirect is ready (issue #149): a provider that is down leaves it good
+    # for another visit. The consume is one transaction, so of two tabs that open the link only one proceeds.
 
     async def account_delete(request: Request) -> Response:
-        req = store.open_deletion_link(request.path_params["ticket"])
-        if not req:
+        ticket = request.path_params["ticket"]
+
+        def expired() -> Response:
             return pages.message("Link expired", "This link was already used or has expired. Ask for a new one from your "
                                  "MCP client or the API.", error=True, status=400)
+
+        req = store.deletion_request_by_link(ticket)                # read only: nothing is consumed yet
+        if not req:
+            return expired()
         pending_id = store.create_pending(DELETE_REQUEST, req["id"])
         try:
-            return await identity.start(request, pending_id)
-        except LoginError as exc:
+            response = await identity.start(request, pending_id)
+        except LoginError as exc:                                   # the link stays good; the sign-in it started does not
+            store.delete_pending(pending_id)
             return pages.message("Can't sign in", str(exc), error=True, status=502)
+        if not store.open_deletion_link(ticket):                    # consumed now; another tab got there first: refused
+            store.delete_pending(pending_id)
+            return expired()
+        return response
 
     async def deletion_consent(request: Request, data, pending: dict, user: dict) -> Response:
         req = store.get_deletion_request(pending["params"])
