@@ -36,6 +36,13 @@ from .events import DomainEvent
 log = logging.getLogger(__name__)
 
 STUCK_AFTER = 600  # a post 'publishing' for longer than this was interrupted (the HTTP timeout is 30 s)
+
+
+def _named(url: str | None, remote_id: str | None) -> str:
+    """A copy of a post as a person can find it: its URL with its id, or whichever it has."""
+    if url and remote_id:
+        return f"{url} (id {remote_id})"
+    return url or f"id {remote_id}"
 RECOVERY_MAX = 24 * 3600  # seconds a post stays 'recovering' before it is unconfirmed: INKCAST_PUBLISH_RECOVERY_MAX_HOURS's default
 
 
@@ -253,41 +260,41 @@ class Publisher:
         # cancelled from one of those), may have arrived too: this copy is recorded and that one noted, in #226's words,
         # for the person to check; its own late answers then fall to the fences above (a failure or a 429 over a
         # published post is refused, so nothing is sent again, and the URL stays). The one thing a success never
-        # replaces is another send's confirmed copy already on the row (``unless_other_copy``): the platform has two
-        # posts, the row keeps the one it names, and this one is noted beside it.
-        notes = list(result.notes)
-        before = self.store.get_post(post_id)
-        if before is not None and before["attempts"] != held and before["status"] not in ("scheduled", "failed"):
-            notes.append(f"Attempt {before['attempts']} was sent by another worker while this one was out, and may have "
-                         f"arrived too: a second copy may be on {platform.name}. Check {platform.name}, and remove the "
-                         f"extra copy there if it is.")
-        written = self.store.update_post(post_id, status=status, result_url=result.url, remote_id=result.remote_id,
-                                         error="; ".join(notes) or None, unless_other_copy=(result.remote_id, result.url),
-                                         events=self._event("post.published", post_id, user_id, platform.id, status=status,
-                                                            scheduled=scheduled, attempts=attempts,
-                                                            lag_seconds=round(lag, 3) if lag is not None else None))
-        answer = Outcome(platform.id, status, post_id=post_id, url=result.url, notes=notes, prepared=prepared,
-                         remote_id=result.remote_id)
-        if written:
-            self._count(platform.id, status)
-            if len(notes) > len(result.notes):
-                log.warning("Post %s on %s was published by a send taken over as stuck; attempt %s, sent meanwhile, may "
-                            "have posted a second copy", post_id, platform.id, before["attempts"],
-                            extra={"event": "publish.second_copy", "post_id": post_id, "platform": platform.id})
-            return answer
-        now = self.store.get_post(post_id)
-        if now is None:  # erased meanwhile: the row is left alone, and the send keeps its answer (as ``_as_now``)
-            return answer
-        extra = (f"Attempt {attempts} also published this post ({result.url or result.remote_id}): a second copy is on "
-                 f"{platform.name}. Remove the extra copy there.")
-        self.store.update_post(post_id, error=f"{now['error']}; {extra}" if now["error"] else extra,
-                               only_if=now["status"], if_attempts=now["attempts"])
-        log.warning("Post %s on %s: attempt %s answered %s (%s), but the post already records another send's copy (%s); "
-                    "the platform has two", post_id, platform.id, attempts, status, result.url or result.remote_id,
-                    now["result_url"] or now["remote_id"],
+        # replaces is a confirmed copy of another post already on the row (``PostsRepo.record_success``): a re-send
+        # that arrived, or a lookup's match (DEV's matches by title, so an older article). Nothing says which of the two
+        # is the extra one, so the row keeps the copy it has, names both, and a person keeps one. The read that words
+        # a note and the write are one transaction, so a claim can't land between them.
+        def second_copy(attempt: int) -> str:
+            return (f"Attempt {attempt} was sent by another worker while this one was out, and may have arrived too: a "
+                    f"second copy may be on {platform.name}. Check {platform.name}, and remove the extra copy there if it is.")
+
+        def both_copies(row: dict[str, Any]) -> str:
+            return (f"{platform.name} may have this post twice: {_named(row['result_url'], row['remote_id'])}, recorded "
+                    f"here, and {_named(result.url, result.remote_id)}, attempt {attempts}'s answer. Check "
+                    f"{platform.name}: keep one and remove the other.")
+
+        written, before = self.store.record_success(
+            post_id, held=held, status=status, result_url=result.url, remote_id=result.remote_id, notes=result.notes,
+            second_copy=second_copy, both_copies=both_copies,
+            events=self._event("post.published", post_id, user_id, platform.id, status=status, scheduled=scheduled,
+                               attempts=attempts, lag_seconds=round(lag, 3) if lag is not None else None))
+        if written or before is None:  # before is None: erased meanwhile, the row left alone and the answer kept
+            notes = list(result.notes)
+            if written:
+                self._count(platform.id, status)
+                if self.store.may_have_arrived_since(before, held):
+                    notes.append(second_copy(before["attempts"]))
+                    log.warning("Post %s on %s was published by a send taken over as stuck; attempt %s, sent meanwhile, "
+                                "may have posted a second copy", post_id, platform.id, before["attempts"],
+                                extra={"event": "publish.second_copy", "post_id": post_id, "platform": platform.id})
+            return Outcome(platform.id, status, post_id=post_id, url=result.url, notes=notes, prepared=prepared,
+                           remote_id=result.remote_id)
+        log.warning("Post %s on %s: attempt %s answered %s (%s), and the post records another copy (%s); %s may have "
+                    "both, and a person keeps one", post_id, platform.id, attempts, status,
+                    _named(result.url, result.remote_id), _named(before["result_url"], before["remote_id"]), platform.id,
                     extra={"event": "publish.second_copy", "post_id": post_id, "platform": platform.id})
-        return Outcome(platform.id, now["status"], post_id=post_id, url=now["result_url"], remote_id=now["remote_id"],
-                       message=now["error"])
+        return Outcome(platform.id, before["status"], post_id=post_id, url=before["result_url"],
+                       remote_id=before["remote_id"], message=both_copies(before))
 
     def _crashed(self, post_id: str, user_id: str, platform: Platform, exc: BaseException, held: int = 0) -> Outcome:
         """A plug-in bug while sending. It may have crashed after the platform accepted the post (reading the reply),

@@ -127,7 +127,8 @@ class FindingTwoCopiesSharingAURLReadAsOne(Harness):
         self.assertEqual(self.platform.sent, ["t", "t"])
         self.assertEqual((post["status"], post["remote_id"], outcome.remote_id), ("published", "1", "1"),
                          "A's copy was written over B's: B's id is lost")
-        self.assertIn("Attempt 1 also published this post", post["error"])
+        self.assertIn("Findable may have this post twice: https://findable/@on-call (id 1), recorded here, and "
+                      "https://findable/@on-call (id 2), attempt 1's answer", post["error"])
         self.assertEqual(self.published_events(post_id), 1, "one post, one post.published event")
 
 

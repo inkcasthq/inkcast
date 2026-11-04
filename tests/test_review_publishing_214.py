@@ -25,6 +25,7 @@ item 3's pin what holds."""
 import asyncio
 import logging
 import tempfile
+import threading
 import time
 import unittest
 
@@ -181,8 +182,8 @@ class LateSuccessIsTheTruth(Harness):
         post = self.store.get_post(post_id)
         self.assertEqual((post["remote_id"], post["attempts"], self.platform.sent), ("1", 2, ["t", "t"]))
         self.assertIn("Attempt 2 was sent by another worker while this one was out, and may have arrived too", post["error"])
-        self.assertIn("Attempt 2 also published this post (https://findable/2)", post["error"])
-        self.assertIn("remove the extra copy", post["error"].lower())
+        self.assertIn("Findable may have this post twice: https://findable/1 (id 1), recorded here, and https://findable/2 "
+                      "(id 2), attempt 2's answer. Check Findable: keep one and remove the other.", post["error"])
         self.assertEqual(self.published_events(post_id), 1, "one record, one event")
         self.assertEqual(len(logged), 2, "A's override and B's refused copy are both in the log")
         self.assertIn("https://findable/2", logged[1])
@@ -234,10 +235,100 @@ class LateSuccessIsTheTruth(Harness):
         self.assertEqual((post["status"], post["result_url"], post["remote_id"], post["attempts"]),
                          ("published", "https://findable/1", "1", 2), "A's late success replaced B's record")
         self.assertEqual((outcome.status, outcome.url), ("published", "https://findable/1"), "what the post is now")
-        self.assertIn("Attempt 1 also published this post (https://findable/2)", post["error"])
+        self.assertIn("Findable may have this post twice: https://findable/1 (id 1), recorded here, and https://findable/2 "
+                      "(id 2), attempt 1's answer", post["error"])
+        self.assertEqual(outcome.message, post["error"], "the caller is told the same")
         self.assertEqual(self.published_events(post_id), 1, "one record, one event")
         self.assertEqual(self.platform.sent, ["t", "t"], "two copies went out: the lookup raced A's request")
         self.assertEqual(len(self.second_copies(logged)), 1)
+
+
+class OlderMatch(Findable):
+    """DEV's lookup matches by title or canonical URL, so it can answer with an older article of the same title."""
+
+    async def find_existing(self, creds, account, prepared):
+        return PublishResult(url="https://findable/older", remote_id="older", status="draft")
+
+
+class LateSuccessAgainstALookupsRecord(Harness):
+    def test_a_lookup_that_recorded_another_post_at_the_same_count_holds_and_both_copies_are_named(self):
+        """Worker B's stuck pass asks the platform and is told an older, same-titled draft is the post (V1, the review
+        of #390): it records that one, at the same attempt count. A's own 2xx then lands with another id. The
+        integrator kept the fence: the row keeps the lookup's record, and since nothing says which copy is the extra
+        one, the note names both and asks the person to keep one. A is told the same."""
+        self.platform = OlderMatch()
+        self.platforms[self.platform.id] = self.platform
+        self.publisher = Publisher(self.store, self.platforms)
+        post_id = self.post()
+        b = self.replica()
+        seen = []
+
+        async def while_a_waits(prepared):                                    # inside A's publish
+            await b.run_due(now=time.time() + STUCK_AFTER + 1)                # B: recovering → "found" the older draft
+            seen.append((self.status(post_id), self.store.get_post(post_id)["remote_id"]))
+
+        self.platform.during_publish = while_a_waits
+        with self.assertLogs("inkcast.libs.pipeline", level="WARNING") as logged:
+            (outcome,) = asyncio.run(self.publisher.run_due(now=time.time()))  # A's 2xx (id 1) lands last
+        self.assertEqual(seen, [("draft", "older")])
+        post = self.store.get_post(post_id)
+        self.assertEqual((post["status"], post["result_url"], post["remote_id"], post["attempts"]),
+                         ("draft", "https://findable/older", "older", 1), "A's copy was written over the lookup's record")
+        self.assertEqual((outcome.status, outcome.url, outcome.remote_id), ("draft", "https://findable/older", "older"))
+        self.assertEqual(post["error"], "Findable may have this post twice: https://findable/older (id older), recorded "
+                                        "here, and https://findable/1 (id 1), attempt 1's answer. Check Findable: keep one "
+                                        "and remove the other.")
+        self.assertEqual(outcome.message, post["error"])
+        self.assertEqual((self.published_events(post_id), self.platform.sent), (0, ["t"]))
+        self.assertEqual(len(self.second_copies(logged)), 1)
+
+
+class RecordingReadsAndWritesInOneTransaction(Harness):
+    def test_a_claim_that_lands_between_the_read_that_words_the_note_and_the_write_is_seen(self):
+        """The row is read to word the note (did another attempt happen, and may it have arrived?) and then written.
+        Read outside the write's transaction (14387d3), a stuck pass that took the post, re-sent it and got an
+        uncertain answer between the two left the override without its note: the row counted attempt 2, which may
+        have arrived, and said nothing. Both are one transaction now (``PostsRepo.record_success``), so a claim is
+        either before the read, and worded, or after the write, and finds nothing to take. Driven with a trace
+        callback on A's connection: worker B's stuck pass runs, on its own connection in a thread, the moment A's
+        transaction begins; B's lookup is told "missing", its re-send gets an uncertain answer."""
+        post_id = self.post()
+        b = self.replica()
+        fired: list[str] = []
+
+        async def b_uncertain(prepared):                                      # inside B's re-send
+            raise PlatformError("Findable timed out after the request was sent.", uncertain=True)
+
+        def b_ticks():
+            asyncio.run(b.run_due(now=time.time() + STUCK_AFTER + 1))         # B: stuck → missing → re-sent → unconfirmed
+
+        def on_statement(sql: str) -> None:
+            if fired or sql != "BEGIN IMMEDIATE":                             # the first transaction after A's publish
+                return
+            fired.append(sql)
+            title = self.platform.sent.pop()                                  # B's lookup must not find A's request
+            self.platform.during_publish = b_uncertain
+            thread = threading.Thread(target=b_ticks)
+            thread.start()
+            thread.join()
+            self.platform.sent.append(title)
+
+        async def while_a_waits(prepared):                                    # inside A's publish
+            self.store._exec("UPDATE posts SET updated_at = updated_at - ? WHERE id = ?", STUCK_AFTER + 1, post_id)
+            self.store._conn.set_trace_callback(on_statement)
+
+        self.platform.during_publish = while_a_waits
+        try:
+            (outcome,) = asyncio.run(self.publisher.run_due(now=time.time()))
+        finally:
+            self.store._conn.set_trace_callback(None)
+        self.assertEqual(fired, ["BEGIN IMMEDIATE"])
+        post = self.store.get_post(post_id)
+        self.assertEqual((outcome.status, post["status"], post["attempts"], self.platform.sent),
+                         ("published", "published", 2, ["t"]))
+        self.assertIn("Attempt 2 was sent by another worker while this one was out, and may have arrived too",
+                      post["error"] or "", "the override lost its note")
+        self.assertEqual(outcome.notes, [post["error"]])
 
 
 class HeldTheSendersOwnSuccessIsStillWritten(Harness):

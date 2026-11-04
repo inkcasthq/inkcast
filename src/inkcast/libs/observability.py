@@ -65,8 +65,9 @@ EVENTS: dict[str, tuple[str, str]] = {
     "publish.recovery.capped": ("warning", "A post 'recovering' for INKCAST_PUBLISH_RECOVERY_MAX_HOURS, the platform never "
                                            "saying whether it arrived, is unconfirmed for a person: never sent late on its own."),
     "publish.second_copy": ("warning", "A post may be on its platform twice: a send taken over as stuck succeeded after "
-                                       "another worker re-sent the post. The post's error names the extra copy (or says "
-                                       "which attempt may have made one); a person removes it on the platform."),
+                                       "another worker re-sent it, or after a lookup recorded another post. The post's "
+                                       "error names both copies, or the attempt that may have made one; a person checks "
+                                       "the platform, keeps one and removes the other."),
     "auth.login.refused": ("warning", "A sign-in was refused by the allow-list, role or password check."),
     "cache.backend.unavailable": ("warning", "Redis/Valkey did not answer; rate limits are per replica until it is back."),
     "outbox.consumer.failed": ("warning", "An event sink failed on a batch; the cursor stayed and the batch is retried."),

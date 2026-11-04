@@ -105,7 +105,7 @@ class PostsRepo(Database):
 
     def update_post(self, post_id: str, events: Iterable[DomainEvent] | None = None, only_if: str | None = None,
                     unless: str | None = None, if_attempts: int | None = None, unless_found_at: int | None = None,
-                    unless_other_copy: tuple[str | None, str | None] | None = None, **fields: Any) -> bool:
+                    **fields: Any) -> bool:
         """Change fields; ``events`` are written in the same transaction (the outbox). A post that no longer exists
         (its owner was erased while the scheduler held it) is left alone, and its events are not written either.
         ``only_if``: change it only while it still has this status (another worker may have moved it on).
@@ -114,35 +114,71 @@ class PostsRepo(Database):
         its own late answer: a re-send by another worker counts an attempt, #226).
         ``unless_found_at``: change it unless the platform has confirmed the post at this attempt count ('published',
         'draft' or 'unlisted' with no send since: another worker's lookup found the very send a late answer is about).
-        ``unless_other_copy``: the ``(remote_id, url)`` a send's success names: change it unless the row already records
-        a confirmed copy ('published', 'draft' or 'unlisted' with a remote id or a URL) that is not this one: its remote
-        id is not this answer's, or, when either has none, its URL is not. Ids tell two posts apart; a URL may not (an
-        account's profile, say). That copy is another send's (a re-send that arrived, or the send this late answer
-        belongs with), and it stays: the platform has both, the row names one, and the caller notes the other beside it
-        for the person (#214). The same copy, found by a lookup first, is recorded again.
         True when the post was changed."""
         fields["updated_at"] = time.time()
         cols = ", ".join(f"{k} = ?" for k in fields)
         status = ((" AND status = ?" if only_if else "") + (" AND status != ?" if unless else "")
                   + (" AND attempts = ?" if if_attempts is not None else "")
                   + (" AND NOT (status IN ('published', 'draft', 'unlisted') AND attempts = ?)"
-                     if unless_found_at is not None else "")
-                  + (" AND NOT (status IN ('published', 'draft', 'unlisted')"
-                     " AND (remote_id IS NOT NULL OR result_url IS NOT NULL)"
-                     " AND NOT COALESCE(CASE WHEN remote_id IS NOT NULL AND ? IS NOT NULL THEN remote_id = ?"
-                     " ELSE result_url = ? END, FALSE))"
-                     if unless_other_copy is not None else ""))
+                     if unless_found_at is not None else ""))
         with self._tx() as c:
             changed = c.execute(f"UPDATE posts SET {cols} WHERE id = ?{status}",
                                 (*fields.values(), post_id, *([only_if] if only_if else []),
                                  *([unless] if unless else []),
                                  *([if_attempts] if if_attempts is not None else []),
-                                 *([unless_found_at] if unless_found_at is not None else []),
-                                 *(() if unless_other_copy is None
-                                   else (unless_other_copy[0], *unless_other_copy)))).rowcount == 1
+                                 *([unless_found_at] if unless_found_at is not None else []))).rowcount == 1
             if changed:
                 insert_events(c, events)
         return changed
+
+    CONFIRMED = ("published", "draft", "unlisted")  # the statuses that record a copy on the platform
+
+    @staticmethod
+    def same_copy(row: dict[str, Any], remote_id: str | None, url: str | None) -> bool:
+        """Whether the copy ``row`` records is the one an answer names. Ids tell two posts apart, so they are compared
+        when both have one; the URL only when either has none: a platform may name every post by the account's
+        profile URL (the review of #390)."""
+        if row["remote_id"] is not None and remote_id is not None:
+            return row["remote_id"] == remote_id
+        return row["result_url"] is not None and row["result_url"] == url
+
+    @staticmethod
+    def may_have_arrived_since(row: dict[str, Any], held: int) -> bool:
+        """Whether ``row`` counts a send since ``held`` (another worker's re-send) that may have reached the platform:
+        still out, or answered without saying. Queued again ('scheduled') or 'failed' say it certainly did not."""
+        return row["attempts"] != held and row["status"] not in ("scheduled", "failed")
+
+    def record_success(self, post_id: str, *, held: int, status: str, result_url: str | None, remote_id: str | None,
+                       notes: list[str], second_copy: Callable[[int], str], both_copies: Callable[[dict[str, Any]], str],
+                       events: Iterable[DomainEvent] | None = None) -> tuple[bool, dict[str, Any] | None]:
+        """A send's success, the platform's truth: written over whatever the post became while the send was out
+        (#214), unless the row already records a confirmed copy (``CONFIRMED``, with a remote id or a URL) that is not
+        this one (``same_copy``). That copy stays, another send's or a lookup's, and the row's error gains
+        ``both_copies(row)``: the platform may have both, and a person keeps one. When the row counts a later send that
+        may have arrived (``may_have_arrived_since``), ``second_copy(attempts)`` joins ``notes`` as the error of the
+        written post, so a person checks for two. The read that words either note and the write share the
+        transaction's write lock (``_tx``), so a claim can't land between them and leave a record without its note.
+        ``events`` are written with a success. ``(written, the row as it was)``; ``(False, None)`` for a post that no
+        longer exists (its owner erased), which is left alone."""
+        with self._tx() as c:
+            row = c.execute("SELECT * FROM posts WHERE id = ?", (post_id,)).fetchone()
+            if row is None:
+                return False, None
+            before = dict(row)
+            now = time.time()
+            recorded = before["status"] in self.CONFIRMED and (before["remote_id"] is not None
+                                                               or before["result_url"] is not None)
+            if recorded and not self.same_copy(before, remote_id, result_url):
+                note = both_copies(before)
+                c.execute("UPDATE posts SET error = ?, updated_at = ? WHERE id = ?",
+                          (f"{before['error']}; {note}" if before["error"] else note, now, post_id))
+                return False, before
+            if self.may_have_arrived_since(before, held):
+                notes = [*notes, second_copy(before["attempts"])]
+            c.execute("UPDATE posts SET status = ?, result_url = ?, remote_id = ?, error = ?, updated_at = ? WHERE id = ?",
+                      (status, result_url, remote_id, "; ".join(notes) or None, now, post_id))
+            insert_events(c, events)
+        return True, before
 
     PENDING = ("scheduled", "recovering", "unconfirmed")  # the statuses a person can cancel from (#216, #226)
 

@@ -135,7 +135,8 @@ class SyncCase(unittest.TestCase):
 
 
 def after_the_send(*args, **kwargs) -> bool:
-    """The write of a platform's answer to a send: 'published', or 'unconfirmed' for an uncertain one."""
+    """The write of a platform's answer to a send: 'published' (``record_success``, #214), or 'unconfirmed' for an
+    uncertain one (``update_post``)."""
     return kwargs.get("status") in ("published", "unconfirmed")
 
 
@@ -155,7 +156,7 @@ class ANowPostAfterTheRowExists(SyncCase):
     def test_a_locked_write_after_the_send_does_not_send_the_post_again(self):
         """The issue's case: the platform took the post, and recording 'published' hit a locked database. The entry
         was marked 'failed', and the next sync created the post again: two sends of one file."""
-        self.sync_locked(Flaky(self.store.update_post, after_the_send), "update_post")
+        self.sync_locked(Flaky(self.store.record_success, after_the_send), "record_success")
         (post,) = self.posts()
         self.assertEqual(self.platform.sent, ["Body."])
         again = self.sync()
@@ -258,7 +259,7 @@ class AReplacementAfterTheRowExists(SyncCase):
         """The author removed the ``publish_at``: the replacement is a "now" post, sent by the sync. Recording
         'published' was locked; the next sync follows the post instead of making a third."""
         self.sync(at(2 * 24 * 3600))
-        self.sync_locked(Flaky(self.store.update_post, after_the_send), "update_post")
+        self.sync_locked(Flaky(self.store.record_success, after_the_send), "record_success")
         old, new = self.posts()
         self.assertEqual((old["status"], self.platform.sent), ("cancelled", ["Body."]))
         self.assert_points_at(new, "publishing")
