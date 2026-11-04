@@ -48,6 +48,19 @@ class Review474OB3(harness.MigrateScript):
         self.assertNotIn(harness.PASSWORD, log)
         self.assertEqual(self.sql("SELECT max(version_id) FROM goose_db_version"), "6")
 
+    def test_a_question_mark_or_hash_in_the_user_name_is_refused_before_psql(self):
+        """libpq ends the user name at `:` or `@` alone (conninfo_uri_parse_options at REL_18_6), so in
+        `openfga?x=y@127.0.0.1/openfga?password=...` the user name is `openfga?x=y` and the query starts at the `?`
+        after the path; the query loop started it at the first `?` and read `x` as the only key, so the password
+        stayed on psql's command line (measured on 8aeb85bc with a stub psql: its argument held it). Go's net/url, which
+        `openfga migrate` parses its URI with, ends the authority at that first `?` or `#` instead, so it read another
+        host than psql's. Only the password, which migrate.sh removes, may hold them."""
+        for uri in (f"postgres://openfga?x=y@127.0.0.1:5432/openfga?password={SECRET}&sslmode=disable",
+                    f"postgres://openfga?x=y:{harness.PASSWORD}@127.0.0.1:5432/openfga?password={SECRET}&sslmode=disable",
+                    "postgres://openfga#x@127.0.0.1:5432/openfga?sslmode=disable"):
+            with self.subTest(uri=uri.replace(harness.PASSWORD, "...").replace(SECRET, "...")):
+                self.refused(uri)
+
 
 def load_tests(loader: unittest.TestLoader, standard_tests: unittest.TestSuite, pattern: str | None) -> unittest.TestSuite:
     """This file's tests only: its class inherits the harness's own, which run in their module."""
