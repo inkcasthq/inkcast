@@ -70,6 +70,8 @@ def _globbed(parts: list[str], names: list[str]) -> bool:
         return not names
     head, rest = parts[0], parts[1:]
     if head == "**":
+        if not rest:  # the last component: the file and any directories above it, never none (that is a directory)
+            return bool(names) and not any(name.startswith(".") for name in names)
         for taken in range(len(names) + 1):  # zero or more directories; glob walks into no hidden one
             if _globbed(rest, names[taken:]):
                 return True
