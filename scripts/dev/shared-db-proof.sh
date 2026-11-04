@@ -7,8 +7,8 @@
 #   1. the CloudNativePG cluster inkcast-pg is healthy;
 #   2. openfga_staging and openfga_prod exist, each owned by its own role (the catalog, not only the Database objects);
 #   3. each environment's OpenFGA is migrated in its own database: its openfga-db-app points there, and goose's newest
-#      applied row is its highest version, at least OpenFGA v1.22's minimum of 4 (the migrate Job, while it exists,
-#      succeeded);
+#      applied row is its highest version, at least OpenFGA v1.22's minimum of 4 (what the init container migrate of
+#      OpenFGA's pod leaves: E3.F3.9.S8);
 #   4. pg_hba: a role asking for the other side's database, a plaintext connection and the unused app role are all
 #      rejected by pg_hba, before authentication; the control, a role asking for its own database over TLS, reaches
 #      the password exchange. No password is sent: psql runs with -w and no PGPASSWORD or PGPASSFILE;
@@ -58,10 +58,6 @@ for side in staging prod; do
     pass "openfga_$side at goose version $newest (newest applied row = highest version)"
   else
     fail "openfga_$side: newest applied row $newest, highest version $highest (OpenFGA v1.22 needs 4 or more)"
-  fi
-  if $k -n "$ns" get job openfga-migrate >/dev/null 2>&1; then
-    ok="$($k -n "$ns" get job openfga-migrate -o jsonpath='{.status.succeeded}')"
-    if [ "$ok" = 1 ]; then pass "$ns: migrate Job succeeded"; else fail "$ns: migrate Job succeeded='$ok'"; fi
   fi
 done
 
