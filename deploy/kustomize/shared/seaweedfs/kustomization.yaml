@@ -1,0 +1,36 @@
+# THE LAB'S STAND-IN for an off-cluster, KMS-encrypted bucket (issue #436, ADR-0020): an S3-compatible object store
+# in the cluster, in its own namespace, holding the one bucket the storage location `root-secrets` writes to
+# (shared/oadp/dpa.yaml). SeaweedFS 4.52, one pod (`weed mini`), one volume, one bucket, one identity: Velero's,
+# scoped to that bucket. Its credential, and the identities file the server reads, are generated in the cluster by
+# the Job seaweedfs-setup (setup.sh): no value is in Git, none is printed, none is ever on a command line. Velero's
+# pods in openshift-adp reach the S3 port, the Job reaches the store, nothing else reaches it (networkpolicy.yaml).
+#
+# The limit this stands in with, stated once in docs/runbooks/env-secrets.md: the store is in the same cluster as
+# the data, so the copy survives a deleted Secret, not the loss of the whole cluster, and the volume is not
+# encrypted. Production points the storage location at an off-cluster bucket encrypted with a KMS key and needs
+# nothing from this directory.
+#
+# Applied after shared/oadp-operator (the namespace openshift-adp) and shared/seaweedfs-access (the Job's one right
+# there), before shared/oadp, in order: namespace, volume, the store, the Job that writes the two Secrets and checks
+# the bucket (README, Hosted §2; scripts/lab/root-secret-copy.sh does it and waits at each step). A Job's template
+# is immutable, so the install script removes a finished Job before applying again; a re-run changes nothing
+# that exists (setup.sh: an existing credential is kept, a pair that disagrees fails naming it).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: inkcast-seaweedfs
+resources:
+  - namespace.yaml
+  - pvc.yaml
+  - deployment.yaml
+  - service.yaml
+  - networkpolicy.yaml
+  - serviceaccount.yaml
+  - rbac.yaml
+  - setup-job.yaml
+configMapGenerator:
+  # The setup Job's script, one file, mounted read-only; no name hash, as the repository's other ConfigMaps
+  # (components/openfga's migrate.sh): an apply updates it in place for the next run of the Job.
+  - name: seaweedfs-setup
+    options: {disableNameSuffixHash: true}
+    files:
+      - setup.sh

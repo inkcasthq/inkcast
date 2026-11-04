@@ -15,7 +15,8 @@ components:
   - ../../components/openfga
 secretGenerator:
   - name: inkcast-secrets
-    options: {disableNameSuffixHash: true}
+    # The root Secret's label, as `inkcast env-secrets` sets it: what the cluster backup selects (#436, ADR-0020).
+    options: {disableNameSuffixHash: true, labels: {inkcast.io/root-secret: "true"}}
     literals:
       - secret-key=ci-only-not-a-secret-ci-only-not-a-secret-0123456789
       - oidc-client-secret=unused

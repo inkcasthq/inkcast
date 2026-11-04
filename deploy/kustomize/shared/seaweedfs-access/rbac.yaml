@@ -1,0 +1,28 @@
+# The setup Job's account (inkcast-seaweedfs/seaweedfs-setup) reads the one Secret the storage location names, by
+# name, and creates it when it is absent. `create` cannot be limited by name (Kubernetes, "Using RBAC
+# Authorization": "the name of the new object may not be known at authorization time"); the account is the lab's
+# stand-in's own, bound in the lab's namespace alone, and Velero reads only the Secrets the DPA names, so a Secret
+# that account could create under another name is read by nothing. Never `update` or `patch`: an existing
+# credential is kept as it is (setup.sh), and a wrong one is removed by a person.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: seaweedfs-setup
+  labels: {app.kubernetes.io/name: seaweedfs-setup, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: root-secret-store}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [cloud-credentials-root-secrets]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: seaweedfs-setup
+  labels: {app.kubernetes.io/name: seaweedfs-setup, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: root-secret-store}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: seaweedfs-setup}
+subjects:
+  - {kind: ServiceAccount, name: seaweedfs-setup, namespace: inkcast-seaweedfs}

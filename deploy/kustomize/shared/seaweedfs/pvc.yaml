@@ -1,0 +1,14 @@
+# The store's volume: the master's and filer's metadata and the bucket's volumes, all under /data. A copy of the
+# root Secret is a few kilobytes; 2Gi leaves SeaweedFS the gigabyte of free space an object store wants and room
+# for ninety daily copies many times over. The cluster's default class (on OpenShift Local, the hostpath
+# provisioner, bound at first use). Never deleted by an apply; `oc delete -k` would take every copy with it.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: seaweedfs-data
+  labels: {app.kubernetes.io/name: seaweedfs, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: root-secret-store}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 2Gi

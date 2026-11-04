@@ -23,7 +23,7 @@ from unittest import mock
 import httpx2
 
 from inkcast import env_secrets
-from inkcast.env_secrets import RUNBOOK, Layout, Stored, connect, decide, env_secrets_main
+from inkcast.env_secrets import ROOT_SECRET_LABEL, RUNBOOK, Layout, Stored, connect, decide, env_secrets_main
 from inkcast.libs.config import load_config
 from inkcast.libs.secrets import run_checks
 
@@ -116,9 +116,12 @@ class FakeKube:
         if patch["metadata"]["resourceVersion"] != obj["metadata"]["resourceVersion"]:
             return status(409, "Conflict", f'Operation cannot be fulfilled on secrets "{name}": the object has been '
                                            "modified; please apply your changes to the latest version and try again")
-        assert set(patch) == {"metadata", "data"} and set(patch["metadata"]) == {"resourceVersion"}, patch
+        # A JSON merge patch as the API server applies it: the keys and labels named are set, the rest is kept.
+        assert set(patch) <= {"metadata", "data"} and set(patch["metadata"]) <= {"resourceVersion", "labels"}, patch
+        assert "data" in patch or "labels" in patch["metadata"], "a patch that changes nothing"
         self.version += 1
-        obj["data"].update(patch["data"])
+        obj["data"].update(patch.get("data", {}))
+        obj["metadata"].setdefault("labels", {}).update(patch["metadata"].get("labels", {}))
         obj["metadata"]["resourceVersion"] = str(self.version)
         return httpx2.Response(200, json=obj)
 
@@ -186,7 +189,10 @@ class FreshSide(EnvSecretsCase):
                 self.assertEqual(db["metadata"]["labels"], {"app.kubernetes.io/part-of": "inkcast", "cnpg.io/reload": "true"})
                 for key in ((namespace, "openfga-db-app"), ("keycloak", f"inkcast-{side}-realm"), (namespace, "inkcast-secrets")):
                     self.assertEqual(self.kube.objects[key]["type"], "Opaque", key)
-                    self.assertEqual(self.kube.objects[key]["metadata"]["labels"], {"app.kubernetes.io/part-of": "inkcast"}, key)
+                    labels = {"app.kubernetes.io/part-of": "inkcast"}
+                    if key[1] == "inkcast-secrets":   # the root Secret: what the cluster backup selects (#436)
+                        labels = {**labels, **ROOT_SECRET_LABEL}
+                    self.assertEqual(self.kube.objects[key]["metadata"]["labels"], labels, key)
                 for ref in (f"inkcast-db/inkcast-pg-openfga-{side}", f"{namespace}/openfga-db-app",
                             f"keycloak/inkcast-{side}-realm", f"{namespace}/inkcast-secrets"):
                     self.assertIn(f"{ref}: created", out)
@@ -328,8 +334,9 @@ class OneSidePresent(EnvSecretsCase):
 
     def test_inkcast_s_client_secrets_are_copied_to_the_realm(self):
         """The keycloak side lost: the realm Secret gets back what Inkcast (and the imported realm) hold."""
-        self.kube.seed("inkcast-staging", "inkcast-secrets", **{"secret-key": "k" * 64, "fga-api-token": "f" * 64,
-                       "oidc-client-secret": "O" * 32, "keycloak-sync-secret": "Y" * 32})
+        self.kube.seed("inkcast-staging", "inkcast-secrets", labels=dict(ROOT_SECRET_LABEL),
+                       **{"secret-key": "k" * 64, "fga-api-token": "f" * 64,
+                          "oidc-client-secret": "O" * 32, "keycloak-sync-secret": "Y" * 32})
         code, out, err = self.run_main()
         self.assertEqual(code, 0, err)
         self.assertEqual(self.kube.values("keycloak", "inkcast-staging-realm"),
@@ -353,7 +360,8 @@ class OneSidePresent(EnvSecretsCase):
         self.assertEqual(realm, {"identity-client-secret": "O" * 32, "sync-client-secret": inkcast["keycloak-sync-secret"]})
         (patch,) = [body for m, ns, name, body in self.kube.requests if m == "PATCH"]
         patch = json.loads(patch)
-        self.assertEqual(patch["metadata"], {"resourceVersion": version})
+        # A hand-made Secret lacks the cluster backup's label too (#436): the same patch adds it.
+        self.assertEqual(patch["metadata"], {"resourceVersion": version, "labels": ROOT_SECRET_LABEL})
         self.assertEqual(set(patch["data"]), {"keycloak-sync-secret"}, "only the missing key")
         self.assertEqual(self.kube.writes(), [("POST", "keycloak", "inkcast-staging-realm"),
                                               ("PATCH", "inkcast-staging", "inkcast-secrets")])
@@ -396,8 +404,9 @@ class BothSides(EnvSecretsCase):
     def test_an_agreeing_environment_is_kept_as_it_is(self):
         self.seed_db_pair("staging", "c9" * 24)
         self.kube.seed("keycloak", "inkcast-staging-realm", **{"identity-client-secret": "I" * 32, "sync-client-secret": "S" * 32})
-        self.kube.seed("inkcast-staging", "inkcast-secrets", **{"secret-key": "k" * 64, "fga-api-token": "f" * 64,
-                       "oidc-client-secret": "I" * 32, "keycloak-sync-secret": "S" * 32})
+        self.kube.seed("inkcast-staging", "inkcast-secrets", labels=dict(ROOT_SECRET_LABEL),
+                       **{"secret-key": "k" * 64, "fga-api-token": "f" * 64,
+                          "oidc-client-secret": "I" * 32, "keycloak-sync-secret": "S" * 32})
         code, out, err = self.run_main()
         self.assertEqual(code, 0, err)
         self.assertEqual(self.kube.writes(), [])
@@ -474,11 +483,12 @@ class RepairOnly(EnvSecretsCase):
     fails: argparse refuses the flag, and decide() has no such parameter."""
 
     def seed_everything(self) -> None:
-        """An environment in agreement, as a run leaves it."""
+        """An environment in agreement, as a run leaves it: the root Secret labelled for the cluster backup (#436)."""
         self.seed_db_pair("staging", "c3" * 24)
         self.kube.seed("keycloak", "inkcast-staging-realm", **{"identity-client-secret": "I" * 32, "sync-client-secret": "S" * 32})
-        self.kube.seed("inkcast-staging", "inkcast-secrets", **{"secret-key": "k" * 64, "fga-api-token": "f" * 64,
-                       "oidc-client-secret": "I" * 32, "keycloak-sync-secret": "S" * 32})
+        self.kube.seed("inkcast-staging", "inkcast-secrets", labels=dict(ROOT_SECRET_LABEL),
+                       **{"secret-key": "k" * 64, "fga-api-token": "f" * 64,
+                          "oidc-client-secret": "I" * 32, "keycloak-sync-secret": "S" * 32})
 
     def test_inkcast_secrets_deleted_fails_naming_its_two_root_values_and_writes_nothing(self):
         self.seed_everything()
@@ -552,7 +562,8 @@ class RepairOnly(EnvSecretsCase):
 
     def test_decide_names_every_lost_value_in_one_run_and_writes_nothing(self):
         layout = self.layout()
-        only_unrelated = Stored({"github-client-secret": "G" * 40}, "7")   # inkcast-secrets exists, holds none of its keys
+        # inkcast-secrets exists, labelled, and holds none of its keys
+        only_unrelated = Stored({"github-client-secret": "G" * 40}, "7", labels=dict(ROOT_SECRET_LABEL))
         plan = decide(layout, {layout.db_role: None, layout.db_app: None, layout.realm: None, layout.app: only_unrelated},
                       repair_only=True)
         self.assertEqual((plan.writes, plan.problems), ([], []))
@@ -597,6 +608,112 @@ class RepairOnly(EnvSecretsCase):
         self.assertIn("secret-key (generated)", out)
 
 
+class RootSecretLabel(EnvSecretsCase):
+    """The cluster backup selects the root Secret by ``inkcast.io/root-secret: "true"`` (issue #436, ADR-0020; the
+    Schedules in deploy/kustomize/shared/oadp). The run sets it when it creates inkcast-secrets, and adds it, by a
+    merge patch of the labels alone, to a Secret that lacks it or carries another value, in both modes: a label cuts
+    no pod off anything, so the CronJob's --repair-only run adds it too, beside a loss as well. Nothing while a
+    problem stops the run. A labelled Secret is kept, and other labels survive the patch."""
+
+    def seed_agreeing(self, labels: dict | None) -> None:
+        self.seed_db_pair("staging", "c3" * 24)
+        self.kube.seed("keycloak", "inkcast-staging-realm", **{"identity-client-secret": "I" * 32, "sync-client-secret": "S" * 32})
+        self.kube.seed("inkcast-staging", "inkcast-secrets", labels=labels, **{
+            "secret-key": "k" * 64, "fga-api-token": "f" * 64, "oidc-client-secret": "I" * 32, "keycloak-sync-secret": "S" * 32})
+
+    def test_the_label_is_set_when_inkcast_secrets_is_created(self):
+        code, out, err = self.run_main()
+        self.assertEqual(code, 0, err)
+        labels = self.kube.objects[("inkcast-staging", "inkcast-secrets")]["metadata"]["labels"]
+        self.assertEqual(labels, {"app.kubernetes.io/part-of": "inkcast", **ROOT_SECRET_LABEL})
+        (line,) = [line for line in out.splitlines() if "labelled" in line]   # the root Secret, no other
+        self.assertTrue(line.startswith("inkcast-staging/inkcast-secrets: created "), line)
+        self.assertTrue(line.endswith("secret-key (generated), fga-api-token (generated); labelled inkcast.io/root-secret=true"), line)
+
+    def test_a_secret_that_lacks_the_label_gets_it_by_a_patch_of_the_labels_alone(self):
+        for mode, labels in (("init container", {}), ("init container, other labels", {"app.kubernetes.io/part-of": "inkcast", "team": "ops"}),
+                             ("repair-only", {}), ("repair-only, another value", {"inkcast.io/root-secret": "false"})):
+            with self.subTest(mode=mode):
+                self.kube = FakeKube()
+                self.seed_agreeing(labels)
+                version = self.kube.objects[("inkcast-staging", "inkcast-secrets")]["metadata"]["resourceVersion"]
+                argv = ["--repair-only"] if mode.startswith("repair") else []
+                code, out, err = self.run_main(*argv)
+                self.assertEqual(code, 0, err)
+                self.assertEqual(self.kube.writes(), [("PATCH", "inkcast-staging", "inkcast-secrets")], "the label alone")
+                (body,) = [b for m, _, _, b in self.kube.requests if m == "PATCH"]
+                self.assertEqual(json.loads(body), {"metadata": {"resourceVersion": version, "labels": ROOT_SECRET_LABEL}},
+                                 "no data: nothing but the label is sent")
+                stored = self.kube.objects[("inkcast-staging", "inkcast-secrets")]
+                self.assertEqual(stored["metadata"]["labels"], {**labels, **ROOT_SECRET_LABEL}, "other labels kept")
+                self.assertEqual(set(self.kube.values("inkcast-staging", "inkcast-secrets")),
+                                 {"secret-key", "fga-api-token", "oidc-client-secret", "keycloak-sync-secret"}, "values untouched")
+                self.assertIn("inkcast-staging/inkcast-secrets: labelled inkcast.io/root-secret=true", out)
+                self.assertNotIn("inkcast-staging/inkcast-secrets: kept", out)
+                self.assertIn("every generated Secret is present and in agreement", out)
+
+    def test_a_labelled_secret_is_kept_and_nothing_is_written(self):
+        for argv in ((), ("--repair-only",)):
+            with self.subTest(argv=argv):
+                self.kube = FakeKube()
+                self.seed_agreeing({"app.kubernetes.io/part-of": "inkcast", **ROOT_SECRET_LABEL})
+                code, out, err = self.run_main(*argv)
+                self.assertEqual(code, 0, err)
+                self.assertEqual(self.kube.writes(), [])
+                self.assertIn("inkcast-staging/inkcast-secrets: kept", out)
+                self.assertNotIn("labelled", out)
+
+    def test_a_missing_key_and_the_label_travel_in_one_patch(self):
+        """A hand-made Secret lacking keycloak-sync-secret and the label: one merge patch adds both, on the version
+        read, and the output says both."""
+        self.seed_db_pair("staging", "c3" * 24)
+        self.kube.seed("inkcast-staging", "inkcast-secrets", **{"secret-key": "k" * 64, "fga-api-token": "f" * 64,
+                       "oidc-client-secret": "O" * 32})
+        version = self.kube.objects[("inkcast-staging", "inkcast-secrets")]["metadata"]["resourceVersion"]
+        code, out, err = self.run_main()
+        self.assertEqual(code, 0, err)
+        (body,) = [b for m, _, _, b in self.kube.requests if m == "PATCH"]
+        patch = json.loads(body)
+        self.assertEqual(patch["metadata"], {"resourceVersion": version, "labels": ROOT_SECRET_LABEL})
+        self.assertEqual(set(patch["data"]), {"keycloak-sync-secret"})
+        self.assertIn("inkcast-staging/inkcast-secrets: added keycloak-sync-secret (the same as keycloak/inkcast-staging-realm "
+                      "sync-client-secret); labelled inkcast.io/root-secret=true", out)
+
+    def test_the_label_is_added_beside_a_loss_in_repair_only(self):
+        """secret-key lost (held nowhere else) and the label missing: the run still exits 1 naming the loss, and the
+        one write is the label, so the restored Secret's next backup is selected. No value is made."""
+        self.seed_agreeing({})
+        del self.kube.objects[("inkcast-staging", "inkcast-secrets")]["data"]["secret-key"]
+        code, out, err = self.run_main("--repair-only")
+        self.assertEqual(code, 1)
+        self.assertEqual(self.kube.writes(), [("PATCH", "inkcast-staging", "inkcast-secrets")])
+        (body,) = [b for m, _, _, b in self.kube.requests if m == "PATCH"]
+        self.assertEqual(json.loads(body), {"metadata": {"resourceVersion": "4", "labels": ROOT_SECRET_LABEL}})
+        self.assertNotIn("secret-key", self.kube.values("inkcast-staging", "inkcast-secrets"))
+        self.assertIn("inkcast-staging/inkcast-secrets lacks secret-key: secret-key is held nowhere else and lost", err)
+        self.assertIn("labelled inkcast.io/root-secret=true", out)
+
+    def test_a_problem_stops_the_label_too(self):
+        """A pair that disagrees: nothing is written, the label included (the all-or-nothing rule)."""
+        self.seed_agreeing({})
+        self.kube.seed("keycloak", "inkcast-staging-realm", **{"identity-client-secret": "X" * 32, "sync-client-secret": "S" * 32})
+        for argv in ((), ("--repair-only",)):
+            with self.subTest(argv=argv):
+                code, out, err = self.run_main(*argv)
+                self.assertEqual(code, 1)
+                self.assertEqual(self.kube.writes(), [])
+                self.assertIn("Nothing was written.", err)
+        self.assertNotIn("inkcast.io/root-secret", self.kube.objects[("inkcast-staging", "inkcast-secrets")]["metadata"]["labels"])
+
+    def test_an_absent_secret_in_repair_only_is_not_created_for_its_label(self):
+        self.seed_agreeing({})
+        del self.kube.objects[("inkcast-staging", "inkcast-secrets")]
+        code, out, err = self.run_main("--repair-only")
+        self.assertEqual(code, 1)
+        self.assertEqual(self.kube.writes(), [])
+        self.assertNotIn("labelled", out)
+
+
 class Races(EnvSecretsCase):
     """Two pods of the environment starting at once (a rollout's surge, a restart): a write that loses (409) starts
     over from the reads, and both end on the winner's values."""
@@ -616,8 +733,8 @@ class Races(EnvSecretsCase):
     def test_a_patch_that_loses_a_race_reads_again(self):
         self.seed_db_pair("staging", "c3" * 24)
         self.kube.seed("keycloak", "inkcast-staging-realm", **{"identity-client-secret": "I" * 32, "sync-client-secret": "S" * 32})
-        self.kube.seed("inkcast-staging", "inkcast-secrets", **{"secret-key": "k" * 64, "oidc-client-secret": "I" * 32,
-                       "keycloak-sync-secret": "S" * 32})
+        self.kube.seed("inkcast-staging", "inkcast-secrets", labels=dict(ROOT_SECRET_LABEL),
+                       **{"secret-key": "k" * 64, "oidc-client-secret": "I" * 32, "keycloak-sync-secret": "S" * 32})
 
         def other_writer(method, ns, name):
             obj = self.kube.objects[("inkcast-staging", "inkcast-secrets")]

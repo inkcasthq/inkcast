@@ -1,0 +1,22 @@
+# A kept copy of each lab environment's root Secret (issue #436, ADR-0020): `inkcast-secrets` holds `secret-key`,
+# which seals every platform credential at rest, and `fga-api-token`, held nowhere else; if the Secret is deleted,
+# the CronJob inkcast-env-secrets refuses to make new values (a new secret-key makes every sealed credential
+# unreadable, docs/runbooks/env-secrets.md) and the only remedy without a copy is to connect every platform again.
+# So the OADP operator (shared/oadp-operator) runs Velero here, and one Schedule per environment copies the Secrets
+# of that namespace that carry the label `inkcast.io/root-secret: "true"`, set by `inkcast env-secrets`
+# (src/inkcast/env_secrets.py, ROOT_SECRET_LABEL), and nothing else, into the storage location `root-secrets`.
+#
+# The rule the design rests on: a key kept with the data it decrypts protects nothing. `inkcast-backups` holds the
+# SQLite copies that `secret-key` opens, so the root Secret goes to a storage location of its own, with its own
+# bucket and its own credential, never to wherever `inkcast-backups` is copied (docs/runbooks/backup-restore.md,
+# "Off-cluster copies"). Velero alone: no node agent, no volume snapshots, no image backups. This copies a Secret.
+#
+# Applied after shared/oadp-operator (the DPA's kind comes with the operator), and after shared/seaweedfs on the
+# lab, whose setup Job writes the credential Secret the storage location reads (`cloud-credentials-root-secrets`):
+# the operator reconciles the DPA only once that Secret exists. The restore and the drill are in the runbook.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: openshift-adp
+resources:
+  - dpa.yaml
+  - schedules.yaml

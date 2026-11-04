@@ -1,0 +1,10 @@
+# One OperatorGroup per namespace that installs operators; OADP's CSV supports the OwnNamespace install mode only
+# (its packagemanifest on the lab: OwnNamespace true, the three others false), so the group targets its own namespace.
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: openshift-adp
+  labels: {app.kubernetes.io/name: oadp-operator, app.kubernetes.io/part-of: inkcast, app.kubernetes.io/component: root-secret-copy}
+spec:
+  targetNamespaces:
+    - openshift-adp
