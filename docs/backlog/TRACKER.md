@@ -4,7 +4,7 @@
 
 This page lists every story in the backlog and the order in which the work is done. To change a story, edit its epic file in `docs/backlog/`. To change the order, edit `docs/backlog/order.yaml`. Then run `scripts/backlog/tracker.py`. The tests fail when this page is out of date.
 
-The backlog holds 310 stories: 84 done, 6 in progress and 220 planned.
+The backlog holds 310 stories: 85 done, 5 in progress and 220 planned.
 
 Tracked in [#360](https://github.com/inkcasthq/inkcast/issues/360): Backlog tracker: every story in one execution order, reviewed wave by wave.
 
@@ -14,7 +14,7 @@ Tracked in [#360](https://github.com/inkcasthq/inkcast/issues/360): Backlog trac
 |---|---|---:|---:|---:|---:|
 | E1 | Platform foundations | 30 | 3 | 2 | 35 |
 | E2 | Git publishing | 17 | 0 | 3 | 20 |
-| E3 | Tenancy, data and authorization (OpenFGA) | 13 | 1 | 50 | 64 |
+| E3 | Tenancy, data and authorization (OpenFGA) | 14 | 0 | 50 | 64 |
 | E4 | SaaS web app | 8 | 0 | 26 | 34 |
 | E5 | Billing, entitlements and metering | 0 | 1 | 39 | 40 |
 | E6 | Admin portal | 0 | 0 | 15 | 15 |
@@ -27,13 +27,13 @@ Tracked in [#360](https://github.com/inkcasthq/inkcast/issues/360): Backlog trac
 
 Work the waves from top to bottom, and the items in each wave in the order listed. An item is a story, or an open issue that is not a story. Each wave names its delivery phase (see the epics index): the phases run 1 to 5 in order, and the ongoing waves are worked beside them.
 
-### W1: Finish what is in flight (phase 1, 1 of 7 stories done)
+### W1: Finish what is in flight (phase 1, 2 of 7 stories done)
 
 Open loops on the lab and the repository cost the most while they stay open. Each item is partly built or waits on one proof.
 
 | # | Item | Status | Title | Epic | Issue |
 |---:|---|---|---|---|---|
-| 1 | F3.9.S5 | in-progress | OpenShift Local: staging and prod in inkcast-staging and inkcast-prod, OpenFGA on one shared CloudNativePG cluster in inkcast-db (a database and a login role per side, pg_hba gating each role to its own database over TLS, a NetworkPolicy admitting 5432 from OpenFGA's pods only); passwords one Secret per side, written once by scripts/deploy/openfga-db-credentials.sh; the private image's pull Secret named on the ServiceAccount and on every Inkcast-image pod spec, in the environments only (scripts/deploy/ghcr-pull-secret.sh) | E3 | [#296](https://github.com/inkcasthq/inkcast/issues/296) |
+| 1 | F3.9.S5 | done | OpenShift Local: staging and prod in inkcast-staging and inkcast-prod, OpenFGA on one shared CloudNativePG cluster in inkcast-db (a database and a login role per side, pg_hba gating each role to its own database over TLS, a NetworkPolicy admitting 5432 from OpenFGA's pods only); passwords one Secret per side, written once by scripts/deploy/openfga-db-credentials.sh; the private image's pull Secret named on the ServiceAccount and on every Inkcast-image pod spec, in the environments only (scripts/deploy/ghcr-pull-secret.sh) | E3 | [#296](https://github.com/inkcasthq/inkcast/issues/296) |
 | 2 | F3.9.S8 | planned | OpenFGA's schema migration runs as an init container: no Job to delete and re-apply | E3 | [#337](https://github.com/inkcasthq/inkcast/issues/337) |
 | 3 | #342 | open issue | Bring a deleted generated Secret back without restarting OpenFGA | | [#342](https://github.com/inkcasthq/inkcast/issues/342) |
 | 4 | #343 | open issue | Measure a realm import applied before its client-secret Secret exists | | [#343](https://github.com/inkcasthq/inkcast/issues/343) |
@@ -490,7 +490,7 @@ Outside the product. Worked only when the owner asks.
 | F2.7.S2 | planned | WordPress plug-in: the REST API with an application password; markdown to HTML; tags and categories by name |  | 229 (W16) |
 | F2.7.S3 | planned | Ghost plug-in: the Admin API with an Admin API key (a short-lived HS256 JWT per request) |  | 230 (W16) |
 
-### E3: Tenancy, data and authorization (OpenFGA) (13 of 64 done)
+### E3: Tenancy, data and authorization (OpenFGA) (14 of 64 done)
 
 | Story | Status | Title | Issue | Order |
 |---|---|---|---|---|
@@ -549,7 +549,7 @@ Outside the product. Worked only when the owner asks.
 | F3.9.S2 | planned | NetworkPolicy (only Inkcast services reach OpenFGA); credentials from the secrets store |  | 91 (W5) |
 | F3.9.S3 | planned | kind CI: end-to-end suite split with INKCAST_AUTHZ_ENGINE=openfga |  | 92 (W5) |
 | F3.9.S4 | planned | Runbooks: model rollout and rollback, store backup and restore, drift |  | 93 (W5) |
-| F3.9.S5 | in-progress | OpenShift Local: staging and prod in inkcast-staging and inkcast-prod, OpenFGA on one shared CloudNativePG cluster in inkcast-db (a database and a login role per side, pg_hba gating each role to its own database over TLS, a NetworkPolicy admitting 5432 from OpenFGA's pods only); passwords one Secret per side, written once by scripts/deploy/openfga-db-credentials.sh; the private image's pull Secret named on the ServiceAccount and on every Inkcast-image pod spec, in the environments only (scripts/deploy/ghcr-pull-secret.sh) | [#296](https://github.com/inkcasthq/inkcast/issues/296) | 1 (W1) |
+| F3.9.S5 | done | OpenShift Local: staging and prod in inkcast-staging and inkcast-prod, OpenFGA on one shared CloudNativePG cluster in inkcast-db (a database and a login role per side, pg_hba gating each role to its own database over TLS, a NetworkPolicy admitting 5432 from OpenFGA's pods only); passwords one Secret per side, written once by scripts/deploy/openfga-db-credentials.sh; the private image's pull Secret named on the ServiceAccount and on every Inkcast-image pod spec, in the environments only (scripts/deploy/ghcr-pull-secret.sh) | [#296](https://github.com/inkcasthq/inkcast/issues/296) | 1 (W1) |
 | F3.9.S6 | done | Write and pin the OpenFGA model from the deployment, with no manual step: the init container authz-model (components/openfga) runs inkcast authz write-model with the pod's own image before the server, on every pod start; INKCAST_FGA_STORE_NAME pins by name at start-up (the store and the version equal to the packaged model), with a named refusal while they are missing | [#315](https://github.com/inkcasthq/inkcast/issues/315) |  |
 | F3.9.S7 | done | The cluster generates every environment Secret: no secret scripts, no copied values (inkcast env-secrets, the init container of OpenFGA's pod in each lab environment, components/env-secrets) | [#323](https://github.com/inkcasthq/inkcast/issues/323) |  |
 | F3.9.S8 | planned | OpenFGA's schema migration runs as an init container: no Job to delete and re-apply | [#337](https://github.com/inkcasthq/inkcast/issues/337) | 2 (W1) |

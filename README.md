@@ -161,7 +161,17 @@ oc -n inkcast-db get database                                    # APPLIED true 
 oc apply -k deploy/kustomize/shared/keycloak-realms              # Mailpit and both realms (below): before or after the environments
 oc -n keycloak get keycloakrealmimports                          # each import waits for its realm Secret, then runs. Done for both
 oc -n inkcast-staging rollout status deploy/inkcast --timeout=15m   # the authz-model init container, then Ready
+bash scripts/dev/shared-db-proof.sh                              # proves the isolation: pg_hba, the policy, owners, ghcr-pull
 ```
+
+The proof sends no password and prints none. It checks five things:
+- each role owns its own database;
+- each side's OpenFGA is migrated in its own database;
+- a role asking for the other side's database, or connecting without TLS, is rejected by pg_hba before authentication;
+- a pod outside OpenFGA gets no answer on 5432;
+- each environment pulled the image with `ghcr-pull`.
+
+The last measured run is [docs/epics/E3-tenancy-authorization/evidence/shared-db-crc-2026-11-04.txt](docs/epics/E3-tenancy-authorization/evidence/shared-db-crc-2026-11-04.txt).
 
 `oc delete -k deploy/kustomize/shared/inkcast-db` deletes the Cluster and, with it, its volume: both environments' authorization data. `databaseReclaimPolicy: retain` keeps a database when its `Database` object is deleted, not when the Cluster is.
 
