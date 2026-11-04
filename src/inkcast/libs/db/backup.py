@@ -346,11 +346,12 @@ def take_backup(database: pathlib.Path, directory: pathlib.Path, *, keep: int = 
     refused = _refusal(dated, now, keep)
     if refused:
         # Every copy of a refused day was taken by a run refused alike (the refusal rests on the days before today), so
-        # another one of the same database, the Job's retry, would only fill the volume: one copy a day (issue #471).
+        # another one of the same database, the Job's retry, would only fill the volume: one copy a day (issue #471). A
+        # copy that changed after it was taken (its checksum) is no restore point, so it does not stand for the day.
         today = datetime.fromtimestamp(now, timezone.utc).date()
         for held in sorted((path for path, day in dated.items() if day.date() == today), reverse=True):
             found = _manifest(held)
-            if found.get("source") == str(database):
+            if found.get("source") == str(database) and _sha256(held) == found.get("sha256"):
                 return Backup(held, found, refused=f"{refused} Today's copy, {held.name}, is there already, so this run "
                                                    f"took none.", copied=False)
     partial = directory / f".{target.name}.partial"
