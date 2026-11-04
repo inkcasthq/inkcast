@@ -143,7 +143,8 @@ def _remove_staging(database: pathlib.Path) -> int:
     holds included, that nothing reads and only the next restore would overwrite (issue #404). One beside a lock a
     restore holds is that restore's, and is left. A directory the file system cannot lock (NFS) says nothing either
     way, since the restore ran without the lock too: the copy is left, with a warning. The lock is held for the unlink
-    alone; a restore starting in that instant is refused as a second restore and tries again a second later."""
+    alone; a restore starting in that instant is refused as a second restore ("Another restore of this database is
+    running"), and the operator runs it again."""
     incoming = _staging(database)
     leftovers = [incoming.with_name(incoming.name + extra) for extra in ("", "-journal", "-wal", "-shm")]
     if not any(p.exists() for p in leftovers):
