@@ -243,9 +243,10 @@ class ErasureRepo(Database):
         """The erased rows' bytes out of the files on disk (issue #404): the transaction just committed left the zeroed
         pages in the write-ahead log and the person's own pages in the database file until a checkpoint, and the log
         keeps every frame it held until it is cut. ``checkpoint_wal`` does both. A reader on an older snapshot (a
-        backup's copy, another process's long read) keeps the log in use past the wait: the bytes then stay until
-        housekeeping's checkpoint, within HOUSEKEEPING_EVERY, and that is logged, with the frame count only. Whether
-        the files are clean now."""
+        backup's copy, another process's long read) keeps the log in use past the wait: the bytes then stay until a
+        housekeeping checkpoint cuts it (every HOUSEKEEPING_EVERY; a run a reader still holds off logs
+        ``scheduler.housekeeping.wal_pending``), and that is logged, with the frame count only. Whether the files are
+        clean now."""
         try:
             busy, frames, _ = self.checkpoint_wal()
         except sqlite3.Error as exc:

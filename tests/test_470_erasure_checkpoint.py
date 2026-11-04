@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 # Copyright 2026 ScalarOps Technologies LLC
-"""Issue #470: the checkpoint after an erasure (#404) blocks nothing else in the process.
+"""Issue #470: follow-ups of the checkpoint that cuts the write-ahead log after an erasure (#404).
 
-``checkpoint_wal`` waits up to WAL_CHECKPOINT_WAIT_MS for a reader on an older snapshot (a backup's copy, another
+1. The erasure's checkpoint blocks nothing else in the process. ``checkpoint_wal`` waits up to WAL_CHECKPOINT_WAIT_MS for a reader on an older snapshot (a backup's copy, another
 process's long read). It ran that wait under the store's connection lock, inside SQLite (which holds the write lock
 meanwhile), on the event loop: ``/account/return`` and the Keycloak sync's passes erase from async code, so with a
 reader pinning the log every request in the process waited for it, 281 ms per erasure in the review of #404. Now the
@@ -11,9 +11,15 @@ erasure runs in a worker thread and the checkpoint waits between attempts, holdi
 Each test pins the log with a reader on another connection, lets the erasure's checkpoint start, and then sends
 another person's requests: a page that reads the store and an API call that writes it. Both must be answered while the
 checkpoint still waits; the reader then ends, and the checkpoint cuts the log. The checkpoint may wait WAIT here rather
-than 250 ms, so that the code before the fix shows its blocked loop rather than racing the default wait."""
+than 250 ms, so that the code before the fix shows its blocked loop rather than racing the default wait.
+
+2. Housekeeping's checkpoint, the one that cuts the log when the erasure's own met a reader, said nothing an alert
+could count when a reader held it off too (an INFO line with no event), and a step before it that raised skipped it
+for the run. Now each run it cannot cut the log is a catalogued warning, and it runs whatever the steps before it did.
+The bytes are read from the files, as in tests/test_erasure_wal.py."""
 
 import asyncio
+import logging
 import sqlite3
 import threading
 import unittest
@@ -24,13 +30,16 @@ import httpx2
 from inkcast.launcher import build, resolve
 from inkcast.libs.db import database
 from inkcast.libs.http.app import compose
+from inkcast.libs.observability import EVENTS
 from inkcast.services.identity.keycloak_sync import KeycloakSync
-from test_erasure_wal import recorded
+from inkcast.services.scheduler import housekeeping
+from test_erasure_wal import APersonWithContent, context, recorded
 from test_sync_breaker import PREFIX, Scenario
 
 DAY = 86400
 WAIT = 2.0
 PENDING = "identity.erasure.wal_pending"
+DEFERRED = "scheduler.housekeeping.wal_pending"
 
 
 class AnErasureWithAReaderPinningTheLog(Scenario):
@@ -132,6 +141,54 @@ class AnErasureWithAReaderPinningTheLog(Scenario):
         done, page, link, meanwhile = self.served_meanwhile(a_pass)
         self.assertEqual(done["erased"], 1)
         self.assert_served_meanwhile(page, link, meanwhile)
+
+
+class HousekeepingsCheckpoint(APersonWithContent):
+    """An erasure whose own checkpoint met a reader on an older snapshot (#404), then housekeeping."""
+
+    def cut(self, records: list[logging.LogRecord]) -> list[tuple[int, str | None, int]]:
+        """What housekeeping said about the write-ahead log: level, event and frames, one tuple per line."""
+        return [(r.levelno, getattr(r, "event", None), getattr(r, "frames", None)) for r in records
+                if "write-ahead log" in r.getMessage()]
+
+    def test_a_run_a_reader_still_holds_off_is_a_catalogued_warning(self):
+        reader = self.pinned_by_a_reader()
+        self.assertEqual(self.store.erase_user(self.user["id"])["users"], 1)
+        logging.getLogger("inkcast.services.scheduler").setLevel(logging.INFO)
+        self.addCleanup(logging.getLogger("inkcast.services.scheduler").setLevel, logging.NOTSET)
+        with recorded("inkcast.services.scheduler") as records:
+            housekeeping(context(self.store))
+        self.assertEqual(self.holding(), ["inkcast.db-wal"], "the reader still holds its snapshot: the log keeps her")
+        ((level, event, frames),) = self.cut(records) or [(None, None, None)]
+        self.assertEqual((level, event), (logging.WARNING, DEFERRED), "a line an alert can count, each run")
+        self.assertIn(DEFERRED, EVENTS)
+        self.assertGreater(frames, 0)
+        self.assertNotIn(self.marker, "".join(r.getMessage() for r in records))
+        reader.execute("COMMIT")
+        with recorded("inkcast.services.scheduler") as records:
+            housekeeping(context(self.store))
+        self.assertEqual(self.holding(), [], "the next run, the reader gone, cuts it")
+        self.assertEqual(self.cut(records), [], "and says nothing")
+
+    def raised_before_it(self, step: str) -> None:
+        """The store's ``step`` raises in housekeeping, after the reader is gone: the checkpoint runs all the same."""
+        reader = self.pinned_by_a_reader()
+        self.assertEqual(self.store.erase_user(self.user["id"])["users"], 1)
+        reader.execute("COMMIT")                                        # gone before housekeeping runs
+        with mock.patch.object(self.store, step, side_effect=sqlite3.OperationalError("disk I/O error")):
+            with self.assertRaises(sqlite3.OperationalError):          # the loop logs it, as before
+                housekeeping(context(self.store))
+        self.assertEqual(self.holding(), [], f"{step} raised, and the checkpoint after it ran all the same")
+        self.assertEqual(self.wal_size(), 0)
+
+    def test_the_cursor_sync_raising_does_not_skip_it(self):
+        self.raised_before_it("sync_consumers")
+
+    def test_a_purge_raising_does_not_skip_it(self):
+        self.raised_before_it("purge_expired")
+
+    def test_the_orphan_sweep_raising_does_not_skip_it(self):
+        self.raised_before_it("sweep_orphans")
 
 
 if __name__ == "__main__":
