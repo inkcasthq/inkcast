@@ -36,6 +36,13 @@ def block(first: str, last: str) -> str:
     return match.group(0)
 
 
+def until(first: str, stop: str) -> str:
+    """The install script's lines from the one starting with `first` up to (not including) the line `stop`."""
+    match = re.search(rf"^{re.escape(first)}.*?(?=^{re.escape(stop)})", INSTALL.read_text(), re.M | re.S)
+    assert match, f"no block from {first!r} to {stop!r} in {INSTALL}"
+    return match.group(0)
+
+
 class Stubbed(unittest.TestCase):
     """A directory on PATH whose commands are stubs, and a bash that runs part of the install script with them."""
 
@@ -109,6 +116,63 @@ class ChartDigest(Stubbed):
         (call,) = self.helm_calls()
         self.assertIn(str(self.dir / "seaweedfs-4.52.0.tgz"), call)
         self.assertIn(str(ROOT / "deploy" / "kustomize" / "shared" / "seaweedfs" / "values.yaml"), call)
+
+
+
+# The stub `oc` for the admission probes: a dry-run create answered as the policy answers it, less the one rule named
+# by $POLICY_LACKS ("type", "name", "annotation"), or refusing the credential itself ("credential"); "" is the policy.
+PROBE_STUB = """\
+with open(pathlib.Path(os.environ["STUB_DIR"], "calls.log"), "a") as log:
+    log.write(json.dumps(sys.argv[1:]) + "\\n")
+secret, lacks = json.load(sys.stdin), os.environ["POLICY_LACKS"]
+meta = secret["metadata"]
+where = meta["namespace"] + "/" + meta["name"]
+refusal = ""
+if lacks != "type" and secret["type"] != "Opaque":
+    refusal = "seaweedfs-setup creates Opaque Secrets only, not type " + secret["type"]
+elif lacks != "name" and where not in ("openshift-adp/cloud-credentials-root-secrets", "inkcast-seaweedfs/seaweedfs-s3-config"):
+    refusal = "seaweedfs-setup creates only openshift-adp/cloud-credentials-root-secrets and inkcast-seaweedfs/seaweedfs-s3-config, not " + where
+elif lacks != "annotation" and "kubernetes.io/service-account.name" in meta.get("annotations", {}):
+    refusal = "seaweedfs-setup creates no Secret annotated for a service account"
+elif lacks == "credential":
+    refusal = "seaweedfs-setup creates only nothing, not " + where
+if refusal:
+    sys.exit('Error from server (Forbidden): error when creating "STDIN": secrets "' + meta["name"] + '" is forbidden: '
+             "ValidatingAdmissionPolicy 'seaweedfs-setup-creates-its-own' with binding 'seaweedfs-setup-creates-its-own' "
+             "denied request: " + refusal)
+print("secret/" + meta["name"] + " created (server dry run)")
+"""
+
+
+class AdmissionProbes(Stubbed):
+    """Step 3's server-side dry runs, run as the script runs them with `oc` stubbed: the lab's proof that the policy is
+    in force. Each case removes one rule from the stub's policy; the probes must stop the script naming the hole.
+    Without this, a probe whose refusal arm lost its `exit 1` passed every test (measured)."""
+
+    def probes(self, lacks: str) -> subprocess.CompletedProcess:
+        self.stub("oc", PROBE_STUB)
+        script = "\n".join(['k=oc; adp=openshift-adp; store_ns=inkcast-seaweedfs',
+                            'setup_account="system:serviceaccount:$store_ns:seaweedfs-setup"',
+                            until("probe() {", 'step "4.')])
+        return self.bash(script, {"POLICY_LACKS": lacks})
+
+    def test_the_policy_in_force_passes_the_four_probes_each_as_the_setup_account(self):
+        done = self.probes("")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(len([line for line in done.stdout.splitlines() if line.startswith("admission: ")]), 4, done.stdout)
+        calls = [line for line in (self.dir / "calls.log").read_text().splitlines()]
+        self.assertEqual(len(calls), 4)
+        for call in calls:
+            self.assertIn('"--dry-run=server"', call)
+            self.assertIn(f'"--as={SETUP_ACCOUNT}"', call)
+
+    def test_each_hole_in_the_policy_stops_the_script_naming_it(self):
+        for lacks, named in (("type", "a service-account-token Secret as"), ("name", "another name as"),
+                             ("annotation", "the annotated credential as"), ("credential", "under its own name was denied")):
+            with self.subTest(policy_lacks=lacks):
+                done = self.probes(lacks)
+                self.assertNotEqual(done.returncode, 0, done.stdout)
+                self.assertIn(named, done.stderr)
 
 
 if __name__ == "__main__":
