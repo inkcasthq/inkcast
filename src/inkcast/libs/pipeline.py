@@ -457,9 +457,11 @@ class Publisher:
                                       if_attempts=row["attempts"], if_error=row["error"])
 
     async def confirm(self, user_id: str, platform: Platform, prepared: Prepared) -> Outcome | None:
-        """For an ``unconfirmed`` publish: ask the platform whether the post exists. None = can't tell. An
-        ``unavailable`` outcome = the platform couldn't be asked just now (rate-limited, unreachable: a retryable
-        error on the lookup), so asking again later will tell."""
+        """For an ``unconfirmed`` publish: ask the platform whether the post exists. None = the platform can't be
+        checked (no lookup, not connected, the lookup refused, the plug-in crashed). An ``unconfirmed`` outcome = the
+        platform was asked and could not say which post is this one; its ``message`` is the reason, worded for the
+        person with the ids it names (#428). An ``unavailable`` outcome = the platform couldn't be asked just now
+        (rate-limited, unreachable: a retryable error on the lookup), so asking again later will tell."""
         if "find" not in platform.capabilities:
             return None
         connected = self.store.get_credentials(user_id, platform.id)
@@ -481,10 +483,11 @@ class Publisher:
             # The platform has something, says the plug-in, but nothing names this post: the plug-in could not name
             # what it found, or could not say which of several is the post (DEV, #396; the reason in its notes). No post
             # is recorded as published on that, from recovery or from Git sync's check (#214), any more than from a
-            # send. Can't tell: a person decides.
-            log.warning("Platform %s found a post it could not name as this one: %s", platform.id,
-                        "; ".join(found.notes) or "neither its URL nor its id was given")
-            return None
+            # send. Can't tell: a person decides, told the reason (#428): the plug-in's notes, which name what the person
+            # should look at (DEV: the article ids) in fixed text, never content of the platform's answer.
+            reason = "; ".join(found.notes) or f"{platform.name} found a post it could not name as this one"
+            log.warning("Platform %s found a post it could not name as this one: %s", platform.id, reason)
+            return Outcome(platform.id, "unconfirmed", message=reason)
         status = found.status if found.status in ("draft", "unlisted") else "published"
         return Outcome(platform.id, status, url=found.url, remote_id=found.remote_id)
 
@@ -534,7 +537,7 @@ class Publisher:
         # Each answer is written only while the post is still 'recovering' at this pass's attempt count: another worker
         # may have taken it over (a pass longer than STUCK_AFTER), re-queued it and sent it while this lookup was out;
         # or a person cancelled it, and a cancel wins over the answer (#216).
-        if found is not None and found.status not in ("unavailable", "missing"):
+        if found is not None and found.status in self.store.CONFIRMED:
             # The platform has it: the truth, whatever the cap says, and over a post unconfirmed meanwhile (#234). An
             # earlier send's answer that landed meanwhile said a second copy may be there too (``_lost``): a lookup that
             # finds one copy doesn't say there is no other, so that note stays (``keep``).
@@ -546,6 +549,9 @@ class Publisher:
             hours = format(self.recovery_max / 3600, "g")
             said = (f"{platform.name} says it isn't there, but it is {hours} hours since the send was interrupted"
                     if found is not None and found.status == "missing"
+                    # The platform's reason it can't tell, with the ids it names (#428)
+                    else f"{(found.message or '').rstrip('.')}, and it is {hours} hours since the send was interrupted"
+                    if found is not None and found.status == "unconfirmed"
                     else f"{platform.name} could not be asked whether it arrived for {hours} hours")
             message = (f"Inkcast restarted while this post was being sent to {platform.name}, and {said} "
                        f"(INKCAST_PUBLISH_RECOVERY_MAX_HOURS). It is not sent again on its own: check {platform.name}, then "
@@ -567,10 +573,14 @@ class Publisher:
                             post_id, platform.id, platform.id,
                             extra={"event": "publish.recovery.deferred", "post_id": post_id, "platform": platform.id})
             return self._as_now(written, Outcome(platform.id, "recovering", post_id=post_id, message=message))
-        elif found is None:
-            message = (f"Inkcast restarted while this post was being sent to {platform.name}, which can't be checked "
-                       f"automatically. Check {platform.name}, then resend it (inkcast_resend, or POST /api/v1/posts/"
-                       f"{post_id}/resend) or cancel it (inkcast_cancel, or POST /api/v1/posts/{post_id}/cancel).")
+        elif found is None or found.status == "unconfirmed":
+            # Can't be checked at all, or checked and the platform can't say which post is this one: its reason, with
+            # the ids it names, is the person's to act on (#428).
+            said = ("which can't be checked automatically" if found is None
+                    else f"and {(found.message or '').rstrip('.')}")
+            message = (f"Inkcast restarted while this post was being sent to {platform.name}, {said}. Check "
+                       f"{platform.name}, then resend it (inkcast_resend, or POST /api/v1/posts/{post_id}/resend) or cancel "
+                       f"it (inkcast_cancel, or POST /api/v1/posts/{post_id}/cancel).")
             written = self.store.update_post(post_id, status="unconfirmed", error=message, events=recovered("unconfirmed"),
                                              **fence)
             outcome = Outcome(platform.id, "unconfirmed", post_id=post_id, message=message)
