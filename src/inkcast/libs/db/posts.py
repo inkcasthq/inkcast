@@ -105,7 +105,7 @@ class PostsRepo(Database):
 
     def update_post(self, post_id: str, events: Iterable[DomainEvent] | None = None, only_if: str | None = None,
                     unless: str | None = None, if_attempts: int | None = None, unless_found_at: int | None = None,
-                    **fields: Any) -> bool:
+                    unless_resent_since: int | None = None, **fields: Any) -> bool:
         """Change fields; ``events`` are written in the same transaction (the outbox). A post that no longer exists
         (its owner was erased while the scheduler held it) is left alone, and its events are not written either.
         ``only_if``: change it only while it still has this status (another worker may have moved it on).
@@ -114,19 +114,26 @@ class PostsRepo(Database):
         its own late answer: a re-send by another worker counts an attempt, #226).
         ``unless_found_at``: change it unless the platform has confirmed the post at this attempt count ('published',
         'draft' or 'unlisted' with no send since: another worker's lookup found the very send a late answer is about).
+        ``unless_resent_since``: change it unless a send since this attempt count is still out or has answered (another
+        count, and not 'scheduled', 'failed' or 'cancelled'). A later send that certainly never took effect (queued
+        again, 'failed') or whose post a person cancelled leaves the row to a success at this count: its copy is then
+        the only one the row can name (#214).
         True when the post was changed."""
         fields["updated_at"] = time.time()
         cols = ", ".join(f"{k} = ?" for k in fields)
         status = ((" AND status = ?" if only_if else "") + (" AND status != ?" if unless else "")
                   + (" AND attempts = ?" if if_attempts is not None else "")
                   + (" AND NOT (status IN ('published', 'draft', 'unlisted') AND attempts = ?)"
-                     if unless_found_at is not None else ""))
+                     if unless_found_at is not None else "")
+                  + (" AND (attempts = ? OR status IN ('scheduled', 'failed', 'cancelled'))"
+                     if unless_resent_since is not None else ""))
         with self._tx() as c:
             changed = c.execute(f"UPDATE posts SET {cols} WHERE id = ?{status}",
                                 (*fields.values(), post_id, *([only_if] if only_if else []),
                                  *([unless] if unless else []),
                                  *([if_attempts] if if_attempts is not None else []),
-                                 *([unless_found_at] if unless_found_at is not None else []))).rowcount == 1
+                                 *([unless_found_at] if unless_found_at is not None else []),
+                                 *([unless_resent_since] if unless_resent_since is not None else []))).rowcount == 1
             if changed:
                 insert_events(c, events)
         return changed
