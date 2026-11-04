@@ -93,9 +93,9 @@ class Followups(unittest.TestCase):
 
     def post(self, run_at: float, created_at: float) -> str:
         """A scheduled post as a row: made at ``created_at`` for ``run_at`` (a Git import's or a person's)."""
+        prepared = Prepared(platform="clocked", title="T", payload={"body": "Body."}, preview={})
         return self.store.create_post(group_id="g", user_id=self.user, platform="clocked", title="T", status="scheduled",
-                                      run_at=run_at, payload={"platform": "clocked", "title": "T", "payload": {}, "preview": {}},
-                                      created_at=created_at)
+                                      run_at=run_at, payload=prepared.to_dict(), created_at=created_at)
 
     def tick(self, now: float) -> int:
         """One scheduler tick at ``now``; how many posts it sent."""

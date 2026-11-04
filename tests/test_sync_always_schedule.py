@@ -9,10 +9,10 @@ a scheduled post at the written time: a passed time is due at once, and the sche
 with retries under the policy and the 429's Retry-After. Only a file with no ``publish_at`` is a "now" post. MCP,
 REST and the CLI keep refusing a past or near time (omit it to publish now).
 
-A post created after its time could not have been sent before it existed, so its lag, the overdue count and the
-oldest-due age are measured from when it could first be sent: the later of its time and its creation. Otherwise
-a file dated a week ago burnt the schedule-timeliness SLO and counted as late for the customer, for a post that
-went out on the first tick after it was known.
+A post created after its time could not have been sent before it existed: measured from its time, a file dated a
+week ago burnt the schedule-timeliness SLO and counted as late for the customer, for a post that went out on the
+first tick after it was known. ADR-0015 measured it from its creation; ADR-0019 (#222) measures such a backfill by no
+deadline, because an import of 200 files, draining at 20 a tick, burnt the SLO measured from creation too.
 
 The clock can't be moved in a test, so a time "in the window" or "passed" is written as such, and the scheduler's
 tick is given its clock (``run_due(now=...)``). Each ``Finding`` test failed before the fix committed with it."""
@@ -197,31 +197,32 @@ class HeldWhatTheRuleKeeps(Dated):
             self.assertEqual(parse_story(markdown(far), known_platforms=["counting"], **kwargs).publish_at, far)
 
 
-class FindingADueAtOncePostIsOnTime(Dated):
-    """A post created after its time is due from its creation: measured from its written time, a file dated a week
-    ago read as a week late on the first tick after it was known, burning the schedule-timeliness SLO
-    (``inkcast_publish_lag_seconds``), the customer's on-time rate (``posts_late``), and showing as overdue."""
+class FindingADueAtOncePostIsNotLate(Dated):
+    """A post created after its time: measured from its written time, a file dated a week ago read as a week late on
+    the first tick after it was known, burning the schedule-timeliness SLO (``inkcast_publish_lag_seconds``), the
+    customer's on-time rate (``posts_late``), and showing as overdue. It is a backfill, due at once, never overdue,
+    and measured by no deadline: it has no time to be on time for (ADR-0019, #222)."""
 
     def setUp(self):
         super().setUp()
         config = Config(public_url="http://localhost:8787", secret_key="k" * 40, database_path=":memory:")
         self.publisher.metrics = build_metrics(self.store, {"counting": self.platform}, config)
 
-    def test_lag_and_overdue_are_measured_from_when_the_post_could_first_be_sent(self):
+    def test_a_backfill_is_due_at_once_never_overdue_and_measured_by_no_deadline(self):
         week_ago = at(-7 * 24 * 3600)
         created = self.assert_scheduled_at(self.sync(week_ago), week_ago, "create")
         now = time.time()
-        self.assertEqual(self.store.overdue_count(now, 600), 0, "not overdue: it has only just been asked for")
+        self.assertEqual(self.store.overdue_count(now, 600), 0, "not overdue: a backfill never is")
         self.assertLess(self.store.oldest_due_age(now), 60, "the head of the queue is a post asked for just now")
         self.assertEqual(self.store.due_count(now), 1, "due all the same")
         asyncio.run(self.publisher.run_due())
         self.assertEqual(self.store.get_post(created["id"])["status"], "published")
-        text = self.publisher.metrics.render()
-        self.assertIn('inkcast_publish_lag_seconds_bucket{platform="counting",le="60"} 1', text, "on time")
+        self.assertNotIn('inkcast_publish_lag_seconds_count{platform="counting"}', self.publisher.metrics.render(),
+                         "not in the SLO's histogram")
         published = [e for e in self.store.poll("test") if e.type == "post.published"]
         self.assertEqual(len(published), 1)
         self.assertTrue(published[0].attrs["scheduled"])
-        self.assertLess(published[0].attrs["lag_seconds"], 60, "on time for the customer's rate too")
+        self.assertIsNone(published[0].attrs["lag_seconds"], "neither on time nor late for the customer's rate")
 
     def test_a_post_the_scheduler_is_behind_on_is_still_late(self):
         """What the measure keeps: a post scheduled ahead of time, then claimed 90 s after it, is 90 s late."""
