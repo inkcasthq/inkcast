@@ -24,9 +24,6 @@ waves:
   why: 'Follow-ups in code that already runs: links written to the log, double-sends, lost posts and data kept after erasure.
     These are the failures a writer or an auditor notices first (handover, suggested order 1), so they come before new screens.'
   items:
-  - '#399'
-  - '#401'
-  - '#436'
   - '#470'
   - '#471'
   - '#472'
@@ -384,9 +381,6 @@ issues:
   272: "Fix tokensave global.db writers waiting on dashboard reads"
   273: "Fix the tokensave saving rate under tool, model and effort filters"
   299: "OpenFGA to PostgreSQL with cert-manager client certificates instead of passwords"
-  399: "Connect links: two POSTs with one ticket both save credentials"
-  401: "One-time links: only a POST from the person uses a link up, not a GET or a previewer"
-  436: "Keep a copy of inkcast-secrets beside the backups' key, so a lost secret-key can be restored"
   470: "Erasure checkpoint: off the event loop, an event when it is deferred, a backup that survives its cleanup"
   471: "Backups: a schedule slower than keep, retries on a refused day, a nested manifest"
   472: "Scheduler on the wrong key: an alert for recovery_failed, and a resend that refuses unreadable credentials"
