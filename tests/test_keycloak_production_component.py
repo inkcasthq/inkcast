@@ -238,9 +238,58 @@ class Rendered(unittest.TestCase):
                 self.assertEqual(namespace["metadata"]["labels"]["pod-security.kubernetes.io/enforce"], "restricted", name)
 
 
+def commands(script: str) -> list[str]:
+    """The script's command lines: whole-line comments dropped, trailing comments cut (review of #391, K11: a check
+    that reads the words would pass a proof whose command sits in a comment)."""
+    out = []
+    for line in script.splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        out.append(re.sub(r"\s+#[^'\"]*$", "", line).rstrip())
+    return out
+
+
+# Each proof the kind job relies on, as the command that runs it and the command that fails the script when it is
+# not met (`|| { ... exit 1; }` or `sys.exit`), anchored at the start of a command line.
+PROOF_COMMANDS = {
+    "the server is started with `start`": r'^has "\$args" \'"start"\' \|\| \{.*exit 1',
+    "two ready replicas": r'^\[ "\$ready" = "2/2" \] \|\| \{.*exit 1',
+    "the realms are rows of the database": r'^realms="\$\(psql_keycloak "select .* from realm.*"\)"$',
+    "each realm is there": r'^for realm in master inkcast-staging inkcast-prod; do has "\$realms" "\$realm" \|\| \{.*exit 1',
+    "the connections are counted from pg_stat_ssl": r'^ssl="\$\(psql_keycloak ".*pg_stat_ssl.*usename = \'keycloak\'.*"\)"$',
+    "every connection is TLS": r'^\[ "\$\{ssl%/\*\}" = "\$\{ssl#\*/\}" \] \|\| \{.*exit 1',
+    "the issuer is the patched hostname": r'^\s*\[ "\$issuer" = "\$hostname/realms/\$realm" \] \|\| \{.*exit 1',
+    "keycloak-0 is deleted": r'^\$k -n "\$ns" delete pod keycloak-0 --wait=true',
+    "the recreated keycloak-0 is waited for": r'^\$k -n "\$ns" wait --for=create --for=condition=Ready pod/keycloak-0',
+    "the recreated pod answers through its own forward": r'^\$k -n "\$ns" port-forward pod/keycloak-0 (\d+):8443',
+    "the policy probes run": r'^probe "\$(ns|outsider)" np-\S+ "\{.*\}" [02]$',
+}
+
+
+def assert_proof_commands(case: unittest.TestCase, script: str) -> None:
+    lines = commands(script)
+    for what, pattern in PROOF_COMMANDS.items():
+        case.assertTrue(any(re.search(pattern, line) for line in lines), f"no command line for: {what}")
+
+
 class KindJob(unittest.TestCase):
     """The kind CI job runs scripts/dev/keycloak-production-e2e.sh, with the Keycloak operator pinned like CloudNativePG
     (scripts/versions.env: the release and a SHA-256 per install file, checked before applying)."""
+
+    def test_the_proof_s_checks_are_commands_not_words(self):
+        """Every proof is a command line of the script (PROOF_COMMANDS), and the check tells a command from its
+        words: the same script with the delete or the TLS comparison commented out fails it, as does one with the
+        line removed (review of #391, K11)."""
+        script = (ROOT / "scripts" / "dev" / "keycloak-production-e2e.sh").read_text()
+        assert_proof_commands(self, script)
+        delete = next(line for line in script.splitlines() if re.match(PROOF_COMMANDS["keycloak-0 is deleted"], line))
+        tls = next(line for line in script.splitlines() if re.match(PROOF_COMMANDS["every connection is TLS"], line))
+        for what, line in (("delete", delete), ("TLS comparison", tls)):
+            for how, mutant in (("commented", script.replace(line, "# " + line)), ("removed", script.replace(line + "\n", ""))):
+                with self.subTest(check=what, mutant=how):
+                    self.assertNotEqual(mutant, script)
+                    with self.assertRaises(AssertionError, msg=f"the {what} line {how} passed"):
+                        assert_proof_commands(self, mutant)
 
     def test_the_operator_is_pinned_and_the_kind_job_runs_the_script(self):
         versions = dict(re.findall(r"^([A-Za-z0-9_]+)=(.*)$", (ROOT / "scripts" / "versions.env").read_text(), re.M))
