@@ -10,7 +10,7 @@ Repository         Owner               Tables
 =================  ==================  =============================================
 IdentityRepo       IdentityService     users, oauth_clients, pending_auth, auth_codes,
                                        tokens, api_tokens, sync_state, deletion_requests,
-                                       sync_breaker_trips, sync_breaker_people
+                                       sync_breaker_trips, sync_breaker_people, sync_events_cutoffs
 VaultRepo          ConnectorService    credentials, connect_tickets
 PostsRepo          PublishingApi       posts, heartbeats (scheduler writes status)
 LedgerRepo         PublishingApi       ledger
