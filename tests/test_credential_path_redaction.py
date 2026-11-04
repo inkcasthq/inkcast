@@ -26,7 +26,7 @@ from inkcast.libs.observability import (CREDENTIAL_PATH_PARAMS, JsonFormatter, R
 # Path parameters that are ids, never credentials: an id may stay in a log line (it says which post, token, platform
 # or asset). A new parameter name must be classified: here, or in observability.CREDENTIAL_PATH_PARAMS.
 PLAIN_PATH_PARAMS = frozenset({"platform_id", "post_id", "token_id", "name", "path"})
-PARAM = re.compile(r"\{([a-z_]+)(?::[a-z]+)?\}")
+PARAM = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)(?::[a-zA-Z_][a-zA-Z0-9_]*)?\}")   # Starlette's own grammar
 
 
 def mounted_paths(routes, prefix: str = ""):

@@ -66,5 +66,18 @@ class DebugLogsKeepNoCookies(unittest.TestCase):
             self.assertNotIn(COOKIE_VALUE, out.getvalue(), f"{fmt}: a cookie value in a debug line")
 
 
+class TheRouteWalkSeesEveryParameter(unittest.TestCase):
+    """test_credential_path_redaction fails on a path parameter it cannot classify, so the next one-time route cannot
+    be missed. It finds the parameters with its own pattern; Starlette's grammar is wider (capitals and digits), and a
+    parameter the walk does not see is neither classified nor checked for masking."""
+
+    def test_the_walk_finds_the_parameters_starlette_finds(self):
+        from starlette.routing import compile_path
+
+        from test_credential_path_redaction import PARAM
+        for template in ("/share/{shareTicket}", "/invite/{ticket2}/accept", "/connect/{ticket:str}", "/x/{post_id}"):
+            self.assertEqual(PARAM.findall(template), list(compile_path(template)[2]), template)
+
+
 if __name__ == "__main__":
     unittest.main()
