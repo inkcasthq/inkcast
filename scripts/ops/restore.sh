@@ -275,11 +275,13 @@ EOF
 # `kubectl wait` exits 0 only once the Job's Complete condition is true: that is the one path that reports a restore.
 # When it gives up, the condition is read once more (the Job may have completed in that instant), then Failed (then
 # there is nothing to wait for); otherwise, until the deadline, the wait is re-armed with the time left: a wait that
-# ended early (a watch error, an API blip) is not a timeout, and must not stop a healthy restore.
+# ended early (a watch error, an API blip) is not a timeout, and must not stop a healthy restore. Each wait is at
+# most 5 s: `kubectl wait` sees only Complete and would run to its timeout past a Job that failed (a refused
+# restore), with the server at 0 the whole time.
 remaining=$timeout
 while :; do
-  if $k -n "$ns" wait --for=condition=complete "job/$job" --timeout="${remaining}s" ||
-     [ "$(job_condition Complete)" = "True" ]; then completed=true; applied=false; break; fi
+  if $k -n "$ns" wait --for=condition=complete "job/$job" --timeout="$(( remaining < 5 ? remaining : 5 ))s" \
+       2>/dev/null || [ "$(job_condition Complete)" = "True" ]; then completed=true; applied=false; break; fi
   [ "$(job_condition Failed)" != "True" ] || break
   sleep 1
   remaining=$(( deadline - $(date +%s) ))
