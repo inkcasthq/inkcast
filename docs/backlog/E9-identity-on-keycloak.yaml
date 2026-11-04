@@ -33,7 +33,6 @@ features:
     change: 'dev Kustomize and production notes in PR #14; the production component, its kind proof and the pinned
       Keycloak operator built for #386 (F9.1.S3), on the CloudNativePG of F3.9.S5; the lab''s own Keycloak is not moved
       by it (an owner decision)'
-    issue: 386
     acceptance:
     - 'A component, deploy/kustomize/components/keycloak-production, renders a Keycloak CR (k8s.keycloak.org, the CRD
       both the RHBK and the upstream operator serve) in production mode (start, never start-dev), 2 instances, hostname,
