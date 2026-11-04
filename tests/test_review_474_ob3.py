@@ -61,6 +61,31 @@ class Review474OB3(harness.MigrateScript):
             with self.subTest(uri=uri.replace(harness.PASSWORD, "...").replace(SECRET, "...")):
                 self.refused(uri)
 
+    def test_a_control_character_outside_the_password_is_refused_before_psql(self):
+        """`read` stops at a newline, so the query loop never saw a parameter after one, while libpq reads on: psql
+        connected with a password after it on its command line, and `openfga migrate` printed the URI, password and
+        all ("invalid database uri: parse ...: net/url: invalid control character in URL", measured on 8aeb85bc), as
+        it prints any URI with a control character, so none can ever migrate. An options= after one replaced
+        PGOPTIONS. A trailing newline, which `echo ... > file` leaves, failed for CONNECT_TIMEOUT on libpq's `invalid
+        sslmode value: "disable\\n"`."""
+        base = "postgres://openfga@127.0.0.1:5432/openfga?sslmode=disable&application_name=x"
+        for uri in (f"{base}\n&password={harness.PASSWORD}", f"{base}\n&options=-c%20client_connection_check_interval%3D0",
+                    f"postgres://openfga:{harness.PASSWORD}@127.0.0.1:5432/openfga?sslmode=disable\n"):
+            with self.subTest(uri=uri.replace(harness.PASSWORD, "...")):
+                self.refused(uri)
+
+    def test_a_control_character_in_the_password_still_migrates(self):
+        """The control for the refusal above: the password leaves the URI before anything parses it (PGPASSWORD, and
+        OPENFGA_DATASTORE_PASSWORD, which OpenFGA encodes itself), so a raw tab in it, which libpq and pgx keep,
+        still migrates."""
+        password = f"{SECRET}\tx"
+        self.sql(f"ALTER ROLE openfga PASSWORD E'{SECRET}\\tx'", "postgres")
+        self.addCleanup(self.sql, f"ALTER ROLE openfga PASSWORD '{harness.PASSWORD}'", "postgres")
+        code, log = self.migrate(uri=f"postgres://openfga:{password}@127.0.0.1:5432/openfga?sslmode=disable")
+        self.assertEqual(code, 0, log)
+        self.assertNotIn(SECRET, log)
+        self.assertEqual(self.sql("SELECT max(version_id) FROM goose_db_version"), "6")
+
 
 def load_tests(loader: unittest.TestLoader, standard_tests: unittest.TestSuite, pattern: str | None) -> unittest.TestSuite:
     """This file's tests only: its class inherits the harness's own, which run in their module."""

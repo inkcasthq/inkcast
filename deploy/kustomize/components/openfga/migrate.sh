@@ -96,12 +96,15 @@ log() { printf '%s migrate: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 # refuses it); a raw `?` or `#` in the user name, where libpq reads on to the `@` and net/url, `openfga migrate`'s,
 # ends the authority, and which started the query below early; a password in the query, which libpq and pgx honour
 # over the user information's, its keyword percent-decoded (conninfo_uri_parse_params), and which the split leaves on
-# psql's command line; and options=, which replaces PGOPTIONS above whole (pgx: pgconn/config.go mergeSettings at
-# v5.11.0), its client check included.
+# psql's command line; options=, which replaces PGOPTIONS above whole (pgx: pgconn/config.go mergeSettings at
+# v5.11.0), its client check included; and a control character outside the password, which net/url refuses (and
+# prints the URI) and at which `read` below stops (a newline), so that a parameter after it would go unread.
 # No writer of the Secret sets one: Inkcast's generator writes sslmode=require alone, CloudNativePG no query
 # (pkg/specs/secrets.go at v1.30.1).
 [[ "$OPENFGA_DATASTORE_URI" =~ ^postgres(ql)?://([^:@/?#]*(:[^@/]*)?@)?[^@]*$ ]] ||
   { log "the datastore URI (the Secret openfga-db-app, key uri) is refused: it is no URI, its user name holds a ? or a #, or an @ in it does not end its user information (an @ or a / in the password must be percent-encoded: %40, %2F)"; exit 1; }
+[[ "$db_uri" != *[[:cntrl:]]* ]] ||
+  { log "the datastore URI (the Secret openfga-db-app, key uri) is refused: it holds a control character (a newline?) outside its password, which OpenFGA's net/url refuses"; exit 1; }
 if [[ "$db_uri" == *\?* ]]; then
   IFS='&' read -ra params <<< "${db_uri#*\?}"
   for param in "${params[@]}"; do
