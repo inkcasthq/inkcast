@@ -160,6 +160,12 @@ class TheSetting(unittest.TestCase):
         self.assertIn("`5` to `60`", row)
         self.assertIn("transcript", row)
 
+    def test_the_readme_says_lowering_it_leaves_issued_links_their_lifetime(self):
+        """As the PAT and refresh-token rows say of theirs (issue #149): a link keeps the expiry it was given, so
+        lowering the setting is not a way to cut links already handed out (``IssuedLinksKeepTheirLifetime``)."""
+        row = next(ln for ln in (ROOT / "README.md").read_text().splitlines() if ln.startswith(f"| `{NAME}`"))
+        self.assertIn("doesn't shorten links already issued", row)
+
 
 # ---- a link expires at the configured time, and not before ------------------------------------------------------
 
@@ -233,6 +239,39 @@ class DeletionLinkExpiry(unittest.TestCase):
         self.assertEqual(RETURN_TTL, 1800)
         for minutes in (5, 60):
             self.assertNotEqual(by_hand(one_time_link_minutes=minutes).one_time_link_seconds, RETURN_TTL)
+
+
+class IssuedLinksKeepTheirLifetime(unittest.TestCase):
+    """What the README row says (issue #149): a link's expiry is written when it is made (``expires_at`` in its row)
+    and read back as it stands, so a setting lowered at the next start leaves links already issued their lifetime, as
+    the PAT and refresh-token rows say of theirs. The lowered setting applies to the links made after it."""
+
+    def test_links_issued_under_an_hour_outlive_a_setting_lowered_to_five_minutes(self):
+        store = Store(":memory:", "k" * 40)
+        self.addCleanup(store.close)
+        platforms = load_platforms(httpx2.AsyncClient())
+        user = store.upsert_user("oidc:https://sso.example.com/realms/inkcast#u", "u", None, None)["id"]
+        hour, five = by_hand(one_time_link_minutes=60), by_hand(one_time_link_minutes=5)
+        made = 1_800_000_000.0
+        with clock(made):
+            publishing = InkcastService(store, platforms, Publisher(store, platforms), hour.public_url, hour.one_time_link_seconds)
+            connect = ticket_of(publishing.connect_link(user, "devto").url, "/connect/")
+            delete = ticket_of(deletion_link(hour, store, user).url, "/account/delete/")
+        lowered = made + 5 * 60 + 1                      # the setting is 5 now; the hour's links are past that
+        with clock(lowered):
+            publishing = InkcastService(store, platforms, Publisher(store, platforms), five.public_url, five.one_time_link_seconds)
+            fresh_connect = ticket_of(publishing.connect_link(user, "medium").url, "/connect/")
+            fresh_delete = ticket_of(deletion_link(five, store, user).url, "/account/delete/")
+            self.assertIsNotNone(store.get_ticket(connect), "the connect link issued under an hour still opens")
+            self.assertIsNotNone(store.deletion_request_by_link(delete), "so does the deletion link")
+        with clock(lowered + 5 * 60 + 1):
+            self.assertIsNone(store.get_ticket(fresh_connect), "a link made under the lowered setting gets five minutes")
+            self.assertIsNone(store.deletion_request_by_link(fresh_delete))
+            self.assertIsNotNone(store.get_ticket(connect), "the hour's links are still good")
+            self.assertIsNotNone(store.deletion_request_by_link(delete))
+        with clock(made + 3600 + 1):
+            self.assertIsNone(store.get_ticket(connect), "and end at their own hour")
+            self.assertIsNone(store.deletion_request_by_link(delete))
 
 
 class ThroughTheStack(unittest.TestCase):
