@@ -48,11 +48,12 @@ call() {
 # The API's reason for a refusal, and nothing else of its answer: a message could quote an object.
 reason() { sed -n 's/.*"reason": *"\([^"]*\)".*/\1/p' "$work/body" | head -n 1; }
 
-# GET: prints 200 or 404; anything else fails the run naming the Secret.
+# GET: leaves 200 or 404 in $code; anything else fails the run naming the Secret. Not a command substitution: `fail`
+# must exit this shell, not a subshell that a caller would read as "absent".
 read_secret() {
   code="$(call GET "$1" "$2" "")"
   case "$code" in
-    200|404) printf '%s' "$code" ;;
+    200|404) ;;
     *) fail "read Secret $1/$2: HTTP $code $(reason). The Role that allows it is in deploy/kustomize/shared/seaweedfs (rbac.yaml) or shared/seaweedfs-access." ;;
   esac
 }
@@ -89,7 +90,8 @@ create_secret() {   # namespace name key file
 
 # 1. What each side holds.
 store_key=""; store_secret_key=""; velero_key=""; velero_secret_key=""
-if [ "$(read_secret "$ns" "$store_secret")" = 200 ]; then
+read_secret "$ns" "$store_secret"
+if [ "$code" = 200 ]; then
   data_key identities.json > "$work/identities.json"
   store_key="$(sed -n 's/.*"accessKey": *"\([A-Za-z0-9]*\)".*/\1/p' "$work/identities.json" | head -n 1)"
   store_secret_key="$(sed -n 's/.*"secretKey": *"\([A-Za-z0-9]*\)".*/\1/p' "$work/identities.json" | head -n 1)"
@@ -97,7 +99,8 @@ if [ "$(read_secret "$ns" "$store_secret")" = 200 ]; then
     fail "$ns/$store_secret identities.json is not what this job writes (one identity with a 20- and a 40-character key): remove it, or write both Secrets by hand."
   fi
 fi
-if [ "$(read_secret "$velero_ns" "$velero_secret")" = 200 ]; then
+read_secret "$velero_ns" "$velero_secret"
+if [ "$code" = 200 ]; then
   data_key cloud > "$work/cloud"
   velero_key="$(sed -n 's/^aws_access_key_id=\([A-Za-z0-9]*\)$/\1/p' "$work/cloud" | head -n 1)"
   velero_secret_key="$(sed -n 's/^aws_secret_access_key=\([A-Za-z0-9]*\)$/\1/p' "$work/cloud" | head -n 1)"
