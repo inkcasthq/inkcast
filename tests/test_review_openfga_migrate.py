@@ -284,6 +284,25 @@ class MigrateScript(unittest.TestCase):
         self.assertEqual(self.sql("SELECT indisvalid FROM pg_index WHERE indexrelid = to_regclass('idx_user_lookup')"), "t")
         self.assertEqual(self.sql("SELECT count(*) FROM goose_db_version WHERE version_id = 6"), "1")
 
+    def test_a_runner_beside_another_session_of_its_role_waits_the_hand_over_grace(self):
+        """Issue #409, the hand-over: a runner whose lock session died alone still migrates until its next probe,
+        and `openfga migrate` takes no fencing token the database could check, so the runner that takes the lock
+        next waits out that time (twice the probe interval, plus the server's client check: 6 s) before it touches
+        the schema, as leader election hands a lease over, when another session of its role exists. Alone, it
+        waits nothing: the schema is current and the server starts at once."""
+        log = self.assertMigrated()
+        self.assertNotIn("other session(s) of this role", log)
+        other = subprocess.Popen(["docker", "exec", self.container, "psql", "-h", "/tmp", "-U", "openfga", "-d", "openfga",
+                                  "-Atc", "SELECT pg_sleep(30)"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.addCleanup(other.wait, 60)
+        self.addCleanup(self.sql, "SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE usename = 'openfga'")
+        time.sleep(1)
+        started = time.monotonic()
+        log = self.assertMigrated()
+        self.assertIn("1 other session(s) of this role: waiting 6 s", log)
+        self.assertGreaterEqual(time.monotonic() - started, 6)
+        self.assertLess(log.index("waiting 6 s"), log.index("running openfga migrate"), "the grace before the migration")
+
 
 @unittest.skipIf(UNAVAILABLE, UNAVAILABLE)
 class PartitionedRunner(unittest.TestCase):

@@ -20,6 +20,13 @@
 #      The server releases the lock when this session ends, however it ends (mvcc.sgml "Advisory Locks" at
 #      REL_18_STABLE; keyed by database: lockfuncs.c SET_LOCKTAG_INT64 uses MyDatabaseId, so staging and production
 #      on one PostgreSQL never wait on each other);
+#   2b. a hand-over grace (#409): a runner whose lock session died alone still runs its migration until its next
+#      probe (step 4), so when other sessions of this role exist, this runner waits twice the probe interval plus
+#      the server's client check before touching the schema, as leader election hands a lease over (client-go's
+#      LeaseDuration: a candidate waits it out before it acts). No fence is possible: `openfga migrate` runs goose
+#      as a black box, with no token the database could check (Kleppmann, "How to do distributed locking"), where
+#      goose's own Provider, golang-migrate and Flyway lock on the very connection that migrates. A runner paused
+#      beyond that grace is the residual, bounded by nothing; the repair of step 3 and a retry cover what it leaves;
 #   3. repair what an interrupted 006 leaves: `idx_user_lookup` INVALID is dropped, and goose's version-6 rows go
 #      when that index is invalid or missing, so that `openfga migrate` applies 006 again (goose up.go:99-106 at
 #      v3.28.0 plans every file above the table's highest version). Not once a version above 6 is recorded: goose
@@ -125,6 +132,16 @@ until [ "$reply" = t ]; do
 done
 query "SELECT format('migration lock taken by pid %s at %s', pg_backend_pid(), clock_timestamp())"
 log "$reply"
+
+# 2b. The hand-over grace: twice the probe interval (a runner slowed to half its pace still probes within it) plus
+# client_connection_check_interval (2 s, PGOPTIONS above: its backend's last statement ends with it). Only when
+# another session of this role exists: a runner whose lock died, a waiter, or a server of a pod on its way out.
+query "SELECT count(*) FROM pg_stat_activity WHERE usename = current_user AND pid <> pg_backend_pid()"
+if [ "$reply" != 0 ]; then
+  grace=$(( 2 * probe_seconds + 2 ))
+  log "${reply} other session(s) of this role: waiting ${grace} s for a runner whose lock session died to end its migration"
+  sleep "$grace"
+fi
 
 # 3. The repair, under the lock. to_regclass honours the search path, and is NULL when the object is missing.
 query "SELECT (to_regclass('idx_user_lookup') IS NOT NULL
