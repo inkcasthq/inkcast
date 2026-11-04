@@ -32,6 +32,15 @@ installed at every open (``install_owner_guards``), that ignores the row inside 
 scheduler's claims look at ``users`` too. The rows such writes left in a database from before the guard are removed by
 housekeeping (``sweep_orphans``), once per database, with no second audit row: the record of the erasure is the one
 already there, as it is for ``reapply_erasures``.
+
+A team KPI names its member in a dim, not its scope (``kpi_rollups.dims``, at workspace or org scope; libs/kpi/rollup.py),
+so the condition for ``kpi_rollups`` reaches those rows too (issue #212). They are not deleted outright: ``_delete_person``
+folds each into the row of the tombstone ``MEMBER_ERASED`` first, so the workspace keeps its totals, which are the
+organization's data (docs/design/observability-and-kpis.md §6), and nothing names the person. The guard refuses such a
+row for a person who has no ``users`` row as it does a row at their scope; the tombstone names nobody and is let through.
+``PERSON_DIMS`` (libs/kpi/store.py) is the one list of the dims that hold a person's id; the condition, the guard and the
+index are generated from it, and tests/test_architecture.py requires every other dims key a KPI keeps to be declared
+impersonal.
 """
 
 from __future__ import annotations
@@ -44,6 +53,7 @@ import sqlite3
 import time
 from typing import Any, Mapping
 
+from ..kpi.store import MEMBER_ERASED, PERSON_DIMS
 from .database import Database
 
 log = logging.getLogger(__name__)
@@ -59,6 +69,12 @@ CREATE TABLE IF NOT EXISTS user_erasure_aliases (
 # user_erasure_aliases: the other hash an erasure is known by, beside its one audit row (user_hash): the person's id
 # under the key current at the erasure, when the hash stored with their row was written under an earlier key. A backup
 # from before users.erasure_hash is filled under the key of the restore, which that alias matches (issue #113).
+
+# A KPI row names a person as its scope (``scope_kind = 'user'``) or, a team KPI at workspace or org scope, in a dim
+# that holds a member's id (``PERSON_DIMS``; issue #212). The erasure deletes the first kind and folds the second into
+# the tombstone's row before deleting it (``_delete_person``); the partial index per dim (libs/db/kpi.py) finds them.
+KPI_PERSON_ROWS = " OR ".join(("(scope_kind = 'user' AND scope_id = :user_id)",
+                               *(f"json_extract(dims, '$.{dim}') = :user_id" for dim in PERSON_DIMS)))
 
 # (table, the condition that picks the person's rows). Deleted together in one transaction under the write lock
 # a scheduler claim (``claim_due_posts``) also takes, so a claim runs either before every row or after none is left.
@@ -77,7 +93,7 @@ USER_TABLES: tuple[tuple[str, str], ...] = (
     ("pending_auth", "user_id = :user_id"),
     ("api_tokens", "user_id = :user_id"),
     ("sync_breaker_people", "user_id = :user_id"),      # a pass the Keycloak sync's breaker holds for an operator (#105)
-    ("kpi_rollups", "scope_kind = 'user' AND scope_id = :user_id"),
+    ("kpi_rollups", KPI_PERSON_ROWS),
     ("authz_tuples", "subject = 'user:' || :user_id"),
     ("users", "id = :user_id"),
 )
@@ -89,13 +105,16 @@ STANDING = ("last_login_at", "deleted_at", "disabled_at", "held_at")
 # How a row of each table names its person, for the write-time guard and the sweep (issue #196): (table, the column
 # that names them, the expression that is their id, and the rows that are a person's at all, or None for every row);
 # ``{row}`` stands for the row being written (``NEW`` in a trigger) or the table. Every table in ``USER_TABLES`` but
-# ``users`` itself, which tests/test_erasure_orphans.py checks against it.
+# ``users`` itself, which tests/test_erasure_orphans.py checks against it. A table with more than one way to name a
+# person (``kpi_rollups``: its scope, and a dim of a team KPI; issue #212) has one entry per way.
 OWNERS: tuple[tuple[str, str, str, str | None], ...] = tuple(
     (table, "user_id", "{row}.user_id", None)
     for table in ("posts", "outbox", "ledger", "idempotency", "credentials", "connect_tickets", "tokens", "auth_codes",
                   "pending_auth", "api_tokens", "sync_breaker_people")
 ) + (
     ("kpi_rollups", "scope_id", "{row}.scope_id", "{row}.scope_kind = 'user'"),
+    *(("kpi_rollups", "dims", f"NULLIF(json_extract({{row}}.dims, '$.{dim}'), '{MEMBER_ERASED}')", None)
+      for dim in PERSON_DIMS),                                                              # the tombstone names nobody
     ("authz_tuples", "subject", "substr({row}.subject, 6)", "{row}.subject LIKE 'user:%'"),       # after 'user:'
 )
 ORPHANS_SWEPT = "erasure.orphans_swept"     # sync_state: the sweep of rows from before the guard is done here
@@ -103,21 +122,27 @@ _GUARD = "owner_guard_"                     # what every trigger of the guard is
 
 
 def orphan_condition(table: str, row: str) -> str:
-    """The SQL that is true of a row of ``table`` (``row`` names it) whose person has no ``users`` row."""
-    _, _, person, where = next(owner for owner in OWNERS if owner[0] == table)
-    person = person.format(row=row)
-    missing = f"{person} IS NOT NULL AND NOT EXISTS (SELECT 1 FROM users WHERE users.id = {person})"
-    return f"{where.format(row=row)} AND {missing}" if where else missing
+    """The SQL that is true of a row of ``table`` (``row`` names it) whose person has no ``users`` row, by any of the
+    ways a row of that table names a person (``OWNERS``)."""
+    parts = []
+    for _, _, person, where in (owner for owner in OWNERS if owner[0] == table):
+        person = person.format(row=row)
+        missing = f"{person} IS NOT NULL AND NOT EXISTS (SELECT 1 FROM users WHERE users.id = {person})"
+        parts.append(f"{where.format(row=row)} AND {missing}" if where else missing)
+    if not parts:
+        raise LookupError(f"{table} is not in OWNERS")
+    return parts[0] if len(parts) == 1 else "(" + " OR ".join(f"({part})" for part in parts) + ")"
 
 
 def owner_guards() -> list[tuple[str, str]]:
-    """(name, CREATE TRIGGER) for every table in ``OWNERS``: a ``BEFORE INSERT`` guard and a ``BEFORE UPDATE`` of the
+    """(name, CREATE TRIGGER) for every table in ``OWNERS``: a ``BEFORE INSERT`` guard and a ``BEFORE UPDATE`` of each
     owning column, each ignoring a row whose person has no ``users`` row (``RAISE(IGNORE)``: the row is skipped, the
     statement and its transaction go on, and ``rowcount`` leaves it out). The name carries a digest of the body, so a
     change to the body is a new trigger and the old one is dropped (``install_owner_guards``)."""
     out = []
-    for table, column, _, _ in OWNERS:
-        for kind, on in (("insert", "INSERT"), ("update", f"UPDATE OF {column}")):
+    for table in dict.fromkeys(owner[0] for owner in OWNERS):                       # each table once, in order
+        columns = dict.fromkeys(owner[1] for owner in OWNERS if owner[0] == table)
+        for kind, on in (("insert", "INSERT"), *(("update", f"UPDATE OF {column}") for column in columns)):
             body = (f"BEFORE {on} ON {table} FOR EACH ROW\n  WHEN {orphan_condition(table, 'NEW')}\n"
                     f"BEGIN SELECT RAISE(IGNORE); END")
             name = f"{_GUARD}{table}_{kind}_{hashlib.sha256(body.encode()).hexdigest()[:8]}"
@@ -136,7 +161,22 @@ class ErasureRepo(Database):
 
     @staticmethod
     def _delete_person(c: sqlite3.Connection, user_id: str) -> dict[str, int]:
-        """The person's rows out of every table in ``USER_TABLES``, inside the caller's transaction; the counts."""
+        """The person's rows out of every table in ``USER_TABLES``, inside the caller's transaction; the counts.
+
+        A team KPI row (workspace or org scope, the member's id in a dim) is first folded into the row of the tombstone
+        ``MEMBER_ERASED`` of the same bucket, adding its value and count to it: the workspace keeps its totals, which are
+        the organization's data, and nothing names the person (issue #212). The folded rows then go with the rest, so
+        the count is every row that named them. The tombstone's ``dims`` is SQLite's JSON text (no spaces), unlike the
+        rollup's ``json.dumps``; the two never meet, since no event carries the tombstone as its person."""
+        now = time.time()
+        for dim in PERSON_DIMS:
+            c.execute(
+                "INSERT INTO kpi_rollups (kpi, grain, bucket, scope_kind, scope_id, dims, value, n, updated_at)"
+                f" SELECT kpi, grain, bucket, scope_kind, scope_id, json_set(dims, '$.{dim}', :erased), value, n, :now"
+                f" FROM kpi_rollups WHERE scope_kind != 'user' AND json_extract(dims, '$.{dim}') = :user_id"
+                " ON CONFLICT (kpi, grain, bucket, scope_kind, scope_id, dims)"
+                " DO UPDATE SET value = value + excluded.value, n = n + excluded.n, updated_at = excluded.updated_at",
+                {"user_id": user_id, "erased": MEMBER_ERASED, "now": now})
         return {table: int(c.execute(f"DELETE FROM {table} WHERE {condition}", {"user_id": user_id}).rowcount)
                 for table, condition in USER_TABLES}
 
@@ -162,6 +202,8 @@ class ErasureRepo(Database):
         when the person's own row went: rows found without one (left by a write in the instant of the erasure, in a
         database from before the guard; issue #196) go too, under the record already there."""
         now = time.time()
+        if user_id == MEMBER_ERASED:    # the tombstone names nobody: erasing it would delete every erased member's totals
+            return {table: 0 for table, _ in USER_TABLES}
         with self._tx() as c:
             if as_read is not None and not self._as_read(c, user_id, as_read):
                 return {table: 0 for table, _ in USER_TABLES}
@@ -267,12 +309,14 @@ class ErasureRepo(Database):
         the row runs it once more), in the one process that runs housekeeping, never at start-up: it reads every
         user-keyed table. ``ORPHAN_BATCH`` rows at a time, found without the lock and deleted under it with the
         condition checked again there, each batch its own transaction, so the lock is held for a batch and a run cut
-        short leaves the rest to the next. No audit row: the record of each erasure is the one already there. The rows
-        removed per table, for the tables that had any; {} once done."""
+        short leaves the rest to the next. No audit row: the record of each erasure is the one already there. A team
+        KPI row naming such a member goes outright, not into the tombstone: it was written after the erasure had folded
+        the person's totals, as a row the guard now refuses (issue #212). The rows removed per table, for the tables
+        that had any; {} once done."""
         if self._one("SELECT 1 FROM sync_state WHERE name = ?", ORPHANS_SWEPT) is not None:
             return {}
         swept: dict[str, int] = {}
-        for table, _, _, _ in OWNERS:
+        for table in dict.fromkeys(owner[0] for owner in OWNERS):   # each table once: its condition covers every way
             condition = orphan_condition(table, table)
             while True:
                 ids = [r[0] for r in self._all(f"SELECT rowid FROM {table} WHERE {condition} LIMIT ?", self.ORPHAN_BATCH)]
