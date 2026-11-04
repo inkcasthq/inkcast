@@ -240,6 +240,23 @@ class FindingTheCapEndsAPostWhoseLastLookupCannotBeMade(Harness):
         self.assertEqual(self.tick(later=2 * DAY), [], "asked or sent again")
 
 
+class FindingTheCapEndsAPostWhosePayloadCannotBeRead(Harness):
+    def test_a_payload_from_a_newer_version_does_not_hold_the_post_past_the_cap(self):
+        """The cap returned before the payload was read; ``recover`` now reads it first, for the cap's last lookup (#234
+        item 2), and ``Prepared.from_dict`` refuses a key it doesn't know: a post a newer version sent, recovered by an
+        older one after a rollback, raised out of ``recover`` on every pass and stayed 'recovering' for ever (on the
+        parent commit it ended 'unconfirmed')."""
+        payload = self.platform.prepare({"title": "newer"}, "Body.").to_dict()
+        payload["added_later"] = True
+        post_id = self.store.create_post(group_id="g", user_id=self.user, platform=self.platform.id, title="newer",
+                                         status="recovering", run_at=time.time() - 3 * DAY, payload=payload)
+        self.store._exec("UPDATE posts SET updated_at = updated_at - ?, recovering_since = ? WHERE id = ?",
+                         STUCK_AFTER + 1, time.time() - 2 * DAY, post_id)
+        (outcome,) = self.tick()
+        self.assertEqual((outcome.status, self.status(post_id), self.platform.lookups), ("unconfirmed", "unconfirmed", 0))
+        self.assertIn("could not be asked whether it arrived for 24 hours", self.store.get_post(post_id)["error"])
+
+
 # ---- the CLI's post id is one path segment (#234 item 8) ---------------------------------------------------------------
 
 

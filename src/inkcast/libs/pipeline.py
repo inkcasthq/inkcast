@@ -478,15 +478,15 @@ class Publisher:
 
         since = row.get("recovering_since")
         capped = since is not None and now - float(since) >= self.recovery_max
-        prepared = Prepared.from_dict(json.loads(row["payload"]))
         try:
-            found = await self.confirm(row["user_id"], platform, prepared)
+            found = await self.confirm(row["user_id"], platform, Prepared.from_dict(json.loads(row["payload"])))
         except Exception:
             if not capped:
                 raise
             # Past the cap, a lookup that can't even be made (credentials sealed under another INKCAST_SECRET_KEY:
-            # ``confirm`` reads them outside its guard) must not hold the post 'recovering' for ever, nor every post this
-            # pass claimed after it: it ends as it did before the cap asked, "could not be asked" (#216, #234).
+            # ``confirm`` reads them outside its guard; a payload this version can't read, after a rollback) must not
+            # hold the post 'recovering' for ever, nor every post this pass claimed after it: it ends as it did before
+            # the cap asked, "could not be asked" (#216, #234).
             log.exception("Post %s on %s: the cap's last lookup could not be made", post_id, platform.id)
             found = None
 
