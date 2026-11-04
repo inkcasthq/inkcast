@@ -7,8 +7,9 @@ a mass "disabled", E9.F9.5.S8, #135).
     inkcast identity confirm-deletions --pass ID [--by WHO]   # Keycloak is right: cut them off; the gone start the clock
     inkcast identity dismiss-deletions --pass ID [--by WHO]   # Keycloak was wrong (and is fixed): release, read again
 
-A reconcile that found too many people gone from Keycloak, or disabled in it, at once recorded the pass with each
-person's kind and held them (services/identity/keycloak_sync.py): the gone were neither cut off nor erased and no
+A reconcile that found too many people gone from Keycloak, or disabled in it, at once, or the admin-events passes of one
+reconcile interval that found that many by USER admin events (a scripted mass deletion or disabling, #139), recorded
+the pass with each person's kind and held them (services/identity/keycloak_sync.py): the gone were neither cut off nor erased and no
 grace period started; the disabled lost their OAuth tokens at once (a sign-in restores them) and keep their personal
 access tokens, refused. Confirming applies exactly that pass's people, by kind, as the reconcile would have: a gone
 person is cut off and marked gone from now, so the reconcile erases them INKCAST_KEYCLOAK_ERASE_AFTER_DAYS later (at

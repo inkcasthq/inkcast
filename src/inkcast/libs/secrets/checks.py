@@ -289,7 +289,8 @@ def _check_breaker(ctx: _Ctx) -> Check:
     return Check("keycloak-breaker", title, "pass",
                  f"INKCAST_KEYCLOAK_BREAKER=on: a reconcile that finds at least {minimum} people, and more than {percent}% of "
                  "those it read, gone from Keycloak or disabled in it holds them all for an operator (inkcast identity "
-                 "confirm-deletions): the disabled keep their personal access tokens, refused, meanwhile.")
+                 "confirm-deletions), and so do the admin-events passes of one reconcile interval that find that many of "
+                 "the people known: the disabled keep their personal access tokens, refused, meanwhile.")
 
 
 def _duration(seconds: int) -> str:

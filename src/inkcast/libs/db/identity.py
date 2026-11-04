@@ -51,11 +51,12 @@ CREATE TABLE IF NOT EXISTS deletion_requests (
   id TEXT PRIMARY KEY, user_id TEXT NOT NULL, link_hash TEXT UNIQUE, cookie_hash TEXT UNIQUE, keycloak_id TEXT,
   created_at REAL NOT NULL, expires_at REAL NOT NULL
 );
--- The Keycloak sync's circuit breaker (E9.F9.5.S7, issue #105): one row per reconcile pass that found too many people
--- gone (404) or disabled (#135) at once (gone and disabled of read), with its status (pending, confirmed, dismissed)
--- and who resolved it; the people it held are in sync_breaker_people with their kind, with last_login_at as the pass
--- read it (a later sign-in proves Keycloak has them), erased with the person, removed when a pass reads them present
--- (whatever the pass's status, #161) and as the pass is resolved (a confirmation claims each person before it acts).
+-- The Keycloak sync's circuit breaker (E9.F9.5.S7, issue #105): one row per pass, a reconcile's or an admin-events
+-- pass's (#139), that found too many people gone (404) or disabled (#135) at once (gone and disabled of read: the
+-- people the reconcile read, or the people known), with its status (pending, confirmed, dismissed) and who resolved
+-- it; the people it held are in sync_breaker_people with their kind, with last_login_at as the pass read it (a later
+-- sign-in proves Keycloak has them), erased with the person, removed when a pass reads them present (whatever the
+-- pass's status, #161) and as the pass is resolved (a confirmation claims each person before it acts).
 CREATE TABLE IF NOT EXISTS sync_breaker_trips (
   id TEXT PRIMARY KEY, tripped_at REAL NOT NULL, gone INTEGER NOT NULL, read INTEGER NOT NULL, status TEXT NOT NULL,
   resolved_at REAL, resolved_by TEXT
@@ -63,6 +64,10 @@ CREATE TABLE IF NOT EXISTS sync_breaker_trips (
 CREATE TABLE IF NOT EXISTS sync_breaker_people (
   pass_id TEXT NOT NULL, user_id TEXT NOT NULL, last_login_at REAL NOT NULL, PRIMARY KEY (pass_id, user_id)
 );
+-- The admin-events pass's recent cut-offs (#139): one row per pass that cut anyone off below the breaker's thresholds,
+-- with how many, for the burst the breaker counts across the passes of one reconcile interval; no ids. Rows older than
+-- that go at the next record, and every row at a trip (the count starts afresh once the pass is resolved).
+CREATE TABLE IF NOT EXISTS sync_events_cutoffs (at REAL NOT NULL, people INTEGER NOT NULL);
 """
 BREAKER_PENDING, BREAKER_CONFIRMED, BREAKER_DISMISSED = "pending", "confirmed", "dismissed"
 BREAKER_GONE, BREAKER_DISABLED = "gone", "disabled"       # the kinds of person a pass holds (sync_breaker_people.kind)
@@ -140,6 +145,11 @@ class IdentityRepo(Database):
                          + ("" if include_disabled else " AND disabled_at IS NULL") + " ORDER BY id", len(prefix), prefix)
         return [dict(r) for r in rows]
 
+    def count_users_with_identity_prefix(self, prefix: str) -> int:
+        """How many people Inkcast knows from one identity provider, the cut-off ones included: what the admin-events
+        pass's breaker counts a burst against (#139), as the reconcile counts against the people it read."""
+        return int(self._one("SELECT COUNT(*) AS n FROM users WHERE substr(identity, 1, ?) = ?", len(prefix), prefix)["n"])
+
     def disable_user(self, user_id: str, last_login_at: float | None = None,
                      held_at: float | None = None) -> dict[str, int] | None:
         """The person can no longer use Inkcast: every OAuth token, code and personal access token goes, in one
@@ -216,9 +226,10 @@ class IdentityRepo(Database):
 
     def record_breaker_trip(self, now: float, gone: int, read: int, people: list[tuple[str, float]],
                             disabled: list[tuple[str, float]] = ()) -> str:
-        """A reconcile pass that tripped the breaker: ``gone`` of ``read`` people newly found gone, and for each of
-        them the Inkcast id and ``last_login_at`` as the pass read it; likewise ``disabled``, the people newly found
-        disabled (#135), counted into the pass's ``disabled``. Returns the pass id."""
+        """A pass that tripped the breaker (a reconcile, or an admin-events pass, #139): ``gone`` of ``read`` people
+        newly found gone, and for each of them the Inkcast id and ``last_login_at`` as the pass read it; likewise
+        ``disabled``, the people newly found disabled (#135), counted into the pass's ``disabled``. The admin-events
+        passes' count of recent cut-offs starts afresh: the trip judged the burst so far. Returns the pass id."""
         pass_id = "pass_" + uuid.uuid4().hex[:12]
         with self._tx() as c:
             c.execute("INSERT INTO sync_breaker_trips (id, tripped_at, gone, read, status, disabled) VALUES (?, ?, ?, ?, ?, ?)",
@@ -226,7 +237,21 @@ class IdentityRepo(Database):
             c.executemany("INSERT INTO sync_breaker_people (pass_id, user_id, last_login_at, kind) VALUES (?, ?, ?, ?)",
                           [(pass_id, user_id, last_login_at, BREAKER_GONE) for user_id, last_login_at in people]
                           + [(pass_id, user_id, last_login_at, BREAKER_DISABLED) for user_id, last_login_at in disabled])
+            c.execute("DELETE FROM sync_events_cutoffs")
         return pass_id
+
+    def events_cutoffs_since(self, since: float) -> int:
+        """How many people the admin-events passes cut off at or after ``since`` (#139): the burst so far, before the
+        pass asking adds its own."""
+        return int(self._one("SELECT COALESCE(SUM(people), 0) AS n FROM sync_events_cutoffs WHERE at >= ?", since)["n"])
+
+    def record_events_cutoffs(self, now: float, people: int, since: float) -> None:
+        """An admin-events pass cut ``people`` people off at ``now``, below the breaker's thresholds (#139). The rows
+        from before ``since`` (the start of the window the passes count over) go with it: the window only moves on,
+        so they are never counted again."""
+        with self._tx() as c:
+            c.execute("DELETE FROM sync_events_cutoffs WHERE at < ?", (since,))
+            c.execute("INSERT INTO sync_events_cutoffs (at, people) VALUES (?, ?)", (now, people))
 
     def pending_breaker_trip(self) -> dict[str, Any] | None:
         """The pass an operator has not resolved yet (the oldest, should there be several): the breaker is open."""

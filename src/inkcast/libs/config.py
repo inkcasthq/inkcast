@@ -659,7 +659,10 @@ class Config:
     # lose their OAuth tokens and keep their personal access tokens, refused; it records the pass for an operator to
     # confirm or dismiss (`inkcast identity`). A Keycloak restored from an older backup, the issuer pointing at the
     # wrong Keycloak, or a user-storage provider switched off all answer 404 (or disabled, for an importing provider)
-    # about people who still exist. off (INKCAST_KEYCLOAK_BREAKER=off) is a posture warning in production and staging.
+    # about people who still exist. The admin-events passes count the same way, together over one
+    # keycloak_reconcile_seconds and against the people known, so a scripted mass deletion or disabling through the
+    # admin API, which arrives one admin event at a time, is held too (#139). off (INKCAST_KEYCLOAK_BREAKER=off) is a
+    # posture warning in production and staging.
     keycloak_breaker: bool = True
     keycloak_breaker_percent: int = 10
     keycloak_breaker_min: int = 5

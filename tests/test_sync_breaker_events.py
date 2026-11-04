@@ -20,7 +20,7 @@ import unittest
 
 from inkcast.libs.db import Store
 from inkcast.libs.db.identity import BREAKER_DISABLED, BREAKER_GONE
-from test_sync_breaker import DAY, KEY, PREFIX, T0
+from test_sync_breaker import KEY, PREFIX, T0
 from test_sync_breaker_disabled import Held
 
 
@@ -132,7 +132,8 @@ class AMassDisablingInOnePass(Events):
         for user in people:
             self.assert_working(user)
         self.assertEqual(self.gauge(), 0)
-        self.assertEqual(self.reconcile(worker, T0 + 600), {"checked": 20, "disabled": 0, "erased": 0})
+        done = self.reconcile(worker, T0 + 600)                     # the look-back reads the events again, then everyone
+        self.assertEqual((done["checked"], done["disabled"], done["erased"]), (40, 0, 0), "enabled again: nothing to do")
         self.assertEqual(len(self.trips()), 1)
 
     def test_gone_and_disabled_in_one_pass_count_together_and_each_kind_is_held_by_its_rule(self):
@@ -172,7 +173,7 @@ class ABurstSpreadOverPasses(Events):
         self.deleted(batches[2], at + 1)                            # 5 + 10 = 15 of 100: 15 % > 10 %, 15 >= 5
         with self.assertLogs("inkcast.identity.sync", level="WARNING") as logs:
             done = self.tick(worker, at + 2)
-        self.assertEqual((done["checked"], done["disabled"]), (10, 0), "its five held; the five of the pass before, read again")
+        self.assertEqual((done["checked"], done["disabled"]), (15, 0), "its five held; the ten of the minute before, read again")
         for user in batches[2]:
             self.assert_untouched(user)
         (trip,) = self.trips()
@@ -197,7 +198,7 @@ class ABurstSpreadOverPasses(Events):
         for user in batches[2]:
             self.assert_cut_off(user, deleted_at=T0 + 700)
         done = self.reconcile(worker, T0 + 1200)
-        self.assertEqual((done["disabled"], done["erased"]), (5, 15), "the last five, alone now, cut off; the fifteen erased")
+        self.assertEqual((done["disabled"], done["erased"]), (5, 20), "the last five, alone now, cut off; 0 days: all twenty erased")
         self.assertEqual(len(self.trips()), 1)
 
     def test_passes_further_apart_than_the_window_count_alone(self):
@@ -225,8 +226,11 @@ class ABurstSpreadOverPasses(Events):
         (trip,) = self.trips()
         self.now = T0 + 100
         self.assertEqual(self.operator("dismiss-deletions", "--pass", trip["id"], "--by", "on-call")[0], 0)
-        self.deleted([people[20]], T0 + 121)                        # one more, within the window of the ten before the trip
-        self.assertEqual(self.tick(worker, T0 + 122)["disabled"], 1, "one person, acted on at once: the trip judged the ten")
+        # One more deletion, within the window of the ten cut off before the trip. The look-back reads the dismissed
+        # pass's five again too, still gone: 6 of 100 is below the share, so all six are cut off, as a reconcile would
+        # (nothing was done to the gone, and "it trips again if it must"); counting the ten as well, 16 would trip.
+        self.deleted([people[20]], T0 + 121)
+        self.assertEqual(self.tick(worker, T0 + 122)["disabled"], 6, "below the thresholds: the trip judged the ten")
         self.assert_cut_off(people[20], deleted_at=T0 + 122)
         self.assertEqual(len(self.trips()), 1, "no second trip")
 
@@ -337,7 +341,7 @@ class ThePassesAreQuick(Events):
         self.deleted(people[:250])                                  # 250 of 2000: 12.5 % > 10 %
         statements: list[str] = []
         conn = self.store._conn
-        conn.set_trace_callback(lambda sql: statements.append(sql) if "sync_events_cutoffs" in sql or "COUNT(*) FROM users" in sql else None)
+        conn.set_trace_callback(lambda sql: statements.append(sql) if "sync_events_cutoffs" in sql or "COUNT(*)" in sql else None)
         try:
             done = self.tick(worker, T0 + 2)
         finally:
@@ -345,8 +349,8 @@ class ThePassesAreQuick(Events):
         self.assertEqual((done["checked"], done["disabled"]), (250, 0))
         (trip,) = self.trips()
         self.assertEqual((trip["gone"], trip["read"]), (250, 2000))
-        self.assertEqual(len([s for s in statements if "COUNT(*) FROM users" in s]), 1, statements)
-        self.assertEqual(len([s for s in statements if "SUM" in s]), 1, statements)
+        self.assertEqual(len([s for s in statements if "COUNT(*)" in s and "FROM users" in s]), 1, statements)
+        self.assertEqual(len([s for s in statements if "SUM(people)" in s]), 1, statements)
 
 
 if __name__ == "__main__":

@@ -167,6 +167,8 @@ class Architecture(unittest.TestCase):
             "sync_state": "the Keycloak sync's cursors",
             "sync_breaker_trips": "the Keycloak sync's breaker: when a pass tripped, counts, status and who resolved it "
                                   "(the people it held are in sync_breaker_people, erased with the person)",
+            "sync_events_cutoffs": "the Keycloak sync's breaker in the admin-events pass (#139): when a pass cut people "
+                                   "off and how many, no ids",
             "outbox_cursors": "consumer positions in the outbox",
             "kpi_applied": "event ids already folded into rollups (opaque)",
             "user_erasures": "the audit record: a salted hash, the time and counts",

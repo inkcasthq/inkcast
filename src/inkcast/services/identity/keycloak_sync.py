@@ -77,6 +77,17 @@ held person Keycloak reports enabled again is released at once, by whichever pas
 does a gone one it reports present, even as an operator confirms the pass: the confirmation claims each person
 before it acts, and a release that lands first spares them (#161). A DELETE_ACCOUNT event is never held: the person
 asked, and the event is specific. Below the thresholds a 404 or an ``enabled: false`` is acted on as before.
+
+The admin-events pass counts too (issue #139). A scripted mass deletion or disabling through the admin API (a bad
+script, a compromised administrator account) arrives as USER admin events, one person at a time, and a person the pass
+has cut off is not newly gone or disabled to the reconcile: acted on as each event arrived, the burst was never
+counted. So the pass reads everyone its events name before it acts on anyone, and counts the people newly found gone
+or disabled together with those the admin-events passes cut off within the last ``keycloak_reconcile_seconds``
+(``sync_events_cutoffs``, counts only: a script that spreads its calls over several passes is one burst), against the
+people Inkcast knows from this Keycloak, at the same two thresholds. At them it holds this pass's people as a trip of
+its own: the same record, confirmation and dismissal. Whoever the passes before it cut off stays cut off (the open
+breaker holds their erasure with the pass, and a sign-in restores them once Keycloak has them again), and a trip
+starts the count afresh. Below the thresholds one person's deletion or disabling is acted on at once, as before.
 """
 
 from __future__ import annotations
@@ -520,6 +531,8 @@ class KeycloakSync:
         if ended:
             return
         held = self._breaker_open()                # no 404 without an event, and no enabled: false, is acted on until an operator decides
+        gone: list[dict[str, Any]] = []            # found gone (404), each their row as read before the answer (#102); and
+        disabled: list[dict[str, Any]] = []        # found enabled: false. Acted on after the reads, so the breaker can count (#139)
         for keycloak_id in await self.changed_people():
             if p.ended:                            # the rest are left to the reconcile, as a burst beyond one page is
                 break
@@ -534,19 +547,29 @@ class KeycloakSync:
             except PersonError as exc:                 # the reconcile re-reads everyone: like an event the pass missed
                 self._person_failed(str(known["id"]), "event", exc)
                 continue
-            if state == "deleted":                     # held: the reconcile reads them again, and acts once an operator decides
-                if not held and self._cut_off(known, state, "event"):
-                    done["disabled"] += 1
+            if state == "deleted":
+                gone.append(known)
                 continue
             self.store.mark_user_present(str(known["id"]))     # Keycloak has them: a running grace period stops
             if state == "active":                      # enabled (again): a hold on them is lifted by this pass (#135)
                 self.store.release_breaker_people([str(known["id"])])   # and they leave a pass, as at the reconcile:
                 if known.get("held_at") is not None:                    # whatever its status by now (#161)
                     release_person(self.store, str(known["id"]), "event")
-            elif held:                                 # disabled while a pass is held: held too, not cut off (#135)
-                hold_person(self.store, known, "event", self.clock())
-            elif cut_off_person(self.store, self.metrics, known, state, "event", self.clock()):
-                done["disabled"] += 1
+            else:
+                disabled.append(known)
+        held = held or self._events_breaker(gone, disabled)    # a trip of this pass's own holds as a pending pass does
+        cut = 0
+        for user in gone:                              # held: the reconcile reads them again, and acts once an operator decides
+            if not held and self._cut_off(user, "deleted", "event"):
+                cut += 1
+        for user in disabled:
+            if held:                                   # disabled while a pass is held: held too, not cut off (#135)
+                hold_person(self.store, user, "event", self.clock())
+            elif cut_off_person(self.store, self.metrics, user, "disabled", "event", self.clock()):
+                cut += 1
+        done["disabled"] += cut
+        if cut and self.config.keycloak_breaker:       # below the thresholds: part of a burst the next passes may complete (#139)
+            self.store.record_events_cutoffs(self.clock(), cut, self.clock() - self.config.keycloak_reconcile_seconds)
         if self._budget_used(p, "admin-events"):   # the reconcile is not done: due again at the next pass
             return
         if due:
@@ -679,17 +702,55 @@ class KeycloakSync:
             return None
         if not (newly >= cfg.keycloak_breaker_min and newly * 100 > cfg.keycloak_breaker_percent * read):
             return False
+        self._trip(newly_gone, newly_disabled, read, "reconcile", held=held,
+                   said=f"Keycloak says {len(newly_gone)} of the {read} people read are gone and {len(newly_disabled)} "
+                        "disabled at once")
+        return True
+
+    def _events_breaker(self, gone: list[dict[str, Any]], disabled: list[dict[str, Any]]) -> bool:
+        """The breaker in the admin-events pass (#139): whether this pass holds the people it found gone (404) and
+        disabled (``enabled: false``), as a reconcile would. Acted on one at a time as their events arrived, a scripted
+        mass deletion or disabling was never a reconcile's to count (one already cut off is not newly gone or disabled
+        to it). So it counts the people newly found gone or disabled this pass (as their row stood before the read)
+        and the people the admin-events passes cut off within the last ``keycloak_reconcile_seconds`` (a script that
+        spreads its calls over several passes is one burst) against the people Inkcast knows from this Keycloak (the
+        cut-off included, as the reconcile reads them): at the minimum and above the share it records this pass's
+        people as a trip of its own, and the count starts afresh. Whoever the passes before cut off stays cut off; the
+        open breaker holds their erasure with the pass. Nothing counts with the breaker off, or when nobody was found;
+        a pass already pending holds without it (``_breaker_open``)."""
+        cfg = self.config
+        newly_gone = [user for user in gone if user.get("deleted_at") is None]
+        newly_disabled = [user for user in disabled if user.get("disabled_at") is None]
+        if not cfg.keycloak_breaker or not (newly_gone or newly_disabled):
+            return False
+        window = cfg.keycloak_reconcile_seconds
+        recent = self.store.events_cutoffs_since(self.clock() - window)
+        known = self.store.count_users_with_identity_prefix(self.prefix)
+        newly = len(newly_gone) + len(newly_disabled) + recent
+        if not (newly >= cfg.keycloak_breaker_min and newly * 100 > cfg.keycloak_breaker_percent * known):
+            return False
+        self._trip(newly_gone, newly_disabled, known, "event", recent=recent,
+                   said=f"Keycloak's admin events say {len(newly_gone)} of the {known} people Inkcast knows are gone and "
+                        f"{len(newly_disabled)} disabled, with {recent} more the admin-events passes cut off in the last "
+                        f"{window:.0f} s")
+        return True
+
+    def _trip(self, newly_gone: list[dict[str, Any]], newly_disabled: list[dict[str, Any]], read: int, via: str,
+              said: str, **extra: int) -> str:
+        """Record the pass the breaker trips on (``sync_breaker_trips``; its people by kind, with ``last_login_at`` as
+        read) and say so once, at CRITICAL. ``said`` is what Keycloak said and of how many (counts only, never an id),
+        ``via`` which pass found it (``reconcile`` or ``event``), ``extra`` more counts for the line. The pass id."""
+        cfg = self.config
         pass_id = self.store.record_breaker_trip(self.clock(), len(newly_gone), read,
                                                  [(str(user["id"]), float(user["last_login_at"])) for user in newly_gone],
                                                  [(str(user["id"]), float(user["last_login_at"])) for user in newly_disabled])
-        log.critical("Keycloak says %d of the %d people read are gone and %d disabled at once (at least %d and more than "
-                     "%d%% in all): nobody is cut off or erased and no grace period starts, and the disabled keep their "
-                     "personal access tokens, refused, until an operator confirms or dismisses pass %s "
-                     "(inkcast identity confirm-deletions | dismiss-deletions --pass %s)", len(newly_gone), read,
-                     len(newly_disabled), cfg.keycloak_breaker_min, cfg.keycloak_breaker_percent, pass_id, pass_id,
+        log.critical("%s (at least %d and more than %d%% in all): nobody is cut off or erased and no grace period starts, and "
+                     "the disabled keep their personal access tokens, refused, until an operator confirms or dismisses pass "
+                     "%s (inkcast identity confirm-deletions | dismiss-deletions --pass %s)", said, cfg.keycloak_breaker_min,
+                     cfg.keycloak_breaker_percent, pass_id, pass_id,
                      extra={"event": "identity.sync.breaker.tripped", "pass_id": pass_id, "gone": len(newly_gone),
-                            "disabled": len(newly_disabled), "read": read, "held": held})
-        return True
+                            "disabled": len(newly_disabled), "read": read, "via": via, **extra})
+        return pass_id
 
     async def run_forever(self, stop: asyncio.Event) -> None:
         log.info("Keycloak user sync on: %s every %.0f s, full reconcile every %.0f s", self.admin,
