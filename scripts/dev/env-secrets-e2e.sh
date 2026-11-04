@@ -239,7 +239,8 @@ for pod in json.load(sys.stdin)["items"]:
         if s["name"] != "env-secrets":
             continue
         # The attempt that failed: the current one, or the previous one once the kubelet has started its retry,
-        # whose own log is empty until it fails too. Its log is read by that name, so the read never races the retry.
+        # whose own log is empty until it fails too. The kubelet can still start the retry before the log is read:
+        # the read below then falls back to --previous (#387).
         if s.get("state", {}).get("terminated", {}).get("exitCode") == 1:
             print(pod["metadata"]["name"])
         elif s.get("lastState", {}).get("terminated", {}).get("exitCode") == 1:
@@ -250,11 +251,17 @@ done
 [ -n "$failed" ] || { echo "the init container did not fail on the disagreement within 120 s" >&2; exit 1; }
 # shellcheck disable=SC2086  # "$failed" is the pod's name, then --previous when the failed attempt is the last one
 $k -n "$ns" logs $failed -c env-secrets > "$work/init.log"
+pair="keycloak/inkcast-staging-realm identity-client-secret and inkcast-staging/inkcast-secrets oidc-client-secret disagree"
+if [ "$failed" = "${failed%% *}" ] && ! grep -qF "$pair" "$work/init.log"; then
+  # The retry started between the check and the read, so the log read was the new attempt's, not yet failed. The
+  # attempt that failed is now the previous one; every attempt fails on the same disagreement (#387).
+  $k -n "$ns" logs "$failed" -c env-secrets --previous > "$work/init.log"
+fi
 cat "$work/init.log"
 check no-value "$work/init.log"
 named="$(cat "$work/init.log")"
 case "$named" in
-  *"keycloak/inkcast-staging-realm identity-client-secret and inkcast-staging/inkcast-secrets oidc-client-secret disagree"*) ;;
+  *"$pair"*) ;;
   *) echo "the init container's log does not name the pair" >&2; exit 1 ;;
 esac
 case "$named" in *disagrees-on-purpose*) echo "the log holds the test value" >&2; exit 1 ;; esac
