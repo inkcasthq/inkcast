@@ -7,7 +7,8 @@
 5. ``libs.secrets`` is the bottom layer: it imports nothing else from ``inkcast`` (logging, config and HTTP
    all depend on it, never the reverse), and every ``reveal()`` lives in a file that is allowed to use one.
 6. Every source file carries the licence header.
-7. ``Store.erase_user`` covers every table that holds a person's rows (issue #65): the live schema is scanned.
+7. ``Store.erase_user`` covers every table that holds a person's rows (issue #65): the live schema is scanned; and
+   every KPI dim that holds a person's id (issue #212): the catalogue and the rollup rules are.
 """
 
 import ast
@@ -193,6 +194,61 @@ class Architecture(unittest.TestCase):
         self.assertEqual(set(impersonal) & set(covered), set())
         self.assertEqual(set(impersonal) - set(tables), set(), "an impersonal table that no longer exists")
         store.close()
+
+    def test_erase_user_covers_every_kpi_dim_that_names_a_person(self):
+        """Issue #212: a team KPI names its member in ``kpi_rollups.dims``, not its scope. Every dims key a KPI keeps is
+        in ``libs/kpi/store.PERSON_DIMS`` or declared impersonal here, with the reason; a person dim is written from
+        the event's user id and nowhere else; and for each one the erasure's condition, the fold into the tombstone,
+        the owner guard and the index reach it, proved on a row rather than read off the SQL."""
+        import dataclasses
+        from fakes import seed_people
+        from inkcast.libs.db import Store
+        from inkcast.libs.db.erasure import USER_TABLES
+        from inkcast.libs.events import DomainEvent
+        from inkcast.libs.kpi import CATALOGUE, RULES
+        from inkcast.libs.kpi.store import MEMBER_ERASED, PERSON_DIMS, Increment
+        # Dims keys that hold nothing about a person, each with the reason (review when adding one).
+        impersonal = {"platform": "a platform's name", "status": "a post's status", "action": "a sync or audit action",
+                      "reason": "why a post failed"}
+        kept = {dim for kpi in CATALOGUE for dim in kpi.dims} | {dim for rule in RULES for dim in rule.dims}
+        for dim in sorted(kept):
+            self.assertTrue(dim in PERSON_DIMS or dim in impersonal,
+                            f"dims key {dim!r}: add it to kpi.store.PERSON_DIMS if it holds a person's id, or say here why not")
+        self.assertEqual(set(impersonal) & set(PERSON_DIMS), set())
+        self.assertEqual(set(impersonal) - kept, set(), "an impersonal dim no KPI keeps")
+        self.assertEqual(MEMBER_ERASED, "user:deleted", "the tombstone the design names (observability-and-kpis.md §6)")
+        for kpi in CATALOGUE:
+            if set(kpi.dims) & set(PERSON_DIMS):
+                self.assertEqual(kpi.aggregation, "sum", f"{kpi.name}: erased members' rows are folded into one by adding")
+        # The rollup writes the event's user id under a person dim and under nothing else.
+        for rule in RULES:
+            event = DomainEvent(rule.event, user_id="usr_person", workspace_id="ws", org_id="org",
+                                attrs={dim: f"{dim}-value" for dim in rule.dims})
+            for inc in dataclasses.replace(rule, when=None, value=None).increments(event):
+                for dim, value in inc.dims.items():
+                    self.assertEqual(value == "usr_person", dim in PERSON_DIMS, (rule.kpi, inc.scope_kind, dim, value))
+        # Each person dim, on a row: the condition counts it, the erasure folds it, the guard refuses it, the index exists.
+        store = Store(":memory:", "k" * 40)
+        self.addCleanup(store.close)
+        seed_people(store, "usr_a", "usr_b")
+        condition = dict(USER_TABLES)["kpi_rollups"]
+        day = 1_699_920_000
+        for dim in PERSON_DIMS:
+            with self.subTest(dim=dim):
+                store.apply(f"evt-{dim}", 1_700_000_000.0, [Increment("member_posts_published", "workspace", "ws", {dim: "usr_a"}),
+                                                            Increment("member_posts_published", "workspace", "ws", {dim: "usr_b"})])
+                self.assertEqual(store._conn.execute(f"SELECT COUNT(*) FROM kpi_rollups WHERE {condition}",
+                                                     {"user_id": "usr_a"}).fetchone()[0], 2, "the hour and the day row")
+                self.assertEqual(store.erase_user("usr_a")["kpi_rollups"], 2)
+                self.assertEqual(store._all("SELECT dims FROM kpi_rollups WHERE instr(dims, 'usr_a') > 0"), [])
+                folded = store.read("member_posts_published", "day", "workspace", "ws", day, day + 1, dims={dim: MEMBER_ERASED})
+                self.assertEqual([(p.value, p.n) for p in folded], [(1.0, 1)], "folded into the tombstone's row")
+                store.apply(f"evt-{dim}-late", 1_700_000_000.0,
+                            [Increment("member_posts_published", "workspace", "ws", {dim: "usr_nobody"})])
+                self.assertEqual(store._all("SELECT 1 FROM kpi_rollups WHERE instr(dims, 'usr_nobody') > 0"), [],
+                                 "a row naming a person who has no users row is refused by the guard")
+                self.assertIsNotNone(store._one("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?",
+                                                f"kpi_rollups_{dim}"), "the partial index the erasure searches")
 
     def test_generated_manifests_are_current(self):
         import subprocess
