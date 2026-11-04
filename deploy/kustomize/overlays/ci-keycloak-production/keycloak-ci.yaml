@@ -1,6 +1,8 @@
 # The CI patch on the component's Keycloak CR (kustomization.yaml says why): the hostname the discovery document
 # must carry, and the pod securityContext that Pod Security "restricted" requires on plain Kubernetes. The images
 # declare a numeric user (USER 1000: quarkus/container/Dockerfile at 26.6.4), so runAsNonRoot needs no runAsUser.
+# The template's first container is the server's, and it is left unnamed: the operator names it itself and warns on
+# the CR's status about any name given here (KeycloakController.validatePodTemplate at 26.6.4).
 apiVersion: k8s.keycloak.org/v2beta1
 kind: Keycloak
 metadata:
@@ -15,7 +17,6 @@ spec:
           runAsNonRoot: true
           seccompProfile: {type: RuntimeDefault}
         containers:
-          - name: keycloak
-            securityContext:
+          - securityContext:
               allowPrivilegeEscalation: false
               capabilities: {drop: [ALL]}
