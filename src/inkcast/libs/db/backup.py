@@ -10,10 +10,11 @@
   extra backup on the same day evicts no daily copy, and the first good backup after days without one removes
   everything that old at once); a failed backup never removes anything, so the alert on a missed backup
   (InkcastBackupMissing) covers the days in between. One run never removes every earlier backup (issue #405): when
-  the newest backup from before today is more than ``keep`` days old, either this clock has jumped that far ahead or
-  no backup succeeded for longer than the whole retention window, and the run removes nothing and says so
-  (``Backup.refused``; the command exits 1, so the Job fails and the alert fires). A copy a wrong clock dated after
-  today ages out with the day its run followed (``previous``), not with its own date (``_dated``).
+  the newest backup from before today has aged out (``keep`` or more days old; more than one with ``keep`` 1),
+  either this clock has jumped that far ahead or no backup succeeded for the whole retention window, and the run
+  removes nothing and says so (``Backup.refused``; the command exits 1, so the Job fails and the alert fires). A
+  copy a wrong clock dated after today ages out with the day its run followed (``previous``), not with its own
+  date (``_dated``).
 * ``verify_backup``: the checksum against the manifest, then the integrity check.
 * ``restore_backup``: verifies first, refuses while the scheduler's heartbeat is fresh (the server is still running),
   and never deletes the current database: it is moved aside as ``<db>.before-restore-<time>`` with its WAL files.
@@ -153,25 +154,26 @@ def _dated(directory: pathlib.Path, now: float) -> dict[pathlib.Path, datetime]:
 
 def _refusal(dated: dict[pathlib.Path, datetime], now: float, keep: int) -> str:
     """Why this run must remove nothing, or "" when retention may run: the newest backup from before today (as
-    ``_dated`` dates it) is more than ``keep`` days old, so every earlier backup would go and this run's copy, dated by
-    this clock, would be the only restore point left. On a correct clock that means no backup succeeded for longer
-    than the whole retention window (InkcastBackupMissing has fired for as long); on a clock more than ``keep`` days
-    ahead it is the one sign there is (issue #405). Either way the next good backup, a day on, finds a gap of one day
-    and removes them. Today's other copies are not consulted: a run's judgement of its clock rests on the days before
-    it, so a Job retried minutes after a refused run (each attempt takes a backup) refuses again rather than trusting
-    the copy the first attempt dated by the same clock."""
+    ``_dated`` dates it) has aged out, ``keep`` or more days old, so every earlier backup would go and this run's copy,
+    dated by this clock, would be the only restore point left; with ``keep`` 1 a day-old backup goes every day, so there
+    it takes more than a day. On a correct clock that means no backup succeeded for the whole retention window
+    (InkcastBackupMissing has fired for as long); on a clock ``keep - 1`` or more days ahead it is the one sign there is
+    (issue #405). Either way the next good backup, a day on, finds a gap of one day and removes them. Today's other
+    copies are not consulted: a run's judgement of its clock rests on the days before it, so a Job retried minutes
+    after a refused run (each attempt takes a backup) refuses again rather than trusting the copy the first attempt
+    dated by the same clock."""
     today = datetime.fromtimestamp(now, timezone.utc).date()
     before = [stamp for stamp in dated.values() if stamp.date() < today]
     if not before:
         return ""
     newest = max(before)
     age = (today - newest.date()).days
-    if age <= keep:
+    if age < max(keep, 2):
         return ""
-    return (f"the newest earlier backup, {PREFIX}{_stamp(newest.timestamp())}{SUFFIX}, is {age} days old, more than the "
-            f"{keep} day(s) kept: either this clock is that far ahead, or no backup succeeded for that long. Removing "
-            f"every earlier backup would leave only this run's copy, dated by this clock, so nothing was removed; the "
-            f"next good backup removes them.")
+    return (f"the newest earlier backup, {PREFIX}{_stamp(newest.timestamp())}{SUFFIX}, is {age} days old, so every "
+            f"earlier backup has aged out ({keep} day(s) kept): either this clock is that far ahead, or no backup "
+            f"succeeded for that long. Removing every earlier backup would leave only this run's copy, dated by this "
+            f"clock, so nothing was removed; the next good backup removes them.")
 
 
 def _prune_backups(directory: pathlib.Path, keep: int, now: float, dated: dict[pathlib.Path, datetime]) -> int:
@@ -315,8 +317,8 @@ def take_backup(database: pathlib.Path, directory: pathlib.Path, *, keep: int = 
         os.umask(old_umask)
     # Retention, only after a good backup: by age, so the promise "within keep days" holds from the first good backup
     # after any run of failed ones, and a backup taken by hand evicts no daily copy. The copies restores left beside
-    # the database go by the same rule: they hold whoever was erased after the restore (issue #112). A run whose clock
-    # is more than keep days past the newest backup removes nothing, copies included (issue #405).
+    # the database go by the same rule: they hold whoever was erased after the restore (issue #112). A run that would
+    # remove every earlier backup removes nothing, copies included (issue #405).
     refused = _refusal(dated, now, keep)
     if refused:
         return Backup(target, manifest, refused=refused)

@@ -4,10 +4,10 @@
 
 Retention is by age (#112), so a run whose clock was a year ahead found every backup a year old and removed them all,
 leaving its own copy, dated a year on, as the only restore point; with the clock right again that copy stayed until its
-own date plus ``keep``. Now a run whose newest backup from before today is more than ``keep`` days old removes nothing
-and says why (``Backup.refused``; ``inkcast backup`` exits 1 after its ``backup.done`` line, so the Job fails and
-InkcastBackupMissing fires), and a copy dated after today ages out with the day its run followed (``previous`` in its
-manifest), the day the real history would have. The clock is injected (``now``), never slept for."""
+own date plus ``keep``. Now a run whose newest backup from before today has aged out (``keep`` or more days old)
+removes nothing and says why (``Backup.refused``; ``inkcast backup`` exits 1 after its ``backup.done`` line, so the Job
+fails and InkcastBackupMissing fires), and a copy dated after today ages out with the day its run followed
+(``previous`` in its manifest), the day the real history would have. The clock is injected (``now``), never slept for."""
 
 import json
 import logging
@@ -60,7 +60,7 @@ class AClockAYearAhead(FiveDailyBackups):
         b = take_backup(self.db, self.backups, keep=KEEP, now=JUMP)
         self.assertEqual((b.removed_backups, b.removed_copies), (0, 0))
         self.assertIn(self.days[-1].name, b.refused)
-        self.assertIn("366 days old, more than the 14 day(s) kept", b.refused)
+        self.assertIn("366 days old, so every earlier backup has aged out (14 day(s) kept)", b.refused)
         self.assertIn("clock", b.refused)
         self.assertEqual(names(list_backups(self.backups, now=JUMP)), names(d.path for d in self.days) + [b.name])
         self.assertEqual(b.manifest["previous"], stamp(DAY0 + 4 * DAY), "the copy records the day it followed")
@@ -145,10 +145,19 @@ class AGapInBackups(FiveDailyBackups):
         self.assertEqual((c.removed_backups, c.refused), (5, ""))
         self.assertEqual(names(list_backups(self.backups)), [b.name, c.name])
 
-    def test_of_exactly_keep_days_prunes_at_once_as_before(self):
-        b = take_backup(self.db, self.backups, keep=KEEP, now=DAY0 + 18 * DAY)    # 14 days after the last one
-        self.assertEqual((b.removed_backups, b.refused), (5, ""))
-        self.assertEqual(names(list_backups(self.backups)), [b.name])
+    def test_of_exactly_keep_days_is_refused_once_too(self):
+        # 14 days after the last one: every backup has aged out, as on a clock 13 days ahead (review of #457).
+        b = take_backup(self.db, self.backups, keep=KEEP, now=DAY0 + 18 * DAY)
+        self.assertEqual(b.removed_backups, 0)
+        self.assertTrue(b.refused.startswith(f"the newest earlier backup, {self.days[-1].name}, is 14 days old"), b.refused)
+        c = take_backup(self.db, self.backups, keep=KEEP, now=DAY0 + 19 * DAY)
+        self.assertEqual((c.removed_backups, c.refused), (5, ""))
+        self.assertEqual(names(list_backups(self.backups)), [b.name, c.name])
+
+    def test_of_keep_minus_one_days_prunes_at_once_as_before(self):
+        b = take_backup(self.db, self.backups, keep=KEEP, now=DAY0 + 17 * DAY)    # 13 days after the last one
+        self.assertEqual((b.removed_backups, b.refused), (4, ""))
+        self.assertEqual(names(list_backups(self.backups)), [self.days[-1].name, b.name])
 
     def test_keep_1_keeps_only_today_s_copies_as_before(self):
         backups = self.dir / "daily"

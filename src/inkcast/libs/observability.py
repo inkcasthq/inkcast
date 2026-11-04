@@ -136,11 +136,11 @@ EVENTS: dict[str, tuple[str, str]] = {
                             "copies INKCAST_BACKUP_KEEP or more days old removed (removed_backups, removed_copies)."),
     "backup.failed": ("critical", "A database backup failed; nothing was removed. The alert fires when none succeeds for 26 h."),
     "backup.retention.refused": ("critical", "The backup was taken and is good (its backup.done line precedes this), but "
-                                             "nothing aged out: the newest backup from before today is more than "
-                                             "INKCAST_BACKUP_KEEP days old, which is the node's clock that far ahead (check "
-                                             "it) or no backup for that long (InkcastBackupMissing has fired as long). The "
-                                             "command exits 1 so the Job fails and that alert fires; on a correct clock the "
-                                             "next good backup removes them (#405)."),
+                                             "nothing aged out: the newest backup from before today has aged out "
+                                             "(INKCAST_BACKUP_KEEP days old or more), which is the node's clock that far "
+                                             "ahead (check it) or no backup for that long (InkcastBackupMissing has fired "
+                                             "as long). The command exits 1 so the Job fails and that alert fires; on a "
+                                             "correct clock the next good backup removes them (#405)."),
     "restore.done": ("warning", "The database was replaced by a backup; the previous one was kept beside it."),
     "restore.erasures.carried": ("info", "The erasure records of the replaced database, and their aliases from a key "
                                          "rotation, went into the restored copy, so the server erases those people again "
