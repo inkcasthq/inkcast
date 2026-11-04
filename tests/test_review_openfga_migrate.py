@@ -173,3 +173,64 @@ class MigrateScript(unittest.TestCase):
                 self.assertEqual(code, 1, log)
                 self.assertIn("no database after 1 s", log)
                 self.assertNotIn(PASSWORD, log)
+
+
+@unittest.skipIf(UNAVAILABLE, UNAVAILABLE)
+class PartitionedRunner(unittest.TestCase):
+    """A database and a runner in two containers on their own network, so that the runner can be cut off."""
+
+    def docker(self, *args: str, check: bool = True) -> str:
+        return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=120, check=check).stdout.strip()
+
+    def sql(self, statement: str, database: str = "openfga") -> str:
+        return self.docker("exec", self.server, "psql", "-h", "/tmp", "-U", "postgres", "-d", database, "-X", "-q", "-At",
+                           "-v", "ON_ERROR_STOP=1", "-c", statement)
+
+    def test_a_runner_cut_off_releases_the_lock_within_a_minute(self):
+        """A runner cut off from the database without a FIN or a RST (a node partition; here `docker network
+        disconnect`) keeps its session, and with it the migration lock, until the server finds the peer gone: with
+        tcp_keepalives_idle 0, PostgreSQL's default and CloudNativePG's (it sets none), only after the OS's 7200 s
+        of idle. The pod that replaces it waits for that lock. migrate.sh's sessions ask for keepalives of their own."""
+        postgres, openfga = pinned_images()
+        network = f"inkcast-review-374-net-{os.getpid()}"
+        self.server, runner = f"{network}-db", f"{network}-runner"
+        self.docker("network", "create", network)
+        self.addCleanup(self.docker, "network", "rm", network, check=False)
+        self.docker("run", "-d", "--rm", "--name", self.server, "--network", network, postgres, "bash", "-c",
+                    "initdb -D /tmp/pg -U postgres --auth-local=trust --auth-host=scram-sha-256 >/dev/null"
+                    " && echo 'host all all 0.0.0.0/0 scram-sha-256' >> /tmp/pg/pg_hba.conf"
+                    " && exec postgres -D /tmp/pg -c listen_addresses='*' -k /tmp")
+        self.addCleanup(self.docker, "rm", "-f", self.server, check=False)
+        uri = f"postgres://openfga:{PASSWORD}@{self.server}:5432/openfga?sslmode=disable"
+        self.docker("run", "-d", "--rm", "--name", runner, "--network", network,
+                    "--mount", f"type=image,source={openfga},target=/opt/openfga", "-eOPENFGA_DATASTORE_ENGINE=postgres",
+                    f"-eOPENFGA_DATASTORE_URI={uri}", "-eOPENFGA_TIMEOUT=5s", "-eCONNECT_TIMEOUT=30",
+                    "--entrypoint", "sleep", postgres, "infinity")
+        self.addCleanup(self.docker, "rm", "-f", runner, check=False)
+        self.docker("cp", str(SCRIPT), f"{runner}:/tmp/migrate.sh")
+        for _ in range(60):
+            if self.docker("exec", self.server, "psql", "-h", "/tmp", "-U", "postgres", "-Atc", "SELECT 1", check=False) == "1":
+                break
+            time.sleep(1)
+        self.sql(f"CREATE ROLE openfga LOGIN PASSWORD '{PASSWORD}'", "postgres")
+        self.sql("CREATE DATABASE openfga OWNER openfga", "postgres")
+        self.docker("exec", runner, "bash", "/tmp/migrate.sh")   # 0 to 6
+        # 006 to apply again and held back by a table lock taken from outside: the runner sits in `openfga migrate`,
+        # its own session idle with the migration lock.
+        self.sql("DELETE FROM goose_db_version WHERE version_id = 6")
+        self.sql("DROP INDEX idx_user_lookup")
+        self.docker("exec", "-d", self.server, "psql", "-h", "/tmp", "-U", "postgres", "-d", "openfga", "-c",
+                    "BEGIN; LOCK TABLE tuple IN SHARE MODE; SELECT pg_sleep(15); COMMIT;")
+        time.sleep(1)
+        self.docker("exec", "-d", runner, "bash", "/tmp/migrate.sh")
+        held = "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND granted"
+        for _ in range(40):
+            if self.sql(held) == "1":
+                break
+            time.sleep(0.25)
+        self.assertEqual(self.sql(held), "1", "the runner never took the lock")
+        self.docker("network", "disconnect", network, runner)
+        cut = time.monotonic()
+        while self.sql(held) != "0" and time.monotonic() - cut < 60:
+            time.sleep(1)
+        self.assertEqual(self.sql(held), "0", f"the lock is still held {time.monotonic() - cut:.0f} s after the runner was cut off")
