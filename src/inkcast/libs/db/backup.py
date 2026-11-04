@@ -29,6 +29,8 @@ data too; the deletion pages say so.
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import hashlib
 import json
 import logging
@@ -36,6 +38,7 @@ import os
 import pathlib
 import sqlite3
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -307,6 +310,40 @@ def _erasure_aliases(conn: sqlite3.Connection) -> list[tuple[str, str]]:
 def restore_backup(path: pathlib.Path, database: pathlib.Path, *, force: bool = False,
                    now: float | None = None) -> pathlib.Path | None:
     """Put ``path`` in place of ``database``. Returns where the previous database was moved, if there was one."""
+    database.parent.mkdir(parents=True, exist_ok=True)
+    incoming = database.with_name(f".{database.name}.restoring")
+    with _one_restore(incoming):
+        return _restore(path, database, incoming, force=force, now=now)
+
+
+@contextlib.contextmanager
+def _one_restore(incoming: pathlib.Path) -> Iterator[None]:
+    """One restore of a database at a time (#202): two at once share the staging file ``incoming`` and, in the same
+    second, the name of the copy set aside, and the second failed after its copy with whatever the first had done to
+    the file. The lock is the data directory's, taken before anything is checked or copied: no file of its own, and
+    not the SQLite file's, whose own locks it would meet (on macOS it blocks them). The kernel drops it with the
+    process, so a killed restore leaves none held; a file system that cannot lock a directory (NFS) restores
+    without it, as before. While it is held the staging file is this restore's: whatever ends the restore early
+    removes it."""
+    fd = os.open(incoming.parent, os.O_RDONLY)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise BackupError("Another restore of this database is running: wait for it to end.") from None
+        except OSError as exc:
+            log.warning("Restoring without the lock that keeps a second restore out: %s", exc)
+        try:
+            yield
+        except BaseException:
+            incoming.unlink(missing_ok=True)
+            raise
+    finally:
+        os.close(fd)
+
+
+def _restore(path: pathlib.Path, database: pathlib.Path, incoming: pathlib.Path, *, force: bool,
+             now: float | None) -> pathlib.Path | None:
     now = now or time.time()
     manifest = verify_backup(path)
     age = _heartbeat_age(database, now)
@@ -316,8 +353,6 @@ def restore_backup(path: pathlib.Path, database: pathlib.Path, *, force: bool = 
     taken = database.with_name(f"{database.name}{ASIDE}{_stamp(now)}")     # the name the swap below will use
     if taken.exists():                                  # a restore this very second: refused before any copy (#202)
         raise BackupError(f"{taken.name} is already there: a restore ran this second; try again in a second.")
-    database.parent.mkdir(parents=True, exist_ok=True)
-    incoming = database.with_name(f".{database.name}.restoring")
     old_umask = os.umask(0o027)
     try:
         src, dst = sqlite3.connect(f"file:{path}?mode=ro", uri=True), sqlite3.connect(incoming)
