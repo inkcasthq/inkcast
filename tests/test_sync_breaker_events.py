@@ -198,7 +198,10 @@ class ABurstSpreadOverPasses(Events):
         for user in batches[2]:
             self.assert_cut_off(user, deleted_at=T0 + 700)
         done = self.reconcile(worker, T0 + 1200)
-        self.assertEqual((done["disabled"], done["erased"]), (5, 20), "the last five, alone now, cut off; 0 days: all twenty erased")
+        # The last five, alone now, are cut off by this tick's events pass: a burst opens again, so whoever is gone
+        # within its window (those five, the five confirmed at T0 + 700) waits for it to close (review of #418).
+        self.assertEqual((done["disabled"], done["erased"]), (5, 10), "the ten cut off before the trip: erased")
+        self.assertEqual(self.reconcile(worker, T0 + 1900)["erased"], 10, "the window closed: 0 days, all twenty erased")
         self.assertEqual(len(self.trips()), 1)
 
     def test_passes_further_apart_than_the_window_count_alone(self):

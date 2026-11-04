@@ -630,6 +630,10 @@ class KeycloakSync:
         disabled = [(user, keycloak_id) for user, keycloak_id, state in read if state == "disabled"]
         held = self._breaker(gone, disabled, len(read), untried)
         deferred = held is None                      # the breaker could not count: what it would hold waits (#152)
+        # Whoever the admin-events passes cut off within the window may be the start of a burst a later pass trips on
+        # (#139): erased only once that window has closed, so the trip can still hold their erasure.
+        since = self.clock() - self.config.keycloak_reconcile_seconds
+        burst = bool(self.config.keycloak_breaker and self.store.events_cutoffs_since(since))
         for user, keycloak_id, state in read:
             if state == "deleted":
                 continue
@@ -653,6 +657,8 @@ class KeycloakSync:
             else:                                    # an administrator's deletion, or the event is past retention
                 if self._cut_off(user, "deleted", "reconcile"):    # as listed: a sign-in since the check declines it
                     done["disabled"] += 1
+                if burst and user.get("deleted_at") is not None and float(user["deleted_at"]) >= since:
+                    continue                         # gone as listed, within the window: part of a burst still open
                 over = self._grace_over(user)        # their row now, cut off; what the erasure re-checks
                 if over is not None and self._erase(over, "reconcile"):
                     done["erased"] += 1
