@@ -197,19 +197,39 @@ class ComponentFiles(unittest.TestCase):
         self.assertEqual(namespace["metadata"]["labels"], dev["metadata"]["labels"], "one object, applied by both")
 
 
+def kustomizations_using(component: pathlib.Path) -> dict[str, pathlib.Path]:
+    """Every kustomization under deploy/kustomize whose `components` list names the component, by its path relative
+    to deploy/kustomize: a new overlay, environment or shared kustomization that uses it is tested without being
+    listed here (review of #391, K6)."""
+    found = {}
+    for path in sorted(KUSTOMIZE.rglob("kustomization.yaml")):
+        k = yaml.safe_load(path.read_text()) or {}
+        if k.get("kind") == "Component":
+            continue
+        for entry in k.get("components") or []:
+            if (path.parent / entry).resolve() == component.resolve():
+                found[str(path.parent.relative_to(KUSTOMIZE))] = path.parent
+    return found
+
+
 @unittest.skipUnless(shutil.which("kubectl"), "kubectl renders the overlays (CI's manifests job has it)")
 class Rendered(unittest.TestCase):
-    """The rendered objects of every kustomization that ships the component (today: the CI overlay)."""
+    """The rendered objects of every kustomization that ships the component, found by scanning deploy/kustomize."""
 
     @classmethod
     def setUpClass(cls):
-        cls.docs = {"overlays/ci-keycloak-production": render(OVERLAY)}
+        cls.docs = {name: render(path) for name, path in kustomizations_using(COMPONENT).items()}
+
+    def test_the_scan_finds_the_ci_overlay(self):
+        self.assertIn("overlays/ci-keycloak-production", self.docs)
 
     def test_every_kustomization_renders_the_component_in_its_namespace_with_its_own_hostname(self):
         for name, docs in self.docs.items():
             with self.subTest(kustomization=name):
                 check_component(self, [d for d in docs if d["kind"] != "Namespace"], name)
                 kc = one(docs, "Keycloak", KEYCLOAK_CR)
+                self.assertNotEqual(kc["spec"]["hostname"]["hostname"], "https://keycloak.example.invalid",
+                                    f"{name}: the component's unresolvable hostname was not patched")
                 self.assertNotIn("example.invalid", kc["spec"]["hostname"]["hostname"], f"{name}: the hostname is patched")
                 for d in docs:
                     if d["kind"] != "Namespace":
