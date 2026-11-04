@@ -429,7 +429,8 @@ class Publisher:
         """Clear the note that a post was changed while its send was out (``_edited``) once nothing is owed: Git sync
         found the file back to what was sent (#427). Every other note stays (a second copy, an earlier send's lost
         answer: the person's to check). Worded from the row's copy and matched by equality, as ``update`` matches it,
-        and written only while the row is as read (status and attempts), like ``update``'s. True when cleared."""
+        and written only while the row is as read (status, attempts and notes): a note written meanwhile (a second copy,
+        ``PostsRepo.record_success``) is never overwritten. True when cleared."""
         row = self.store.get_post(post_id)
         if row is None:
             return False
@@ -438,7 +439,7 @@ class Publisher:
             return False
         kept = [n for n in held if n != edited]
         return self.store.update_post(post_id, error="; ".join(kept) or None, only_if=row["status"],
-                                      if_attempts=row["attempts"])
+                                      if_attempts=row["attempts"], if_error=row["error"])
 
     async def confirm(self, user_id: str, platform: Platform, prepared: Prepared) -> Outcome | None:
         """For an ``unconfirmed`` publish: ask the platform whether the post exists. None = can't tell. An
