@@ -234,6 +234,7 @@ def _routes(ctx: Context) -> list[Route]:
             return expired()
         pending_id = store.create_pending(DELETE_REQUEST, req["id"])
         try:
+            await identity.reachable()                              # asked now: the hour's cached discovery says nothing
             response = await identity.start(request, pending_id)
         except LoginError as exc:                                   # the link stays good; the sign-in it started does not
             store.delete_pending(pending_id)

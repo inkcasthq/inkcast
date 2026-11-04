@@ -68,6 +68,10 @@ class IdentityProvider(ABC):
     async def finish(self, request: Request) -> tuple[str, Identity]:
         """Complete sign-in from the callback request; return (pending_id, identity)."""
 
+    async def reachable(self) -> None:
+        """Raise LoginError when the provider does not answer now. A one-time link asks before it is used up (issue
+        #149); only OIDC has a provider to ask."""
+
     # A per-authorization secret derived from the server key, so PKCE verifiers
     # don't need their own storage.
     def _derived(self, label: str, pending_id: str) -> str:
@@ -79,8 +83,9 @@ class OIDCIdentity(IdentityProvider):
     _discovery: dict[str, Any] | None = None
     _discovered_at: float = 0
 
-    async def discovery(self) -> dict[str, Any]:
-        if self._discovery is None or time.time() - self._discovered_at > 3600:
+    async def discovery(self, fresh: bool = False) -> dict[str, Any]:
+        """The provider's metadata, kept an hour; ``fresh`` asks the provider now (a failure keeps the kept copy)."""
+        if fresh or self._discovery is None or time.time() - self._discovered_at > 3600:
             url = f"{self.config.oidc_issuer}/.well-known/openid-configuration"
             try:
                 response = await self.http.get(url)
@@ -89,6 +94,9 @@ class OIDCIdentity(IdentityProvider):
                 raise LoginError(f"Can't reach the sign-in provider ({url}): {exc}") from exc
             self._discovery, self._discovered_at = response.json(), time.time()
         return self._discovery
+
+    async def reachable(self) -> None:
+        await self.discovery(fresh=True)
 
     async def start(self, request: Request, pending_id: str) -> Response:
         return await self.start_action(request, pending_id, None)

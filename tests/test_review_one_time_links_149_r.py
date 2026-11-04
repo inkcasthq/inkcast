@@ -79,5 +79,31 @@ class TheRouteWalkSeesEveryParameter(unittest.TestCase):
             self.assertEqual(PARAM.findall(template), list(compile_path(template)[2]), template)
 
 
+class ProviderDownAfterARecentSignIn(unittest.TestCase):
+    """OIDCIdentity.discovery keeps Keycloak's metadata an hour. After any sign-in in that hour, a visit while Keycloak
+    is down raises no LoginError: the redirect is built from the cache, the link is used up, and the browser is sent to
+    a provider that does not answer. Issue #149's test, "a deletion link opened while the sign-in provider is
+    unreachable can be opened again", then fails on a server that has been in use."""
+
+    def test_a_link_opened_while_the_provider_is_down_can_be_opened_again_after_a_recent_sign_in(self):
+        from starlette.testclient import TestClient
+
+        from test_deletion_link_consumption import AUTHORIZE, PUBLIC_URL, Provider, a_link, keycloak_app
+        provider = Provider(up=True)
+        app, ctx = keycloak_app(provider)
+        with TestClient(app, base_url=PUBLIC_URL, follow_redirects=False) as c:
+            self.assertEqual(c.get(f"/account/delete/{a_link(ctx)}").status_code, 302, "a sign-in this hour")
+            provider.up = False
+            ticket = a_link(ctx)
+            down = c.get(f"/account/delete/{ticket}")
+            self.assertEqual(down.status_code, 502, f"sent to {down.headers.get('location')}")
+            self.assertIsNotNone(ctx.store.deletion_request_by_link(ticket), "the link is not used up")
+            provider.up = True
+            back = c.get(f"/account/delete/{ticket}")
+            self.assertEqual(back.status_code, 302, back.text)
+            self.assertTrue(back.headers["location"].startswith(AUTHORIZE + "?"))
+            self.assertIsNone(ctx.store.deletion_request_by_link(ticket), "used up now, with the redirect ready")
+
+
 if __name__ == "__main__":
     unittest.main()
