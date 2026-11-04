@@ -137,8 +137,9 @@ class PostsRepo(Database):
         ``keep``: a note the ``error`` keeps when the row's error already holds it, whatever ``fields["error"]`` says:
         the note that an earlier send's answer was lost and a second copy may be there (``_lost``), which only a person
         clears (#234). One statement too, so a note written meanwhile is never lost between a read and this write.
-        ``if_error``: change it only while its ``error`` is still this: a write worded from an earlier read of the notes
-        (``Publisher.settle_edited``, #427) never loses one written meanwhile (a second copy, ``record_success``).
+        ``if_error``: change it only while its ``error`` is still this ("" for none: a row with no notes, as ``notes_of``
+        reads it): a write worded from an earlier read of the notes (``Publisher.settle_edited``, #427;
+        ``Publisher.update``, #473) never loses one written meanwhile (a second copy, ``record_success``).
         True when the post was changed."""
         if beyond is not None and unless_found_at is None:
             raise ValueError("update_post(beyond=) needs unless_found_at: the attempt count the answer is about")
@@ -160,7 +161,7 @@ class PostsRepo(Database):
                   + (" AND attempts = ?" if if_attempts is not None else "")
                   + (" AND NOT (status IN ('published', 'draft', 'unlisted') AND attempts = ?)"
                      if unless_found_at is not None else "")
-                  + (" AND error = ?" if if_error is not None else ""))
+                  + (" AND COALESCE(error, '') = ?" if if_error is not None else ""))
         with self._tx() as c:
             changed = c.execute(f"UPDATE posts SET {', '.join(sets)} WHERE id = ?{status}",
                                 (*values, post_id, *statuses,

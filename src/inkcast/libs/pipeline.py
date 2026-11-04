@@ -427,15 +427,21 @@ class Publisher:
         if post_id:  # a PUT's answer that names no URL (a 204) keeps the post's: the post is where it was (#214)
             # The update that sends an edit made while a send was out settles that edit's note only (#392): the success
             # that wrote it may have noted a second copy beside it (#214), which is the person's to check.
-            notes = list(result.notes)
-            row = self.store.get_post(post_id) or {"error": None, "result_url": None, "remote_id": None}
-            held, edited = self.store.notes_of(row), _edited(platform, row["result_url"], row["remote_id"])
-            if edited in held:
-                notes = [n for n in held if n != edited] + notes
-            elif _lost(platform) in held:  # an edit is no decision about a second copy: only a person clears it (#234)
-                notes = [_lost(platform)] + notes
-            self.store.update_post(post_id, status=status, title=prepared.title, payload=json.dumps(prepared.to_dict()),
-                                   error="; ".join(notes) or None, **({"result_url": result.url} if result.url else {}))
+            # Worded from a read of the notes and written only while they are as read (#473): a note written meanwhile
+            # (another worker's late success naming a second copy, ``PostsRepo.record_success``) makes the write miss,
+            # and the notes are worded again from the row as it is now. Never given up: the platform has this update,
+            # and a row left with the content it replaced is what a later success or follow compares with (#392).
+            while (row := self.store.get_post(post_id)) is not None:  # None: erased meanwhile, nothing to record
+                notes = list(result.notes)
+                held, edited = self.store.notes_of(row), _edited(platform, row["result_url"], row["remote_id"])
+                if edited in held:
+                    notes = [n for n in held if n != edited] + notes
+                elif _lost(platform) in held:  # an edit is no decision about a second copy: only a person clears it (#234)
+                    notes = [_lost(platform)] + notes
+                if self.store.update_post(post_id, status=status, title=prepared.title,
+                                          payload=json.dumps(prepared.to_dict()), error="; ".join(notes) or None,
+                                          if_error=row["error"] or "", **({"result_url": result.url} if result.url else {})):
+                    break
         self._count(platform.id, "updated")
         return Outcome(platform.id, status, post_id=post_id, url=result.url, notes=result.notes, prepared=prepared,
                        remote_id=result.remote_id or remote_id)
