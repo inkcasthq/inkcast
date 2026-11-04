@@ -13,7 +13,7 @@ from ...libs.contracts.models import (
     PublishRequest, PublishResponse,
 )
 from ...libs.platforms import Account, Platform, PlatformError
-from ...libs.pipeline import AlreadyResent, Disconnected, Publisher
+from ...libs.pipeline import AlreadyResent, Disconnected, Publisher, Unavailable
 from ...libs.db import Store
 from ...libs.content.story import SCHEDULE_HORIZON_DAYS, StoryError, parse_story
 from ...libs.http.rest import ApiError
@@ -134,9 +134,10 @@ class InkcastService:
         (its error says it may already be on the platform), and the new post is the reply: published, failed or
         unconfirmed in its turn. A file that became the old post (Git sync's ledger) now has the new one, before anything
         is sent, so a sync meanwhile follows it; the send's outcome is recorded on it after. 409 ``not_connected``
-        (the platform isn't connected, or refused the credentials: nothing cancelled, the reply names the reconnect)
-        and ``not_resendable`` (any other status; a retried resend is told the post the first one made, ``post_id`` in
-        the problem body, #234)."""
+        (the platform isn't connected, or refused the credentials: nothing cancelled, the reply names the reconnect),
+        ``platform_unavailable`` (the platform couldn't be asked just now: nothing cancelled, the reply names when to
+        try again, #445) and ``not_resendable`` (any other status; a retried resend is told the post the first one
+        made, ``post_id`` in the problem body, #234)."""
         def follow(_pid: str, new_id: str) -> None:
             # Through the publisher's store: the write runs inside resend_post's transaction, on that connection (a
             # second connection would wait on the lock the first holds). In production the two are one store (#234).
@@ -147,6 +148,8 @@ class InkcastService:
             o = await self.publisher.resend(user_id, post_id, on_created=follow)
         except Disconnected as exc:
             raise ServiceError(409, "not_connected", str(exc)) from exc
+        except Unavailable as exc:
+            raise ServiceError(409, "platform_unavailable", str(exc)) from exc
         except AlreadyResent as exc:
             raise ServiceError(409, "not_resendable", str(exc), post_id=exc.new_post_id) from exc
         except PlatformError as exc:

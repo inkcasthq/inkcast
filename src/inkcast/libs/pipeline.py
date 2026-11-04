@@ -67,6 +67,13 @@ class Disconnected(PlatformError):
     (#234). The message names the reconnect step."""
 
 
+class Unavailable(PlatformError):
+    """A resend refused before anything is cancelled: the platform couldn't be asked just now whether it still accepts
+    the stored credentials (a retryable error on ``verify``: rate-limited, unreachable), so the send would very likely
+    fail the same way, and a resend's send is never queued (#445). The message names when to try again: the platform's
+    Retry-After when it gave one."""
+
+
 class AlreadyResent(PlatformError):
     """A resend refused because the post was resent already: ``new_post_id`` is the post that resend made, for a
     client whose first reply was lost to follow (#234)."""
@@ -649,9 +656,10 @@ class Publisher:
         (its first reply lost) is told the post the first one made (``AlreadyResent``, #234). Refused too, before
         anything is cancelled, while the platform isn't connected or refuses the stored credentials (``verify``, the
         check a connect makes): the old post would be cancelled for a new one that fails at once, and the decision
-        consumed (``Disconnected``, naming the reconnect, #234). A credentials check that can't be made just now (a
-        429) blocks nothing: the send says what happens. A retryable failure of the send is reported, not queued: the
-        person is there to try again."""
+        consumed (``Disconnected``, naming the reconnect, #234). A check that can't be made just now (a 429, unreachable)
+        refuses it too, for now (``Unavailable``, naming the platform's Retry-After, #445): the send would very likely
+        fail the same way, and a resend's send is never queued. A retryable failure of the send is reported, not
+        queued: the person is there to try again."""
         row = self.store.get_post(post_id)
         if not row or row["user_id"] != user_id:
             raise PlatformError(f"No post {post_id!r}.")
@@ -669,6 +677,11 @@ class Publisher:
             except PlatformError as exc:
                 if not exc.retryable:
                     raise Disconnected(f"{exc} Post {post_id} was not resent and is still unconfirmed. {reconnect}") from exc
+                # A check that can't be made just now (a 429, unreachable): the send would very likely fail the same
+                # way, and a resend's send is never queued, so the old post would be cancelled for a new one that fails
+                # at once (#445). Refused instead, for now: the wait is the platform's Retry-After, when it gave one.
+                raise Unavailable(f"{exc} Post {post_id} was not resent and is still unconfirmed. Try again "
+                                  f"{self._wait(platform, getattr(exc, 'retry_after', None))}.") from exc
             # Read again: a disconnect while verify was out would cancel the old post for a new one that fails at once.
             connected = self.store.get_credentials(user_id, platform.id)
         if not connected:
@@ -684,6 +697,16 @@ class Publisher:
             raise self._not_resendable(post_id, self.store.get_post(post_id) or row)
         prepared = Prepared.from_dict(json.loads(row["payload"]))
         return await self._send(new_id, user_id, platform, prepared, attempts=1, held=0)
+
+    @staticmethod
+    def _wait(platform: Platform, asked: Any) -> str:
+        """When to try a refused resend again: the platform's Retry-After (``asked``, seconds; None or unreadable for
+        none, as ``_asked_beyond_cap`` reads it), or a few minutes."""
+        try:
+            seconds = math.ceil(float(asked)) if asked is not None else 0
+        except (TypeError, ValueError, OverflowError):  # a string; nan; inf
+            seconds = 0
+        return f"in {seconds} s, as {platform.name}'s Retry-After asks" if seconds > 0 else "in a few minutes"
 
     def _not_resendable(self, post_id: str, current: dict[str, Any]) -> PlatformError:
         """Why ``current`` can't be resent: it isn't 'unconfirmed'. One resent already names the post that resend made
