@@ -191,7 +191,8 @@ class DevtoPlatform(Platform):
             same_body = theirs is not None and theirs.strip() == body
             differs = ([] if same_title else ["another title"]) \
                 + (["another canonical URL"] if canonical is not None and not same_canonical else []) \
-                + (["other content"] if theirs is not None and not same_body else [])
+                + (["other content"] if theirs is not None and not same_body else []) \
+                + ([] if self._published(a) == article["published"] else ["another status"])
             if differs:
                 unsure.append(f"id {a.get('id')} ({', '.join(differs)})")
             else:
@@ -209,9 +210,14 @@ class DevtoPlatform(Platform):
                              notes=[f"DEV can't say which article is this post: {reason}."])
 
     @staticmethod
-    def _listed(a: dict[str, Any]) -> PublishResult:
-        """A listed article as a result. Its status is ``published`` where the ``me`` view gives it; the documented
-        listing has ``published_at`` instead, which an article has once published."""
-        published = a["published"] if "published" in a else bool(a.get("published_at"))
+    def _published(a: dict[str, Any]) -> bool:
+        """Whether a listed article is published: ``published`` where the ``me`` view gives it; the documented listing
+        has ``published_at`` instead, which an article has once published. DEV makes an article as the send asked
+        (``published``), so a draft is never a published send's article, nor the other way round."""
+        return bool(a["published"] if "published" in a else a.get("published_at"))
+
+    @classmethod
+    def _listed(cls, a: dict[str, Any]) -> PublishResult:
+        """A listed article as a result."""
         return PublishResult(url=a.get("url"), remote_id=str(a["id"]) if a.get("id") else None,
-                             status="published" if published else "draft")
+                             status="published" if cls._published(a) else "draft")

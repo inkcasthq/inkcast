@@ -26,7 +26,7 @@ from inkcast.libs.pipeline import STUCK_AFTER, Publisher
 from inkcast.libs.platforms.devto import DevtoPlatform
 from inkcast.services.publishing.sync import GitSync
 
-from test_devto_lookup_396 import article
+from test_devto_lookup_396 import Lookup, article
 
 
 class DEV:
@@ -71,6 +71,23 @@ def recovered(listing: list[dict], fields: dict, body: str = "Body.") -> tuple[d
 
 def drafts(n: int) -> list[dict]:
     return [article(5000 + i, f"Draft {i}", f"Draft body {i}.", published=False) for i in range(n)]
+
+
+class FindingADraftIsNotAPublishedSendsArticle(Lookup):
+    """An older draft with the post's title and body (the file synced as a draft once, then removed and added back
+    published): a send with ``published: true`` makes a published article, so the draft is not its copy."""
+
+    def test_a_draft_with_the_same_content_is_not_a_published_sends_article(self):
+        found, _ = self.find([article(1001, "Hello", "Body.\n", published=False)])
+        self.assert_cannot_tell(found, "id 1001")
+
+    def test_recovery_does_not_record_the_draft_as_the_post(self):
+        post, dev = recovered([article(1001, "Hello", "Body.\n", published=False)], {"title": "Hello"})
+        self.assertEqual((post["status"], post["remote_id"]), ("unconfirmed", None), "the older draft became the post")
+
+    def test_a_draft_send_still_finds_its_draft(self):
+        found, _ = self.find([article(1001, "Hello", "Body.\n", published=False)], {"title": "Hello", "draft": True})
+        self.assertEqual((found.remote_id, found.status), ("1001", "draft"))
 
 
 class FindingTheSyncAsksAboutWhatWasSent(unittest.TestCase):
