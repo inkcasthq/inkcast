@@ -84,7 +84,8 @@ for plan in json.load(sys.stdin).get("items", []):
     if names == [wanted]:
         print(plan["metadata"]["name"]); break
     if wanted in names:
-        sys.stderr.write(f"InstallPlan {plan[chr(109)+chr(101)+chr(116)+chr(97)+chr(100)+chr(97)+chr(116)+chr(97)][chr(110)+chr(97)+chr(109)+chr(101)]} carries {wanted} beside {[n for n in names if n != wanted]}: not approved. Approve by hand what you mean, or wait for a plan of the pinned version alone.\n"); sys.exit(3)' "$csv"
+        name = plan["metadata"]["name"]   # bound first: Python before 3.12 (the lab host has 3.9) refuses a nested quote in an f-string
+        sys.stderr.write(f"InstallPlan {name} carries {wanted} beside {[n for n in names if n != wanted]}: not approved. Approve by hand what you mean, or wait for a plan of the pinned version alone.\n"); sys.exit(3)' "$csv"
 }
 # A refusal (status 3) stops the script here: in a condition (`until`) `set -e` ignores it, and the wait would run
 # out its deadline repeating it. Any other failure (the API, an empty answer) is waited through, as before.
