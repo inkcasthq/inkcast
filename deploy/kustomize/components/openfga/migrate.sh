@@ -23,10 +23,11 @@
 #   2b. a hand-over grace (#409): a runner whose lock session died alone still runs its migration until its next
 #      probe (step 4), so when other sessions of this role exist, this runner waits twice the probe interval plus
 #      the server's client check before touching the schema, as leader election hands a lease over (client-go's
-#      LeaseDuration: a candidate waits it out before it acts). No fence is possible: `openfga migrate` runs goose
+#      LeaseDuration: a candidate waits it out before it acts). No fence is built yet: `openfga migrate` runs goose
 #      as a black box, with no token the database could check (Kleppmann, "How to do distributed locking"), where
 #      goose's own Provider, golang-migrate and Flyway lock on the very connection that migrates. A runner paused
-#      beyond that grace is the residual, bounded by nothing; the repair of step 3 and a retry cover what it leaves;
+#      beyond that grace is the residual, bounded by nothing; the repair of step 3 and a retry cover what it leaves
+#      (ending such a runner's sessions before the repair is #494; docs/research/openfga-2026-10.md §7);
 #   3. repair what an interrupted 006 leaves: `idx_user_lookup` INVALID is dropped, and goose's version-6 rows go
 #      when that index is invalid or missing, so that `openfga migrate` applies 006 again (goose up.go:99-106 at
 #      v3.28.0 plans every file above the table's highest version). Not once a version above 6 is recorded: goose
@@ -35,7 +36,9 @@
 #      lock and this shell probes the session every PROBE_SECONDS (#409): the session can die alone while this
 #      container lives (pg_terminate_backend; a middlebox dropping an idle connection), and the lock goes with it,
 #      so a probe that finds it gone ends this run and kills `openfga migrate`; the statement its backend had in
-#      flight ends with its client (client_connection_check_interval, below), within seconds;
+#      flight ends with its client (client_connection_check_interval, below), within seconds. A probe unanswered for
+#      60 s ends the run the same way, so a database silent that long during 006 interrupts a build the run would
+#      have finished: that fails safe, as the retry's repair drops the INVALID index and 006 runs again (#474);
 #   5. release the lock. A session that died meanwhile (the database restarted) fails this run, and the kubelet runs
 #      it again from step 1. What `openfga migrate` did between the loss and the next probe ran without the lock,
 #      for seconds at most: the retry's repair covers 006, and a retry finds the revision current otherwise.
@@ -47,6 +50,10 @@
 # OpenFGA gets the same URI less its password, with the password in OPENFGA_DATASTORE_PASSWORD (step 4): it parses
 # the URI with Go's net/url and prints one it refuses, password included (a raw `|` in the password, which libpq
 # accepts: "invalid database uri: parse ...: net/url: invalid userinfo", measured with v1.22.0; issue #410).
+# A URI no split makes safe is refused before psql runs, in words that quote none of it (#474): a raw `@` or `/` in
+# the password, which libpq and pgx misread (net/url splits at the last `@` and refuses a `/`); a password in the
+# query, which would stay on psql's command line; and options=, which would replace PGOPTIONS (below) and with it the
+# client check that ends a killed runner's statement.
 # The lab's e2e proofs are scripts/dev/openfga-recovery-e2e.sh.
 set -euo pipefail
 : "${OPENFGA_DATASTORE_URI:?OPENFGA_DATASTORE_URI is not set: the Secret openfga-db-app, key uri}"
@@ -65,18 +72,57 @@ export PGAPPNAME=openfga-migrate PGCONNECT_TIMEOUT=10
 # table takes) without the lock. OpenFGA's pgx reads PGOPTIONS too (pgconn/config.go at v5.11.0). The proofs are
 # tests/test_review_openfga_migrate.py.
 export PGOPTIONS="-c tcp_keepalives_idle=20 -c tcp_keepalives_interval=5 -c tcp_keepalives_count=3 -c client_connection_check_interval=2s"
+log() { printf '%s migrate: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
+# $1 percent-decoded into `decoded` as libpq decodes (conninfo_uri_decode at REL_18_6, as pgx's uriDecode at v5.11.0):
+# its leading and trailing spaces dropped, then each %XX, and nothing else; what libpq refuses there (a space left
+# inside, a % without two hex digits after it, %00) refused in words that quote none of it. Its backslashes are
+# doubled first, or printf's %b would read a `\n` or a `\c` in a password as an escape (#474).
+uri_decode() {
+  local value="${1#"${1%%[! ]*}"}" invalid='%([^0-9A-Fa-f]|.[^0-9A-Fa-f]|.?$)|%00'
+  value="${value%"${value##*[! ]}"}"
+  [[ "$value" != *' '* && ! "$value" =~ $invalid ]] ||
+    { log "the datastore URI (the Secret openfga-db-app, key uri) is refused: its password or a key of its query holds a space inside it, a % without two hex digits after it, or %00, which libpq and pgx refuse (a space must be percent-encoded: %20, a % as %25)"; exit 1; }
+  value="${value//\\/\\\\}"
+  printf -v decoded '%b' "${value//%/\\x}"
+}
 # psql's URI, less the password, which goes to PGPASSWORD percent-decoded as libpq decodes it (the header says why).
 # Split where libpq and pgx split: the userinfo ends at the first `@` before any `/`, so a raw `?` or `#` is part of
 # the password (fe-connect.c conninfo_uri_parse_options at REL_18_6; pgconn/parse_url.go at v5.11.0).
 db_uri="$OPENFGA_DATASTORE_URI"
 if [[ "$db_uri" =~ ^([^:/?#]+://[^:@/]*):([^@/]*)@(.*)$ ]]; then
-  encoded="${BASH_REMATCH[2]//%/\\x}"
-  printf -v PGPASSWORD '%b' "$encoded"
-  export PGPASSWORD
   db_uri="${BASH_REMATCH[1]}@${BASH_REMATCH[3]}"
-  unset encoded
+  uri_decode "${BASH_REMATCH[2]}"
+  export PGPASSWORD="$decoded"
+  unset decoded
 fi
-log() { printf '%s migrate: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
+
+# A URI no split makes safe, refused in words that quote none of it (#474): a string that is no URI (keyword=value),
+# which psql takes whole on its command line and `openfga migrate` cannot read, whatever `://` it holds, since libpq
+# and pgx read a URI only after postgresql:// or postgres:// (fe-connect.c uri_prefix_length at REL_18_6; pgconn/
+# parse_url.go at v5.11.0), and anything else with an `=` as keyword=value; a raw `@` or `/` in the password,
+# which libpq reads into the host or the port and quotes in the errors the wait for the database logs (net/url
+# refuses a `/`); a raw `?` or `#` in the user name, where libpq reads on to the `@` and net/url, `openfga migrate`'s,
+# ends the authority, and which started the query below early; a password in the query, which libpq and pgx honour
+# over the user information's, its keyword percent-decoded (conninfo_uri_parse_params), and which the split leaves on
+# psql's command line; options=, which replaces PGOPTIONS above whole (pgx: pgconn/config.go mergeSettings at
+# v5.11.0), its client check included; and a control character outside the password, which net/url refuses (and
+# prints the URI) and at which `read` below stops (a newline), so that a parameter after it would go unread.
+# No writer of the Secret sets one: Inkcast's generator writes sslmode=require alone, CloudNativePG no query
+# (pkg/specs/secrets.go at v1.30.1).
+[[ "$OPENFGA_DATASTORE_URI" =~ ^postgres(ql)?://([^:@/?#]*(:[^@/]*)?@)?[^@]*$ ]] ||
+  { log "the datastore URI (the Secret openfga-db-app, key uri) is refused: it is no URI, its user name holds a ? or a #, or an @ in it does not end its user information (an @ or a / in the password must be percent-encoded: %40, %2F)"; exit 1; }
+[[ "$db_uri" != *[[:cntrl:]]* ]] ||
+  { log "the datastore URI (the Secret openfga-db-app, key uri) is refused: it holds a control character (a newline?) outside its password, which OpenFGA's net/url refuses"; exit 1; }
+if [[ "$db_uri" == *\?* ]]; then
+  IFS='&' read -ra params <<< "${db_uri#*\?}"
+  for param in "${params[@]}"; do
+    uri_decode "${param%%=*}"
+    case "${decoded,,}" in          # libpq refuses an upper-case key; the value would still be on psql's command line
+      *password*|*secret*|scram_*) log "the datastore URI (the Secret openfga-db-app, key uri) is refused: it carries a password or a secret in its query (password=, sslpassword=, oauth_client_secret=, scram_client_key=), which psql's command line would show; the password goes in the user information"; exit 1 ;;
+      *options*) log "the datastore URI (the Secret openfga-db-app, key uri) is refused: its query sets options=, which would replace PGOPTIONS and the client check that ends a killed runner's statement"; exit 1 ;;
+    esac
+  done
+fi
 
 # The probe interval, whole seconds: sleep and the grace's arithmetic need one, a 0 would probe in a busy loop, and at
 # half pace (2 x 4 + 2) a lock session that dies alone still ends its migration within the 10 s of #409.
