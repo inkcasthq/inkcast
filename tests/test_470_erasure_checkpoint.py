@@ -2,11 +2,12 @@
 # Copyright 2026 ScalarOps Technologies LLC
 """Issue #470: follow-ups of the checkpoint that cuts the write-ahead log after an erasure (#404).
 
-1. The erasure's checkpoint blocks nothing else in the process. ``checkpoint_wal`` waits up to WAL_CHECKPOINT_WAIT_MS for a reader on an older snapshot (a backup's copy, another
-process's long read). It ran that wait under the store's connection lock, inside SQLite (which holds the write lock
-meanwhile), on the event loop: ``/account/return`` and the Keycloak sync's passes erase from async code, so with a
-reader pinning the log every request in the process waited for it, 281 ms per erasure in the review of #404. Now the
-erasure runs in a worker thread and the checkpoint waits between attempts, holding neither lock.
+1. The erasure's checkpoint blocks nothing else in the process. ``checkpoint_wal`` waits up to WAL_CHECKPOINT_WAIT_MS
+for a reader on an older snapshot (a backup's copy, another process's long read). It ran that wait under the store's
+connection lock, inside SQLite (which holds the write lock meanwhile), on the event loop: ``/account/return`` and the
+Keycloak sync's passes erase from async code, so with a reader pinning the log every request in the process waited for
+it, 281 ms per erasure in the review of #404. Now the erasure runs in a worker thread and the checkpoint waits between
+attempts, holding neither lock.
 
 Each test pins the log with a reader on another connection, lets the erasure's checkpoint start, and then sends
 another person's requests: a page that reads the store and an API call that writes it. Both must be answered while the
@@ -16,11 +17,17 @@ than 250 ms, so that the code before the fix shows its blocked loop rather than 
 2. Housekeeping's checkpoint, the one that cuts the log when the erasure's own met a reader, said nothing an alert
 could count when a reader held it off too (an INFO line with no event), and a step before it that raised skipped it
 for the run. Now each run it cannot cut the log is a catalogued warning, and it runs whatever the steps before it did.
-The bytes are read from the files, as in tests/test_erasure_wal.py."""
+The bytes are read from the files, as in tests/test_erasure_wal.py.
+
+3. ``take_backup`` removes the staging copy a killed restore left (#404) before it copies anything; an error in that
+removal (opening the directory, the stat, the unlink) stopped the backup. Now it is a warning, and the backup is taken."""
 
 import asyncio
 import logging
+import pathlib
+import shutil
 import sqlite3
+import tempfile
 import threading
 import unittest
 from unittest import mock
@@ -28,12 +35,13 @@ from unittest import mock
 import httpx2
 
 from inkcast.launcher import build, resolve
-from inkcast.libs.db import database
+from inkcast.libs.db import Store, database
+from inkcast.libs.db.backup import take_backup, verify_backup
 from inkcast.libs.http.app import compose
 from inkcast.libs.observability import EVENTS
 from inkcast.services.identity.keycloak_sync import KeycloakSync
 from inkcast.services.scheduler import housekeeping
-from test_erasure_wal import APersonWithContent, context, recorded
+from test_erasure_wal import KEY, APersonWithContent, context, recorded
 from test_sync_breaker import PREFIX, Scenario
 
 DAY = 86400
@@ -189,6 +197,26 @@ class HousekeepingsCheckpoint(APersonWithContent):
 
     def test_the_orphan_sweep_raising_does_not_skip_it(self):
         self.raised_before_it("sweep_orphans")
+
+
+class TheBackupsStagingCleanup(unittest.TestCase):
+    def test_a_removal_that_fails_still_lets_the_backup_be_taken(self):
+        folder = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, folder, True)
+        db = folder / "inkcast.db"
+        store = Store(str(db), KEY)
+        store.upsert_user("oidc:kc#on-call", "on-call", None, None)
+        store.close()
+        # A directory where the staging copy would be: its unlink fails (EISDIR on Linux, EPERM on macOS), as one the
+        # file system refuses would.
+        (folder / ".inkcast.db.restoring").mkdir()
+        with self.assertLogs("inkcast.libs.db.backup", logging.WARNING) as logs:
+            backup = take_backup(db, folder / "backups", version="test", now=4e9)
+        self.assertEqual(verify_backup(backup.path)["rows"]["users"], 1, "the backup is taken, and it is good")
+        (line,) = logs.records
+        self.assertIn("could not be removed", line.getMessage())
+        self.assertNotIn(str(folder), line.getMessage(), "the error's name, not its text: no path")
+        self.assertTrue((folder / ".inkcast.db.restoring").is_dir(), "left as it is, for the next backup to try")
 
 
 if __name__ == "__main__":
