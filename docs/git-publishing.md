@@ -110,7 +110,7 @@ inkcast sync --removed-since 1a2b3c4 'posts/**/*.md'   # the commit the last syn
 
 If the revision isn't in the clone (a shallow checkout), the command stops with exit code `2` and says so; fetch it, or sync without the option.
 
-`paths` lists regular files only, as git tracks them: a directory named like a story (`x.md`) is skipped, and so is anything reached through a symbolic link (git tracks the link itself, not what it points to), so every file synced is one a later removal can report. On a case-insensitive filesystem (macOS, Windows) write each path in the case git has it: a pattern in another case (`POSTS/*.md` for `posts/`) syncs the story under that spelling, while git names its removal under its own, which is then never reported. The GitHub Action runs on Linux, where the case can't differ.
+`paths` lists regular files only, as git tracks them: a directory named like a story (`x.md`) is skipped, and so is anything reached through a symbolic link (git tracks the link itself, not what it points to), so every file synced is one a later removal can report. On a case-insensitive filesystem (macOS, Windows) write each path in the case git has it: a pattern in another case (`POSTS/*.md` for `posts/`) syncs the story under that spelling, while git names its removal under its own, which is then never reported. The same holds for a name with accents stored decomposed (NFD, as some archives and older tools write it on macOS): git names it composed, so write such a path as git lists it (`git ls-files`). The GitHub Action runs on Linux, where neither can differ.
 
 If a sync fails part-way (the request errors because Inkcast's database was busy, say), run it again:
 

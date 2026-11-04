@@ -199,7 +199,8 @@ class SyncRequest(Input):
                                   description="Files to publish or update. May be empty only when `removed` is not.")
     removed: list[RepoPath] = Field(default_factory=list, max_length=SYNC_BATCH, description=(
         "Paths removed from the repository since the last sync (the action sends `git diff --no-renames "
-        "--diff-filter=D` between the commit before the push and the pushed one, within its `paths`). A removed file's "
+        "--diff-filter=DT` between the commit before the push and the pushed one, within its `paths`; a file that "
+        "became a link counts as removed). A removed file's "
         "pending post (scheduled, recovering or unconfirmed) is cancelled; a published one stays on the platform. A path "
         "absent from `files` is never read as removed, because a sync may cover a subset of the repository."))
     platforms: list[str] | None = Field(None, description="Override the platforms in each file's front matter.")
