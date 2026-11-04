@@ -6,8 +6,10 @@
 
 It runs as the init container ``env-secrets`` of OpenFGA's pod in the environments (deploy/kustomize/components/
 env-secrets), so it runs at every start of that pod (a fresh environment, every release, since the container runs the
-release's image, a restart or an eviction) and always before OpenFGA reads its Secrets. For the side its namespace
-names (inkcast-staging is staging, inkcast-prod is prod), it writes:
+release's image, a restart or an eviction) and always before OpenFGA reads its Secrets; and as the CronJob
+``inkcast-env-secrets`` of the same component every ten minutes, so a generated Secret that was deleted comes back
+with no restart and no apply (issue #342). For the side its namespace names (inkcast-staging is staging, inkcast-prod
+is prod), it writes:
 
     inkcast-db/inkcast-pg-openfga-<side>  kubernetes.io/basic-auth   username, password: the managed role's password
                                                                      (deploy/kustomize/shared/inkcast-db/cluster.yaml)
@@ -32,6 +34,15 @@ disagrees, a Secret its consumer could not read) stops the run with nothing writ
 another writer (409) starts the run over from the reads, so two pods starting at once end on the same values. A
 crash between two writes leaves one side of a pair, which the next run copies. The output names Secrets and keys,
 never a value. Exit 0 when every Secret is present and agrees, 1 otherwise, with the reason on stderr.
+
+``--repair-only`` (the CronJob's mode; the owner's decision on PR #423): the run copies a value one side still holds
+and never makes a new one. In a running environment a value made anew cuts the pods off what they hold: a new
+secret-key makes every sealed credential unreadable, a new fga-api-token is refused by the running OpenFGA, a new
+role password is set on the role at once and OpenFGA's next connections fail, and Keycloak's realm keeps the client
+secret it was imported with. So a value absent on every side is reported as lost, with what a person must do
+(docs/runbooks/env-secrets.md), the pairs that can be copied are copied in the same run, a Secret that would be
+created with a lost key is left absent (never half-made; the restore brings it whole), and the run exits 1 so the
+Job shows Failed. The init container runs without the flag: the first install makes every value.
 """
 
 from __future__ import annotations
@@ -70,6 +81,8 @@ GRANTS = {DB_NAMESPACE: "deploy/kustomize/shared/inkcast-db (rbac.yaml)",
           KEYCLOAK_NAMESPACE: "deploy/kustomize/shared/keycloak-access"}
 # Each side creates only its own Secrets: RBAC can't narrow `create` to a name, so this policy does (review C1, #323).
 ADMISSION = "deploy/kustomize/shared/env-secrets-admission"
+# What a person does when a value is lost on every side and the run (--repair-only) refuses to make a new one.
+RUNBOOK = "docs/runbooks/env-secrets.md"
 ALPHANUMERIC = string.ascii_letters + string.digits
 
 
@@ -253,11 +266,15 @@ class Plan:
     writes: list[Write] = field(default_factory=list)
     kept: list[str] = field(default_factory=list)
     problems: list[str] = field(default_factory=list)
+    lost: list[str] = field(default_factory=list)  # repair-only: the values absent on every side, left for a person
 
 
-def decide(layout: Layout, stored: Mapping[Ref, Stored | None]) -> Plan:
-    """What to write, from what is stored: pure, so every case is a unit test. Any problem means no write at all."""
+def decide(layout: Layout, stored: Mapping[Ref, Stored | None], repair_only: bool = False) -> Plan:
+    """What to write, from what is stored: pure, so every case is a unit test. Any problem means no write at all.
+    With ``repair_only`` nothing is made anew: each value absent on every side goes to ``plan.lost`` (the writes
+    that copy still happen, and the run fails), and a Secret that would be created with one is left absent."""
     plan = Plan()
+    lost_in: set[Ref] = set()  # the Secrets a lost value would have been created in: never created half-made
 
     def value(ref: Ref, key: str) -> str | None:
         """The stored value, or None when absent. An empty or unreadable one is a problem (and nothing is written)."""
@@ -295,6 +312,13 @@ def decide(layout: Layout, stored: Mapping[Ref, Stored | None]) -> Plan:
     password = role_side or app_side or make_role_password()
     role_origin = f"from {layout.db_app}" if app_side else "generated"
     app_origin = f"from {layout.db_role}" if role_side else f"the same as {layout.db_role}"
+    if repair_only and not role_side and not app_side and not plan.problems:
+        lost_in.update((layout.db_role, layout.db_app))
+        plan.lost.append(
+            f"{layout.db_role} and {layout.db_app} are both absent: role {layout.role}'s password is lost. This run "
+            "makes no new one (CloudNativePG would set it on the role at once, and OpenFGA's next connections would "
+            "fail). Restore either Secret from a copy and the next run copies it to the other; without one, "
+            f"`oc -n {layout.namespace} rollout restart deploy/openfga` makes a new pair ({RUNBOOK}).")
 
     # The two Keycloak clients: the realm Secret (the import's placeholders) and inkcast-secrets (what Inkcast sends).
     realm_new: dict[str, tuple[str, str]] = {}
@@ -317,28 +341,56 @@ def decide(layout: Layout, stored: Mapping[Ref, Stored | None]) -> Plan:
             app_new[app_key] = (in_realm, f"from {layout.realm} {realm_key}")
         elif in_app and not in_realm:
             realm_new[realm_key] = (in_app, f"from {layout.app} {app_key}")
+        elif not in_realm and not in_app and repair_only and not plan.problems:
+            lost_in.update((layout.realm, layout.app))
+            plan.lost.append(
+                f"{layout.realm} {realm_key} and {layout.app} {app_key} are both absent: the client's secret is lost. "
+                "This run makes no new one (Keycloak's realm keeps the secret it was imported with, and the sign-in "
+                "would fail). Restore either Secret from a copy; without one, set a new secret on the client in "
+                f"Keycloak and put it in both Secrets ({RUNBOOK}).")
         elif not in_realm and not in_app:
             fresh = make_keycloak_client()
             realm_new[realm_key] = (fresh, "generated")
             app_new[app_key] = (fresh, f"the same as {layout.realm} {realm_key}")
     # Held only in inkcast-secrets: Inkcast's key, and OpenFGA's preshared key (both pods read the one entry).
+    root_lost = []
     for app_key, make in (("secret-key", make_server_key), ("fga-api-token", make_preshared)):
         if value(layout.app, app_key) is None:
-            app_new[app_key] = (make(), "generated")
+            if repair_only:
+                root_lost.append(app_key)
+            else:
+                app_new[app_key] = (make(), "generated")
+    if root_lost and not plan.problems:
+        lost_in.add(layout.app)
+        where = "is absent" if stored[layout.app] is None else f"lacks {' and '.join(root_lost)}"
+        plan.lost.append(
+            f"{layout.app} {where}: {' and '.join(root_lost)} {'are' if len(root_lost) > 1 else 'is'} held nowhere "
+            "else and lost. This run makes no new value (a new secret-key makes every sealed platform credential "
+            "unreadable; a new fga-api-token is refused by the running OpenFGA). Restore the Secret from a copy; "
+            f"without one, `oc -n {layout.namespace} rollout restart deploy/openfga` makes new values and every "
+            f"platform must be connected again ({RUNBOOK}).")
 
     if plan.problems:
         return plan
+    if repair_only and all(stored[ref] is None for ref in (layout.db_role, layout.db_app, layout.realm, layout.app)):
+        # Nothing exists: a bring-up whose init container has not succeeded yet, not a loss. Say so, not "lost".
+        plan.lost = [f"no generated Secret of {layout.namespace} exists yet: the init container env-secrets of OpenFGA's "
+                     "pod makes every value at that pod's first start, and its log says why when it has not "
+                     f"(`oc -n {layout.namespace} logs deploy/openfga -c env-secrets`). This run makes none."]
     # The side a pair is decided on first, then the side that copies it: a crash in between leaves one side, which
-    # the next run copies, never two sides that disagree.
-    if stored[layout.db_role] is None:
+    # the next run copies, never two sides that disagree. A Secret in lost_in is never created: a lost value is not
+    # made, and the restore brings the Secret whole; copies into a Secret that exists still happen.
+    if stored[layout.db_role] is None and layout.db_role not in lost_in:
         plan.writes.append(Write(layout.db_role, {"username": layout.role, "password": password},
                                  {"username": layout.role, "password": role_origin}, type="kubernetes.io/basic-auth",
                                  labels={**PART_OF, "cnpg.io/reload": "true"}))
-    _add(plan, layout.realm, stored[layout.realm], realm_new)
-    if stored[layout.db_app] is None:
+    if stored[layout.realm] is not None or layout.realm not in lost_in:
+        _add(plan, layout.realm, stored[layout.realm], realm_new)
+    if stored[layout.db_app] is None and layout.db_app not in lost_in:
         plan.writes.append(Write(layout.db_app, {"uri": layout.uri(password), "username": layout.role, "password": password},
                                  {"uri": "with that password", "username": layout.role, "password": app_origin}))
-    _add(plan, layout.app, stored[layout.app], app_new)
+    if stored[layout.app] is not None or layout.app not in lost_in:
+        _add(plan, layout.app, stored[layout.app], app_new)
     for ref in (layout.db_role, layout.realm, layout.db_app, layout.app):
         if stored[ref] is not None and ref not in {w.ref for w in plan.writes}:
             plan.kept.append(f"{ref}: kept ({', '.join(sorted(stored[ref].data))})")
@@ -359,11 +411,12 @@ def describe(change: Write) -> str:
     return f"{change.ref}: {'created' if change.version is None else 'added'} {keys}"
 
 
-def ensure(kube: Kube, layout: Layout, say: Callable[[str], None]) -> list[str]:
-    """Read, check, write; again from the reads when another writer won a race. Returns the problems (none: done)."""
+def ensure(kube: Kube, layout: Layout, say: Callable[[str], None], repair_only: bool = False) -> list[str]:
+    """Read, check, write; again from the reads when another writer won a race. Returns the problems (none: done).
+    With ``repair_only`` the copies are written, and the values lost on every side are returned as the problems."""
     refs = (layout.db_role, layout.db_app, layout.realm, layout.app)
     for _ in range(ATTEMPTS):
-        plan = decide(layout, {ref: kube.read(ref) for ref in refs})
+        plan = decide(layout, {ref: kube.read(ref) for ref in refs}, repair_only=repair_only)
         if plan.problems:
             return [*plan.problems, "Nothing was written."]
         for line in plan.kept:
@@ -374,9 +427,9 @@ def ensure(kube: Kube, layout: Layout, say: Callable[[str], None]) -> list[str]:
                 break
             say(describe(change))
         else:
-            return []
+            return [*plan.lost, "Nothing was made anew (--repair-only): what one side still held was copied."] if plan.lost else []
     return [f"Another writer kept changing these Secrets through {ATTEMPTS} rounds; nothing more was written. The "
-            "next start of OpenFGA's pod tries again."]
+            "next run (the CronJob's next tick, or the next start of OpenFGA's pod) tries again."]
 
 
 def connect(environ: Mapping[str, str], root: pathlib.Path = SERVICE_ACCOUNT) -> httpx2.Client:
@@ -384,7 +437,7 @@ def connect(environ: Mapping[str, str], root: pathlib.Path = SERVICE_ACCOUNT) ->
     the kubelet in every container), the projected token and the cluster's CA under ``root``. Never through a proxy."""
     host = environ.get("KUBERNETES_SERVICE_HOST", "").strip()
     if not host:
-        raise Refusal("KUBERNETES_SERVICE_HOST is not set: this runs in a pod, as OpenFGA's init container.")
+        raise Refusal("KUBERNETES_SERVICE_HOST is not set: this runs in a pod, as OpenFGA's init container or the CronJob.")
     port = environ.get("KUBERNETES_SERVICE_PORT", "443").strip()
     try:
         bearer = (root / "token").read_text().strip()
@@ -399,14 +452,21 @@ def connect(environ: Mapping[str, str], root: pathlib.Path = SERVICE_ACCOUNT) ->
 def env_secrets_main(argv: list[str], *, root: pathlib.Path = SERVICE_ACCOUNT, environ: Mapping[str, str] | None = None,
                      connect: Callable[[Mapping[str, str], pathlib.Path], httpx2.Client] = connect,
                      out: Any = None, err: Any = None) -> int:
-    argparse.ArgumentParser(prog="inkcast env-secrets", description=__doc__.split("\n\n")[0]).parse_args(argv)
+    parser = argparse.ArgumentParser(prog="inkcast env-secrets", description=__doc__.split("\n\n")[0])
+    parser.add_argument("--repair-only", action="store_true",
+                        help="copy a value that one side of a pair still holds to the other, and make no new one: "
+                             "a value absent on every side is reported as lost, with what to do, and the run exits 1. "
+                             "The CronJob's mode: in a running environment a value made anew cuts the pods off what "
+                             "they hold. Without it (the init container of OpenFGA's pod) every absent value is made.")
+    args = parser.parse_args(argv)
     out, err = out or sys.stdout, err or sys.stderr
     environ = os.environ if environ is None else environ
     try:
         namespace = (root / "namespace").read_text().strip() if (root / "namespace").exists() else ""
         layout = Layout.for_namespace(namespace)
         with connect(environ, root) as http:
-            problems = ensure(Kube(http), layout, lambda line: print(line, file=out, flush=True))
+            problems = ensure(Kube(http), layout, lambda line: print(line, file=out, flush=True),
+                              repair_only=args.repair_only)
     except Refusal as exc:
         print(f"inkcast env-secrets: {exc}", file=err)
         return 1

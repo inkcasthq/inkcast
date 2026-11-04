@@ -103,7 +103,7 @@ patches:
   # both ways, and either alone pulls. On the ServiceAccount every Inkcast-image pod runs as (the field that
   # `oc secrets link --for=pull` would write), which covers pods added later; and on each workload's pod spec, which
   # covers a pod whose ServiceAccount is not wired. Only here, never in the overlays: a self-host pulls its own image.
-  # When the package goes public, these three patches, the two in components/env-secrets and the Secret go (README,
+  # When the package goes public, these three patches, the three in components/env-secrets and the Secret go (README,
   # Hosted §2).
   - target: {kind: ServiceAccount, name: inkcast}
     patch: |-

@@ -194,7 +194,8 @@ class Rendered(unittest.TestCase):
             with self.subTest(environment=name):
                 docs = self.docs[name]
                 accounts = {("Deployment", "inkcast"): "inkcast", ("CronJob", "inkcast-backup"): "inkcast",
-                            ("Deployment", "openfga"): "inkcast-env-secrets"}  # its init container env-secrets (#323)
+                            ("Deployment", "openfga"): "inkcast-env-secrets",   # its init container env-secrets (#323)
+                            ("CronJob", "inkcast-env-secrets"): "inkcast-env-secrets"}  # the same command on a schedule (#342)
                 for account in set(accounts.values()):
                     self.assertEqual(one(docs, "ServiceAccount", account).get("imagePullSecrets"), PULL, account)
                 inkcast = {key: pod for key, pod in templates(docs).items() if runs_inkcast(pod)}
