@@ -217,7 +217,7 @@ class Rendered(unittest.TestCase):
                         text.index('apply -k "$ROOT/deploy/kustomize/shared/seaweedfs-access"'), "the policy before the right")
         self.assertIn("--dry-run=server", text)
         self.assertIn("kubernetes.io/service-account-token", text)
-        self.assertIn(f'--as="$setup_account"', text)
+        self.assertIn('--as="$setup_account"', text)
 
     def test_every_manifest_that_defines_inkcast_secrets_carries_the_label(self):
         for name in ("overlays/ci", "overlays/ci-split", "overlays/ci-openfga"):
