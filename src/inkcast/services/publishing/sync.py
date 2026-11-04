@@ -97,11 +97,11 @@ class GitSync:
         out = []
         for pid in targets:
             platform = self.platforms[pid]
-            try:
-                prepared = platform.prepare(story.for_platform(pid), story.body)
-            except PlatformError as exc:
-                out.append(SyncResult(path=path, platform=pid, action="failed", message=str(exc)))
+            ready, problems = self.publisher.prepare(story, [pid])  # a PlatformError, or the plug-in's crash (#130)
+            if problems:
+                out.append(SyncResult(path=path, platform=pid, action="failed", message=problems[0].message))
                 continue
+            prepared = ready[0]
             if pid not in connected:
                 help_text = platform.not_connected_help(story.for_platform(pid))
                 out.append(SyncResult(path=path, platform=pid, action="skipped",
