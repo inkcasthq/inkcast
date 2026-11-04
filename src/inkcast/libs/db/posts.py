@@ -112,7 +112,7 @@ class PostsRepo(Database):
     def update_post(self, post_id: str, events: Iterable[DomainEvent] | None = None,
                     only_if: str | tuple[str, ...] | None = None, unless: str | None = None,
                     if_attempts: int | None = None, unless_found_at: int | None = None, beyond: str | None = None,
-                    **fields: Any) -> bool:
+                    keep: str | None = None, **fields: Any) -> bool:
         """Change fields; ``events`` are written in the same transaction (the outbox). A post that no longer exists
         (its owner was erased while the scheduler held it) is left alone, and its events are not written either.
         ``only_if``: change it only while it still has this status, or one of these (another worker may have moved it
@@ -125,6 +125,9 @@ class PostsRepo(Database):
         ``beyond``: with ``unless_found_at``, the ``error`` written instead of ``fields["error"]`` when the row counts
         more attempts than that: the answer is an earlier send's, landing over another worker's re-send, and says so
         (``Publisher._deliver``, #234). One statement, so the attempt count it reads is the one it writes against.
+        ``keep``: a note the ``error`` keeps when the row's error already holds it, whatever ``fields["error"]`` says:
+        the note that an earlier send's answer was lost and a second copy may be there (``_lost``), which only a person
+        clears (#234). One statement too, so a note written meanwhile is never lost between a read and this write.
         True when the post was changed."""
         if beyond is not None and unless_found_at is None:
             raise ValueError("update_post(beyond=) needs unless_found_at: the attempt count the answer is about")
@@ -134,6 +137,9 @@ class PostsRepo(Database):
             if name == "error" and beyond is not None:
                 sets.append("error = CASE WHEN attempts = ? THEN ? ELSE ? END")
                 values += [unless_found_at, value, beyond]
+            elif name == "error" and keep is not None:
+                sets.append("error = CASE WHEN instr(COALESCE(error, ''), ?) > 0 THEN ? ELSE ? END")
+                values += [keep, keep if value is None else f"{value}; {keep}", value]
             else:
                 sets.append(f"{name} = ?")
                 values.append(value)

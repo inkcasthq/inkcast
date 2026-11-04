@@ -483,9 +483,11 @@ class Publisher:
         # may have taken it over (a pass longer than STUCK_AFTER), re-queued it and sent it while this lookup was out;
         # or a person cancelled it, and a cancel wins over the answer (#216).
         if found is not None and found.status not in ("unavailable", "missing"):
-            # The platform has it: the truth, whatever the cap says, and over a post unconfirmed meanwhile (#234).
+            # The platform has it: the truth, whatever the cap says, and over a post unconfirmed meanwhile (#234). An
+            # earlier send's answer that landed meanwhile said a second copy may be there too (``_lost``): a lookup that
+            # finds one copy doesn't say there is no other, so that note stays (``keep``).
             written = self.store.update_post(post_id, status=found.status, result_url=found.url, remote_id=found.remote_id,
-                                             error=None, events=recovered(found.status),
+                                             error=None, keep=_lost(platform), events=recovered(found.status),
                                              only_if=("recovering", "unconfirmed"), if_attempts=row["attempts"])
             outcome = Outcome(platform.id, found.status, post_id=post_id, url=found.url, remote_id=found.remote_id)
         elif capped:
