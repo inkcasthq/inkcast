@@ -14,6 +14,7 @@ from starlette.routing import Route
 
 from ...libs.contracts.routes import ROUTES
 from ...libs.http import pages
+from ...libs.http.onetime import PageTokens
 from ...libs.http.ratelimit import limited
 from ...libs.platforms import PlatformError
 from ...libs.runtime import Context
@@ -22,24 +23,34 @@ from ...libs.service import ServiceSpec
 
 def _routes(ctx: Context) -> list[Route]:
     store, registry = ctx.store, ctx.platforms
+    tokens = PageTokens(ctx.config.secret_key)
 
     async def connect(request: Request) -> Response:
         ticket = request.path_params["ticket"]
-        row = store.get_ticket(ticket)
-        if not row or row["platform"] not in registry:
+
+        def expired() -> Response:
             return pages.message("Link expired", "This connect link expired or was used. Ask Claude for a new one.",
                                  error=True, status=400)
+
+        row = store.get_ticket(ticket)
+        if not row or row["platform"] not in registry:
+            return expired()
         p = registry[row["platform"]]
-        if request.method == "GET":
-            return pages.connect_form(ticket, p.name, p.connect_help, p.credential_fields)
+        if request.method != "POST":                 # a GET, or the HEAD a previewer sends: the form, nothing verified (#401)
+            return pages.connect_form(ticket, p.name, p.connect_help, p.credential_fields, tokens.make(ticket))
         form = await request.form()
+        if not tokens.ok(ticket, form.get("csrf")):  # not from the form Inkcast served for this ticket
+            return pages.message("Request rejected", "The form was invalid. Open the link again.", error=True, status=400)
         creds = {f.key: str(form.get(f.key, "")).strip() for f in p.credential_fields}
         try:
             account = await p.verify(creds)
-        except PlatformError as exc:
-            return pages.connect_form(ticket, p.name, p.connect_help, p.credential_fields, error=str(exc))
-        store.save_credentials(row["user_id"], p.id, creds, account.to_dict())
-        store.consume_ticket(ticket)
+        except PlatformError as exc:                 # the ticket stays good: the form again, with the reason
+            return pages.connect_form(ticket, p.name, p.connect_help, p.credential_fields, tokens.make(ticket), error=str(exc))
+        # Used up now, by one conditional statement, before anything is saved: of two POSTs with the same ticket that
+        # both verified, the second finds nothing and saves nothing (issue #399). One transaction with the save, so a
+        # save that fails leaves the link good.
+        if not store.consume_ticket_and_save(ticket, row["user_id"], p.id, creds, account.to_dict()):
+            return expired()
         who = account.handle or account.name
         return pages.message(f"{p.name} connected", f"Connected as {who}. You can close this tab and go back to Claude.")
 

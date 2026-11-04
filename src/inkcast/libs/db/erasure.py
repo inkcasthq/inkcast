@@ -9,7 +9,9 @@ a new table with a ``user_id`` column (or another user-keyed column) fails the b
 ``user_erasures`` is the audit record: a salted hash of the user id (HMAC-SHA256 under a key derived from
 INKCAST_SECRET_KEY, so the id can be checked against the record but not read from it), the time, and the
 counts. Nothing else about the person survives in the database, not even in its free space (deleted content is
-overwritten: ``PRAGMA secure_delete``, libs/db/database.py). Copies in backups do, until they age out
+overwritten: ``PRAGMA secure_delete``, libs/db/database.py), nor in the files on disk: the erasure ends with a
+checkpoint that copies the zeroed pages into the database file and cuts the write-ahead log, which otherwise keeps
+the person's bytes until the log is overwritten (``checkpoint_after_erasure``, issue #404). Copies in backups do, until they age out
 (INKCAST_BACKUP_KEEP days), and a restore brings them back: ``reapply_erasures`` (issue #94), run by every
 process when it opens the store, erases again anyone whose hash is in ``user_erasures`` but who has rows. The
 restore carries the audit rows of the database it replaces into the restored one (libs/db/backup.py), which is
@@ -233,7 +235,28 @@ class ErasureRepo(Database):
                 c.execute("INSERT INTO user_erasures VALUES (?, ?, ?)", (hashed, now, json.dumps(counts, sort_keys=True)))
                 if today != hashed:
                     c.execute("INSERT INTO user_erasure_aliases VALUES (?, ?)", (hashed, today))
+        if any(counts.values()):
+            self.checkpoint_after_erasure()
         return counts
+
+    def checkpoint_after_erasure(self) -> bool:
+        """The erased rows' bytes out of the files on disk (issue #404): the transaction just committed left the zeroed
+        pages in the write-ahead log and the person's own pages in the database file until a checkpoint, and the log
+        keeps every frame it held until it is cut. ``checkpoint_wal`` does both. A reader on an older snapshot (a
+        backup's copy, another process's long read) keeps the log in use past the wait: the bytes then stay until
+        housekeeping's checkpoint, within HOUSEKEEPING_EVERY, and that is logged, with the frame count only. Whether
+        the files are clean now."""
+        try:
+            busy, frames, _ = self.checkpoint_wal()
+        except sqlite3.Error as exc:
+            log.warning("The erased rows' bytes stay in the write-ahead log until housekeeping's checkpoint: the checkpoint "
+                        "after the erasure failed (%s)", exc, extra={"event": "identity.erasure.wal_pending", "frames": -1})
+            return False
+        if busy:
+            log.warning("The erased rows' bytes stay in the write-ahead log (%d frames) until housekeeping's checkpoint: "
+                        "readers held an older snapshot", frames, extra={"event": "identity.erasure.wal_pending",
+                                                                         "frames": frames})
+        return not busy
 
     def backfill_erasure_hashes(self) -> int:
         """Fill ``users.erasure_hash`` for the rows that have none: those from before the column (issue #113), and
@@ -282,6 +305,8 @@ class ErasureRepo(Database):
                 counts = self._delete_person(c, user_id)
             if any(counts.values()):
                 erased[user_id] = counts
+        if erased:
+            self.checkpoint_after_erasure()         # once for all of them: the rows a restore brought back (#404)
         return erased
 
     def user_erasures(self) -> list[dict[str, object]]:

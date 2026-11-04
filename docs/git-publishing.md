@@ -43,7 +43,7 @@ In your blog repository, add the secret `INKCAST_TOKEN` and the variable `INKCAS
 | `dry-run` | `auto` | `auto` means a dry run on pull requests and a real sync on pushes |
 | `comment` | `false` | comment the preview on the pull request (needs `pull-requests: write`) |
 | `fail-on-stale` | `false` | fail when a changed file couldn't be updated (Medium) |
-| `fail-on-decision` | `false` | fail while a file's post waits for your decision (`unconfirmed` or `recovering`, [below](#when-inkcast-isnt-sure-a-post-went-out)); every push fails until you resend or cancel it |
+| `fail-on-decision` | `false` | fail while a file's post waits for your decision (`unconfirmed` or `recovering`, [below](#when-inkcast-isnt-sure-a-post-went-out)); every push fails until you resend or cancel it, or edit a file whose old entry has no post to resend or cancel |
 
 Outputs: `results` (JSON) and `urls`. A table of results is added to the job summary.
 
@@ -92,7 +92,7 @@ Publishing by hand (`inkcast_publish`, `POST /api/v1/posts`) is different: there
 | `update` | Changed: edited in place (DEV), or re-scheduled if it hadn't gone out yet |
 | `unchanged` | Same content as last time: nothing sent |
 | `stale` | Changed, but the platform can't edit posts (Medium), or its answer to the publish named no id for the post, which an update needs. Edit it by hand at the URL shown; Inkcast won't post it again |
-| `skipped` | The platform isn't connected, another sync of the file is running, or the file's post needs your decision: its last publish is `unconfirmed` (resend or cancel it, below), or its send was interrupted and Inkcast is still asking the platform whether it arrived (`recovering`; cancel it if you don't want it) |
+| `skipped` | The platform isn't connected, another sync of the file is running, or the file's post needs your decision: its last publish is `unconfirmed` (resend or cancel it, below; one from before posts were recorded has no post to resend: edit the file to publish it, below), or its send was interrupted and Inkcast is still asking the platform whether it arrived (`recovering`; cancel it if you don't want it) |
 | `failed` | Invalid file or platform error; the next sync tries again. A file that fails validation changes nothing: a post its last valid version scheduled stays and goes out at its time, and the message names it |
 | `removed` | The file was removed from the repository: its pending post was cancelled, or, if it had been published, left on the platform (the status and message say which) |
 
@@ -102,13 +102,15 @@ Files are matched to earlier posts by repository, path and platform. If you rena
 
 A push that deletes a file cancels the file's pending post: one that is `scheduled`, or `recovering` or `unconfirmed` (its send was interrupted, or the platform's answer was lost; it may already be on the platform, and the result says so, as a cancel by hand does). A published post stays on the platform: Inkcast never deletes there; remove it by hand if you want it gone. A removal cancels only posts that came from that repository's sync (matched by repository, path and platform), never a post published by hand or from another repository. A renamed file is a removal and a new story. If you put the file back at the same path, a file whose `scheduled` post was cancelled is published as a new post; one whose post may already be on the platform (`recovering`, `unconfirmed`) is published again only once you change it, as after a cancel by hand, so a revert never sends a second copy.
 
-The action works this out from the push itself: the files deleted between the commit before the push and the pushed commit (`git diff --no-renames --diff-filter=D`), within `paths`. The first push of a branch has no commit before it, so it reports no removals; on a pull request the dry run says which posts the merge would cancel. From any other CI, or a laptop, name the base revision yourself:
+The action works this out from the push itself: the files deleted between the commit before the push and the pushed commit (`git diff --no-renames --diff-filter=DT`: a file that became a link counts as deleted), within `paths`. The first push of a branch has no commit before it, so it reports no removals; on a pull request the dry run says which posts the merge would cancel. From any other CI, or a laptop, name the base revision yourself:
 
 ```bash
 inkcast sync --removed-since 1a2b3c4 'posts/**/*.md'   # the commit the last sync ran at
 ```
 
 If the revision isn't in the clone (a shallow checkout), the command stops with exit code `2` and says so; fetch it, or sync without the option.
+
+`paths` lists regular files only, as git tracks them: a directory named like a story (`x.md`) is skipped, and so is anything reached through a symbolic link (git tracks the link itself, not what it points to), so every file synced is one a later removal can report. On a case-insensitive filesystem (macOS, Windows) write each path in the case git has it: a pattern in another case (`POSTS/*.md` for `posts/`) syncs the story under that spelling, while git names its removal under its own, which is then never reported. The same holds for a name with accents stored decomposed (NFD, as some archives and older tools write it on macOS): git names it composed, so write such a path as git lists it (`git ls-files`). The GitHub Action runs on Linux, where neither can differ.
 
 If a sync fails part-way (the request errors because Inkcast's database was busy, say), run it again:
 
@@ -117,6 +119,8 @@ If a sync fails part-way (the request errors because Inkcast's database was busy
 - If the failed run couldn't even record its error, the file stays held for up to 10 minutes. A re-run in that time reports `skipped` (another sync of the file is running); run it again after that.
 
 A re-run sends the same request, so the same `Idempotency-Key`, and the server tells the two kinds apart. A result that asked for a re-run (`skipped`: the file held by another sync, its post being sent, or its state changed during the sync; `failed`: the next sync tries again, after you reconnect a platform that refused its key, say) isn't kept for replay: the re-run runs, and a removal whose cancel lost a race cancels the post then. A result with nothing skipped or failed is replayed as it was for 24 hours (`Idempotent-Replayed: true`). Either way nothing is sent twice: the ledger remembers what each run made.
+
+A key is held for 15 minutes from the start of its request. A sync that runs longer than that no longer holds it: the next repeat runs anew instead of being told to retry, and the first run's result isn't kept for replay (its posts hold in the ledger). Each run frees or completes only the reservation it made, so a third repeat is told to retry while the second runs.
 
 ## Any other CI, or your laptop
 
@@ -136,6 +140,8 @@ A publish can end `unconfirmed`: the platform's answer was lost after the reques
 - Check the platform first: the first send may have arrived.
 - **Resend it** (`inkcast resend <post-id>` from the CLI, `inkcast_resend`, or `POST /api/v1/posts/{id}/resend`, with a `posts:write` token): one new post goes out now, the old one is cancelled, and the file follows the new post. The platform must be connected: a resend while it isn't, or while it refuses the stored credentials, is refused (`409 not_connected`) before anything is cancelled, and the reply names the reconnect step. One while the platform can't be asked just now whether it still accepts the stored credentials (rate-limited, unreachable) is refused too (`409 platform_unavailable`): nothing is cancelled, the post stays `unconfirmed`, and the reply names when to try again, from the platform's `Retry-After` when it gave one. A retried resend (its first reply lost) is refused too (`409 not_resendable`), and the reply names the post the first one made (`post_id` in the body), so follow that one.
 - **Cancel it** (`inkcast cancel <post-id>`, `inkcast_cancel`, or `POST /api/v1/posts/{id}/cancel`): nothing is sent; an edit of the file is then published as a new post, so remove the first copy on the platform if it did arrive.
+
+A file whose entry is from before Inkcast recorded post ids (`unconfirmed`, naming no post) has no post to resend or cancel. It is `skipped` on every push, on every platform, until you edit it: the edit is published as a new post, so check the platform first and remove the first copy if it did arrive. The sync still asks the platform, and records the post if the platform has it; it never sends such a file again on its own, whatever the platform says.
 
 The sync result names the post id and both calls. From the CLI, with a `posts:write` token in `INKCAST_TOKEN`:
 

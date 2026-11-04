@@ -13,7 +13,9 @@ update     payload changed and the platform can edit posts (DEV): edit in place;
 stale      payload changed but the platform can't edit (Medium): leave it, say so
 skipped    platform not connected, or another sync of this file is in progress; or the file's post
            waits for a person's decision (``_decision``, #226): its last publish is ``unconfirmed``
-           (resend or cancel it), or ``recovering`` (cancel it if unwanted); nothing is sent
+           (resend or cancel it), or ``recovering`` (cancel it if unwanted); or its entry is an old
+           ``unconfirmed`` one naming no post, which waits for an edit (``_edit_to_publish``, #444);
+           nothing is sent
 failed     validation or platform error; the next sync tries again
 removed    the file is gone from the repository (``SyncRequest.removed``): its pending post is cancelled;
            a published one stays on the platform (``_removed``, #230)
@@ -176,10 +178,17 @@ class GitSync:
                     "This file's post changed during this sync (a person resent it); run the sync again."))
             entry = self.store.get_entry(user_id, src, path, pid) or entry
 
-        if entry and entry["status"] == "unconfirmed" and req.dry_run and post is not None:
-            # A dry run asks the platform nothing, but says what the real run does: the person decides (#226).
-            return SyncResult(**base, action="skipped", status="unconfirmed", post_id=post["id"],
-                              message=self._decision(platform, post["id"], None, dry_run=True))
+        if entry and entry["status"] == "unconfirmed" and req.dry_run:
+            # A dry run asks the platform nothing, but says what the real run does: the person decides (#226); with no
+            # post to decide on, the edit decides, and an edited file would be a new post (#444).
+            if post is not None:
+                return SyncResult(**base, action="skipped", status="unconfirmed", post_id=post["id"],
+                                  message=self._decision(platform, post["id"], None, dry_run=True))
+            if entry["post_id"] is None:
+                if entry["content_hash"] != digest:
+                    return await self._create(user_id, req, path, story, platform, prepared, digest, entry)
+                return SyncResult(**base, action="skipped", status="unconfirmed",
+                                  message=self._edit_to_publish(platform, f"this dry run didn't ask {platform.name}"))
         if entry and entry["status"] == "unconfirmed" and not req.dry_run:
             # Asked about what the uncertain send carried (the post's payload), not the file as it is now: an edit since
             # would give DEV's lookup other content to compare, and the article the send made would go unfound (#396).
@@ -189,6 +198,9 @@ class GitSync:
                 if post is not None:  # the person's to decide meanwhile, like any unconfirmed post (#226)
                     return SyncResult(**base, action="skipped", status="unconfirmed", post_id=post["id"],
                                       message=self._decision(platform, post["id"], checked))
+                if entry["post_id"] is None and entry["content_hash"] == digest:  # no post: the edit decides (#444)
+                    return SyncResult(**base, action="skipped", status="unconfirmed", message=self._edit_to_publish(
+                        platform, f"{platform.name} couldn't be asked just now ({checked.message}); the next sync asks again"))
                 return SyncResult(**base, action="skipped", status="unconfirmed", post_id=entry["post_id"], message=(
                     f"The last publish to {platform.name} may or may not have gone through, and {platform.name} couldn't "
                     f"be asked just now ({checked.message}). The next sync will ask again."))
@@ -201,14 +213,17 @@ class GitSync:
                                   message=self._decision(platform, post["id"], checked))
             entry, unresolved = self._resolve(user_id, src, path, platform, entry, checked), entry
             if entry is None:
-                # No post to decide on (an entry from before posts were recorded): an edited file is a new post, as
-                # after a cancel (``claim_new`` takes such an entry over); an unchanged one waits for that edit (#226).
+                # No post to decide on (an entry from before posts were recorded, #228): the decision is the edit, a
+                # new post as after a cancel (``claim_new`` takes such an entry over). An unchanged file waits for it,
+                # on every platform, whatever the lookup said: "missing" could be a lookup that lags the post, and a
+                # post is never sent late without a person deciding (#444, option B). A post the platform does have
+                # was recorded (``_resolve``).
                 if unresolved["content_hash"] != digest:
                     return await self._create(user_id, req, path, story, platform, prepared, digest, unresolved)
-                return SyncResult(**base, action="skipped", status="unconfirmed", message=(
-                    f"The last publish to {platform.name} may or may not have gone through, and {platform.name} can't "
-                    f"be checked automatically. Check {platform.name}; an edit of this file is published as a new post, so "
-                    f"remove the first copy on {platform.name} if it did arrive."))
+                said = (f"{platform.name} says it isn't there" if checked is not None and checked.status == "missing"
+                        else f"{platform.name} can't be checked automatically" if checked is None or not checked.message
+                        else checked.message.rstrip("."))
+                return SyncResult(**base, action="skipped", status="unconfirmed", message=self._edit_to_publish(platform, said))
 
         changed = entry is not None and entry["content_hash"] != digest
         if entry is None or entry["status"] in ("failed", "syncing", "missing") or \
@@ -483,6 +498,15 @@ class GitSync:
                 f"/api/v1/posts/{post_id}/cancel) if you don't want it. After a cancel, an edited file is published as a "
                 f"new post, so remove the first copy on {platform.name} if it did arrive.")
 
+    @staticmethod
+    def _edit_to_publish(platform: Platform, said: str) -> str:
+        """What the sync says of a file whose entry is unconfirmed and names no post (from before posts were recorded,
+        #228): nothing to resend or cancel, so the person's decision is the edit, published as a new post, on every
+        platform (#444, option B). ``said``: what the platform said, or that this dry run asked it nothing."""
+        return (f"The last publish to {platform.name} may or may not have gone through, and {said}. Inkcast has no post of "
+                f"it to resend or cancel, and never publishes it again on its own: check {platform.name}, then edit this "
+                f"file: the edit is published as a new post, so remove the first copy on {platform.name} if it did arrive.")
+
     def _after_error(self, user_id: str, src: str, path: str, pid: str, digest: str, post_id: str | None,
                      said: str | None = None) -> None:
         """The publish, or the ledger write of its outcome, raised (a locked database, say). Once the post row exists
@@ -502,16 +526,20 @@ class GitSync:
 
     def _resolve(self, user_id: str, src: str, path: str, platform: Platform, entry: dict, o: Outcome | None) -> dict | None:
         """Resolve an unconfirmed entry from what the platform said (``Publisher.confirm``): published → record it;
-        missing → allow a fresh create (an entry with no post; one with a post is the person's, ``_one``); None, or
-        the platform unable to say which post is this one (``unconfirmed``, #428) → can't tell. The post is written only
-        while it is still 'unconfirmed': a person may have cancelled or resent it while the lookup was out, and then the
-        entry follows what they decided (#226)."""
+        missing → the post failed and the entry 'missing', so a fresh create follows (an entry with no post is left as
+        it is: the edit of its file decides, #444, ``_one``); None, or the platform unable to say which post is this
+        one (``unconfirmed``, #428) → can't tell. The post is written only while it is still 'unconfirmed': a person
+        may have cancelled or resent it while the lookup was out, and then the entry follows what they decided (#226)."""
         if o is None or o.status == "unconfirmed":
             return None
         if o.status == "missing":
-            if entry["post_id"]:
-                self.store.update_post(entry["post_id"], status="failed", only_if="unconfirmed",
-                                       error=f"Not found on {platform.name}; it was never published.")
+            if not entry["post_id"]:
+                # An entry from before posts were recorded (#228): nothing to resend or cancel, and "missing" could be
+                # a lookup that lags the post. Never sent late without a person deciding: the edit of the file is that
+                # decision, and ``_one`` waits for it (#444, option B).
+                return None
+            self.store.update_post(entry["post_id"], status="failed", only_if="unconfirmed",
+                                   error=f"Not found on {platform.name}; it was never published.")
             return self.store.put_entry(user_id, src, path, platform.id, status="missing", message=None)
         # A note that a second copy may be there (an earlier send's answer landed over a re-send, #234) stays: the
         # lookup found one copy, which doesn't say there is no other (``keep``).

@@ -59,18 +59,25 @@ class Retention(unittest.TestCase):
         for hour in (1, 2):
             take_backup(self.db, self.backups, keep=2, now=DAY0 + 4 * DAY + hour * 3600)
         self.assertEqual(dates(list_backups(self.backups)), ["20261104", "20261105", "20261105", "20261105"])
-        # The CronJob fails for two weeks: the next good backup removes everything older than keep days at once.
+        # The CronJob fails for two weeks: the first good backup cannot tell that gap from a clock that jumped ahead,
+        # so it removes nothing and says so (#405); the next removes everything older than keep days at once.
         b = take_backup(self.db, self.backups, keep=2, now=DAY0 + 21 * DAY)
-        self.assertEqual(b.removed_backups, 4)
-        self.assertEqual(dates(list_backups(self.backups)), ["20261122"])
+        self.assertEqual(b.removed_backups, 0)
+        self.assertIn("17 days old", b.refused)
+        b = take_backup(self.db, self.backups, keep=2, now=DAY0 + 22 * DAY)
+        self.assertEqual((b.removed_backups, b.refused), (4, ""))
+        self.assertEqual(dates(list_backups(self.backups)), ["20261122", "20261123"])
 
     def test_keep_1_leaves_the_day_s_copies_and_the_newest_is_never_removed(self):
         take_backup(self.db, self.backups, keep=1, now=DAY0)
         take_backup(self.db, self.backups, keep=1, now=DAY0 + DAY)
         self.assertEqual(dates(list_backups(self.backups)), ["20261102"])
-        # A clock far ahead of the copies (keep=1, a copy from a year ago) still keeps the one just taken.
+        # A clock far ahead of the copies (keep=1, a copy from a year ago) keeps the one just taken, and the earlier one
+        # too: a run that would leave only its own copy removes nothing (#405).
         b = take_backup(self.db, self.backups, keep=1, now=DAY0 + 400 * DAY)
-        self.assertEqual([p.name for p in list_backups(self.backups)], [b.name])
+        self.assertEqual([p.name for p in list_backups(self.backups, now=DAY0 + 400 * DAY)][-1], b.name)
+        self.assertEqual((dates(list_backups(self.backups)), b.removed_backups), (["20261102", "20271206"], 0))
+        self.assertIn("399 days old", b.refused)
 
     def test_a_failed_backup_removes_nothing(self):
         take_backup(self.db, self.backups, keep=1, now=DAY0)
@@ -110,11 +117,16 @@ class Retention(unittest.TestCase):
         self.assertEqual(restored.execute("SELECT COUNT(*) FROM users").fetchone()[0], 1, "the database itself is untouched")
 
     def test_the_command_logs_what_it_removed(self):
+        import types
+        from unittest import mock
         from inkcast.backup import backup_main
+        from inkcast.libs.db import backup as module
         take_backup(self.db, self.backups, keep=1, now=DAY0 - DAY)
         self.store.close()
         restore_backup(list_backups(self.backups)[0], self.db, now=DAY0 - DAY + 60)
-        with self.assertLogs("inkcast.backup", logging.INFO) as logs:
+        # The command on the day after: its clock injected, so the day since the copies is one whatever today is (#405).
+        with mock.patch.object(module, "time", types.SimpleNamespace(time=lambda: DAY0)), \
+                self.assertLogs("inkcast.backup", logging.INFO) as logs:
             self.assertEqual(backup_main(["--database", str(self.db), "--to", str(self.backups), "--keep", "1"]), 0)
         (done,) = [r for r in logs.records if getattr(r, "event", "") == "backup.done"]
         self.assertEqual((done.removed_backups, done.removed_copies), (1, 1))

@@ -8,7 +8,8 @@ Routes
   /tokens/new                                      browser flow that shows a new token once
   /api/v1/tokens, /api/v1/tokens/{id}              REST token management (OAuth tokens only)
   /api/v1/account/deletion-link                    REST: a one-time link to the deletion page (OAuth tokens only)
-  /account/delete/{ticket}                         delete my account: the page (after a fresh sign-in)
+  /account/delete/{ticket}                         delete my account: the link's page; its Continue (a POST) starts
+                                                   a fresh sign-in, then the confirm page
   /account/return                                  where Keycloak's info pages link back (the client's baseUrl);
                                                    finishes a deletion when the visit carries its cookie
 """
@@ -34,6 +35,7 @@ from ...libs.auth import SCOPE, SCOPES, Principal
 from ...libs.contracts.models import TokenCreate, TokenCreated, TokenInfo
 from ...libs.contracts.routes import ROUTES
 from ...libs.http import pages
+from ...libs.http.onetime import PageTokens
 from ...libs.http.ratelimit import WRITE_METHODS, limited
 from ...libs.http.rest import ApiError, Authed, json_body
 from ...libs.runtime import Context
@@ -212,7 +214,8 @@ def _routes(ctx: Context) -> list[Route]:
         return pages.token_created(token, req.name)
 
     # ---- delete my account (E9.F9.5.S4): Inkcast's page, then Keycloak's delete_account action -------------
-    # The link (MCP inkcast_delete_account, POST /api/v1/account/deletion-link) opens a fresh sign-in; the confirm
+    # The link (MCP inkcast_delete_account, POST /api/v1/account/deletion-link) opens a page whose Continue, a POST,
+    # starts a fresh sign-in; a GET, or the HEAD a previewer sends, changes nothing (issue #401). The confirm
     # page's Continue sends the browser to Keycloak with kc_action=delete_account. Keycloak asks for the password
     # again, confirms, deletes the account on the person's own authority and shows its own "deleted" page, whose
     # "Back to application" link (the client's baseUrl) is /account/return. That visit is matched to the request
@@ -220,7 +223,9 @@ def _routes(ctx: Context) -> list[Route]:
     # erased (via=return). Cancel and errors come back through /auth/callback with nothing deleted. The sync's
     # DELETE_ACCOUNT reader (via=event) erases anyone the return visit never confirmed.
     # The link is used up only once the sign-in redirect is ready (issue #149): a provider that is down leaves it good
-    # for another visit. The consume is one transaction, so of two tabs that open the link only one proceeds.
+    # for another try. The consume is one transaction, so of two tabs that press Continue only one proceeds.
+
+    tokens = PageTokens(config.secret_key)
 
     async def account_delete(request: Request) -> Response:
         ticket = request.path_params["ticket"]
@@ -232,6 +237,10 @@ def _routes(ctx: Context) -> list[Route]:
         req = store.deletion_request_by_link(ticket)                # read only: nothing is consumed yet
         if not req:
             return expired()
+        if request.method != "POST":                                # a GET, or the HEAD a previewer sends: the page
+            return pages.deletion_start(ticket, tokens.make(ticket))
+        if not tokens.ok(ticket, (await request.form()).get("csrf")):
+            return pages.message("Request rejected", "The form was invalid. Open the link again.", error=True, status=400)
         pending_id = store.create_pending(DELETE_REQUEST, req["id"])
         try:
             await identity.reachable()                              # asked now: the hour's cached discovery says nothing
@@ -361,7 +370,9 @@ def _routes(ctx: Context) -> list[Route]:
         Route("/auth/callback", limited(auth_callback, ctx.limiter, "login", {"GET", "POST"}), methods=["GET", "POST"]),
         Route("/auth/consent", auth_consent, methods=["GET", "POST"]),
         Route("/tokens/new", limited(tokens_new, ctx.limiter, "tokens-new", {"GET"}), methods=["GET"]),  # a GET that writes
-        Route("/account/delete/{ticket}", limited(account_delete, ctx.limiter, "account-delete", {"GET"}), methods=["GET"]),
+        # The POST starts a sign-in (a pending row, a discovery request); the GET is a read, limited as it was.
+        Route("/account/delete/{ticket}", limited(account_delete, ctx.limiter, "account-delete", {"GET", "POST"}),
+              methods=["GET", "POST"]),
         Route("/account/return", account_return, methods=["GET"]),
         Route("/api/v1/account/deletion-link", authed(None, account_deletion_link, oauth_only=True), methods=["POST"]),
         Route("/api/v1/tokens", authed(None, list_tokens, oauth_only=True), methods=["GET"]),

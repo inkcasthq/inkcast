@@ -19,7 +19,7 @@ from urllib.parse import urljoin
 import httpx2
 
 from inkcast.cli import sync_main
-from test_e2e import Harness
+from test_e2e import Harness, connect_through_page
 from test_split_mode import SplitHarness
 
 
@@ -41,7 +41,7 @@ class GitPublishing(Harness):
             async with httpx2.AsyncClient(timeout=30) as c:
                 for pid, fields in (("devto", {"api_key": "devto-key"}), ("medium", {"token": "medium-token"})):
                     link = (await c.post(f"{cls.base}/api/v1/platforms/{pid}/connect-link", headers=h)).json()
-                    await c.post(link["url"], data=fields)
+                    await connect_through_page(c, link["url"], fields)
                 r = await c.post(f"{cls.base}/api/v1/tokens", headers=h,
                                  json={"name": "blog CI", "scopes": ["stories:sync", "posts:read"]})
                 return r.json()
@@ -145,18 +145,20 @@ class GitPublishing(Harness):
         store = self.app.store
         user_id = store._one("SELECT user_id FROM api_tokens WHERE id = ?", self.pat["id"])["user_id"]
         before = len(self.fakes.devto_articles)
-        # The first request holds the key and is still running.
-        self.assertIsNone(store.reserve_idempotency_key(user_id, "k-race", "someone-else-running"))
+        # The first request holds the key and is still running (held: the reservation's owner, a token, #416).
+        other = store.reserve_idempotency_key(user_id, "k-race", "someone-else-running")
+        self.assertIsInstance(other, float)
         busy = self.call("POST", "/api/v1/stories:sync", json=body, headers={"Idempotency-Key": "k-race"})
         self.assertEqual(busy.status_code, 422)                       # a different request under the same key
-        store.release_idempotency_key(user_id, "k-race")
+        self.assertTrue(store.release_idempotency_key(user_id, "k-race", other))
         # Now the real first request: reserve it as the server would, and a twin arrives meanwhile.
         fingerprint = hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
-        self.assertIsNone(store.reserve_idempotency_key(user_id, "k-race", fingerprint))
+        owner = store.reserve_idempotency_key(user_id, "k-race", fingerprint)
+        self.assertIsInstance(owner, float)
         twin = self.call("POST", "/api/v1/stories:sync", json=body, headers={"Idempotency-Key": "k-race"})
         self.assertEqual((twin.status_code, twin.json()["error"]), (409, "idempotency_key_in_use"))
         self.assertEqual(len(self.fakes.devto_articles), before)      # the twin ran nothing
-        store.release_idempotency_key(user_id, "k-race")              # the first one failed: the key is free again
+        self.assertTrue(store.release_idempotency_key(user_id, "k-race", owner))   # the first one failed: free again
         first = self.call("POST", "/api/v1/stories:sync", json=body, headers={"Idempotency-Key": "k-race"})
         replay = self.call("POST", "/api/v1/stories:sync", json=body, headers={"Idempotency-Key": "k-race"})
         self.assertEqual(first.status_code, 200, first.text)

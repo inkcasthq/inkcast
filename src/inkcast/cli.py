@@ -35,6 +35,7 @@ import json
 import os
 import pathlib
 import re
+import stat
 import subprocess
 import sys
 from typing import Any
@@ -133,13 +134,15 @@ def _globbed(parts: list[str], names: list[str]) -> bool:
 
 def removed_since(rev: str, patterns: list[str]) -> list[str]:
     """The markdown files ``patterns`` would have collected that ``rev`` had and HEAD no longer has, in git's order:
-    ``git diff --no-renames --diff-filter=D``, so a renamed file is a removal (its new path is a new story), relative
-    to the current directory as the collected paths are. Raises ``CliError`` when git can't tell (not a repository,
-    or ``rev`` unknown: a shallow clone that never fetched it)."""
+    ``git diff --no-renames --diff-filter=DT``, so a renamed file is a removal (its new path is a new story), and so is
+    a file that became a link or a submodule (``T``: ``collect`` lists it no more), relative to the current directory
+    as the collected paths are, and regular files only, as ``collect`` lists them (a removed link or submodule, #417).
+    Raises ``CliError`` when git can't tell (not a repository, or ``rev`` unknown: a shallow
+    clone that never fetched it)."""
     if rev.startswith("-"):  # git would read it as an option (``--output=FILE`` writes a file), never a revision
         raise CliError(f"{rev!r} isn't a revision")
     try:
-        diff = subprocess.run(["git", "diff", "--no-renames", "--diff-filter=D", "--name-only", "--relative", "-z",
+        diff = subprocess.run(["git", "diff", "--no-renames", "--diff-filter=DT", "--raw", "--relative", "-z",
                                rev, "HEAD"], capture_output=True)
     except OSError as exc:
         raise CliError(f"can't run git to list the files removed since {rev}: {exc}") from exc
@@ -149,7 +152,10 @@ def removed_since(rev: str, patterns: list[str]) -> list[str]:
     # As ``collect`` writes paths: no ``./``. A pattern ending in ``/`` or ``/.`` lists directories only, no file.
     globs = [str(pathlib.PurePosixPath(p)) for p in patterns if p.rsplit("/", 1)[-1] not in ("", ".")]
     found: list[str] = []
-    for raw in diff.stdout.split(b"\0"):
+    entries = diff.stdout.split(b"\0")      # ``--raw -z``: ':<old mode> <new mode> <old> <new> D|T', then the path, each NUL-ended
+    for meta, raw in zip(entries[::2], entries[1::2]):
+        if meta.split()[0] not in (b":100644", b":100755"):  # a link (120000) or a submodule (160000) was never collected
+            continue
         try:
             name = raw.decode()
         except UnicodeDecodeError:  # git names files in bytes; one that isn't UTF-8 was never synced (a request is text)
@@ -186,14 +192,28 @@ def raw_base(source: str, ref: str | None) -> str | None:
 
 
 def collect(patterns: list[str]) -> list[str]:
+    """The markdown files ``patterns`` list, as git tracks them: regular files only, reached through no symbolic link,
+    so each is one ``--removed-since`` can report later (#417). ``glob`` lists a directory named like a story (``x.md``)
+    and walks into a linked directory, while git tracks a link as a link, with nothing of its own beneath it."""
     found: list[str] = []
     for pattern in patterns:
         matches = sorted(glob.glob(pattern, recursive=True)) or ([pattern] if os.path.isfile(pattern) else [])
         for m in matches:
             p = pathlib.PurePosixPath(pathlib.Path(m).as_posix())
-            if p.suffix.lower() in MARKDOWN and str(p) not in found:
+            if p.suffix.lower() in MARKDOWN and str(p) not in found and _regular_file(m):
                 found.append(str(p))
     return found
+
+
+def _regular_file(path: str) -> bool:
+    """Whether ``path`` is a regular file with no symbolic link among the directories above it, as ``lstat`` sees each
+    (a link to a file is a link). False too when it is gone since ``glob`` listed it."""
+    parts = pathlib.Path(path).parts
+    try:
+        return not any(os.path.islink(os.path.join(*parts[:n])) for n in range(1, len(parts))) \
+            and stat.S_ISREG(os.lstat(path).st_mode)
+    except OSError:
+        return False
 
 
 def build_requests(paths: list[str], source: str, ref: str | None, platforms: list[str] | None,
@@ -251,7 +271,8 @@ def sync_main(argv: list[str]) -> int:
     parser.add_argument("--fail-on-stale", action="store_true", help="exit 1 if a changed file couldn't be updated")
     parser.add_argument("--fail-on-decision", action="store_true",
                         help="exit 1 if a file's post waits for a person's decision (its last publish is unconfirmed, "
-                             "or still recovering): resend or cancel it (inkcast resend | cancel <post-id>)")
+                             "or still recovering): resend or cancel it (inkcast resend | cancel <post-id>); an old "
+                             "entry with no post to resend or cancel waits for an edit of the file, published as a new post")
     parser.add_argument("--removed-since", metavar="REV", default=None,
                         help="also report the matching files removed between REV and HEAD (git diff), so their pending "
                              "posts are cancelled; the GitHub action passes the commit before the push")

@@ -11,7 +11,10 @@ the server serves; a restore refuses while the server is running (stop it first)
 Ctrl-C) or past `--not-after` (the deadline restore.sh passes) stops before its swap and says so; `inkcast` is PID 1
 in the image, where a SIGTERM without a handler is dropped, so the handler is set before anything else (#128). Exit
 status: 0 done, 1 failed, 2 bad usage. Each outcome is one log line with an event (`backup.done`, `backup.failed`,
-`restore.done`, `restore.refused`, `restore.stopped`). Runbook: docs/runbooks/backup-restore.md.
+`restore.done`, `restore.refused`, `restore.stopped`). A backup that is good but whose retention was refused (the
+newest earlier backup has aged out, `keep` or more days old (more than 1 with keep 1): a clock that far ahead, or no
+backup for that long; #405) logs `backup.done` and then `backup.retention.refused`, and exits 1: the Job fails, so
+InkcastBackupMissing fires and someone looks at the clock. Runbook: docs/runbooks/backup-restore.md.
 """
 
 from __future__ import annotations
@@ -88,6 +91,9 @@ def backup_main(argv: list[str]) -> int:
              extra={"event": "backup.done", "backup": b.name, "size": b.manifest["size"],
                     "rows": sum(b.manifest["rows"].values()), "removed_backups": b.removed_backups,
                     "removed_copies": b.removed_copies})
+    if b.refused:           # the backup counts; the Job must not, so that the alert on a missed backup fires (#405)
+        log.error("Retention refused: %s", b.refused, extra={"event": "backup.retention.refused", "backup": b.name})
+        return 1
     return 0
 
 

@@ -98,6 +98,11 @@ EVENTS: dict[str, tuple[str, str]] = {
                                          "period): every row of theirs was erased (ids and counts only)."),
     "identity.erasure.reapplied": ("warning", "A restore brought back rows of a person erased before; they were erased again at "
                                               "start-up, before anything served (id and count only; not a new deletion)."),
+    "identity.erasure.wal_pending": ("warning", "An erasure committed, but the checkpoint after it could not cut the "
+                                                "write-ahead log (a reader on an older snapshot, or it failed), so the "
+                                                "erased rows' bytes stay in the -wal file, and their pages in the database "
+                                                "file, until housekeeping's checkpoint within 30 minutes (frame count "
+                                                "only). A volume snapshot taken meanwhile copies them (#404)."),
     "identity.erasure_hash.backfill": ("info", "The one-off fill of users.erasure_hash at start-up, after the upgrade to it or "
                                                "a restore of a backup from before it, one line per batch: rows filled so far, "
                                                "of the rows without a hash at this start, and batches. A start cut short "
@@ -139,11 +144,21 @@ EVENTS: dict[str, tuple[str, str]] = {
     "backup.done": ("info", "A database backup was taken, checked and kept (name, size, rows), and the backups and pre-restore "
                             "copies INKCAST_BACKUP_KEEP or more days old removed (removed_backups, removed_copies)."),
     "backup.failed": ("critical", "A database backup failed; nothing was removed. The alert fires when none succeeds for 26 h."),
+    "backup.retention.refused": ("critical", "The backup was taken and is good (its backup.done line precedes this), but "
+                                             "nothing aged out: the newest backup from before today has aged out "
+                                             "(INKCAST_BACKUP_KEEP days old or more), which is the node's clock that far "
+                                             "ahead (check it) or no backup for that long (InkcastBackupMissing has fired "
+                                             "as long). The command exits 1 so the Job fails and that alert fires; on a "
+                                             "correct clock the next good backup removes them (#405)."),
     "restore.done": ("warning", "The database was replaced by a backup; the previous one was kept beside it."),
     "restore.erasures.carried": ("info", "The erasure records of the replaced database, and their aliases from a key "
                                          "rotation, went into the restored copy, so the server erases those people again "
                                          "at start-up (counts only)."),
     "restore.refused": ("warning", "A restore did not run: the backup failed its checks, or the server was still running."),
+    "restore.staging.removed": ("warning", "The backup removed the staging copy a restore killed outright had left beside "
+                                           "the database (.inkcast.db.restoring, with its journal; bytes): a whole copy of "
+                                           "a backup, whoever it holds included, that no restore was running (none held the "
+                                           "data directory's lock) and nothing reads (#404)."),
     "restore.stopped": ("warning", "A restore stopped before its swap, asked to (SIGTERM, Ctrl-C) or past its deadline; the "
                                    "current database was not touched and nothing was left staged."),
 }

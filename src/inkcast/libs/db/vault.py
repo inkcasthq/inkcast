@@ -64,8 +64,23 @@ class VaultRepo(Database):
         )
         return dict(row) if row else None
 
-    def consume_ticket(self, ticket: str) -> None:
-        self._exec("DELETE FROM connect_tickets WHERE ticket_hash = ?", token_hash(ticket))
+    def consume_ticket(self, ticket: str) -> bool:
+        """Use the ticket up: True for the one caller that did, False when it was already used, never issued or has
+        expired. One conditional statement, so of two POSTs with the same ticket exactly one gets True (issue #399).
+        An expired ticket is left to ``purge_expired_tickets``."""
+        return self._exec("DELETE FROM connect_tickets WHERE ticket_hash = ? AND expires_at > ?",
+                          token_hash(ticket), time.time()) == 1
+
+    def consume_ticket_and_save(self, ticket: str, user_id: str, platform: str, creds: dict[str, Any],
+                                account: dict[str, Any]) -> bool:
+        """``consume_ticket``, then ``save_credentials``, in one transaction: False, with nothing saved, when the
+        ticket was not this caller's to use. A save that fails rolls the consume back, so the link stays good: it is
+        used up by the POST that stores a key and by nothing else."""
+        with self._tx():
+            if not self.consume_ticket(ticket):
+                return False
+            self.save_credentials(user_id, platform, creds, account)
+        return True
 
     def purge_expired_tickets(self) -> None:
         self._exec("DELETE FROM connect_tickets WHERE expires_at < ?", time.time())

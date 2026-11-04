@@ -75,11 +75,13 @@ class ReadingTheFailedAttemptsLog(unittest.TestCase):
         self.assertEqual(self.calls.read_text().splitlines(), ["-n inkcast-staging logs -c env-secrets openfga-7d9f-x2k4q"])
 
     def test_the_deadline_fails_the_proof_naming_the_pod_and_the_error_and_writes_no_file(self):
-        done = self.run_reader("openfga-7d9f-x2k4q", "--previous", failures=1000, seconds="1")
+        # The deadline counts whole seconds (date +%s): with 1 s, a run that starts late in a second meets it at its
+        # first check, one attempt in (#480). 2 s leaves more than a second, room for a second attempt at any start.
+        done = self.run_reader("openfga-7d9f-x2k4q", "--previous", failures=1000, seconds="2")
         self.assertNotEqual(done.returncode, 0)
         self.assertIn("openfga-7d9f-x2k4q --previous", done.stderr)
         self.assertIn(UNABLE, done.stderr)
-        self.assertRegex(done.stderr, r"after \d+ attempts over 1 s")
+        self.assertRegex(done.stderr, r"after \d+ attempts over 2 s")
         self.assertFalse((self.work / "init.log").exists(), "an empty or partial file written as the log")
         self.assertGreater(len(self.calls.read_text().splitlines()), 1)
 

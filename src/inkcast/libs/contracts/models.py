@@ -79,13 +79,16 @@ class PlatformInfo(BaseModel):
 
 class ConnectLink(BaseModel):
     platform: str
-    url: str = Field(description="One-time page where the person enters this platform's credentials.")
+    url: str = Field(description="One-time page where the person enters this platform's credentials. Opening it does not "
+                                 "use the link up; submitting a key the platform accepts does, and a refused key leaves "
+                                 "it good for another try.")
     expires_in: int = Field(description="Seconds until the link expires.")
     help: str
 
 
 class DeletionLink(BaseModel):
-    url: str = Field(description="One-time page where the person, after signing in again, starts deleting their account.")
+    url: str = Field(description="One-time page whose Continue button, after a fresh sign-in, starts deleting the account. "
+                                 "Opening the page does not use the link up; the button does.")
     expires_in: int = Field(description="Seconds until the link expires.")
 
 
@@ -199,7 +202,8 @@ class SyncRequest(Input):
                                   description="Files to publish or update. May be empty only when `removed` is not.")
     removed: list[RepoPath] = Field(default_factory=list, max_length=SYNC_BATCH, description=(
         "Paths removed from the repository since the last sync (the action sends `git diff --no-renames "
-        "--diff-filter=D` between the commit before the push and the pushed one, within its `paths`). A removed file's "
+        "--diff-filter=DT` between the commit before the push and the pushed one, within its `paths`; a file that "
+        "became a link counts as removed). A removed file's "
         "pending post (scheduled, recovering or unconfirmed) is cancelled; a published one stays on the platform. A path "
         "absent from `files` is never read as removed, because a sync may cover a subset of the repository."))
     platforms: list[str] | None = Field(None, description="Override the platforms in each file's front matter.")
