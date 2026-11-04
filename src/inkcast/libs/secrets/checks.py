@@ -352,7 +352,7 @@ def _check_pat_expiry(ctx: _Ctx) -> Check:
 # F1.10.S5 (issue #93): the sync interval at a minute or more breaks the "cut off within a minute" promise (README,
 # E9.F9.5.S2, the deletion page); the reconcile's bound is hard (libs/config.KEYCLOAK_RECONCILE_CEILING), not a warning.
 SYNC_INTERVAL_WARN_SECONDS = 60
-# Daily copies: above this a deleted person's data lingers in backups over five weeks (issue #94).
+# Days a backup is kept: above this a deleted person's data lingers in backups over five weeks (issue #94).
 BACKUP_KEEP_WARN = 35
 # Writes a minute from one client address: above this (ten a second, which no person submitting a form reaches) the
 # limit no longer slows a tool guessing the one shared password of INKCAST_LOGIN=password (#157). Still far under the
