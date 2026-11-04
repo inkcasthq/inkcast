@@ -17,7 +17,7 @@ from typing import Iterator
 
 import yaml
 
-from inkcast.cli import BATCH, CliError, build_requests, glob_pattern, removed_since
+from inkcast.cli import BATCH, CliError, build_requests, glob_match, removed_since
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ZEROS = "0" * 40
@@ -61,25 +61,23 @@ def inside(directory: pathlib.Path) -> Iterator[None]:
 
 class TheGlobsMatchRemovedPaths(unittest.TestCase):
     def test_double_star_crosses_directories_and_single_star_does_not(self):
-        deep = glob_pattern(GLOB)
         for path in ("posts/a.md", "posts/2026/b.md", "posts/x/y/z.md"):
-            self.assertTrue(deep.match(path), path)
+            self.assertTrue(glob_match(GLOB, path), path)
         for path in ("notes/d.md", "posts/a.markdown", "posts/a.md/extra", "xposts/a.md"):
-            self.assertFalse(deep.match(path), path)
-        flat = glob_pattern("posts/*.md")
-        self.assertTrue(flat.match("posts/a.md"))
-        self.assertFalse(flat.match("posts/2026/b.md"))
-        self.assertTrue(glob_pattern("**/*.md").match("a.md"))
-        self.assertTrue(glob_pattern("**/*.md").match("x/y/a.md"))
+            self.assertFalse(glob_match(GLOB, path), path)
+        self.assertTrue(glob_match("posts/*.md", "posts/a.md"))
+        self.assertFalse(glob_match("posts/*.md", "posts/2026/b.md"))
+        self.assertTrue(glob_match("**/*.md", "a.md"))
+        self.assertTrue(glob_match("**/*.md", "x/y/a.md"))
 
     def test_classes_single_characters_and_literal_paths(self):
-        self.assertTrue(glob_pattern("posts/[ab]*.md").match("posts/alpha.md"))
-        self.assertFalse(glob_pattern("posts/[ab]*.md").match("posts/charlie.md"))
-        self.assertTrue(glob_pattern("posts/?.md").match("posts/a.md"))
-        self.assertFalse(glob_pattern("posts/?.md").match("posts/ab.md"))
-        self.assertTrue(glob_pattern("posts/a.md").match("posts/a.md"))
-        self.assertFalse(glob_pattern("posts/a.md").match("posts/a.md.bak"))
-        self.assertFalse(glob_pattern("posts/a+b.md").match("posts/aab.md"))  # a regex character is literal
+        self.assertTrue(glob_match("posts/[ab]*.md", "posts/alpha.md"))
+        self.assertFalse(glob_match("posts/[ab]*.md", "posts/charlie.md"))
+        self.assertTrue(glob_match("posts/?.md", "posts/a.md"))
+        self.assertFalse(glob_match("posts/?.md", "posts/ab.md"))
+        self.assertTrue(glob_match("posts/a.md", "posts/a.md"))
+        self.assertFalse(glob_match("posts/a.md", "posts/a.md.bak"))
+        self.assertFalse(glob_match("posts/a+b.md", "posts/aab.md"))  # a regex character is literal
 
 
 class RemovedSince(unittest.TestCase):
