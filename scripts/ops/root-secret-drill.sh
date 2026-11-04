@@ -29,6 +29,9 @@ k="${KUBECTL:-oc}"
 adp="${VELERO_NAMESPACE:-openshift-adp}"
 secret=inkcast-secrets
 label_key=inkcast.io/root-secret
+# The label's JSONPath: a dot in a key is escaped. kubectl's and oc's `['inkcast.io/root-secret']` answer nothing
+# (measured with kubectl 1.37 and oc 4.22), so a labelled Secret would read as unlabelled.
+label_path="{.metadata.labels.${label_key//./\\.}}"
 case "$ns" in
   inkcast-staging) schedule=inkcast-staging-root-secret ;;
   inkcast-prod) schedule=inkcast-prod-root-secret ;;
@@ -77,7 +80,7 @@ step "1. the safety copy, on this host only ($work, mode 600, removed at the end
 $k -n "$ns" get secret "$secret" -o json > "$work/copy.json"
 hashes < "$work/copy.json" > "$work/before"
 echo "copied $secret: $(wc -l < "$work/before" | tr -d ' ') keys ($(cut -d' ' -f1 "$work/before" | tr '\n' ' '))"
-[ "$(field "$ns" "secret/$secret" "{.metadata.labels['$label_key']}")" = true ] || { echo "$ns/$secret lacks $label_key=true: the backup would hold nothing. Label it first (the release with #436 does; scripts/lab/root-secret-copy.sh step 0)." >&2; exit 1; }
+[ "$(field "$ns" "secret/$secret" "$label_path")" = true ] || { echo "$ns/$secret lacks $label_key=true: the backup would hold nothing. Label it first (the release with #436 does; scripts/lab/root-secret-copy.sh step 0)." >&2; exit 1; }
 in_pod seal "$stamp" > "$work/marker"
 echo "a marker sealed by the server with the key it mounts"
 
@@ -136,7 +139,7 @@ if diff "$work/before" "$work/after" > "$work/diff"; then
 else
   echo "the restored Secret differs from the copy (key hash):" >&2; cat "$work/diff" >&2; exit 1
 fi
-if [ "$(field "$ns" "secret/$secret" "{.metadata.labels['$label_key']}")" = true ]; then
+if [ "$(field "$ns" "secret/$secret" "$label_path")" = true ]; then
   echo "  label $label_key=true: present"
 else
   echo "the restored Secret lacks $label_key" >&2; exit 1
