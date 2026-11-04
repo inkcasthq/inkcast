@@ -104,18 +104,18 @@ $k apply -k "$ROOT/deploy/kustomize/shared/oadp"
 dpa_reconciled() { is "$adp" dpa/inkcast '{.status.conditions[?(@.type=="Reconciled")].status}' True; }
 wait_for 300 "the DPA to be Reconciled" dpa_reconciled || { $k -n "$adp" get dpa inkcast -o jsonpath='{.status.conditions}' >&2; echo >&2; exit 1; }
 $k -n "$adp" rollout status deploy/velero --timeout=300s
-bsl_available() { is "$adp" backupstoragelocation/root-secrets '{.status.phase}' Available; }
+bsl_available() { is "$adp" backupstoragelocations.velero.io/root-secrets '{.status.phase}' Available; }
 wait_for 300 "the storage location root-secrets to be Available" bsl_available \
-  || { $k -n "$adp" get backupstoragelocation root-secrets -o jsonpath='{.status}' >&2; echo >&2; exit 1; }
-$k -n "$adp" get backupstoragelocation root-secrets
-$k -n "$adp" get schedule
+  || { $k -n "$adp" get backupstoragelocations.velero.io root-secrets -o jsonpath='{.status}' >&2; echo >&2; exit 1; }
+$k -n "$adp" get backupstoragelocations.velero.io root-secrets
+$k -n "$adp" get schedules.velero.io
 $k -n "$adp" get pod -l app.kubernetes.io/name=velero -o custom-columns='NAME:.metadata.name,LABELS:.metadata.labels' --no-headers | cut -c1-200
 
 step "5. one backup from the staging Schedule, and its objects in the bucket"
 backup="inkcast-staging-root-secret-$(date -u +%Y%m%d%H%M%S)"
 # As `velero backup create --from-schedule`: the Schedule's template is the Backup's spec, its labels are copied,
 # velero.io/schedule-name is set (pkg/builder/backup_builder.go FromSchedule at v1.17.0).
-$k -n "$adp" get schedule inkcast-staging-root-secret -o json | python3 -c '
+$k -n "$adp" get schedules.velero.io inkcast-staging-root-secret -o json | python3 -c '
 import json, sys
 schedule = json.load(sys.stdin)
 labels = dict(schedule["metadata"].get("labels", {}))
@@ -124,16 +124,16 @@ print(json.dumps({"apiVersion": "velero.io/v1", "kind": "Backup",
                   "metadata": {"name": sys.argv[1], "namespace": schedule["metadata"]["namespace"], "labels": labels},
                   "spec": schedule["spec"]["template"]}))' "$backup" | $k create -f -
 backup_done() {
-  case "$(field "$adp" "backup/$backup" '{.status.phase}')" in
+  case "$(field "$adp" "backups.velero.io/$backup" '{.status.phase}')" in
     Completed) return 0 ;;
     ""|New|InProgress|WaitingForPluginOperations|Finalizing) return 1 ;;
-    *) echo "backup $backup: $(field "$adp" "backup/$backup" '{.status.phase}'): $(field "$adp" "backup/$backup" '{.status.failureReason}')" >&2
+    *) echo "backup $backup: $(field "$adp" "backups.velero.io/$backup" '{.status.phase}'): $(field "$adp" "backups.velero.io/$backup" '{.status.failureReason}')" >&2
        $k -n "$adp" logs deploy/velero | grep "$backup" | tail -20 >&2 || true; exit 1 ;;
   esac
 }
 wait_for 300 "backup $backup to complete" backup_done
-items="$(field "$adp" "backup/$backup" '{.status.progress.itemsBackedUp}')"
-echo "backup $backup: Completed, $items item(s), errors $(field "$adp" "backup/$backup" '{.status.errors}'), warnings $(field "$adp" "backup/$backup" '{.status.warnings}'), expires $(field "$adp" "backup/$backup" '{.status.expiration}')"
+items="$(field "$adp" "backups.velero.io/$backup" '{.status.progress.itemsBackedUp}')"
+echo "backup $backup: Completed, $items item(s), errors $(field "$adp" "backups.velero.io/$backup" '{.status.errors}'), warnings $(field "$adp" "backups.velero.io/$backup" '{.status.warnings}'), expires $(field "$adp" "backups.velero.io/$backup" '{.status.expiration}')"
 [ "${items:-0}" -ge 1 ] || { echo "the backup holds no item: is $(printf 'inkcast-staging/inkcast-secrets') labelled?" >&2; exit 1; }
 # The store lists its own bucket (weed shell on the pod, through the local sockets: no credential needed and none shown).
 listing="$($k -n "$store_ns" exec deploy/seaweedfs -- sh -c "printf 'fs.ls /buckets/$bucket/velero/backups/$backup/\n' | weed shell -master=localhost:9333 -filer=localhost:8888" 2>&1)"

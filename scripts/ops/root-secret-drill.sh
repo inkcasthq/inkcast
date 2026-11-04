@@ -83,7 +83,7 @@ echo "a marker sealed by the server with the key it mounts"
 
 step "2. a backup from Schedule $schedule"
 backup="$schedule-$stamp"
-$k -n "$adp" get schedule "$schedule" -o json | python3 -c '
+$k -n "$adp" get schedules.velero.io "$schedule" -o json | python3 -c '
 import json, sys
 schedule = json.load(sys.stdin)
 labels = dict(schedule["metadata"].get("labels", {}))
@@ -92,14 +92,14 @@ print(json.dumps({"apiVersion": "velero.io/v1", "kind": "Backup",
                   "metadata": {"name": sys.argv[1], "namespace": schedule["metadata"]["namespace"], "labels": labels},
                   "spec": schedule["spec"]["template"]}))' "$backup" | $k create -f -
 backup_done() {
-  case "$(field "$adp" "backup/$backup" '{.status.phase}')" in
+  case "$(field "$adp" "backups.velero.io/$backup" '{.status.phase}')" in
     Completed) return 0 ;;
     ""|New|InProgress|WaitingForPluginOperations|Finalizing) return 1 ;;
-    *) echo "backup $backup: $(field "$adp" "backup/$backup" '{.status.phase}'): $(field "$adp" "backup/$backup" '{.status.failureReason}')" >&2; exit 1 ;;
+    *) echo "backup $backup: $(field "$adp" "backups.velero.io/$backup" '{.status.phase}'): $(field "$adp" "backups.velero.io/$backup" '{.status.failureReason}')" >&2; exit 1 ;;
   esac
 }
 wait_for 300 "backup $backup to complete" backup_done
-items="$(field "$adp" "backup/$backup" '{.status.progress.itemsBackedUp}')"
+items="$(field "$adp" "backups.velero.io/$backup" '{.status.progress.itemsBackedUp}')"
 echo "backup $backup: Completed, $items item(s)"
 [ "${items:-0}" -ge 1 ] || { echo "the backup holds no item" >&2; exit 1; }
 
@@ -118,16 +118,16 @@ print(json.dumps({"apiVersion": "velero.io/v1", "kind": "Restore",
                            "existingResourcePolicy": "none", "includeClusterResources": False, "restorePVs": False}}))' \
   "$restore" "$adp" "$backup" "$ns" "$label_key" | $k create -f -
 restore_done() {
-  case "$(field "$adp" "restore/$restore" '{.status.phase}')" in
+  case "$(field "$adp" "restores.velero.io/$restore" '{.status.phase}')" in
     Completed) return 0 ;;
     ""|New|InProgress|WaitingForPluginOperations|Finalizing) return 1 ;;
-    *) echo "restore $restore: $(field "$adp" "restore/$restore" '{.status.phase}'): $(field "$adp" "restore/$restore" '{.status.failureReason}')" >&2; exit 1 ;;
+    *) echo "restore $restore: $(field "$adp" "restores.velero.io/$restore" '{.status.phase}'): $(field "$adp" "restores.velero.io/$restore" '{.status.failureReason}')" >&2; exit 1 ;;
   esac
 }
 wait_for 300 "restore $restore to complete" restore_done
-errors="$(field "$adp" "restore/$restore" '{.status.errors}')"
-echo "restore $restore: Completed, errors ${errors:-0}, warnings $(field "$adp" "restore/$restore" '{.status.warnings}')"
-[ "${errors:-0}" = 0 ] || { $k -n "$adp" describe restore "$restore" >&2; exit 1; }
+errors="$(field "$adp" "restores.velero.io/$restore" '{.status.errors}')"
+echo "restore $restore: Completed, errors ${errors:-0}, warnings $(field "$adp" "restores.velero.io/$restore" '{.status.warnings}')"
+[ "${errors:-0}" = 0 ] || { $k -n "$adp" describe restores.velero.io "$restore" >&2; exit 1; }
 
 step "5. the Secret is back, every value the same (by SHA-256), the label on it"
 $k -n "$ns" get secret "$secret" -o json | hashes > "$work/after"
