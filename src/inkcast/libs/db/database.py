@@ -34,8 +34,9 @@ from typing import Any, Iterator
 BUSY_TIMEOUT_MS = 30_000        # how long a statement waits for the write lock
 # How long a checkpoint waits for readers on an older snapshot before it gives up (busy): a statement's snapshot lasts
 # well under a millisecond, a backup's copy seconds, and a checkpoint that cannot complete is run again by housekeeping,
-# so it waits for the first and never for the second. Measured: 269 ms to give up against a held snapshot; 0.7 to 13 ms
-# to copy 0.85 to 27 MB of frames once the reader is gone (PR for #404).
+# so it waits for the first and never for the second. Measured: 256.7 to 264.2 ms to give up against a held snapshot,
+# in attempts WAL_CHECKPOINT_RETRY_MS apart (#470); 0.7 to 13 ms to copy 0.85 to 27 MB of frames once the reader is
+# gone (PR for #404).
 WAL_CHECKPOINT_WAIT_MS = 250
 # The pause between two attempts of that checkpoint: it waits here, outside SQLite, rather than in SQLite's busy
 # handler, which holds the database's write lock meanwhile (issue #470).
