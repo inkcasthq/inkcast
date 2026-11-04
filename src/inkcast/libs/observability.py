@@ -109,10 +109,11 @@ EVENTS: dict[str, tuple[str, str]] = {
     "identity.sync.pass.ended": ("warning", "A sync pass ended early, a success for what it did: its budget of reads about "
                                             "people with no answer was used (the stage and the count only); what it did "
                                             "not reach waits for the next pass or reconcile."),
-    "identity.sync.breaker.tripped": ("critical", "A reconcile found too many people gone from Keycloak or disabled in it at "
-                                                  "once (pass id and counts); nobody is cut off or erased, the disabled "
-                                                  "keep their PATs refused, until an operator confirms or dismisses the "
-                                                  "pass with inkcast identity."),
+    "identity.sync.breaker.tripped": ("critical", "A reconcile, or the admin-events passes of one reconcile interval, found "
+                                                  "too many people gone from Keycloak or disabled in it at once (pass id, "
+                                                  "which pass and counts); nobody is cut off or erased, the disabled keep "
+                                                  "their PATs refused, until an operator confirms or dismisses the pass "
+                                                  "with inkcast identity."),
     "identity.sync.breaker.held": ("warning", "The breaker is still open (pass id, how many people are held, gone and "
                                               "disabled); every pass says so until the pass is resolved."),
     "identity.sync.breaker.confirmed": ("warning", "An operator confirmed a pass (audit: pass id, who, how many applied by "
