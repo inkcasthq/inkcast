@@ -244,9 +244,9 @@ class FindingRecoveryIsCapped(Harness):
         self.tick(later=23 * HOUR)                                            # still asked, still refused
         self.assertEqual((self.status(post_id), self.platform.lookups), ("recovering", 2))
         self.assertEqual(self.store.get_post(post_id)["recovering_since"], since, "kept across stuck passes")
-        (outcome,) = self.tick(later=DAY + 1)                                 # the cap: not asked again
+        (outcome,) = self.tick(later=DAY + 1)                                 # the cap: asked one last time (#234), refused
         post = self.store.get_post(post_id)
-        self.assertEqual((outcome.status, post["status"], self.platform.lookups), ("unconfirmed", "unconfirmed", 2))
+        self.assertEqual((outcome.status, post["status"], self.platform.lookups), ("unconfirmed", "unconfirmed", 3))
         self.assertIn(SETTING, post["error"])
         self.assertIn("24 hours", post["error"])
         self.assertIn("check Findable, then resend it", post["error"])           # a person decides (#226)
@@ -257,7 +257,7 @@ class FindingRecoveryIsCapped(Harness):
         self.platform.refuse = False
         for later in (DAY + STUCK_AFTER + 2, 2 * DAY):
             asyncio.run(self.publisher.run_due(now=time.time() + later))
-        self.assertEqual((self.status(post_id), self.platform.sent, self.platform.lookups), ("unconfirmed", [], 2))
+        self.assertEqual((self.status(post_id), self.platform.sent, self.platform.lookups), ("unconfirmed", [], 3))
 
     def test_the_cap_is_the_publishers_setting_in_seconds(self):
         self.publisher.recovery_max = 2 * HOUR
@@ -278,7 +278,9 @@ class FindingRecoveryIsCapped(Harness):
     def test_a_post_recovered_again_after_a_second_interruption_keeps_the_clock_of_the_first(self):
         """Recovered as missing, re-queued and sent by the same pass, which the process stops in: the second recovery
         is measured from the first interruption, not its own start, so the cap bounds how late the post can go out
-        as a whole (#226, item 2 of the review of #221; the PR had pinned a fresh clock per interruption)."""
+        as a whole (#226, item 2 of the review of #221; the PR had pinned a fresh clock per interruption). The
+        second send did reach the platform here, and the cap asks one last time (#234): the post is recorded as
+        published, not left to the person as unconfirmed; it is still not sent a third time."""
         class Died(BaseException):
             """The process stopped right here: nothing after this line runs."""
 
@@ -302,9 +304,12 @@ class FindingRecoveryIsCapped(Harness):
         self.assertEqual(self.store.get_post(post_id)["recovering_since"], first)
         self.tick(later=23 * HOUR)                                            # 23 hours since the first: still asked
         self.assertEqual(self.status(post_id), "recovering")
-        self.platform.refuse = False                                          # the platform would say "missing" now
-        self.tick(later=DAY + 1)                                              # 24 hours since the first: capped, not asked
-        self.assertEqual((self.status(post_id), self.platform.sent), ("unconfirmed", ["t"]), "sent a day late")
+        self.platform.refuse = False                                          # the platform can be asked now: it has it
+        self.tick(later=DAY + 1)                                              # 24 hours since the first: the cap's last lookup
+        post = self.store.get_post(post_id)
+        self.assertEqual((post["status"], post["result_url"], self.platform.sent), ("published", "https://findable/found", ["t"]),
+                         "sent a day late, or left to the person though the platform has it")
+        self.assertEqual(asyncio.run(self.publisher.run_due(now=time.time() + 2 * DAY)), [])
 
     def test_the_context_hands_the_configured_cap_to_the_publisher(self):
         cfg = by_hand(database_path=self.path, publish_recovery_max_hours=6)

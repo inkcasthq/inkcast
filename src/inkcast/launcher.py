@@ -10,6 +10,8 @@
     inkcast identity ...             # resolve a pass the Keycloak user sync's breaker holds (breaker.py)
     inkcast authz write-model        # OpenFGA: the store and the model version to pin (authz_cli.py)
     inkcast env-secrets              # a lab environment's generated Secrets, in its OpenFGA pod (env_secrets.py)
+    inkcast sync ...                 # the CI/laptop client: publish a repository's markdown files (cli.py)
+    inkcast resend | cancel <post>   # a person's decision on an unconfirmed post, from the same client (cli.py)
     inkcast all | web | worker       # v0.1 modes, still accepted
 
 Configuration problems stop the process before it serves anything, with exit code 78
@@ -156,6 +158,9 @@ def main(argv: list[str] | None = None) -> None:
     if argv[:1] == ["sync"]:  # the CI/laptop client has its own options
         from .cli import sync_main
         sys.exit(sync_main(argv[1:]))
+    if argv[:1] in (["resend"], ["cancel"]):  # a person's decision on one post, from the same client (#234)
+        from .cli import post_main
+        sys.exit(post_main(argv[0], argv[1:]))
     if argv[:1] in (["backup"], ["restore"], ["backups"]):  # operations on the database file, with their own options
         from .backup import backup_main, list_main, restore_main
         sys.exit({"backup": backup_main, "restore": restore_main, "backups": list_main}[argv[0]](argv[1:]))
@@ -171,8 +176,8 @@ def main(argv: list[str] | None = None) -> None:
 
     parser = argparse.ArgumentParser(prog="inkcast", description=f"Inkcast {__version__}")
     parser.add_argument("command", nargs="?", default=None,
-                        help="run (default) | services | checks | sync | backup | restore | backups | identity | authz | "
-                             "env-secrets, "
+                        help="run (default) | services | checks | sync | resend | cancel | backup | restore | backups | "
+                             "identity | authz | env-secrets, "
                              "or a v0.1 mode: all | web | worker")
     parser.add_argument("names", nargs="?", default=None, help="for run: CamelCase service name(s), comma-separated")
     args = parser.parse_args(argv)

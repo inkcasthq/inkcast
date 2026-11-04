@@ -278,6 +278,53 @@ class GitPublishing(Harness):
         [entry] = self.call("GET", f"/api/v1/ledger?source={source}").json()
         self.assertEqual((entry["path"], entry["status"], entry["post_id"]), ("posts/gone.md", "cancelled", first["post_id"]))
 
+    def test_the_cli_resends_and_cancels_a_post(self):
+        """Issue #234: the person's decision from the same client as the sync. A sync's send got an uncertain answer
+        (DEV failed after the request was sent); ``inkcast resend`` with the CI token is refused (posts:write), with
+        the person's token makes one new post and names the old one as cancelled, and a retried resend is told the
+        post the first one made. ``inkcast cancel`` cancels a scheduled post once; the second time it is refused."""
+        from inkcast.cli import post_main
+
+        before = len(self.fakes.devto_articles)
+        source = f"github.com/acme/blog-{self.id()}"
+        self.fakes.devto_fail_next = 502
+        uncertain = self.sync({"posts/u.md": story("CLI uncertain", platforms="[devto]")}, source=source)[("posts/u.md", "devto")]
+        self.assertEqual(uncertain["status"], "unconfirmed")
+        when = (datetime.now(timezone.utc) + timedelta(days=2)).replace(microsecond=0).isoformat()
+        scheduled = self.sync({"posts/s.md": story("CLI scheduled", platforms="[devto]", extra=f"publish_at: {when}\n")},
+                              source=source)[("posts/s.md", "devto")]
+        writer = self.call("POST", "/api/v1/tokens", token=self.oauth, json={"name": "me", "scopes": ["posts:write"]}).json()
+        old_env = dict(os.environ)
+        out, err = io.StringIO(), io.StringIO()
+        try:
+            os.environ.update({"INKCAST_URL": self.base, "INKCAST_TOKEN": self.pat["token"]})
+            with contextlib.redirect_stderr(err):
+                forbidden = post_main("resend", [uncertain["post_id"]])          # the CI token can't decide
+            os.environ["INKCAST_TOKEN"] = writer["token"]
+            with contextlib.redirect_stdout(out):
+                resent = post_main("resend", [uncertain["post_id"]])
+            with contextlib.redirect_stderr(err):
+                retried = post_main("resend", [uncertain["post_id"]])           # the first reply was lost, say
+            with contextlib.redirect_stdout(out):
+                cancelled = post_main("cancel", [scheduled["post_id"]])
+            with contextlib.redirect_stderr(err):
+                twice = post_main("cancel", [scheduled["post_id"]])
+        finally:
+            os.environ.clear()
+            os.environ.update(old_env)
+        self.assertEqual((forbidden, resent, retried, cancelled, twice), (2, 0, 1, 0, 1))
+        self.assertIn("inkcast resend: 403: This token lacks the `posts:write` scope.", err.getvalue())
+        self.assertRegex(out.getvalue(), r"published  https://dev\.to/\S+  \(post pst_\w+\)")
+        self.assertIn(f"Post {uncertain['post_id']} is cancelled", out.getvalue())
+        [new_id] = re.findall(r"\(post (pst_\w+)\)\nPost ", out.getvalue())
+        self.assertIn(f"inkcast resend: 409: Post {uncertain['post_id']} is cancelled; only unconfirmed posts can be resent. "
+                      f"It was resent as post {new_id}, which is published: follow that one. (post {new_id})", err.getvalue())
+        self.assertIn(f"cancelled  (post {scheduled['post_id']})", out.getvalue())
+        self.assertIn(f"inkcast cancel: 409: Post {scheduled['post_id']} is cancelled", err.getvalue())
+        self.assertEqual(len(self.fakes.devto_articles), before + 1)
+        self.assertEqual([self.app.store.get_post(p)["status"] for p in (uncertain["post_id"], new_id, scheduled["post_id"])],
+                         ["cancelled", "published", "cancelled"])
+
     def test_a_sync_needs_files_or_removed_and_never_both_for_a_path(self):
         neither = self.call("POST", "/api/v1/stories:sync", json={"source": self.id()})
         self.assertEqual(neither.status_code, 422, neither.text)

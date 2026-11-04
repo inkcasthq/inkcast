@@ -138,13 +138,15 @@ class TheActionPassesTheCommitBeforeThePush(unittest.TestCase):
         self.assertEqual((env["PUSH_BEFORE"], env["PR_BASE"], env["EVENT"]),
                          ("${{ github.event.before }}", "${{ github.event.pull_request.base.sha }}", "${{ github.event_name }}"))
 
-    def run_step(self, repo: pathlib.Path, event: str, before: str = "", base: str = "") -> tuple[list[str], str]:
-        """The arguments the step gave ``inkcast``, and what it printed."""
+    def run_step(self, repo: pathlib.Path, event: str, before: str = "", base: str = "",
+                 fail_on_decision: str = "false") -> tuple[list[str], str]:
+        """The arguments the step gave ``inkcast``, and what it printed. The env is the step's ``env`` block as GitHub
+        fills it from the inputs (every key set, since the script runs under ``set -u``)."""
         out = pathlib.Path(tempfile.mkdtemp())
         env = {**os.environ, "PATH": f"{self.bin}:{os.environ['PATH']}", "ARGS_OUT": str(out / "args"),
                "RUNNER_TEMP": str(out), "INKCAST_URL": "https://inkcast.example.com", "INKCAST_TOKEN": "ink_pat_x_y",
                "PATHS": f"{GLOB} docs/*.md", "PLATFORMS": "", "DRY_RUN": "auto", "FAIL_ON_STALE": "false",
-               "EVENT": event, "PUSH_BEFORE": before, "PR_BASE": base}
+               "FAIL_ON_DECISION": fail_on_decision, "EVENT": event, "PUSH_BEFORE": before, "PR_BASE": base}
         done = subprocess.run(["bash", "-c", self.step["run"]], cwd=repo, env=env, capture_output=True, text=True)
         self.assertEqual(done.returncode, 0, done.stderr)
         command, *args = (out / "args").read_text().splitlines()
@@ -161,6 +163,13 @@ class TheActionPassesTheCommitBeforeThePush(unittest.TestCase):
         args, printed = self.run_step(repo, "push", before=ZEROS)
         self.assertEqual(args, [GLOB, "docs/*.md"])
         self.assertNotIn("::notice::", printed)
+
+    def test_fail_on_decision_passes_the_flag(self):
+        """The ``fail-on-decision`` input (#234) reaches the client as ``--fail-on-decision``, and only when true."""
+        repo, _ = repo_with_a_removal()
+        args, _ = self.run_step(repo, "push", before=ZEROS, fail_on_decision="true")
+        self.assertEqual(args, ["--fail-on-decision", GLOB, "docs/*.md"])
+        self.assertEqual(self.step["env"]["FAIL_ON_DECISION"], "${{ inputs.fail-on-decision }}")
 
     def test_a_commit_that_cannot_be_read_passes_nothing_and_says_so(self):
         repo, _ = repo_with_a_removal()  # no origin to fetch from: as after a force push that dropped the commit

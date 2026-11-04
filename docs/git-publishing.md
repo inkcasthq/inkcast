@@ -17,7 +17,7 @@ A personal access token lets CI sync stories, and do nothing else.
 |---|---|
 | `stories:sync` | sync files (create, update, skip; cancel a removed file's pending post) |
 | `posts:read` | list posts, previews, dry runs, the ledger |
-| `posts:write` | publish, schedule and cancel single posts |
+| `posts:write` | publish, schedule, cancel and resend single posts |
 | `connections:read` / `connections:write` | see connected platforms; create connect links and disconnect |
 | `insights:read` | read your publishing KPIs: counts, success and on-time rates, Git sync outcomes |
 
@@ -43,6 +43,7 @@ In your blog repository, add the secret `INKCAST_TOKEN` and the variable `INKCAS
 | `dry-run` | `auto` | `auto` means a dry run on pull requests and a real sync on pushes |
 | `comment` | `false` | comment the preview on the pull request (needs `pull-requests: write`) |
 | `fail-on-stale` | `false` | fail when a changed file couldn't be updated (Medium) |
+| `fail-on-decision` | `false` | fail while a file's post waits for your decision (`unconfirmed` or `recovering`, [below](#when-inkcast-isnt-sure-a-post-went-out)); every push fails until you resend or cancel it |
 
 Outputs: `results` (JSON) and `urls`. A table of results is added to the job summary.
 
@@ -125,17 +126,22 @@ inkcast sync --dry-run 'posts/**/*.md'
 inkcast sync 'posts/**/*.md'
 ```
 
-The token is read only from the environment, never from an argument. Exit code `1` means something failed; `2` means a usage or permission problem.
+The token is read only from the environment, never from an argument. Exit code `1` means something failed; `2` means a usage or permission problem. A file whose post waits for your decision (below) is `skipped` and exits `0`: only you can resolve it, and a run that failed on every push until you did would be noise in most repositories. If you want CI to fail until the decision is made, pass `--fail-on-decision` (the action's `fail-on-decision: "true"`).
 
 ## When Inkcast isn't sure a post went out
 
-A publish can end `unconfirmed`: the platform's answer was lost after the request was sent, or the process was interrupted mid-send and the platform could not be asked whether the post arrived for `INKCAST_PUBLISH_RECOVERY_MAX_HOURS`. Inkcast never sends such a post again on its own, and a sync never creates it again: every push reports the file as `skipped` until you decide. The sync still asks the platform, and records the post if the platform has it.
+A publish can end `unconfirmed`: the platform's answer was lost after the request was sent, or the process was interrupted mid-send and the platform, asked for `INKCAST_PUBLISH_RECOVERY_MAX_HOURS` and one last time at the end of them, never said it had the post. Inkcast never sends such a post again on its own, and a sync never creates it again: every push reports the file as `skipped` until you decide. The sync still asks the platform, and records the post if the platform has it.
 
 - Check the platform first: the first send may have arrived.
-- **Resend it** (`inkcast_resend`, or `POST /api/v1/posts/{id}/resend` with a `posts:write` token): one new post goes out now, the old one is cancelled, and the file follows the new post.
-- **Cancel it** (`inkcast_cancel`, or `POST /api/v1/posts/{id}/cancel`): nothing is sent; an edit of the file is then published as a new post, so remove the first copy on the platform if it did arrive.
+- **Resend it** (`inkcast resend <post-id>` from the CLI, `inkcast_resend`, or `POST /api/v1/posts/{id}/resend`, with a `posts:write` token): one new post goes out now, the old one is cancelled, and the file follows the new post. The platform must be connected: a resend while it isn't, or while it refuses the stored credentials, is refused (`409 not_connected`) before anything is cancelled, and the reply names the reconnect step. A retried resend (its first reply lost) is refused too (`409 not_resendable`), and the reply names the post the first one made (`post_id` in the body), so follow that one.
+- **Cancel it** (`inkcast cancel <post-id>`, `inkcast_cancel`, or `POST /api/v1/posts/{id}/cancel`): nothing is sent; an edit of the file is then published as a new post, so remove the first copy on the platform if it did arrive.
 
-The sync result names the post id and both calls.
+The sync result names the post id and both calls. From the CLI, with a `posts:write` token in `INKCAST_TOKEN`:
+
+```bash
+inkcast resend pst_0123456789ab     # published  https://dev.to/...  (post pst_...); exit 1 if the new post isn't published
+inkcast cancel pst_0123456789ab     # cancelled  (post pst_...), with the note when it may already be on the platform
+```
 
 ---
 <!-- inkcast-nav -->

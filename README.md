@@ -70,7 +70,7 @@ More detail on the design is in [docs/architecture.md](docs/architecture.md).
     paths: "posts/**/*.md"
 ```
 
-On pull requests it runs a dry run and can comment the preview. On `main` it publishes. The full guide, the CLI for other CI systems (`inkcast sync`), and what each result means are in [docs/git-publishing.md](docs/git-publishing.md).
+On pull requests it runs a dry run and can comment the preview. On `main` it publishes. The full guide, the CLI for other CI systems (`inkcast sync`, and `inkcast resend` / `inkcast cancel` for a post that waits for your decision), and what each result means are in [docs/git-publishing.md](docs/git-publishing.md).
 
 ## REST API and docs
 

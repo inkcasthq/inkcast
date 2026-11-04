@@ -37,6 +37,11 @@ inputs:
   fail-on-stale:
     description: Fail when a changed file couldn't be updated because the platform can't edit posts.
     default: "false"
+  fail-on-decision:
+    description: >-
+      Fail while a file's post waits for a person's decision (its last publish is unconfirmed, or still recovering):
+      every push fails until they resend or cancel it (inkcast resend | cancel <post-id>).
+    default: "false"
   python-version:
     default: "3.12"
 
@@ -66,6 +71,7 @@ runs:
         PLATFORMS: ${{ inputs.platforms }}
         DRY_RUN: ${{ inputs.dry-run }}
         FAIL_ON_STALE: ${{ inputs.fail-on-stale }}
+        FAIL_ON_DECISION: ${{ inputs.fail-on-decision }}
         EVENT: ${{ github.event_name }}
         PUSH_BEFORE: ${{ github.event.before }}
         PR_BASE: ${{ github.event.pull_request.base.sha }}
@@ -77,6 +83,7 @@ runs:
         fi
         [ -n "$PLATFORMS" ] && args+=(--platforms "$PLATFORMS")
         [ "$FAIL_ON_STALE" = "true" ] && args+=(--fail-on-stale)
+        [ "$FAIL_ON_DECISION" = "true" ] && args+=(--fail-on-decision)
         # Files removed by this push are reported too, so their pending posts are cancelled: the client diffs the
         # commit before the push against the checkout (a pull request: its base, for the dry run). The first push
         # of a branch has no commit before it (all zeros), so nothing is reported. A shallow checkout fetches the

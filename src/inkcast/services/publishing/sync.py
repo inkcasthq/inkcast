@@ -11,7 +11,9 @@ unchanged  same rendered payload as last time: do nothing
 update     payload changed and the platform can edit posts (DEV): edit in place;
            a post still waiting in the schedule is re-scheduled with the new content
 stale      payload changed but the platform can't edit (Medium): leave it, say so
-skipped    platform not connected, or another sync of this file is in progress
+skipped    platform not connected, or another sync of this file is in progress; or the file's post
+           waits for a person's decision (``_decision``, #226): its last publish is ``unconfirmed``
+           (resend or cancel it), or ``recovering`` (cancel it if unwanted); nothing is sent
 failed     validation or platform error; the next sync tries again
 removed    the file is gone from the repository (``SyncRequest.removed``): its pending post is cancelled;
            a published one stays on the platform (``_removed``, #230)

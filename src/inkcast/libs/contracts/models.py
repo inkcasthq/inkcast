@@ -51,6 +51,8 @@ class Input(BaseModel):
 class ErrorBody(BaseModel):
     error: str = Field(description="Machine-readable error code.")
     message: str = Field(description="What went wrong and how to fix it.")
+    post_id: str | None = Field(None, description="On a 409 `not_resendable` for a post resent already: the post that "
+                                                  "resend made, to follow when the first reply was lost.")
 
 
 class Me(BaseModel):

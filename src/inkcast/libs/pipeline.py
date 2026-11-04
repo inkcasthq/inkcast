@@ -53,6 +53,28 @@ def _edited(platform: Platform, url: str | None = None, remote_id: str | None = 
                f"{platform.name} doesn't let Inkcast edit posts: update it by hand: {_named(url, remote_id)}."))
 
 
+def _lost(platform: Platform) -> str:
+    """The note a send's late uncertain answer leaves when it lands over another worker's re-send of the post (#234):
+    this request may have arrived too. It outlives the re-send's own success (``PostsRepo.record_success`` keeps it),
+    since only a person can say whether the platform has two copies; recognised by equality, like ``_edited``."""
+    return (f"An earlier send's answer was lost after its request was sent, and it may have arrived too: a second copy "
+            f"may be on {platform.name}. Check {platform.name}, and remove the extra copy there if it is.")
+
+
+class Disconnected(PlatformError):
+    """A resend refused before anything is cancelled: the platform isn't connected, or refused the stored credentials
+    (#234). The message names the reconnect step."""
+
+
+class AlreadyResent(PlatformError):
+    """A resend refused because the post was resent already: ``new_post_id`` is the post that resend made, for a
+    client whose first reply was lost to follow (#234)."""
+
+    def __init__(self, message: str, new_post_id: str):
+        super().__init__(message)
+        self.new_post_id = new_post_id
+
+
 RECOVERY_MAX = 24 * 3600  # seconds a post stays 'recovering' before it is unconfirmed: INKCAST_PUBLISH_RECOVERY_MAX_HOURS's default
 
 
@@ -227,9 +249,10 @@ class Publisher:
                 # Not over a cancel (#216), nor over the platform's own word that this very send arrived (another
                 # worker's lookup found it, no send since): a post the platform has would read 'unconfirmed' and the
                 # person be asked to resend it, a second copy (#226). Over a re-send (a later attempt) it is written:
-                # this request may have arrived too, and a person checks for a second copy.
+                # this request may have arrived too, and the note says so (``_lost``), so that the re-send's own
+                # success, landing after, keeps the flag that a person checks for a second copy (#234).
                 written = self.store.update_post(post_id, status="unconfirmed", error=str(exc), unless="cancelled",
-                                                 unless_found_at=held,
+                                                 unless_found_at=held, beyond=f"{exc}; {_lost(platform)}",
                                                  events=self._event("post.unconfirmed", post_id, user_id, platform.id))
                 if written:  # counted, logged and alerted on only as the post's answer, never over a cancel (#226)
                     self._count(platform.id, "unconfirmed")
@@ -297,17 +320,22 @@ class Publisher:
         # with a note, and the file's entry sees the edit at the next sync: sent as an update where the platform edits
         # posts, reported as stale (update it by hand) where it doesn't. Never a second post, and never dropped.
         sent = prepared.to_dict()
-        edited = _edited(platform, result.url, result.remote_id)
+        edited, lost = _edited(platform, result.url, result.remote_id), _lost(platform)
 
         written, before = self.store.record_success(
             post_id, held=held, status=status, result_url=result.url, remote_id=result.remote_id, sent=sent,
-            notes=result.notes, second_copy=second_copy, both_copies=both_copies, edited=edited,
+            notes=result.notes, second_copy=second_copy, both_copies=both_copies, edited=edited, lost=lost,
             events=self._event("post.published", post_id, user_id, platform.id, status=status, scheduled=scheduled,
                                attempts=attempts, lag_seconds=round(lag, 3) if lag is not None else None))
         if written or before is None:  # before is None: erased meanwhile, the row left alone and the answer kept
             notes = list(result.notes)
             if written:
                 self._count(platform.id, status)
+                if lost in self.store.notes_of(before):  # an earlier send's uncertain answer landed over this re-send
+                    notes.append(lost)
+                    log.warning("Post %s on %s was published by a re-send; an earlier send's answer was lost after its "
+                                "request was sent, and may have posted a second copy", post_id, platform.id,
+                                extra={"event": "publish.second_copy", "post_id": post_id, "platform": platform.id})
                 if self.store.may_have_arrived_since(before, held):
                     notes.append(second_copy(before["attempts"]))
                     log.warning("Post %s on %s was published by a send taken over as stuck; attempt %s, sent meanwhile, "
@@ -331,8 +359,8 @@ class Publisher:
         """A plug-in bug while sending. It may have crashed after the platform accepted the post (reading the reply),
         so it is ambiguous like any uncertain failure: unconfirmed, never 'failed', which Git sync would create again."""
         written = self.store.update_post(post_id, status="unconfirmed", error=f"internal error: {exc}", unless="cancelled",
-                                         unless_found_at=held,  # as an uncertain answer (_deliver)
-                                         events=self._event("post.unconfirmed", post_id, user_id, platform.id))
+                                         unless_found_at=held, beyond=f"internal error: {exc}; {_lost(platform)}",
+                                         events=self._event("post.unconfirmed", post_id, user_id, platform.id))  # as _deliver's
         if written:
             self._count(platform.id, "unconfirmed")
         return self._as_now(written, Outcome(platform.id, "unconfirmed", post_id=post_id, message=(
@@ -423,12 +451,17 @@ class Publisher:
         Only a post the platform says is *missing* goes back in the queue. A platform that couldn't be asked just
         now (rate-limited, unreachable) is asked again on the next stuck pass, STUCK_AFTER later: the post stays
         ``recovering``, which only ever asks, never sends (#188). That has an end: a post 'recovering' for
-        ``recovery_max`` (INKCAST_PUBLISH_RECOVERY_MAX_HOURS, measured from ``row["recovering_since"]``) is
-        unconfirmed for a person without another lookup, so it is never sent late on its own (#216): the person
-        cancels it or resends it (``resend``), and Git sync never creates it again (#226). A person can cancel a
+        ``recovery_max`` (INKCAST_PUBLISH_RECOVERY_MAX_HOURS, measured from ``row["recovering_since"]``) is asked
+        about one last time and, unless the platform has it, is unconfirmed for a person, "missing" included, so it
+        is never sent late on its own (#216): the person cancels it or resends it (``resend``), and Git sync never
+        creates it again (#226). The last lookup is what a post re-sent and interrupted again past the cap needs: its
+        clock is the first interruption's, and its second send may have arrived (#234). A person can cancel a
         'recovering' post meanwhile; every write here is only while it is still 'recovering', with the attempt count
         this pass claimed it at (``fence``): a lookup slow enough to outlast two stuck passes answers a post that may
-        have been re-sent and interrupted again since, and that answer is stale (#226)."""
+        have been re-sent and interrupted again since, and that answer is stale (#226). The one exception is a found
+        answer, written over 'unconfirmed' too at the same attempt count: the sender's uncertain answer, or another
+        pass's cap, landed while this lookup was out, and a post the platform has must not be left for the person to
+        resend, a second copy (#234)."""
         now = now or time.time()
         post_id, platform = row["id"], self.platforms.get(row["platform"])
         fence = {"only_if": "recovering", "if_attempts": row["attempts"]}
@@ -442,27 +475,37 @@ class Publisher:
             return self._event("post.recovered", post_id, row["user_id"], platform.id, status=status)
 
         since = row.get("recovering_since")
-        if since is not None and now - float(since) >= self.recovery_max:
-            hours = format(self.recovery_max / 3600, "g")
-            message = (f"Inkcast restarted while this post was being sent to {platform.name}, and {platform.name} could not "
-                       f"be asked whether it arrived for {hours} hours (INKCAST_PUBLISH_RECOVERY_MAX_HOURS). It is not sent "
-                       f"again on its own: check {platform.name}, then resend it (inkcast_resend, or POST /api/v1/posts/"
-                       f"{post_id}/resend) or cancel it (inkcast_cancel, or POST /api/v1/posts/{post_id}/cancel).")
-            written = self.store.update_post(post_id, status="unconfirmed", error=message, events=recovered("unconfirmed"),
-                                             **fence)
-            if written:  # not when a cancel came first: that post is the person's, not one for the alert (#226)
-                self._count(platform.id, "unconfirmed")
-                log.warning("Post %s on %s was interrupted mid-send and %s could not be asked for %s hours; now unconfirmed",
-                            post_id, platform.id, platform.id, hours,
-                            extra={"event": "publish.recovery.capped", "post_id": post_id, "platform": platform.id})
-            return self._as_now(written, Outcome(platform.id, "unconfirmed", post_id=post_id, message=message))
+        capped = since is not None and now - float(since) >= self.recovery_max
         prepared = Prepared.from_dict(json.loads(row["payload"]))
         found = await self.confirm(row["user_id"], platform, prepared)
 
         # Each answer is written only while the post is still 'recovering' at this pass's attempt count: another worker
         # may have taken it over (a pass longer than STUCK_AFTER), re-queued it and sent it while this lookup was out;
         # or a person cancelled it, and a cancel wins over the answer (#216).
-        if found is not None and found.status == "unavailable":
+        if found is not None and found.status not in ("unavailable", "missing"):
+            # The platform has it: the truth, whatever the cap says, and over a post unconfirmed meanwhile (#234).
+            written = self.store.update_post(post_id, status=found.status, result_url=found.url, remote_id=found.remote_id,
+                                             error=None, events=recovered(found.status),
+                                             only_if=("recovering", "unconfirmed"), if_attempts=row["attempts"])
+            outcome = Outcome(platform.id, found.status, post_id=post_id, url=found.url, remote_id=found.remote_id)
+        elif capped:
+            hours = format(self.recovery_max / 3600, "g")
+            said = (f"{platform.name} says it isn't there, but it is {hours} hours since the send was interrupted"
+                    if found is not None and found.status == "missing"
+                    else f"{platform.name} could not be asked whether it arrived for {hours} hours")
+            message = (f"Inkcast restarted while this post was being sent to {platform.name}, and {said} "
+                       f"(INKCAST_PUBLISH_RECOVERY_MAX_HOURS). It is not sent again on its own: check {platform.name}, then "
+                       f"resend it (inkcast_resend, or POST /api/v1/posts/{post_id}/resend) or cancel it (inkcast_cancel, "
+                       f"or POST /api/v1/posts/{post_id}/cancel).")
+            written = self.store.update_post(post_id, status="unconfirmed", error=message, events=recovered("unconfirmed"),
+                                             **fence)
+            if written:  # not when a cancel came first: that post is the person's, not one for the alert (#226)
+                self._count(platform.id, "unconfirmed")
+                log.warning("Post %s on %s was interrupted mid-send and %s has not confirmed it in %s hours; now unconfirmed",
+                            post_id, platform.id, platform.id, hours,
+                            extra={"event": "publish.recovery.capped", "post_id": post_id, "platform": platform.id})
+            return self._as_now(written, Outcome(platform.id, "unconfirmed", post_id=post_id, message=message))
+        elif found is not None and found.status == "unavailable":
             message = f"Could not check {platform.name} yet ({found.message}); it will be checked again."
             written = self.store.update_post(post_id, status="recovering", error=message, **fence)
             if written:
@@ -470,24 +513,20 @@ class Publisher:
                             post_id, platform.id, platform.id,
                             extra={"event": "publish.recovery.deferred", "post_id": post_id, "platform": platform.id})
             return self._as_now(written, Outcome(platform.id, "recovering", post_id=post_id, message=message))
-        if found is None:
+        elif found is None:
             message = (f"Inkcast restarted while this post was being sent to {platform.name}, which can't be checked "
                        f"automatically. Check {platform.name}, then resend it (inkcast_resend, or POST /api/v1/posts/"
                        f"{post_id}/resend) or cancel it (inkcast_cancel, or POST /api/v1/posts/{post_id}/cancel).")
             written = self.store.update_post(post_id, status="unconfirmed", error=message, events=recovered("unconfirmed"),
                                              **fence)
             outcome = Outcome(platform.id, "unconfirmed", post_id=post_id, message=message)
-        elif found.status == "missing":
+        else:  # missing, within the cap: the request never arrived, so it goes back in the queue
             again = time.time()
             written = self.store.update_post(post_id, status="scheduled", run_at=again, not_before=again,
                                              events=recovered("scheduled"),
                                              error=f"Interrupted before {platform.name} received it; sending again.",
                                              **fence)
             outcome = Outcome(platform.id, "scheduled", post_id=post_id, message="Interrupted; sending again.")
-        else:
-            written = self.store.update_post(post_id, status=found.status, result_url=found.url, remote_id=found.remote_id,
-                                             error=None, events=recovered(found.status), **fence)
-            outcome = Outcome(platform.id, found.status, post_id=post_id, url=found.url, remote_id=found.remote_id)
         outcome = self._as_now(written, outcome)  # the answer as written, or what the post is now (cancelled, re-sent)
         if written:
             self._count(platform.id, "recovered")
@@ -590,21 +629,43 @@ class Publisher:
         The decision is recorded as a ``post.resent`` event on the old post, with who made it and the new post's id.
         ``on_created(platform_id, new_post_id)`` runs in the transaction that makes the new row, before anything is
         sent (the ledger entries that named the old post follow the new one): if it raises, nothing is made. A second
-        resend, or one after a cancel, is refused: ``resend_post`` is one conditional transaction. A retryable failure
-        is reported, not queued: the person is there to try again."""
+        resend, or one after a cancel, is refused: ``resend_post`` is one conditional transaction; a retried resend
+        (its first reply lost) is told the post the first one made (``AlreadyResent``, #234). Refused too, before
+        anything is cancelled, while the platform isn't connected or refuses the stored credentials (``verify``, the
+        check a connect makes): the old post would be cancelled for a new one that fails at once, and the decision
+        consumed (``Disconnected``, naming the reconnect, #234). A credentials check that can't be made just now (a
+        429) blocks nothing: the send says what happens. A retryable failure of the send is reported, not queued: the
+        person is there to try again."""
         row = self.store.get_post(post_id)
         if not row or row["user_id"] != user_id:
             raise PlatformError(f"No post {post_id!r}.")
         platform = self.platforms.get(row["platform"])
         if platform is None:
             raise PlatformError(f"Platform plug-in {row['platform']!r} is not installed.")
+        reconnect = (f"Reconnect {platform.name} (inkcast_connect, or POST /api/v1/platforms/{platform.id}/connect-link), "
+                     f"then resend post {post_id}.")
+        connected = self.store.get_credentials(user_id, platform.id)
+        if not connected:
+            raise Disconnected(f"{platform.name} isn't connected: post {post_id} was not resent and is still unconfirmed. "
+                               f"{reconnect}")
+        try:
+            await platform.verify(connected[0])
+        except PlatformError as exc:
+            if not exc.retryable:
+                raise Disconnected(f"{exc} Post {post_id} was not resent and is still unconfirmed. {reconnect}") from exc
         new_id = self.store.new_post_id()
         note = (f"Resent by the person as post {new_id}; it may already be on {platform.name} from the first send. Check "
                 f"{platform.name}, and remove the extra copy there if it is.")
-        if not self.store.resend_post(post_id, user_id, new_id=new_id, note=note,
-                                      events=self._event("post.resent", post_id, user_id, platform.id, new_post_id=new_id),
+        events = [*self._event("post.cancelled", post_id, user_id, platform.id, reason="resent"),
+                  *self._event("post.resent", post_id, user_id, platform.id, new_post_id=new_id)]
+        if not self.store.resend_post(post_id, user_id, new_id=new_id, note=note, events=events,
                                       on_created=functools.partial(on_created, platform.id) if on_created else None):
-            status = (self.store.get_post(post_id) or row)["status"]
-            raise PlatformError(f"Post {post_id} is {status}; only unconfirmed posts can be resent.")
+            current = self.store.get_post(post_id) or row
+            message = f"Post {post_id} is {current['status']}; only unconfirmed posts can be resent."
+            if current.get("resent_as"):
+                made = self.store.get_post(current["resent_as"])
+                raise AlreadyResent(f"{message} It was resent as post {current['resent_as']}, which is "
+                                    f"{made['status'] if made else 'gone'}: follow that one.", current["resent_as"])
+            raise PlatformError(message)
         prepared = Prepared.from_dict(json.loads(row["payload"]))
         return await self._send(new_id, user_id, platform, prepared, attempts=1, held=0)

@@ -65,15 +65,18 @@ class LedgerRepo(Database):
                   tuple(row[k] for k in ("user_id", "source", "path", "platform", *FIELDS, "synced_at")))
         return row
 
-    def repoint_entries(self, from_post: str, /, **fields: Any) -> int:
-        """Every entry that points at ``from_post`` takes ``fields`` (``post_id`` among them): a person's resend of an
-        unconfirmed post makes a new post, and the file that became the old one now has the new one (#226), so the next
-        sync follows it instead of making a third. The number of entries changed."""
+    def repoint_entries(self, from_post: str, user_id: str, /, **fields: Any) -> int:
+        """Every entry of ``user_id``'s that points at ``from_post`` takes ``fields`` (``post_id`` among them): a person's
+        resend of an unconfirmed post makes a new post, and the file that became the old one now has the new one (#226),
+        so the next sync follows it instead of making a third. Only the person's own entries: the post is theirs
+        (``resend_post`` checked), so no other person's entry names it, and none is ever moved (#234). The number of
+        entries changed."""
         unknown = set(fields) - set(FIELDS)
         if unknown:
             raise ValueError(f"unknown ledger fields: {sorted(unknown)}")
         cols = ", ".join(f"{k} = ?" for k in fields)
-        return self._exec(f"UPDATE ledger SET {cols}, synced_at = ? WHERE post_id = ?", *fields.values(), time.time(), from_post)
+        return self._exec(f"UPDATE ledger SET {cols}, synced_at = ? WHERE post_id = ? AND user_id = ?", *fields.values(),
+                          time.time(), from_post, user_id)
 
     def follow_post(self, user_id: str, source: str, path: str, platform: str, post_id: str, **fields: Any) -> bool:
         """The entry takes ``fields`` only while it still names ``post_id``, in one statement: another process may have

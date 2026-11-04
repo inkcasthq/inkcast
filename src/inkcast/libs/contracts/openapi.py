@@ -164,8 +164,11 @@ def openapi_document(public_url: str) -> dict[str, Any]:
                             "the platform first. The post is sent again, now, as exactly one new post, and the old one "
                             "is cancelled with an `error` saying it may already be on the platform. Inkcast never sends "
                             "an unconfirmed post again on its own, and Git sync never creates one again: a file whose "
-                            "post is unconfirmed is reported as needing this decision. 409 when the post is not "
-                            "`unconfirmed` (cancelled, or resent already).")},
+                            "post is unconfirmed is reported as needing this decision. 409 `not_connected` when the "
+                            "platform isn't connected or refuses the stored credentials: nothing is cancelled, and the "
+                            "message names the reconnect step. 409 `not_resendable` when the post is not `unconfirmed` "
+                            "(cancelled, or resent already); for a post resent already the body also carries `post_id`, "
+                            "the post that resend made, so a client whose first reply was lost can follow it.")},
             "/api/v1/preview": {"post": _op(
                 "preview", "Preview exactly what each platform would receive", "Posts",
                 _resp("PublishResponse", "Per-platform previews"), scope="posts:read", service=pub,

@@ -33,7 +33,8 @@ CREATE TABLE IF NOT EXISTS heartbeats (name TEXT PRIMARY KEY, at REAL NOT NULL);
 UPDATE posts SET status = 'unconfirmed' WHERE status = 'unknown';
 """
 # recovering_since: when the post became stuck in 'publishing' (STUCK_AFTER after its send began; ``claim_stuck``
-# records it, however late its pass comes), kept while it stays 'recovering' and set afresh by a later interruption;
+# records it, however late its pass comes), kept while it stays 'recovering', and kept across a re-send interrupted
+# again (#226: the cap bounds the post's lateness as a whole; only a person's resend, a new post, starts afresh);
 # meaningful only while the status is 'recovering'. The age of the oldest such post is the
 # inkcast_posts_recovering_oldest_age_seconds gauge (the InkcastPostRecoveringTooLong alert), and
 # INKCAST_PUBLISH_RECOVERY_MAX_HOURS is measured from it (#216). NULL on a row from before the column: counted from its
@@ -43,7 +44,10 @@ UPDATE posts SET status = 'unconfirmed' WHERE status = 'unknown';
 # post it has tried (a retry after a 429's Retry-After, or recovery's re-send). A post waiting for its retry has
 # run_at = max(requested_at, not_before), so an author's change keeps both (``edit_waiting``, #204, ADR-0017).
 # A tried row from before the columns has neither: its run_at is the retry's, and is read as its not_before.
-COLUMNS = (("posts", "recovering_since", "REAL"), ("posts", "requested_at", "REAL"), ("posts", "not_before", "REAL"))
+# resent_as: the post a person's resend made from this one (``resend_post``, #226), so a retried resend is told which
+# post to follow (#234); NULL for every other post, a cancel by hand included.
+COLUMNS = (("posts", "recovering_since", "REAL"), ("posts", "requested_at", "REAL"), ("posts", "not_before", "REAL"),
+           ("posts", "resent_as", "TEXT"))
 
 
 class PostsRepo(Database):
@@ -105,27 +109,43 @@ class PostsRepo(Database):
                 also(c)
         return run_at
 
-    def update_post(self, post_id: str, events: Iterable[DomainEvent] | None = None, only_if: str | None = None,
-                    unless: str | None = None, if_attempts: int | None = None, unless_found_at: int | None = None,
+    def update_post(self, post_id: str, events: Iterable[DomainEvent] | None = None,
+                    only_if: str | tuple[str, ...] | None = None, unless: str | None = None,
+                    if_attempts: int | None = None, unless_found_at: int | None = None, beyond: str | None = None,
                     **fields: Any) -> bool:
         """Change fields; ``events`` are written in the same transaction (the outbox). A post that no longer exists
         (its owner was erased while the scheduler held it) is left alone, and its events are not written either.
-        ``only_if``: change it only while it still has this status (another worker may have moved it on).
+        ``only_if``: change it only while it still has this status, or one of these (another worker may have moved it
+        on).
         ``unless``: change it only while it does not have this status (a person cancelled it meanwhile).
         ``if_attempts``: change it only while its ``attempts`` is still this (the fence of a send or a recovery against
         its own late answer: a re-send by another worker counts an attempt, #226).
         ``unless_found_at``: change it unless the platform has confirmed the post at this attempt count ('published',
         'draft' or 'unlisted' with no send since: another worker's lookup found the very send a late answer is about).
+        ``beyond``: with ``unless_found_at``, the ``error`` written instead of ``fields["error"]`` when the row counts
+        more attempts than that: the answer is an earlier send's, landing over another worker's re-send, and says so
+        (``Publisher._deliver``, #234). One statement, so the attempt count it reads is the one it writes against.
         True when the post was changed."""
+        if beyond is not None and unless_found_at is None:
+            raise ValueError("update_post(beyond=) needs unless_found_at: the attempt count the answer is about")
         fields["updated_at"] = time.time()
-        cols = ", ".join(f"{k} = ?" for k in fields)
-        status = ((" AND status = ?" if only_if else "") + (" AND status != ?" if unless else "")
+        sets, values = [], []
+        for name, value in fields.items():
+            if name == "error" and beyond is not None:
+                sets.append("error = CASE WHEN attempts = ? THEN ? ELSE ? END")
+                values += [unless_found_at, value, beyond]
+            else:
+                sets.append(f"{name} = ?")
+                values.append(value)
+        statuses = (only_if,) if isinstance(only_if, str) else tuple(only_if or ())
+        status = ((f" AND status IN ({', '.join('?' * len(statuses))})" if statuses else "")
+                  + (" AND status != ?" if unless else "")
                   + (" AND attempts = ?" if if_attempts is not None else "")
                   + (" AND NOT (status IN ('published', 'draft', 'unlisted') AND attempts = ?)"
                      if unless_found_at is not None else ""))
         with self._tx() as c:
-            changed = c.execute(f"UPDATE posts SET {cols} WHERE id = ?{status}",
-                                (*fields.values(), post_id, *([only_if] if only_if else []),
+            changed = c.execute(f"UPDATE posts SET {', '.join(sets)} WHERE id = ?{status}",
+                                (*values, post_id, *statuses,
                                  *([unless] if unless else []),
                                  *([if_attempts] if if_attempts is not None else []),
                                  *([unless_found_at] if unless_found_at is not None else []))).rowcount == 1
@@ -158,22 +178,29 @@ class PostsRepo(Database):
         row other content: Git sync's edit in place of a post recovery had queued again (``edit_waiting``, #392)."""
         return json.loads(row["payload"]) == json.loads(json.dumps(sent))
 
+    @staticmethod
+    def notes_of(row: dict[str, Any]) -> list[str]:
+        """The notes a row's error holds, as the pipeline joins them ("; ")."""
+        return (row["error"] or "").split("; ")
+
     def record_success(self, post_id: str, *, held: int, status: str, result_url: str | None, remote_id: str | None,
                        sent: dict[str, Any], notes: list[str], second_copy: Callable[[int], str],
-                       both_copies: Callable[[dict[str, Any]], str], edited: str,
+                       both_copies: Callable[[dict[str, Any]], str], edited: str, lost: str | None = None,
                        events: Iterable[DomainEvent] | None = None) -> tuple[bool, dict[str, Any] | None]:
         """A send's success, the platform's truth: written over whatever the post became while the send was out
         (#214), unless the row already records a confirmed copy (``CONFIRMED``, with a remote id or a URL) that is not
         this one (``same_copy``). That copy stays, another send's or a lookup's, and the row's error gains
         ``both_copies(row)``: the platform may have both, and a person keeps one. When the row counts a later send that
         may have arrived (``may_have_arrived_since``), ``second_copy(attempts)`` joins ``notes`` as the error of the
-        written post, so a person checks for two. The content the platform received, ``sent``, becomes the row's title
-        and payload: a row that held other content (``holds``; an edit while the send was out, #392) gains ``edited``
-        as a note, and the file's entry takes the hash of what the row holds when it follows the post (``GitSync._one``),
-        so the next sync sends the edit or reports it. The read that words any note and the write share the
-        transaction's write lock (``_tx``), so a claim or an edit can't land between them and leave a record without its
-        note. ``events`` are written with a success. ``(written, the row as it was)``; ``(False, None)`` for a post that
-        no longer exists (its owner erased), which is left alone."""
+        written post, so a person checks for two; so does ``lost`` when the row's error already holds it: an earlier
+        send's answer was lost after its request went out and landed over this one (``update_post(beyond=)``), and only
+        a person clears that (#234). The content the platform received, ``sent``, becomes the row's title and payload:
+        a row that held other content (``holds``; an edit while the send was out, #392) gains ``edited`` as a note, and
+        the file's entry takes the hash of what the row holds when it follows the post (``GitSync._one``), so the next
+        sync sends the edit or reports it. The read that words any note and the write share the transaction's write
+        lock (``_tx``), so a claim or an edit can't land between them and leave a record without its note. ``events``
+        are written with a success. ``(written, the row as it was)``; ``(False, None)`` for a post that no longer
+        exists (its owner erased), which is left alone."""
         with self._tx() as c:
             row = c.execute("SELECT * FROM posts WHERE id = ?", (post_id,)).fetchone()
             if row is None:
@@ -187,6 +214,8 @@ class PostsRepo(Database):
                 c.execute("UPDATE posts SET error = ?, updated_at = ? WHERE id = ?",
                           (f"{before['error']}; {note}" if before["error"] else note, now, post_id))
                 return False, before
+            if lost is not None and lost in self.notes_of(before):
+                notes = [*notes, lost]
             if self.may_have_arrived_since(before, held):
                 notes = [*notes, second_copy(before["attempts"])]
             if not self.holds(before, sent):
@@ -239,10 +268,11 @@ class PostsRepo(Database):
         due now, with the old post's group, platform, title and payload; and the old post 'cancelled', with ``note``
         as its error (it may be on the platform already). Both in one transaction, conditional on the old post still
         being 'unconfirmed', so two resends at once make exactly one post and a cancel that came first holds.
-        ``events`` (the decision, with who made it) are written with them, and ``on_created(new_id)`` runs in the same
-        transaction (the ledger entries that named the old post now name the new one): if it raises, nothing is made.
-        False when nothing was made: the post is not the person's, or not 'unconfirmed' any more (cancelled, or
-        resent already)."""
+        The old post records the new one as ``resent_as``, so a retried resend is told which post to follow (#234).
+        ``events`` (the decision, with who made it, and the cancel) are written with them, and ``on_created(new_id)``
+        runs in the same transaction (the ledger entries that named the old post now name the new one): if it raises,
+        nothing is made. False when nothing was made: the post is not the person's, or not 'unconfirmed' any more
+        (cancelled, or resent already)."""
         now = time.time()
         with self._tx() as c:
             row = c.execute("SELECT * FROM posts WHERE id = ? AND user_id = ? AND status = 'unconfirmed'",
@@ -254,7 +284,8 @@ class PostsRepo(Database):
                 " VALUES (?, ?, ?, ?, ?, 'publishing', ?, ?, ?, ?)",
                 (new_id, row["group_id"], user_id, row["platform"], row["title"], now, row["payload"], now, now),
             )
-            c.execute("UPDATE posts SET status = 'cancelled', error = ?, updated_at = ? WHERE id = ?", (note, now, post_id))
+            c.execute("UPDATE posts SET status = 'cancelled', error = ?, resent_as = ?, updated_at = ? WHERE id = ?",
+                      (note, new_id, now, post_id))
             insert_events(c, events)
             if on_created:
                 on_created(new_id)
