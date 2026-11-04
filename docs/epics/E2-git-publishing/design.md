@@ -55,7 +55,9 @@ sequenceDiagram
 1. **The ledger** maps `(user, source, path, platform)` to what was sent: a hash of the rendered payload. The schedule time is excluded from the hash, so a past date in old front matter doesn't count as a change.
 2. **The claim:** a new entry is written as `syncing` in one transaction *before* anything is sent. A concurrent sync of the same file sees the claim and skips. A crashed claim expires after 10 minutes.
 3. **Unconfirmed is never retried blindly:** an ambiguous failure (timeout after sending, 5xx) is checked with `Platform.find_existing` on the next sync.
-4. **Idempotency-Key:** a retried request with the same key gets the stored response back (24 h). Reusing a key for a different body is a 422.
+4. **Idempotency-Key:** a retried request with the same key gets the stored response back (24 h), unless a result in it
+   asks for a re-run (`skipped` or `failed`): then the key is freed and the retry runs (#290). Reusing a key for a
+   different body is a 422 while its response is kept.
 5. **The GitHub Action** runs with `concurrency: inkcast-publish` in the example workflow.
 
 ### Data
