@@ -30,7 +30,8 @@
 - [Authorization](authorization.md): Keycloak for who you are, OpenFGA for what you may do, the database for business state; the model in `authz/` with its tests.
 - [Secrets](reference/secrets.md): sources, the provider (TTL, single-flight, stale-on-error), naming, redaction, posture checks.
 - [Observability, KPIs and the data stack](design/observability-and-kpis.md): metrics per layer, the KPI catalogue, the outbox, Valkey/Redis, alerts and SLOs, dashboards. Runbooks in [runbooks/alerts.md](runbooks/alerts.md).
-- [Backup and restore](runbooks/backup-restore.md): daily SQLite backups, the restore script and the drill, until PostgreSQL on CloudNativePG ([ADR-0014](adr/0014-postgresql-on-cloudnativepg.md)).
+- [Backup and restore](runbooks/backup-restore.md): daily SQLite backups, the restore script and the drill, until PostgreSQL on CloudNativePG
+- [The generated Secrets](runbooks/env-secrets.md): a copy lost on one side comes back by itself; a value lost on every side is reported by the CronJob's failed run, and what to do then ([ADR-0014](adr/0014-postgresql-on-cloudnativepg.md)).
 - [CI/CD](cicd.md): pipeline, supply chain, environments and promotion, GitHub plan notes.
 - [Screenshots](screenshots.md): Inkcast in use, from consent to connecting a platform, publishing, tokens, the API reference and deleting an account.
 - [End-to-end walkthrough](walkthrough.md): the whole journey driven for real by an MCP client and a browser, pictured and checked by CI; published to the `ci-captures` branch.

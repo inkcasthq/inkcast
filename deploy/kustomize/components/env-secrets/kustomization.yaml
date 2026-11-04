@@ -27,7 +27,10 @@
 # that finds everything in place changes nothing. Neither reason against a Job holds for it: its template is mutable,
 # so each release's apply moves its digest, and a failed run is tried again at the next tick. The ServiceAccount, the
 # Roles and the admission policy are the init container's: the CronJob's pod runs as the same account, so no verb is
-# added and none widened. scripts/dev/env-secrets-e2e.sh, proof 6, deletes a Secret and a run brings it back.
+# added and none widened. It runs `--repair-only` (the owner's decision on PR #423): it copies a lost side of a pair
+# and never makes a new value, which in a running environment would cut the pods off what they hold; a value lost
+# on every side fails the run, naming it and docs/runbooks/env-secrets.md. scripts/dev/env-secrets-e2e.sh, proof 6,
+# deletes one side of a pair and a run brings it back; proof 7 deletes inkcast-secrets and the run refuses.
 apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
 resources:

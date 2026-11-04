@@ -2,9 +2,13 @@
 # `inkcast env-secrets` as the init container of OpenFGA's pod (openfga.yaml), as the same ServiceAccount, with the
 # same projected token, the same security context and the same image. The image name is the one the environment's
 # `images` entry pins by digest, so one promotion moves this container and the init container together
-# (tests/test_env_secrets_manifests.py fails if they ever differ). A run creates what is absent and copies a lost
-# side of a pair back; it never replaces a value (src/inkcast/env_secrets.py), so a run that finds everything in
-# place changes nothing. The init container stays: it makes the Secrets before OpenFGA's first start.
+# (tests/test_env_secrets_manifests.py fails if they ever differ). A run copies a lost side of a pair back from the
+# side that survives and never replaces a value (src/inkcast/env_secrets.py), so a run that finds everything in
+# place changes nothing. It runs `--repair-only` (the owner's decision on PR #423): it never makes a NEW value,
+# since in a running environment one would cut the pods off what they hold (a new secret-key makes every sealed
+# credential unreadable, a new fga-api-token is refused by the running OpenFGA); a value lost on every side fails
+# the run, naming it and the runbook (docs/runbooks/env-secrets.md). The init container stays, without the flag:
+# it makes the Secrets before OpenFGA's first start.
 #
 # Why a CronJob where a Job was refused (#315, #323): a CronJob's template is mutable (pkg/apis/batch/validation/
 # validation.go at v1.37.0, ValidateCronJobUpdate: no immutable field but the metadata's; a Job's template is
@@ -46,7 +50,7 @@ spec:
           containers:
             - name: env-secrets
               image: ghcr.io/inkcasthq/inkcast
-              args: ["env-secrets"]
+              args: ["env-secrets", "--repair-only"]   # copies only, never a new value: a lost one fails the run, naming it (the owner's decision, PR #423)
               resources:
                 requests: {cpu: 10m, memory: 96Mi}
                 limits: {memory: 192Mi}

@@ -124,7 +124,7 @@ class Rendered(unittest.TestCase):
                 self.assertEqual(init["name"], "env-secrets")
                 (container,) = pod["containers"]
                 self.assertNotIn("initContainers", pod)
-                self.assertEqual((container["name"], container["args"]), ("env-secrets", ["env-secrets"]))
+                self.assertEqual((container["name"], container["args"]), ("env-secrets", ["env-secrets", "--repair-only"]))
                 self.assertNotIn("command", container, "the image's entrypoint, the launcher, as the init container")
                 self.assertEqual(container["image"], init["image"], "the init container's digest: one promotion moves both")
                 self.assertRegex(container["image"], INKCAST_IMAGE)
@@ -138,6 +138,19 @@ class Rendered(unittest.TestCase):
                 self.assertIs(pod["automountServiceAccountToken"], False, "the projected token only")
                 self.assertIs(pod["enableServiceLinks"], False)
                 self.assertEqual(pod["securityContext"], openfga["securityContext"], "no uid or fsGroup: restricted-v2 assigns them")
+
+    def test_the_cronjob_repairs_only_and_the_init_container_makes_every_value(self):
+        """The owner's decision on PR #423: the CronJob never makes a new value (a running environment would be cut
+        off from it: --repair-only, which names a lost value and fails the run), the init container does (the first
+        install, no flag). In every target that carries the component."""
+        for name in (*ENVIRONMENTS, "overlays/ci-env-secrets"):
+            with self.subTest(target=name):
+                docs = self.docs[name]
+                job = one(docs, "CronJob", "inkcast-env-secrets")["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+                (container,) = job["containers"]
+                self.assertEqual(container["args"], ["env-secrets", "--repair-only"])
+                init = pod_spec(one(docs, "Deployment", "openfga"))["initContainers"][0]
+                self.assertEqual((init["name"], init["args"]), ("env-secrets", ["env-secrets"]))
 
     def test_the_environment_s_role_names_its_two_secrets_and_creates(self):
         for name, namespace in ENVIRONMENTS.items():
