@@ -407,6 +407,8 @@ class Publisher:
             held = ((self.store.get_post(post_id) or {}).get("error") or "").split("; ")
             if _edited(platform) in held:
                 notes = [n for n in held if n != _edited(platform)] + notes
+            elif _lost(platform) in held:  # an edit is no decision about a second copy: only a person clears it (#234)
+                notes = [_lost(platform)] + notes
             self.store.update_post(post_id, status=status, title=prepared.title, payload=json.dumps(prepared.to_dict()),
                                    error="; ".join(notes) or None, **({"result_url": result.url} if result.url else {}))
         self._count(platform.id, "updated")

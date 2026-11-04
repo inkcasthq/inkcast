@@ -46,6 +46,15 @@ class Lagging(Findable):
         return answer
 
 
+class Editable(Findable):
+    """Findable that edits posts in place, as DEV does (``update``)."""
+
+    capabilities = frozenset({"find", "update"})
+
+    async def update(self, creds, account, remote_id, prepared, destination):
+        return PublishResult(url=f"https://findable/{remote_id}", remote_id=remote_id, status="published")
+
+
 # ---- the note that an earlier send may have arrived too (#234 item 3) outlives every later write --------------------
 
 
@@ -120,3 +129,20 @@ class FindingGitSyncsFoundAnswerKeepsTheLostNote(SyncHarness):
         post = self.store.get_post(first.post_id)
         self.assertEqual((again.status, post["status"]), ("published", "published"))
         self.assertIn(lost, post["error"] or "", "the sync's check erased the second-copy flag")
+
+
+class FindingAnEditInPlaceKeepsTheLostNote(SyncHarness):
+    platform_class = Editable
+
+    def test_the_update_of_an_edited_file_keeps_the_second_copy_flag(self):
+        """A re-send's success keeps the note (#234 item 3); the author then edits the file, and ``Publisher.update``
+        wrote the update's own notes as the post's error, so the note went with the edit: an edit is no decision about
+        a second copy. (It keeps the notes beside an ``_edited`` one, #392, but not otherwise.)"""
+        first = self.sync()
+        self.assertEqual(first.status, "published")
+        lost = _lost(self.platform)
+        self.store.update_post(first.post_id, error=lost)                     # as record_success leaves it (#234)
+        edited = self.sync("Body, edited.")
+        post = self.store.get_post(first.post_id)
+        self.assertEqual((edited.action, post["status"]), ("update", "published"))
+        self.assertIn(lost, post["error"] or "", "the edit in place erased the second-copy flag")
