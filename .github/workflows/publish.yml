@@ -18,6 +18,11 @@ on:
   push:
     branches: [main]
     tags: ["v*.*.*"]
+    # A promotion merge only moves an environment's digest pin, and the image never contains deploy/ (.dockerignore):
+    # rebuilding would publish the same source under a new digest and open another promotion (#382). GitHub doesn't
+    # evaluate path filters for tag pushes, so releases still publish.
+    paths-ignore:
+      - deploy/kustomize/environments/**
   workflow_dispatch:
 
 permissions:

@@ -40,7 +40,7 @@ tag vX.Y.Z ────► publish.yml (same) ► release: GitHub Release + mani
 | Workflow | Trigger | Writes |
 |---|---|---|
 | `ci.yml` | PRs, weekly schedule, called by publish | code-scanning results only |
-| `publish.yml` | push to main, `v*.*.*` tags, manual | registry (build job), signatures and attestations (attest job), releases (release job), the `ci-captures` branch (captures job: dashboard screenshots and the [walkthrough](walkthrough.md)) |
+| `publish.yml` | push to main (except one that only changes `deploy/kustomize/environments/`, #382), `v*.*.*` tags, manual | registry (build job), signatures and attestations (attest job), releases (release job), the `ci-captures` branch (captures job: dashboard screenshots and the [walkthrough](walkthrough.md)) |
 | `promote.yml` | publish succeeded on main, or manual | a branch + PR in this repo |
 
 ## Environments and promotion
@@ -63,7 +63,9 @@ tag vX.Y.Z ────► publish.yml (same) ► release: GitHub Release + mani
 
 **Production**
 
-- Updated by a manual `promote.yml` run, using the GitHub Environment `production` with required reviewers.
+- Updated by a manual `promote.yml` run, using the GitHub Environment `production` with required reviewers. Pass the
+  digest staging runs (`-f digest=sha256:…`). Without one, the run promotes the image of the latest successful publish
+  run on `main`.
 - The PR changes `deploy/kustomize/environments/production`, which CODEOWNERS protects.
 
 **One open promotion PR per environment**, always the latest. After `promote.yml` opens one, it closes that
@@ -71,6 +73,10 @@ environment's older promotion PRs and deletes their branches, with a comment nam
 would roll the environment back. It closes only the PRs it opened itself (label `deploy`, author the Actions bot,
 head `promote/<environment>-<12 hex>`; `scripts/superseded_promotions.py`). Runs for one environment queue rather than
 overlap, so two runs never close each other's PR. A re-run for the same digest closes nothing.
+
+**A promotion merge publishes nothing.** It changes only `deploy/kustomize/environments/`, which the image doesn't
+contain, so `publish.yml` skips the push (`paths-ignore`). Before #382 it rebuilt the same source under a new digest, and
+every merged promotion opened another.
 
 **Rollback** is a revert of the digest PR. The previous digest is still signed and still in the registry.
 
