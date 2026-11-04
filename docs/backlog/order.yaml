@@ -24,7 +24,6 @@ waves:
   why: 'Follow-ups in code that already runs: links written to the log, double-sends, lost posts and data kept after erasure.
     These are the failures a writer or an auditor notices first (handover, suggested order 1), so they come before new screens.'
   items:
-  - '#234'
   - '#399'
   - '#400'
   - '#401'
@@ -382,7 +381,6 @@ issues:
   207: "Alerts: InkcastIdentitySyncReconcileEndingEarly can't fire near the top of the reconcile interval"
   215: "Rate limits: wording and docs left from #188"
   227: "tokensave fork: workspaces, agent and model discovery, and a local token dashboard"
-  234: "Person decides: follow-ups from the review of #231"
   246: "tokensave fork S1: record effort, model, thinking and subagent runs per turn"
   265: "tokensave fork S3b: dashboard page from the mockup"
   268: "Repair tokensave Claude turns stored before the first-line fix"
