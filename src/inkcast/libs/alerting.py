@@ -125,14 +125,17 @@ ALERTS: tuple[Alert, ...] = (
           "{{ $value }} time(s) in 30 minutes a post on {{ $labels.platform }} could not even begin its send "
           "(publish.send.failed) or its recovery (publish.recovery.failed): its credentials can't be decrypted, sealed "
           "under another INKCAST_SECRET_KEY than the scheduler runs on, or its payload can't be read (a rollback). The "
-          "scheduler goes on ticking for everyone else, so InkcastSchedulerStalled does not fire, and these posts are "
-          "neither sent nor shown to their owners. Both log lines name the post, with the traceback. Check the key first: "
-          "each pod's secret-key against the inkcast-secrets Secret (the runbook's commands).",
+          "scheduler goes on ticking for everyone else, so InkcastSchedulerStalled does not fire. None of these posts "
+          "is sent: on a platform Inkcast can ask, each stays 'recovering' until INKCAST_PUBLISH_RECOVERY_MAX_HOURS; on "
+          "one it can't, each is unconfirmed at the next stuck pass, for its owner to resend. Both log lines name the "
+          "post, with the traceback. Check the key first: each pod's secret-key against the inkcast-secrets Secret (the "
+          "runbook's commands).",
           "scheduler-worker", for_="0m"),
+    # A send that could not even begin (send_failed, #472) is no attempt: left out, so the ratio means what it did.
     Alert("InkcastPublishFailureRateHigh",
           'sum by (platform) (rate(inkcast_publish_total{status=~"failed|update_failed"}[30m]))'
-          ' / clamp_min(sum by (platform) (rate(inkcast_publish_total[30m])), 1e-9) > 0.2'
-          ' and sum by (platform) (increase(inkcast_publish_total[30m])) >= 5',
+          ' / clamp_min(sum by (platform) (rate(inkcast_publish_total{status!="send_failed"}[30m])), 1e-9) > 0.2'
+          ' and sum by (platform) (increase(inkcast_publish_total{status!="send_failed"}[30m])) >= 5',
           "warning", "More than 20% of publishes to {{ $labels.platform }} fail",
           "{{ $value | humanizePercentage }} of attempts to {{ $labels.platform }} failed over 30 minutes (at least 5 "
           "attempts). A platform outage, revoked credentials or a plug-in bug.", "publishing", for_="10m"),

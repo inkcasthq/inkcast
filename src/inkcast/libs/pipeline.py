@@ -221,13 +221,16 @@ class Publisher:
         return None
 
     async def _send(self, post_id: str, user_id: str, platform: Platform, prepared: Prepared, attempts: int,
-                    scheduled: bool = False, lag: float | None = None, retry: bool = False, held: int = 0) -> Outcome:
+                    scheduled: bool = False, lag: float | None = None, retry: bool = False, held: int = 0,
+                    connected: tuple[dict[str, Any], dict[str, Any]] | None = None) -> Outcome:
         """``scheduled``: sent by the scheduler at its time (recorded on the event). ``retry``: a retryable failure
         is put back in the queue under the policy; always for the scheduler, for a "now" post only when asked.
         ``held``: the row's ``attempts`` while this send holds the post (the scheduler's claim counted its own; a
-        "now" post's row still reads 0): the fence of the send's failure writes, like ``renew_claim``'s (#226)."""
+        "now" post's row still reads 0): the fence of the send's failure writes, like ``renew_claim``'s (#226).
+        ``connected``: the credentials a resend read and verified before it cancelled the old post, sent with as they
+        are: read again here, a reseal under another key meanwhile would fail the send after that cancel (#472)."""
         retry = retry or scheduled
-        connected = self.store.get_credentials(user_id, platform.id)
+        connected = connected or self.store.get_credentials(user_id, platform.id)
         if not connected:
             self.store.update_post(post_id, status="failed", error=f"{platform.name} was disconnected.",
                                    events=self._event("post.failed", post_id, user_id, platform.id, reason="disconnected"))
@@ -784,7 +787,7 @@ class Publisher:
         if not self.store.resend_post(post_id, user_id, new_id=new_id, note=note, events=events,
                                       on_created=functools.partial(on_created, platform.id) if on_created else None):
             raise self._not_resendable(post_id, self.store.get_post(post_id) or row)
-        return await self._send(new_id, user_id, platform, prepared, attempts=1, held=0)
+        return await self._send(new_id, user_id, platform, prepared, attempts=1, held=0, connected=connected)
 
     def _not_resendable(self, post_id: str, current: dict[str, Any]) -> PlatformError:
         """Why ``current`` can't be resent: it isn't 'unconfirmed'. One resent already names the post that resend made
