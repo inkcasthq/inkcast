@@ -15,6 +15,7 @@ synced as stories."""
 
 import asyncio
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -398,11 +399,14 @@ class EndToEnd(Harness):
     def synced(self, path: str, source: str) -> str:
         """``path`` synced as a release before #417 or #476 synced it: a scheduled post on DEV."""
         when = (datetime.now(timezone.utc) + timedelta(days=2)).replace(microsecond=0).isoformat()
+        # A title of fixed length: the source holds the test's id, whose length depends on how the module was run, and
+        # DEV refuses a title over 128 characters.
+        title = f"{path} {hashlib.sha256(source.encode()).hexdigest()[:12]}"
         r = self.call("POST", "/api/v1/stories:sync", json={"source": source, "files": [
-            {"path": path, "markdown": story(f"{path} {source}", when)}]})
+            {"path": path, "markdown": story(title, when)}]})
         self.assertEqual(r.status_code, 200, r.text)
         [result] = r.json()["results"]
-        self.assertEqual((result["action"], result["status"]), ("create", "scheduled"))
+        self.assertEqual((result["action"], result["status"]), ("create", "scheduled"), result)
         return result["post_id"]
 
     def cli(self, repo: pathlib.Path, argv: list[str]) -> tuple[int, str, str]:
