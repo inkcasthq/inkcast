@@ -34,6 +34,17 @@ class CiRunReview550(unittest.TestCase):
                 self.assertTrue(out.startswith(text), "the step log still has the output")
                 self.assertEqual(annotation[1], todays_tail(text + "\n"))
 
+    def test_a_nul_byte_is_dropped_as_before(self):
+        # Before #550, bash's command substitution dropped NUL bytes. mawk (CI's awk) prints them into the command line,
+        # one-true-awk ends the line at one, and busybox awk splits it there.
+        text = (b"error: above\x00the tail\n" + b"".join(b"line %d\n" % i for i in range(30))
+                + b"before\x00after\n" + b"".join(b"end %d\n" % i for i in range(3)))
+        _, out, (_, message) = self.fails_with(text)
+        command = out[out.index("::error "):]
+        self.assertNotIn("\x00", command)
+        clean = text.replace(b"\x00", b"").decode()
+        self.assertEqual(message, "error: abovethe tail\n----- the last 25 of 35 lines -----\n" + todays_tail(clean))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -16,8 +16,10 @@ status=${PIPESTATUS[0]}
 if [ "$status" -ne 0 ]; then
   # The runner reads a workflow command only at the start of a line, so end a last line that has no newline.
   [ -s "$log" ] && [ "$(tail -c 1 "$log" | wc -l)" -eq 0 ] && echo
+  # NUL bytes are dropped, as the command substitution dropped them before #550: mawk would print them into the
+  # command, one-true-awk ends a line at one, and busybox awk splits a line there.
   # LC_ALL=C: awk counts bytes, which are never fewer than the UTF-16 units the runner counts.
-  CI_RUN_TITLE="${label} failed (exit ${status})" LC_ALL=C awk '
+  LC_ALL=C tr -d '\000' < "$log" | CI_RUN_TITLE="${label} failed (exit ${status})" LC_ALL=C awk '
     # The runner keeps the first 4096 characters of a message and drops the rest
     # (actions/runner v2.338.2, src/Runner.Worker/ExecutionContext.cs, _maxIssueMessageLength). The REST API allows
     # 64 KB (https://docs.github.com/en/rest/checks/runs#create-a-check-run, annotations[].message), and the
@@ -55,6 +57,6 @@ if [ "$status" -ne 0 ]; then
         msg = substr(msg, 1, h) "\n" mark "\n" substr(msg, t)
       }
       print "::error title=" property(ENVIRON["CI_RUN_TITLE"]) "::" data(msg)
-    }' "$log"
+    }'
 fi
 exit "$status"
