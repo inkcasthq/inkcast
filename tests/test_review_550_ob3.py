@@ -7,10 +7,13 @@ the way actions/runner v2.338.2 does.
 """
 
 import pathlib
+import subprocess
 import tempfile
 import unittest
 
-from test_ci_run_cause_550 import run, todays_tail
+from test_ci_run_cause_550 import LIMIT, SCRIPT, run, todays_tail, unescape_data
+
+MARK = "----- cut here to fit the annotation; the step log has every line -----"
 
 
 class CiRunReview550(unittest.TestCase):
@@ -44,6 +47,51 @@ class CiRunReview550(unittest.TestCase):
         self.assertNotIn("\x00", command)
         clean = text.replace(b"\x00", b"").decode()
         self.assertEqual(message, "error: abovethe tail\n----- the last 25 of 35 lines -----\n" + todays_tail(clean))
+
+    def test_a_tail_that_fits_the_runner_is_kept_whole(self):
+        # The runner keeps 4096 UTF-16 units (ExecutionContext.cs, issue.Message[.._maxIssueMessageLength]), not 4096
+        # bytes. Playwright 1.56.0's progress lines (lib/server/registry/browserFetcher.js, getBasicDownloadProgress)
+        # are 100 to 260 bytes but 100 to 102 units, so `playwright install`'s tail fit whole before #550.
+        def bars(name):
+            square, space = "\u25a0", " "
+            yield f"Downloading {name} from https://cdn.playwright.dev/builds/{name}.zip"
+            for row in range(11):
+                yield f"|{square * (row * 8)}{space * ((10 - row) * 8)}| {str(row * 10).rjust(3)}% of 173.7 MiB"
+            yield f"{name} downloaded to /home/runner/.cache/ms-playwright/{name}"
+        outputs = {
+            "playwright": "\n".join([*bars("chromium-1194"), *bars("chromium_headless_shell-1194"),
+                                     "Error: Download failed: server returned code 503"]) + "\n",
+            # 4025 units each, with every kind of lead byte: a character counted one unit too many cuts the tail
+            "2-byte characters": ("\u00e9" * 160 + "\n") * 25,
+            "3-byte characters": ("\u0800\u2500\ud000\uff21" * 40 + "\n") * 25,   # E0, E1-EC, ED, EE-EF
+            "4-byte characters": ("\U0001f600\U000f0000\U00100000" * 26 + "\U0001f600" * 2 + "\n") * 25,   # F0, F3, F4
+        }
+        for name, text in outputs.items():
+            with self.subTest(name):
+                tail = todays_tail(text)
+                self.assertGreater(len(tail.encode()), LIMIT)
+                self.assertLessEqual(len(tail.encode("utf-16-le")) // 2, LIMIT)
+                _, _, (_, message) = self.fails_with(text.encode())
+                self.assertTrue(message.endswith(tail), "the whole tail, as before #550")
+                self.assertLessEqual(len(message.encode("utf-16-le")) // 2, LIMIT)
+
+    def test_a_message_never_holds_more_than_the_runner_keeps(self):
+        # A character is 1 UTF-16 unit, or 2 for a 4-byte one, and each byte that is not part of a character becomes a
+        # U+FFFD of 1 unit. Counting any of them as less would let the runner cut the message's last lines.
+        outputs = {"2-byte characters": ("\u00e9" * 170 + "\n").encode() * 25,
+                   "3-byte characters": ("\u0800\u2500\ud000\uff21" * 42 + "\n").encode() * 25,
+                   "4-byte characters": ("\U0001f600\U000f0000\U00100000" * 30 + "\n").encode() * 25,
+                   "stray continuation bytes": (b"\x80" * 200 + b"\n") * 25}
+        for name, data in outputs.items():
+            with self.subTest(name):
+                path = pathlib.Path(self.tmp.name) / "output.bin"
+                path.write_bytes(data)
+                done = subprocess.run(["bash", str(SCRIPT), "x", "bash", "-c", 'cat "$1"; exit 1', "_", str(path)],
+                                      capture_output=True, check=False)
+                line = done.stdout[len(data):].decode("utf-8", errors="replace")   # as the runner decodes it
+                message = unescape_data(line.rstrip("\n").split("::", 2)[2])
+                self.assertIn(MARK, message)
+                self.assertLessEqual(len(message.encode("utf-16-le")) // 2, LIMIT)
 
 
 if __name__ == "__main__":
