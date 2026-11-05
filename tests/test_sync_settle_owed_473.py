@@ -54,19 +54,21 @@ def retitled(platform: str, when) -> str:
     return markdown(platform, when).replace("title: Locked", "title: Retitled")
 
 
-class FindingAChangeStillOwedKeepsItsNote(EditedWhileOut):
+class ChangeStillOwed(EditedWhileOut):
     platform_class = AnsweredLate
 
-    async def push_async(self, text: str):
+    async def push_async(self, text: str, dry_run: bool = False):
         """One push of the file as ``text`` (the title edited too, which ``sync_async`` can't write)."""
-        req = SyncRequest(source=SOURCE, files=[SyncFile(path=PATH, markdown=text)])
+        req = SyncRequest(source=SOURCE, dry_run=dry_run, files=[SyncFile(path=PATH, markdown=text)])
         (result,) = (await self.git.sync(self.user, req)).results
         return result
 
-    def push(self, text: str):
-        return asyncio.run(self.push_async(text))
+    def push(self, text: str, dry_run: bool = False):
+        return asyncio.run(self.push_async(text, dry_run))
 
-    def test_an_unchanged_file_the_platform_never_received_keeps_the_note(self):
+    def owed(self):
+        """The sequence of the module's docstring, up to attempt 2's answer landing last: the row holds the title the
+        platform has ("Locked"), with the note; the entry the edited title's hash. ``(when, post)``."""
         when = at(-600)
         post = self.waiting(when)
         self.platform.sent.clear()                                            # the rate-limited send never arrived
@@ -92,7 +94,12 @@ class FindingAChangeStillOwedKeepsItsNote(EditedWhileOut):
         self.assertEqual((row["status"], row["remote_id"], row["title"]), ("published", "1", "Locked"),
                          "the row does not record what the platform has")
         self.assertIsNotNone(self.note(post["id"]))
+        return when, post
 
+
+class FindingAChangeStillOwedKeepsItsNote(ChangeStillOwed):
+    def test_an_unchanged_file_the_platform_never_received_keeps_the_note(self):
+        when, post = self.owed()
         synced = self.push(retitled(self.platform.id, when))
         self.assertTrue(self.platform.updated or self.note(post["id"]),
                         f"the {synced.action} sync cleared the note of a change it never sent")
