@@ -10,23 +10,31 @@ Where the work stands and how to pick it up on another machine or in a fresh ses
 - **W1, "Finish what is in flight":** F3.1.S9 (the SQLite backups), F3.9.S5 (staging and production on OpenShift Local, OpenFGA on one shared CloudNativePG), F3.9.S8 (OpenFGA's migration as an init container), F9.1.S3 (the Keycloak production component) and F1.8.S1 (the `main` ruleset) are done. Two stories wait on the owner (see "Owner's steps"):
   - F1.8.S5 (#38): every pull request's `CodeQL` check still warns "1 configuration not found" for `.github/workflows/publish.yml:codeql`;
   - F1.8.S6 (#45): the security settings are on and `scripts/repo/settings.py check` matches. The daily `repo-settings` workflow passes since #540 (PR #542), but its token can't see the security settings, so it lists them as NOT VERIFIED.
-- **W2, "Security, publishing and Git sync safety":** worked down three times. Its issues closed on 2026-11-04, and two rounds of review follow-ups closed on 2026-11-05: #535 (PR #553), #523 (PR #554) and #531 (PR #555) in the second. The backlog PRs #448, #483, #488 and #512 record the earlier steps. Now in W2:
-  - #533 (notes split on `"; "`), in progress: the design is in [its comment](https://github.com/inkcasthq/inkcast/issues/533#issuecomment-6660072042);
-  - #559, #558 and #557, filed from the reviews of PRs #555, #554 and #553.
+- **W2, "Security, publishing and Git sync safety":** worked down four times.
+  - Its issues closed on 2026-11-04.
+  - Three rounds of review follow-ups closed on 2026-11-05: #535 (PR #553), #523 (PR #554), #531 (PR #555) and #533 (PR #562: a platform's name can't split a post's notes, and `PostsRepo.join_notes` is the one encoder).
+  - The backlog PRs #448, #483, #488 and #512 record the earlier steps.
+  - Open in W2, in this order:
+    - #559, #558 and #557, filed from the reviews of PRs #555, #554 and #553;
+    - #564: CI's kind job downloads kind and kubectl a second time, and a 504 failed main's publish run for `df8aa17f`;
+    - #565: a 502 through the split services' Gateway right after a rolling restart, which failed main's publish run for `bca7c094`. Measure first: the issue gives the hypothesis (no `preStop` drain) and the test.
   - #522 is in W17.
-- **W3, the writer web app:** F4.1.S5 (#348, the Node lock resolved in CI) is done (PRs #547 and #549). Next comes #550 (`ci-run.sh` annotations show a failure's cause), in progress, then F4.1.S1.
-- **Deployed on the lab's OpenShift Local** (by digest from `main`'s overlays; `~/.claude/skills/inkcast-crc/check.sh` reports ALL PASS after each deploy):
-  - `inkcast-staging` and `inkcast-prod`: `sha256:96f56dfc7733`, built from `main` at `058a325c` (promotions #552 and #556).
-- **In flight at 14:30 UTC on 2026-11-05:**
-  - PR #560 (#550), built and in review;
-  - #533, being built;
-  - the image from `main` at `c17a794d`, which carries the #523 and #531 fixes, on its way to staging, then production.
-- **Next:** finish W2 (#533, then #559, #558 and #557), then W3 in the order it lists.
+- **W3, the writer web app:**
+  - Done: F4.1.S5 (#348, the Node lock resolved in CI; PRs #547 and #549) and #550 (PR #560: `ci-run.sh`'s annotation shows a failure's cause, sized in the UTF-16 units the runner keeps).
+  - Next: F4.1.S1, which has no issue yet. Create the issue first.
+- **Deployed on the lab's OpenShift Local:**
+  - `inkcast-staging` and `inkcast-prod` run the image of `main` after this hand-off's merge.
+  - The digest each one runs is the `digest:` line in `deploy/kustomize/environments/staging/kustomization.yaml` and `.../production/kustomization.yaml` on `main`; the promotion PRs write it.
+  - Each is deployed from `main`'s overlay, and `~/.claude/skills/inkcast-crc/check.sh` reports ALL PASS after each deploy.
+- **Nothing is in flight** at the end of 2026-11-05: no open PR, and no builder or reviewer running.
+- **Next:** W2's #559, then #558, #557, #564 and #565; then W3 from F4.1.S1, in the order `order.yaml` lists.
 
 ## Decisions taken since 2026-10-27
 
 | Topic | Decision | Where |
 |---|---|---|
+| A plug-in's name | 1 to 40 printable characters without `;`, held on the class by `discover()` and on the instance by `load_platforms()`; notes are joined by `PostsRepo.join_notes` only; storing them as a JSON list waits for the PostgreSQL schema (F3.1.S1) | #533, PR #562 |
+| CI failure annotations | The first cause-like lines above the last 25, in the room the tail leaves, within the runner's 4096 UTF-16 units | #550, PR #560 |
 | Builders and reviewers | Opus 5.5 builds and reviews while the Fable limit is spent; Codex reviews too. Each finding is checked by the integrator (fails before, passes after) before it merges. Work to be reviewed again by Fable carries the `fable-review-later` label | 2026-11-04 |
 | A deleted linked directory or submodule | The CLI sends the removed directories and the patterns (`removed_dirs`, `removed_globs`); the server cancels the posts its own ledger synced below them, under the `stories:sync` scope a sync token already has. A pattern's matching cost is bounded, since the server runs patterns a request names | #508, PR #536 |
 | Second-copy notes on an update | Recognised by the exact wording their builders write, in linear time (the earlier pattern took 8 s on a 53 KB note), and kept in order | #504, PR #534 |
@@ -87,7 +95,9 @@ Not revisited since 2026-10-27; check before relying on it.
 
 Paste this into a new session, in the repo:
 
-> Read `docs/handover.md`, `CONTRIBUTING.md`, `docs/contributor-map.md` and `docs/definition-of-done.md`. Check `main` is green, list open PRs, and run `scripts/backlog/tracker.py --drift inkcasthq/inkcast`. Then continue with the first open wave in `docs/backlog/order.yaml`, one issue per PR, following "How the work is done". Report each finished wave on #360 and update `docs/handover.md` at the end of the session.
+> Read `docs/handover.md`, `CONTRIBUTING.md`, `docs/contributor-map.md` and `docs/definition-of-done.md`. Check `main` is green (including the publish runs' `kind` job), list open PRs, and run `scripts/backlog/tracker.py --drift inkcasthq/inkcast`. Run `~/.claude/skills/inkcast-crc/check.sh` and confirm staging and production run the digests in `main`'s overlays. Then continue with the first open wave in `docs/backlog/order.yaml`: W2's #559, #558, #557, #564 and #565, then W3 from F4.1.S1. One issue per PR, following "How the work is done": a builder, two adversarial reviews that prove each finding with a failing test, an arbitration comment on the PR, the gates, the merge, then the image promoted to staging and production and checked on the lab. Report W2's end on #360 and update `docs/handover.md` at the end of the session.
+
+To resume on the owner's machine, with the session's own notes, say: "Read memory delivery-state and delivery-runbook, and docs/handover.md, then continue autonomously from where they leave off."
 
 ---
 <!-- inkcast-nav -->
