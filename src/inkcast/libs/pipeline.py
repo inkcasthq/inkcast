@@ -429,7 +429,7 @@ class Publisher:
             if written:
                 self._count(platform.id, status)
                 kept = [n for n in self.store.notes_of(before) if keeps(n)]  # as ``record_success`` carried them over
-                notes += kept
+                notes += [n for n in kept if n not in notes]  # the success's own notes may hold one
                 if _lost(platform) in kept:  # an earlier send's uncertain answer landed over this re-send
                     log.warning("Post %s on %s was published by a re-send; an earlier send's answer was lost after its "
                                 "request was sent, and may have posted a second copy", post_id, platform.id,

@@ -242,7 +242,7 @@ class PostsRepo(Database):
                           (f"{before['error']}; {note}" if before["error"] else note, now, post_id))
                 return False, before
             if keeps is not None:
-                notes = [*notes, *(n for n in self.notes_of(before) if keeps(n))]
+                notes = [*notes, *(n for n in self.notes_of(before) if keeps(n) and n not in notes)]
             if self.may_have_arrived_since(before, held) and second_copy(before["attempts"]) not in notes:
                 notes = [*notes, second_copy(before["attempts"])]
             if not self.holds(before, sent):

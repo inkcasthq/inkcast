@@ -39,3 +39,16 @@ class FindingASuccessWritesAnotherAttemptsNoteOnce(t.Sends):
         for (outcome, error) in self.sends(post_id, t.copy(1), t.copy(1), t.copy(1), held=1):
             self.assertEqual(error, f"{attempt_2}; {twice}", "the error grew at a success of the copy recorded")
             self.assertEqual(outcome.notes, [attempt_2, twice])
+
+
+class FindingASuccessWritesItsOwnNoteOnce(t.Sends):
+    """A platform's own note in the wording ``keeps`` recognises (``_is_second_copy`` matches any non-empty argument):
+    the next success's notes hold it, ``keeps`` carries the row's copy of it too. On c4df1cbf the error held it once
+    more at each success; 058a325c carried only ``_lost`` and wrote it once."""
+
+    def test_each_success_writes_the_platforms_note_once(self):
+        post_id = self.post("publishing")
+        shaped = _second_copy(self.platform, "1 of the scheduled batch")
+        for (outcome, error) in self.sends(post_id, t.copy(1, [shaped]), t.copy(1, [shaped]), t.copy(1, [shaped])):
+            self.assertEqual(error, shaped, "the success wrote its own note again")
+            self.assertEqual(outcome.notes, [shaped])
