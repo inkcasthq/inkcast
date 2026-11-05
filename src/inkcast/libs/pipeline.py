@@ -774,6 +774,8 @@ class Publisher:
         if not connected:
             raise Disconnected(f"{platform.name} isn't connected: post {post_id} was not resent and is still unconfirmed. "
                                f"{reconnect}")
+        # Before the cancel too: a payload this version can't read (a rollback) would fail the send after it (#472).
+        prepared = Prepared.from_dict(json.loads(row["payload"]))
         new_id = self.store.new_post_id()
         note = (f"Resent by the person as post {new_id}; it may already be on {platform.name} from the first send. Check "
                 f"{platform.name}, and remove the extra copy there if it is.")
@@ -782,7 +784,6 @@ class Publisher:
         if not self.store.resend_post(post_id, user_id, new_id=new_id, note=note, events=events,
                                       on_created=functools.partial(on_created, platform.id) if on_created else None):
             raise self._not_resendable(post_id, self.store.get_post(post_id) or row)
-        prepared = Prepared.from_dict(json.loads(row["payload"]))
         return await self._send(new_id, user_id, platform, prepared, attempts=1, held=0)
 
     def _not_resendable(self, post_id: str, current: dict[str, Any]) -> PlatformError:
