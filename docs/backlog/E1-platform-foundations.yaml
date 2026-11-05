@@ -198,8 +198,9 @@ features:
     status: in-progress
     issue: 45
     change: 'new; issue #45, found 2026-10-19 (all off on a public repository); as code in PR #46, applied by the owner
-      (check matches, 2026-11-05). The daily workflow failed every run on fields its token can''t see (#540); the
-      security settings need a read credential with admin access for it to verify them daily, the owner''s decision'
+      (check matches, 2026-11-05). The daily workflow failed every run on fields its token can''t see, and passes since
+      #540 (PR #542); the security settings need a read credential with admin access for it to verify them daily, the
+      owner''s decision'
     acceptance:
     - Secret scanning, push protection (with non-provider patterns), Dependabot security updates, vulnerability alerts and
       private vulnerability reporting are on
