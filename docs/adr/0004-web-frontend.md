@@ -20,7 +20,13 @@
 
 ## Consequences
 - A Node toolchain enters CI, as the `web` job.
-- The build sandbox used for development can't reach npm, so the web app is built and tested in GitHub CI.
+- `web/package-lock.json` is resolved in CI by `web-lock-refresh.yml`: from scratch, on Linux, with the Node that
+  `web/package.json` pins. The first lock PR adds a web CI job that installs it with `npm ci`.
+  - Why: a lock written where `node_modules` exists can leave out other platforms' optional native packages
+    ([npm/cli#4828](https://github.com/npm/cli/issues/4828)). A Vite lock from an arm64 Mac then fails on Linux with
+    "Cannot find module @rollup/rollup-linux-x64-gnu" ([npm/cli#8320](https://github.com/npm/cli/issues/8320)).
+  - npm 11.3.0 fixed #4828 ([npm/cli#8184](https://github.com/npm/cli/pull/8184)), but npm 10, which Node 22 still
+    ships, did not. One pinned npm on CI's Linux keeps the lock independent of the npm a contributor runs.
 
 ---
 <!-- inkcast-nav -->
