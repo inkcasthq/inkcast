@@ -108,8 +108,9 @@ jobs:
           gh pr list --state open --label deploy --limit 200 --json number,headRefName,author,labels |
             python3 scripts/superseded_promotions.py --environment "$ENVIRONMENT" --current "$branch" |
             while read -r n; do
-              # One merged or closed since the list was taken has nothing left to supersede (#517); one still open
-              # after a failed close fails the run, as merging it later would roll the environment back.
+              # One merged or closed since the list was taken has nothing left to supersede (#517); one still open, or
+              # whose state can't be read, after a failed close fails the run, as merging it later would roll the
+              # environment back. `false` is a simple command, so set -e stops the loop on it, not the next PR.
               gh pr close "$n" --delete-branch --comment "Superseded by #$new, the latest promotion to $ENVIRONMENT." ||
-                [ "$(gh pr view "$n" --json state --jq .state)" != OPEN ]
+                case "$(gh pr view "$n" --json state --jq .state)" in MERGED | CLOSED) ;; *) false ;; esac
             done
