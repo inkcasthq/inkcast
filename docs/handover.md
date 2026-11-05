@@ -17,6 +17,10 @@ Where the work stands and how to pick it up on another machine or in a fresh ses
 - **W3, the writer web app:** F4.1.S5 (#348, the Node lock resolved in CI) is done (PRs #547 and #549). Next comes #550 (`ci-run.sh` annotations show a failure's cause), in progress, then F4.1.S1.
 - **Deployed on the lab's OpenShift Local** (by digest from `main`'s overlays; `~/.claude/skills/inkcast-crc/check.sh` reports ALL PASS after each deploy):
   - `inkcast-staging` and `inkcast-prod`: `sha256:96f56dfc7733`, built from `main` at `058a325c` (promotions #552 and #556).
+- **In flight at 14:30 UTC on 2026-11-05:**
+  - PR #560 (#550), built and in review;
+  - #533, being built;
+  - the image from `main` at `c17a794d`, which carries the #523 and #531 fixes, on its way to staging, then production.
 - **Next:** finish W2 (#533, then #559, #558 and #557), then W3 in the order it lists.
 
 ## Decisions taken since 2026-10-27
