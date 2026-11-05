@@ -37,7 +37,7 @@ features:
     status: done
     issue: 348
     change: 'issue #348; new 2026-10-28; built in PR #547 (web-lock-refresh.yml, scripts/web-lock.sh, web/package.json)
-      and PR B (the first lock, from its run on main, and ci.yml''s web job). Resolved on Linux by one pinned npm because
+      and PR #549 (the first lock, from its run on main, and ci.yml''s web job). Resolved on Linux by one pinned npm because
       npm before 11.3.0 writes an incomplete lock where node_modules exists (npm/cli#4828, fixed by npm/cli#8184)'
     acceptance:
     - 'A workflow, run on demand and weekly like lock-refresh.yml, resolves web/package-lock.json with integrity hashes

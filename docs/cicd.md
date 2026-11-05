@@ -102,8 +102,13 @@ A pull request opened with the workflow's token would run no CI.
   `actions/setup-node` reads it, and the npm that Node ships writes the lock.
 - The branch's commit lists what moved. Open the pull request with
   `gh pr create --head deps/web-lock-refresh --title 'Refresh the web lock'`.
-- CI's `web` job installs the lock with `npm ci` only. It fails when `package.json` and the lock disagree, and then
-  checks that the lock is byte for byte unchanged. It is not a required check yet: F4.1.S3 makes the web job one.
+- CI's `web` job installs the lock with `npm ci` only, and then checks that the lock is byte for byte unchanged.
+  `npm ci` fails when the lock lacks something a manifest asks for, or holds another version of it. It doesn't fail
+  when the lock holds more than the manifests ask for (npm's `validate-lockfile.js` checks one direction), so the
+  `Lock` tests in `tests/test_web_lock.py`, part of the required `test` jobs, compare what the lock records for the
+  root and each workspace with their `package.json`.
+- The `web` job is not a required check yet: that is a ruleset change, which the owner applies with
+  `scripts/repo/settings.py apply`. Until then it still stops a release, since `publish.yml` runs `ci.yml` as its gate.
 
 Why on Linux, from scratch: a lock written where `node_modules` exists can leave out other platforms' optional
 native packages ([npm/cli#4828](https://github.com/npm/cli/issues/4828)). `npm ci` on Linux then fails
