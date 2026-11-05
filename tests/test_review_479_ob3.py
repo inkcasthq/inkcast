@@ -14,6 +14,9 @@ import unittest
 from unittest import mock
 
 import httpx2
+from starlette.applications import Starlette
+from starlette.responses import PlainTextResponse
+from starlette.routing import Route
 from starlette.testclient import TestClient
 
 from inkcast.launcher import build, resolve
@@ -168,6 +171,17 @@ class C4_TheLimitersSets(unittest.TestCase):
     def test_get_still_counts_head(self):
         app = limited(_Ok(), RateLimiter(per_minute=2), "x", {"GET"})
         self.assertEqual([_call(app, m) for m in ("HEAD", "GET", "HEAD")], [200, 200, 429])
+
+
+class C4_ASetIsReadAsStarletteReadsTheRoutesMethods(unittest.TestCase):
+    def test_a_lower_case_set_counts_the_method_the_route_accepts(self):
+        """Starlette's Route upper-cases its ``methods`` (starlette 1.9.0, Route.__init__), so ``methods=["post"]``
+        answers POST; the limiter's set beside it must count that POST, not a ``post`` no client sends."""
+        def ok(request):
+            return PlainTextResponse("ok")
+        app = Starlette(routes=[Route("/x", limited(ok, RateLimiter(per_minute=1), "x", {"post"}), methods=["post"])])
+        with TestClient(app) as c:
+            self.assertEqual([c.post("/x").status_code for _ in range(3)], [200, 429, 429])
 
 
 class C5_NoSecretLoggedAndConstantTime(BothPages):

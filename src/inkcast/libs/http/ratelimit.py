@@ -112,7 +112,9 @@ class _Guarded:
     """An ASGI app (a class instance, so Starlette's Route treats it as one and not as a request handler)."""
 
     def __init__(self, app: Callable, limiter: RateLimiter, name: str, methods: set[str]):
-        self.app, self.limiter, self.name, self.methods = app, limiter, name, methods
+        # Upper-cased as Starlette's Route upper-cases its own methods, so a set written {"post"} counts the POST the
+        # route beside it accepts (ASGI gives the method upper-cased).
+        self.app, self.limiter, self.name, self.methods = app, limiter, name, {m.upper() for m in methods}
 
     async def __call__(self, scope: dict[str, Any], receive: Callable, send: Callable) -> None:
         method = scope.get("method")
