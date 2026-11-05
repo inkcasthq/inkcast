@@ -42,6 +42,8 @@ tag vX.Y.Z ────► publish.yml (same) ► release: GitHub Release + mani
 | `ci.yml` | PRs, weekly schedule, called by publish | code-scanning results only |
 | `publish.yml` | push to main (except one that only changes `deploy/kustomize/environments/`, #382), `v*.*.*` tags, manual | registry (build job), signatures and attestations (attest job), releases (release job), the `ci-captures` branch (captures job: dashboard screenshots and the [walkthrough](walkthrough.md)) |
 | `promote.yml` | publish succeeded on main, or manual | a branch + PR in this repo |
+| `lock-refresh.yml` | weekly, or manual | the `deps/lock-refresh` branch |
+| `web-lock-refresh.yml` | weekly, or manual | the `deps/web-lock-refresh` branch |
 
 ## Environments and promotion
 
@@ -79,6 +81,34 @@ contain, so `publish.yml` skips the push (`paths-ignore`). Before #382 it rebuil
 every merged promotion opened another.
 
 **Rollback** is a revert of the digest PR. The previous digest is still signed and still in the registry.
+
+## Dependency locks
+
+Both locks are resolved in CI, never in a build. Each workflow pushes a `deps/` branch; the owner opens a pull
+request from it, and its CI checks the lock. A pull request opened with the workflow's token would run no CI.
+
+| Lock | Resolved by | Branch |
+|---|---|---|
+| `requirements.lock`, `build.lock` | `lock-refresh.yml` (`scripts/lock.sh`) | `deps/lock-refresh` |
+| `web/package-lock.json` | `web-lock-refresh.yml` (`scripts/web-lock.sh`) | `deps/web-lock-refresh` |
+
+**The web lock** (issue #348):
+
+- It runs every Monday, and on demand: `gh workflow run web-lock-refresh.yml`.
+- It resolves from scratch: no `node_modules`, no old lock, no install scripts
+  (`npm install --package-lock-only --ignore-scripts`). Every package gets a sha512 `integrity`.
+- It runs on Linux, with the Node that `engines.node` in `web/package.json` pins. That field is the only Node pin:
+  `actions/setup-node` reads it, and the npm that Node ships writes the lock.
+- The branch's commit lists what moved. Open the pull request with
+  `gh pr create --head deps/web-lock-refresh --title 'Refresh the web lock'`.
+- CI installs the lock with `npm ci` only. It fails when `package.json` and the lock disagree, and it never writes
+  the lock. That job comes with the first lock.
+
+Why on Linux, from scratch: a lock written where `node_modules` exists can leave out other platforms' optional
+native packages ([npm/cli#4828](https://github.com/npm/cli/issues/4828)). `npm ci` on Linux then fails
+([npm/cli#8320](https://github.com/npm/cli/issues/8320)). npm 11.3.0 fixed it; npm 10, which Node 22 still ships, did
+not. On a Mac with TypeScript 7.0.2 (20 platform packages), a reinstall that kept `node_modules` left 1 of them in the
+lock with npm 10.9.9 and 11.2.0, and all 20 with 11.3.0 and 11.20.0 (2026-11-05).
 
 ## Versioning
 
@@ -154,6 +184,7 @@ The one to retire today is **`.github/workflows/publish.yml:codeql`**. It's left
 | Tests | `PYTHONPATH=src:tests python -m unittest discover -s tests` |
 | Lint | `ruff check src tests` |
 | Code scanning | `scripts/dev/codeql.sh`: CI's CodeQL bundle, config (`.github/codeql/codeql-config.yml`) and suites; prints each result's code flow and exits 1 at the check's failure threshold (security severity high or above, or error) |
+| Web lock | `scripts/web-lock.sh` in a clean `web/` (no `node_modules`), with the Node `web/package.json` pins |
 | Vendored assets | `scripts/vendor-assets.sh` (offline verify); `--outdated`, `--update`, `--upgrade` |
 | Manifests | `kubectl kustomize deploy/kustomize/overlays/openshift` |
 | Cluster smoke | `kind create cluster && kind load docker-image inkcast:ci && kubectl apply -k deploy/kustomize/overlays/ci` |

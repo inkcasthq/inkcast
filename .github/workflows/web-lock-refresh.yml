@@ -1,0 +1,57 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
+# Copyright 2026 ScalarOps Technologies LLC
+# The web workspace's npm lock (E4.F4.1.S5, issue #348), as lock-refresh.yml does for the Python locks: resolve
+# web/package-lock.json from scratch on Linux, with the Node that web/package.json's engines.node pins, weekly and on
+# demand, and push it to the deps/web-lock-refresh branch. It pushes a branch only: a pull request opened with this
+# workflow's token would not run CI, so the owner (or automation acting as the owner) opens it, and the squash merge
+# is then the owner's commit like every other. Builds never write the lock: they install it with `npm ci`.
+name: web-lock-refresh
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "41 7 * * 1"   # weekly, after lock-refresh.yml's run
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-lock-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write   # push deps/web-lock-refresh, never main (the ruleset protects it)
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/package.json   # engines.node, the one Node pin
+          package-manager-cache: false          # resolve from the registry, never from a cache
+      - name: Resolve web/package-lock.json from scratch
+        run: scripts/ci-run.sh "web lock" scripts/web-lock.sh "$RUNNER_TEMP/moved.txt"
+      - name: Push deps/web-lock-refresh when it changed
+        run: |
+          set -euo pipefail
+          git add web/package-lock.json
+          if git diff --cached --quiet; then
+            echo "### The web lock is current; nothing pushed" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          { echo "Refresh web/package-lock.json (scripts/web-lock.sh)"; echo; cat "$RUNNER_TEMP/moved.txt"; } \
+            > "$RUNNER_TEMP/message.txt"
+          git -c user.name="inkcast-lock-refresh" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -F "$RUNNER_TEMP/message.txt"
+          git push --force origin HEAD:refs/heads/deps/web-lock-refresh
+          {
+            echo "### Pushed deps/web-lock-refresh"
+            echo
+            echo "Open a pull request from it: \`gh pr create --head deps/web-lock-refresh --title 'Refresh the web lock'\`"
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/moved.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=Web lock changed::pushed deps/web-lock-refresh; open a pull request from it"
