@@ -163,8 +163,11 @@ class InkcastService:
                               first_post_note=self._note(post_id))
 
     def _note(self, post_id: str) -> str | None:
-        """The old post's own note, as the store holds it once the resend has cancelled it: the one the listing shows."""
-        return (self.store.get_post(post_id) or {}).get("error")
+        """The old post's own note, as the store holds it once the resend has cancelled it: the one the listing shows.
+        None once it is no longer cancelled: its first send's late answer was written over the cancel (#214), so the
+        post is on the platform after all and its error is that answer's notes; the client's warning is the right one."""
+        row = self.store.get_post(post_id) or {}
+        return row.get("error") if row.get("status") == "cancelled" else None
 
     @staticmethod
     def _post(r: dict) -> PostInfo:
