@@ -13,7 +13,10 @@ The locks below are what that npm wrote (`npm install --package-lock-only`) for 
 through the web job's commands in node:26.13.0-bookworm-slim and passed `npm ci` and the `git diff` check.
 
 3. A registry package with no "resolved" and no "integrity" must fail: npm ci installs it from the registry by version,
-   with nothing to verify it against, and exits 0 (measured the same way)."""
+   with nothing to verify it against, and exits 0 (measured the same way).
+4. The web job's shape must fail when the install cannot fail the job (continue-on-error) or the diff step runs in
+   web/: from there `git diff --exit-code -- web/package-lock.json` names web/web/package-lock.json and exits 0 with
+   the lock changed (measured: exit 0 from web/, exit 1 from the root)."""
 
 import json
 import pathlib
@@ -191,6 +194,31 @@ class LockDrift(unittest.TestCase):
         for field in ("resolved", "integrity"):
             del lock["packages"]["node_modules/is-number"][field]
         self.assertFalse(lock_tests(self.with_dependencies, lock, {}).wasSuccessful())
+
+
+
+def ci_tests(old, new):
+    """Run test_web_lock.Lock with ci.yml's `old` text replaced by `new`; return the unittest result."""
+    text = (test_web_lock.WORKFLOWS / "ci.yml").read_text()
+    assert old in text, old
+    with tempfile.TemporaryDirectory() as tmp:
+        (pathlib.Path(tmp) / "ci.yml").write_text(text.replace(old, new, 1))
+        with mock.patch.object(test_web_lock, "WORKFLOWS", pathlib.Path(tmp)):
+            result = unittest.TestResult()
+            unittest.defaultTestLoader.loadTestsFromTestCase(test_web_lock.Lock).run(result)
+    return result
+
+
+class WebJobShape(unittest.TestCase):
+    INSTALL = "      - name: npm ci from the lock\n"
+    DIFF = '      - run: scripts/ci-run.sh "npm ci changed web/package-lock.json"'
+
+    def test_an_install_that_cannot_fail_the_job_fails(self):
+        self.assertFalse(ci_tests(self.INSTALL, self.INSTALL + "        continue-on-error: true\n").wasSuccessful())
+
+    def test_a_diff_step_run_in_web_fails(self):
+        moved = '      - working-directory: web\n        run: scripts/ci-run.sh "npm ci changed web/package-lock.json"'
+        self.assertFalse(ci_tests(self.DIFF, moved).wasSuccessful())
 
 
 if __name__ == "__main__":

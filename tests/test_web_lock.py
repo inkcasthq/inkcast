@@ -136,11 +136,17 @@ class Lock(unittest.TestCase):
     def test_ci_installs_it_with_npm_ci_and_checks_it_is_unchanged(self):
         ci = yaml.safe_load((WORKFLOWS / "ci.yml").read_text())
         self.assertIn("pull_request", ci[True])   # YAML reads the key `on` as True
-        steps = ci["jobs"]["web"]["steps"]
+        job = ci["jobs"]["web"]
+        steps = job["steps"]
         install = next(s for s in steps if "npm ci" in s.get("run", ""))
         self.assertEqual(install.get("working-directory"), "web")
         self.assertIn("--ignore-scripts", install["run"])
         self.assertIn("git diff --exit-code -- web/package-lock.json", [s.get("run", "").split('" ', 1)[-1] for s in steps])
+        diff = next(s for s in steps if "git diff" in s.get("run", ""))
+        self.assertNotIn("working-directory", diff, "the pathspec web/package-lock.json is relative to the repository")
+        self.assertLess(steps.index(install), steps.index(diff))
+        for scope in (job, install, diff):
+            self.assertFalse({"if", "continue-on-error"} & set(scope), "both steps run, and either one fails the job")
 
 
 if __name__ == "__main__":
