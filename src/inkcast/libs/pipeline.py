@@ -50,10 +50,11 @@ def _sentence(text: str) -> str:
 
 
 def _named(url: str | None, remote_id: str | None) -> str:
-    """A copy of a post as a person can find it: its URL with its id, or whichever it has."""
-    if url and remote_id:
-        return f"{url} (id {remote_id})"
-    return url or f"id {remote_id}"
+    """A copy of a post as a person can find it: its URL with its id, or whichever it has. Never with the notes'
+    separator ("; ", ``PostsRepo.notes_of``) in it, which the platform's answer may hold: a note naming the copy would
+    read back as pieces, none of them the note (``_is_second_copy``, ``_edited``, #504). A URL's space is "%20"."""
+    named = f"{url} (id {remote_id})" if url and remote_id else url or f"id {remote_id}"
+    return named.replace("; ", ";%20")
 
 
 def _edited(platform: Platform, url: str | None = None, remote_id: str | None = None) -> str:
