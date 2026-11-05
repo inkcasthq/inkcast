@@ -137,7 +137,8 @@ def removed_since(rev: str, patterns: list[str]) -> list[str]:
     ``git diff --no-renames --diff-filter=DT``, so a renamed file is a removal (its new path is a new story), and so is
     a file that became a link or a submodule (``T``: ``collect`` lists it no more), relative to the current directory
     as the collected paths are. A deleted link is a removal too: before #417 ``collect`` followed a link to a file and
-    synced it as a story of its own (#476); a link that became a file is a new story, and a submodule was never synced.
+    synced it as a story of its own (#476); a link that became a file is a new story. A removed submodule, or a linked
+    directory, is no markdown path: the stories a release before #476 (or #417) synced from one are not listed (#508).
     Raises ``CliError`` when git can't tell (not a repository, or ``rev`` unknown: a shallow
     clone that never fetched it)."""
     if rev.startswith("-"):  # git would read it as an option (``--output=FILE`` writes a file), never a revision
