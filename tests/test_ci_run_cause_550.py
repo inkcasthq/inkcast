@@ -257,6 +257,26 @@ class CiRunCause(unittest.TestCase):
         self.assertEqual(tail, "")
         self.assertEqual(re.findall(r"error: problem (\d+)", head), [str(i) for i in range(15)])
 
+    def test_the_causes_never_cost_the_tail_a_line(self):
+        # This repo's own failing test run has tracebacks logged by passing tests above the tail, so the lines that
+        # look like a cause can all be noise. They go in the room the tail leaves, never in place of the tail.
+        noise = "".join(f"ValueError: logged by a passing test {i} {'x' * 200}\n" for i in range(15))
+        tail = "".join(f"  File \"t.py\", line {i}, in test_{i}: {'y' * 70}\n" for i in range(24))
+        text = noise + "".join(f"test_{i} ... ok\n" for i in range(100)) + tail + "FAILED (failures=1)\n"
+        _, _, (_, message) = self.fails_with(text)
+        self.assertTrue(message.endswith("----- the last 25 of 140 lines -----\n" + todays_tail(text)))
+        self.assertTrue(message.startswith("ValueError: logged by a passing test 0 "))
+        self.assertLessEqual(len(message), LIMIT)
+
+    def test_a_log_line_that_names_an_error_is_not_a_cause(self):
+        # Lines from this repo's test run: a warning that ends in an exception's name, and a test's name.
+        text = ("2026-11-05 08:14:33,833 WARNING [Authz] inkcast.identity.sync: Keycloak gave no answer (ReadError)"
+                " · event=identity.sync.failed error=OperationalError\n"
+                "test_an_unexpected_error_is_counted (test_review_identity.KeycloakSyncKeepsGoing) ... ok\n"
+                + "".join(f"line {i}\n" for i in range(30)))
+        _, _, (_, message) = self.fails_with(text)
+        self.assertEqual(message, todays_tail(text))
+
     def test_percent_cr_and_lf_survive_the_round_trip(self):
         text = "Error: 100% failed, %0A is not a newline\r\n" + "".join(f"line {i}\n" for i in range(30))
         _, out, (_, message) = self.fails_with(text)
@@ -269,19 +289,22 @@ class CiRunCause(unittest.TestCase):
         self.assertEqual(title, "stale, run: make 50% failed (exit 1)")
         self.assertIn("::error title=stale%2C run%3A make 50%25 failed (exit 1)::", out)
 
-    def test_a_very_long_output_stays_within_the_limit_cut_in_the_middle(self):
+    def test_a_tail_too_long_for_the_limit_is_cut_in_its_middle(self):
         wide = "é" * 99 + "😀"   # two-byte and four-byte characters, so a byte cut could split one
-        text = ("npm error code E404\n" + "".join(f"{i:05} {wide}\n" for i in range(3000))
-                + "".join(f"Error: late {i} {wide * 3}\n" for i in range(30)) + "the last line\n")
-        status, out, (_, message) = self.fails_with(text, status=2)
-        self.assertEqual(status, 2)
-        self.assertLessEqual(len(message.encode("utf-8")), LIMIT)
-        self.assertLessEqual(len(message.encode("utf-16-le")) // 2, LIMIT)   # the runner counts UTF-16 units
-        self.assertGreater(len(message.encode("utf-8")), LIMIT - 300, "the budget is used, not wasted")
-        self.assertTrue(message.startswith("npm error code E404\n"))
-        self.assertTrue(message.endswith("the last line\n"))
-        self.assertIn("cut", message)
-        self.assertIn(text, out, "the step log still has all of it")
+        for pad in range(4):     # moves both cuts across every byte of a character
+            with self.subTest(pad=pad):
+                x = "x" * pad
+                text = ("npm error code E404\n" + "".join(f"{i:05} {wide}\n" for i in range(3000))
+                        + "".join(f"Error: late {i}{x} {wide * 3}\n" for i in range(30)) + f"the last line{x}\n")
+                status, out, (_, message) = self.fails_with(text, status=2)   # run() decodes strictly
+                self.assertEqual(status, 2)
+                self.assertLessEqual(len(message.encode("utf-8")), LIMIT)
+                self.assertLessEqual(len(message.encode("utf-16-le")) // 2, LIMIT)   # what the runner counts
+                self.assertGreater(len(message.encode("utf-8")), LIMIT - 8, "the budget is used, not wasted")
+                self.assertTrue(message.startswith(f"Error: late 6{x} "), "the tail, with no room for causes")
+                self.assertTrue(message.endswith(f"the last line{x}\n"))
+                self.assertIn("\n----- cut here to fit the annotation; the step log has every line -----\n", message)
+                self.assertIn(text, out, "the step log still has all of it")
 
     def test_the_exit_status_and_the_output_pass_through(self):
         status, out, annotation = run("ok", "bash", "-c", "echo fine; echo also >&2")

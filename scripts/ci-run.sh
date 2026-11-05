@@ -1,15 +1,58 @@
 #!/usr/bin/env bash
-# Run a CI command; on failure, surface the end of its output as ONE GitHub annotation
-# (GitHub shows at most 10 annotations per step, so the tail is sent as a single multi-line one).
+# Run a CI command; on failure, put why it failed into ONE GitHub annotation. GitHub shows at most 10 error
+# annotations per step, so the message is one multi-line text (issue #550):
+#   - the first lines above the tail that look like a cause (at most 15, and only in the room the tail leaves),
+#     since npm prints its cause first and usage text after;
+#   - a separator;
+#   - the last 25 lines, as before, since Python, pytest and unittest print their cause last.
+# With no such line above the tail, the message is the last 25 lines alone. The step log keeps all of it.
 #   scripts/ci-run.sh <label> <command> [args...]
 set -uo pipefail
 label="$1"; shift
 log="$(mktemp)"
+trap 'rm -f "$log"' EXIT
 "$@" 2>&1 | tee "$log"
 status=${PIPESTATUS[0]}
 if [ "$status" -ne 0 ]; then
-  # Escape for workflow commands: % first, then CR/LF as %0D/%0A.
-  tail -n 25 "$log" | sed -e 's/%/%25/g' -e 's/\r/%0D/g' | awk 'BEGIN{ORS="%0A"} {print}' > "$log.msg"
-  echo "::error title=${label} failed (exit ${status})::$(cat "$log.msg")"
+  # LC_ALL=C: awk counts bytes, which are never fewer than the UTF-16 units the runner counts.
+  CI_RUN_TITLE="${label} failed (exit ${status})" LC_ALL=C awk '
+    # The runner keeps the first 4096 characters of a message and drops the rest
+    # (actions/runner v2.338.2, src/Runner.Worker/ExecutionContext.cs, _maxIssueMessageLength). The REST API allows
+    # 64 KB (https://docs.github.com/en/rest/checks/runs#create-a-check-run, annotations[].message), and the
+    # workflow command has no line limit (https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-commands).
+    BEGIN { limit = 4096; tail = 25; causes = 15
+            mark = "----- cut here to fit the annotation; the step log has every line -----" }
+    function is_cause(s) {
+      return s ~ /^npm error +[^ ]/ || s ~ /(Invalid|Missing): / ||        # npm, without its bare "npm error" lines
+             s ~ /^Traceback \(most recent call last\)/ ||                  # Python: an exception line starts the line,
+             s ~ /^[A-Za-z0-9_.]*(Error|Exception): / ||                    # so a log line that names one is not a cause
+             s ~ /^[A-Za-z0-9_.]*(Error|Exception)$/ ||
+             s ~ /^FAILED/ || s ~ /^(FAIL|ERROR): / ||                      # pytest, unittest
+             s ~ /^(fatal|error): / || s ~ /: (fatal|error): /              # git, the shell, compilers ("f.c:1: error:")
+    }
+    function continuation(c) { return c >= "\200" && c < "\300" }   # inside a UTF-8 character
+    # Escaped as @actions/core escapes them (packages/core/src/command.ts): % first, then CR and LF; a property
+    # also escapes : and ,.
+    function data(s) { gsub(/%/, "%25", s); gsub(/\r/, "%0D", s); gsub(/\n/, "%0A", s); return s }
+    function property(s) { s = data(s); gsub(/:/, "%3A", s); gsub(/,/, "%2C", s); return s }
+    {   # keep only the last lines, and the causes among the lines that leave them, so memory stays small
+      if (NR > tail && n < causes && is_cause(last[NR % tail])) cause[++n] = last[NR % tail]
+      last[NR % tail] = $0
+    }
+    END {
+      first = NR > tail ? NR - tail + 1 : 1
+      msg = ""; for (i = first; i <= NR; i++) msg = msg last[i % tail] "\n"
+      sep = "----- the last " (NR - first + 1) " of " NR " lines -----\n"
+      room = limit - length(msg) - length(sep)   # the causes never cost the tail a line
+      head = ""; for (i = 1; i <= n && length(head) + length(cause[i]) < room; i++) head = head cause[i] "\n"
+      if (head != "") msg = head sep msg
+      if (length(msg) > limit) {   # the tail alone is too long: cut its middle, keeping its very last lines
+        keep = limit - length(mark) - 2
+        h = int(keep / 2); while (h > 0 && continuation(substr(msg, h + 1, 1))) h--
+        t = length(msg) - (keep - h) + 1; while (continuation(substr(msg, t, 1))) t++
+        msg = substr(msg, 1, h) "\n" mark "\n" substr(msg, t)
+      }
+      print "::error title=" property(ENVIRON["CI_RUN_TITLE"]) "::" data(msg)
+    }' "$log"
 fi
 exit "$status"
