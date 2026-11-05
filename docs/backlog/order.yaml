@@ -24,14 +24,11 @@ waves:
   why: 'Follow-ups in code that already runs: links written to the log, double-sends, lost posts and data kept after erasure.
     These are the failures a writer or an auditor notices first (handover, suggested order 1), so they come before new screens.'
   items:
-  - '#470'
-  - '#471'
-  - '#472'
-  - '#473'
-  - '#474'
-  - '#475'
-  - '#476'
-  - '#479'
+  - '#494'
+  - '#502'
+  - '#503'
+  - '#504'
+  - '#508'
 - id: W3
   phase: 1
   title: The writer web app
@@ -381,12 +378,9 @@ issues:
   272: "Fix tokensave global.db writers waiting on dashboard reads"
   273: "Fix the tokensave saving rate under tool, model and effort filters"
   299: "OpenFGA to PostgreSQL with cert-manager client certificates instead of passwords"
-  470: "Erasure checkpoint: off the event loop, an event when it is deferred, a backup that survives its cleanup"
-  471: "Backups: a schedule slower than keep, retries on a refused day, a nested manifest"
-  472: "Scheduler on the wrong key: an alert for recovery_failed, and a resend that refuses unreadable credentials"
-  473: "Publishing: Publisher.update loses a second-copy note written meanwhile"
-  474: "OpenFGA migrate: refuse ambiguous URIs, decode backslashes, decide an eviction fence"
-  475: "Idempotency keys: name the version-mix limit, log what failed, identify the reservation"
-  476: "inkcast sync: submodule files, silent skips, and a removed link synced as a story"
-  479: "One-time links: bind the page token to its purpose; a HEAD-only limit counts HEAD"
+  494: "OpenFGA migrate: an eviction fence beside the hand-over grace"
+  502: "Publishing: a wrong-key send on a platform Inkcast can't ask is called a restart, and no alert stays on"
+  503: "Git sync: a change still owed after a lookup's match is never sent"
+  504: "Publishing: an update drops a second-copy note the row already held"
+  508: "inkcast sync: deleting a linked directory or a submodule leaves the posts an older version synced from it"
   360: "Backlog tracker: every story in one execution order, reviewed wave by wave"
