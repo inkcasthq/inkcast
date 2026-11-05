@@ -490,6 +490,26 @@ class EndToEndSplit(EndToEnd, SplitHarness):
     """The same, with every service in its own server behind the Gateway."""
 
 
+class AGlobReachesBelowADirectoryAsItMatchesAPathThere(unittest.TestCase):
+    """``glob_reaches_below(pattern, d)``, the CLI's test for sending ``d``, holds exactly when ``glob_match`` holds for
+    some path below ``d``: checked for every directory of up to two names, against every path of up to three more below
+    it, the names drawn from those the patterns name (hidden ones too) and a few others."""
+
+    def test_it_agrees_with_glob_match(self):
+        import itertools
+
+        from inkcast.libs.globs import glob_match, glob_reaches_below
+        from test_sync_removed_globs import PATTERNS
+
+        names = ("posts", "a.md", ".drafts", "x", "c.md", ".d.md", "ab.md", "[x].md", "b.markdown", "nowhere")
+        tails = ["/".join(t) for n in range(1, 4) for t in itertools.product(names, repeat=n)]
+        dirs = ["/".join(d) for n in (1, 2) for d in itertools.product(("posts", ".drafts", "x", "a.md"), repeat=n)]
+        for pattern in {str(pathlib.PurePosixPath(p)) for p in PATTERNS} | {"x/**/a.md", "*", "posts"}:
+            for d in dirs:
+                expected = any(glob_match(pattern, f"{d}/{t}") for t in tails)
+                self.assertEqual(glob_reaches_below(pattern, d), expected, (pattern, d))
+
+
 class TheDocsSayIt(unittest.TestCase):
     def test_removing_a_file_names_linked_directories_and_submodules(self):
         docs = (ROOT / "docs" / "git-publishing.md").read_text()

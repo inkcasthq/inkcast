@@ -186,6 +186,9 @@ RepoPath = Annotated[str, StringConstraints(min_length=1, max_length=500)]
 
 SYNC_BATCH = 50  # files, and removed paths, per request
 
+Pattern = Annotated[str, StringConstraints(min_length=1, max_length=500)]
+"""A pattern of ``inkcast sync`` (``posts/**/*.md``), as ``SyncRequest.removed_globs`` lists it."""
+
 
 class SyncFile(BaseModel):
     path: RepoPath = Field(description="Path of the file in the repository, e.g. `posts/hello.md`.")
@@ -199,24 +202,43 @@ class SyncRequest(Input):
                         description="Stable id of the repository, e.g. `github.com/acme/blog`. Ledger entries are keyed by it.")
     ref: str | None = Field(None, max_length=300, description="Commit or ref being synced, for the record.")
     files: list[SyncFile] = Field(default_factory=list, max_length=SYNC_BATCH,
-                                  description="Files to publish or update. May be empty only when `removed` is not.")
+                                  description="Files to publish or update. May be empty only when `removed` or `removed_dirs` is not.")
     removed: list[RepoPath] = Field(default_factory=list, max_length=SYNC_BATCH, description=(
         "Paths removed from the repository since the last sync (the action sends `git diff --no-renames "
         "--diff-filter=DT` between the commit before the push and the pushed one, within its `paths`; a file that "
         "became a link counts as removed). A removed file's "
         "pending post (scheduled, recovering or unconfirmed) is cancelled; a published one stays on the platform. A path "
         "absent from `files` is never read as removed, because a sync may cover a subset of the repository."))
+    removed_dirs: list[RepoPath] = Field(default_factory=list, max_length=SYNC_BATCH, description=(
+        "Linked directories and submodules removed from the repository, e.g. `posts` (the action sends a deleted link "
+        "without a markdown suffix, and a deleted submodule, below which one of its `paths` could list a file). Older "
+        "versions of `inkcast sync` synced the files below such a path as stories of their own; the entries of this "
+        "`source` below it that a pattern of `removed_globs` matches are removed as the paths of `removed` are. Each is "
+        "a relative, normalised path: no leading `/`, no empty, `.` or `..` component."))
+    removed_globs: list[Pattern] = Field(default_factory=list, max_length=SYNC_BATCH, description=(
+        "The patterns the files below `removed_dirs` are matched against, as `glob` lists files (`posts/**/*.md`), or a "
+        "path named in full. Required with `removed_dirs`, and only with it."))
     platforms: list[str] | None = Field(None, description="Override the platforms in each file's front matter.")
     image_base_url: str | None = Field(None, description="Base URL that relative image paths resolve against.")
     dry_run: bool = Field(False, description="Report what would happen and preview each platform; change nothing.")
 
     @model_validator(mode="after")
     def _files_or_removed(self) -> SyncRequest:
-        if not self.files and not self.removed:
-            raise ValueError("files or removed is required")
+        if not self.files and not self.removed and not self.removed_dirs:
+            raise ValueError("files or removed is required (or removed_dirs)")
         both = {f.path for f in self.files} & set(self.removed)
         if both:
             raise ValueError(f"a path can't be both synced and removed: {sorted(both)[0]}")
+        for d in self.removed_dirs:
+            if "\0" in d or any(part in ("", ".", "..") for part in d.split("/")):
+                raise ValueError(f"removed_dirs: {d!r} isn't a relative, normalised path")
+        if self.removed_dirs and not self.removed_globs:
+            raise ValueError("removed_dirs needs removed_globs")
+        if self.removed_globs and not self.removed_dirs:
+            raise ValueError("removed_globs is only for removed_dirs")
+        below = sorted(f.path for f in self.files if any(f.path.startswith(d + "/") for d in self.removed_dirs))
+        if below:
+            raise ValueError(f"a path can't be both synced and below a removed directory: {below[0]}")
         return self
 
 

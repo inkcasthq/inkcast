@@ -14,9 +14,9 @@
 
 The token is read from an environment variable only (never a command-line argument, which other
 users of the machine could see). Files are sent in batches of 50, removed paths in batches of their
-own; each batch carries an Idempotency-Key, so a retried batch can never publish twice. In GitHub
-Actions the repository, commit and image URLs are detected automatically, results go to the job
-summary, and the step outputs ``results`` (JSON) and ``urls``.
+own, and so are removed linked directories and submodules (#508); each batch carries an Idempotency-Key,
+so a retried batch can never publish twice. In GitHub Actions the repository, commit and image URLs are
+detected automatically, results go to the job summary, and the step outputs ``results`` (JSON) and ``urls``.
 
 Exit codes: 0 all good, 1 something failed, 2 usage or configuration problem. ``inkcast sync`` exits 0 on a
 file whose post waits for a person's decision (its last publish is ``unconfirmed``, or still ``recovering``):
@@ -28,20 +28,20 @@ for it with ``--fail-on-decision`` (#234). ``inkcast resend`` exits 1 when the n
 from __future__ import annotations
 
 import argparse
-import fnmatch
 import glob
 import hashlib
 import json
 import os
 import pathlib
-import re
 import stat
 import subprocess
 import sys
-from typing import Any
+from typing import Any, NamedTuple
 from urllib.parse import quote, urlparse
 
 import httpx2
+
+from .libs.globs import glob_match, glob_reaches_below
 
 BATCH = 50
 ICONS = {"create": "+", "update": "~", "unchanged": "=", "stale": "!", "skipped": "-", "failed": "x", "removed": "D"}
@@ -95,79 +95,89 @@ def _git(*args: str) -> str:
         return ""
 
 
-_MAGIC = re.compile(r"[*?\[]")  # what makes a pattern component a wildcard for ``glob`` (its ``has_magic``)
+class Removals(NamedTuple):
+    """What ``--removed-since`` reports, as the request names it."""
 
-
-def glob_match(pattern: str, path: str) -> bool:
-    """Whether ``glob.glob(pattern, recursive=True)`` would list ``path`` if the file still existed: for the files a
-    push removed, which ``collect`` can't see. ``path`` is relative and POSIX, as ``collect`` writes paths and git names
-    them; ``pattern`` is as ``PurePosixPath`` writes it (no ``./``). The walk is glob's own, one component at a time,
-    so it matches no more than glob does (#291): a component without a wildcard is a name as written, a hidden one
-    too; one with a wildcard is ``fnmatch`` on one name, and never a hidden name (``.github``) unless it starts with
-    ``.`` itself; ``**`` on its own is any number of directories, none hidden, and ``**`` among other characters is
-    one ``*``. Python 3.13's ``glob.translate`` isn't used: 3.12 is supported, and it lets ``[!x]*`` match a hidden
-    name where ``glob.glob`` doesn't."""
-    return _globbed(pattern.split("/"), path.split("/"))
-
-
-def _globbed(parts: list[str], names: list[str]) -> bool:
-    if not parts:
-        return not names
-    head, rest = parts[0], parts[1:]
-    if head == "**":
-        if not rest:  # the last component: the file and any directories above it, never none (that is a directory)
-            return bool(names) and not any(name.startswith(".") for name in names)
-        for taken in range(len(names) + 1):  # zero or more directories; glob walks into no hidden one
-            if _globbed(rest, names[taken:]):
-                return True
-            if taken < len(names) and names[taken].startswith("."):
-                return False
-        return False
-    if not names:
-        return False
-    if _MAGIC.search(head):
-        matched = (head.startswith(".") or not names[0].startswith(".")) and fnmatch.fnmatchcase(names[0], head)
-    else:
-        matched = names[0] == head
-    return matched and _globbed(rest, names[1:])
+    files: list[str]  # ``removed``: markdown paths
+    dirs: list[str]   # ``removed_dirs``: a deleted link without a markdown suffix, or a deleted submodule (#508)
+    globs: list[str]  # ``removed_globs``: the patterns, as ``collect`` reads them, that the server matches below each
 
 
 def removed_since(rev: str, patterns: list[str]) -> list[str]:
-    """The markdown files ``patterns`` would have collected that ``rev`` had and HEAD no longer has, in git's order:
-    ``git diff --no-renames --diff-filter=DT``, so a renamed file is a removal (its new path is a new story), and so is
-    a file that became a link or a submodule (``T``: ``collect`` lists it no more), relative to the current directory
-    as the collected paths are. A deleted link is a removal too: before #417 ``collect`` followed a link to a file and
-    synced it as a story of its own (#476); a link that became a file is a new story. A removed submodule, or a linked
-    directory, is no markdown path: the stories a release before #476 (or #417) synced from one are not listed (#508).
-    Raises ``CliError`` when git can't tell (not a repository, or ``rev`` unknown: a shallow
-    clone that never fetched it)."""
+    """The markdown files ``patterns`` would have collected that ``rev`` had and HEAD no longer has: ``removals_since``'s
+    ``files``."""
+    return removals_since(rev, patterns).files
+
+
+def removals_since(rev: str, patterns: list[str]) -> Removals:
+    """What ``rev`` had and HEAD no longer has, in git's order: ``git diff --no-renames --diff-filter=DT``, relative to
+    the current directory as the collected paths are.
+
+    ``files`` are the markdown paths ``patterns`` would have collected: a renamed file is a removal (its new path is a
+    new story), and so is a file that became a link or a submodule (``T``: ``collect`` lists it no more). A deleted link
+    with a markdown suffix is a removal too: before #417 ``collect`` followed a link to a file and synced it as a story
+    of its own (#476); a link that became a file is a new story.
+
+    ``dirs`` are the deleted links without a markdown suffix and the deleted submodules (or ones that became something
+    else) below which a pattern could list a path (#508). A release before #417 synced the stories of a linked directory
+    under the link's path, and one before #476 those of a submodule, while git names only the one entry: what was synced
+    below it is in the server's ledger, so the server cancels its entries of this source below each that a pattern
+    matches. A link to a file and a link to a directory can't be told apart from the deleted entry, so the suffix
+    decides. One that is a directory at HEAD is left out and named on stderr: its files are collected as stories, and a
+    removal below it would cancel the posts this run makes.
+
+    Raises ``CliError`` when git can't tell (not a repository, or ``rev`` unknown: a shallow clone that never fetched
+    it)."""
     if rev.startswith("-"):  # git would read it as an option (``--output=FILE`` writes a file), never a revision
         raise CliError(f"{rev!r} isn't a revision")
-    try:
-        diff = subprocess.run(["git", "diff", "--no-renames", "--diff-filter=DT", "--raw", "--relative", "-z",
-                               rev, "HEAD"], capture_output=True)
-    except OSError as exc:
-        raise CliError(f"can't run git to list the files removed since {rev}: {exc}") from exc
-    if diff.returncode != 0:
-        said = diff.stderr.decode(errors="replace").strip()
-        raise CliError(f"can't list the files removed since {rev}: {said or 'git diff failed'}")
+    diff = _git_listing(f"the files removed since {rev}", "diff", "--no-renames", "--diff-filter=DT", "--raw",
+                        "--relative", "-z", rev, "HEAD")
     # As ``collect`` writes paths: no ``./``. A pattern ending in ``/`` or ``/.`` lists directories only, no file.
     globs = [str(pathlib.PurePosixPath(p)) for p in patterns if p.rsplit("/", 1)[-1] not in ("", ".")]
     found: list[str] = []
-    entries = diff.stdout.split(b"\0")      # ``--raw -z``: ':<old mode> <new mode> <old> <new> D|T', then the path, each NUL-ended
+    dirs: dict[str, str] = {}  # path: what it was
+    entries = diff.split(b"\0")      # ``--raw -z``: ':<old mode> <new mode> <old> <new> D|T', then the path, each NUL-ended
     for meta, raw in zip(entries[::2], entries[1::2]):
         old, new = meta[1:].split()[:2]
-        if old not in (b"100644", b"100755", b"120000") or new in (b"100644", b"100755"):  # a file or link at rev; none now
+        if old not in (b"100644", b"100755", b"120000", b"160000"):
             continue
         try:
             name = raw.decode()
         except UnicodeDecodeError:  # git names files in bytes; one that isn't UTF-8 was never synced (a request is text)
             continue
         path = str(pathlib.PurePosixPath(name)) if name else ""
-        if path and pathlib.PurePosixPath(path).suffix.lower() in MARKDOWN and path not in found \
-                and any(glob_match(g, path) or path == g for g in globs):  # ``collect`` falls back to a pattern naming a file
-            found.append(path)
-    return found
+        if not path:
+            continue
+        story = pathlib.PurePosixPath(path).suffix.lower() in MARKDOWN
+        if old != b"160000" and (story or old != b"120000"):  # a file, or a link to one, at rev; none now
+            if story and new not in (b"100644", b"100755") and path not in found \
+                    and any(glob_match(g, path) or path == g for g in globs):  # ``collect`` falls back to a pattern naming a file
+                found.append(path)
+        elif path not in dirs and any(glob_reaches_below(g, path) for g in globs):
+            dirs[path] = "symbolic link" if old == b"120000" else "submodule"
+    if dirs:  # a tree at HEAD is a directory now; nothing else can hold a path below it
+        listed = _git_listing("what HEAD holds", "--literal-pathspecs", "ls-tree", "-z", "HEAD", "--", *dirs)
+        for entry in listed.split(b"\0"):
+            info, _, at = entry.partition(b"\t")
+            now = os.fsdecode(at)
+            if info.split(b" ")[1:2] == [b"tree"] and now in dirs:
+                print(f"inkcast sync: not cancelled below {now}: it was a {dirs.pop(now)} and is a directory now; its "
+                      "files are synced as stories, and a pending post an older release made there from a file it no "
+                      "longer holds is cancelled by hand (inkcast cancel <post-id>)", file=sys.stderr)
+    return Removals(found, list(dirs), globs)
+
+
+def _git_listing(what: str, *args: str) -> bytes:
+    """The output of ``git <args>``, or ``CliError`` naming ``what`` could not be listed."""
+    try:
+        run = subprocess.run(["git", *args], capture_output=True)
+    except OSError as exc:
+        raise CliError(f"can't run git to list {what}: {exc}") from exc
+    if run.returncode != 0:
+        said = run.stderr.decode(errors="replace").strip()
+        command = next(arg for arg in args if not arg.startswith("-"))
+        raise CliError(f"can't list {what}: {said or f'git {command} failed'}")
+    return run.stdout
 
 
 def detect_source() -> str:
@@ -260,9 +270,11 @@ def _not_collected(path: str, top: str, submodules: list[str]) -> str | None:
 
 
 def build_requests(paths: list[str], source: str, ref: str | None, platforms: list[str] | None,
-                   image_base: str | None, dry_run: bool, removed: list[str] = ()) -> list[dict[str, Any]]:
-    """The file batches, then the removed paths in batches of their own (``files`` empty): a server from before
-    ``removed`` refuses those with a 422 instead of silently keeping the posts."""
+                   image_base: str | None, dry_run: bool, removed: list[str] = (), removed_dirs: list[str] = (),
+                   globs: list[str] = ()) -> list[dict[str, Any]]:
+    """The file batches, then the removed paths in batches of their own (``files`` empty), then the removed directories
+    with ``globs`` (``files`` empty, no ``removed``): a server from before ``removed``, or ``removed_dirs`` (#508),
+    finds neither files nor removed paths and refuses the batch with a 422 instead of silently keeping the posts."""
     batches = []
     for i in range(0, len(paths), BATCH):
         files = []
@@ -275,6 +287,9 @@ def build_requests(paths: list[str], source: str, ref: str | None, platforms: li
     for i in range(0, len(removed), BATCH):
         batches.append({"source": source, "ref": ref, "files": [], "removed": list(removed[i:i + BATCH]),
                         "platforms": platforms, "dry_run": dry_run})
+    for i in range(0, len(removed_dirs), BATCH):
+        batches.append({"source": source, "ref": ref, "files": [], "removed_dirs": list(removed_dirs[i:i + BATCH]),
+                        "removed_globs": list(globs), "platforms": platforms, "dry_run": dry_run})
     return batches
 
 
@@ -317,8 +332,9 @@ def sync_main(argv: list[str]) -> int:
                              "or still recovering): resend or cancel it (inkcast resend | cancel <post-id>); an old "
                              "entry with no post to resend or cancel waits for an edit of the file, published as a new post")
     parser.add_argument("--removed-since", metavar="REV", default=None,
-                        help="also report the matching files removed between REV and HEAD (git diff), so their pending "
-                             "posts are cancelled; the GitHub action passes the commit before the push")
+                        help="also report the matching files removed between REV and HEAD (git diff), and the linked "
+                             "directories and submodules removed, so the pending posts synced from them are cancelled; "
+                             "the GitHub action passes the commit before the push")
     parser.add_argument("--json", action="store_true", help="print the raw results as JSON")
     args = parser.parse_args(argv)
 
@@ -327,14 +343,14 @@ def sync_main(argv: list[str]) -> int:
         return connection
     url, token = connection
     paths = collect(args.paths)
-    removed: list[str] = []
+    removals = Removals([], [], [])
     if args.removed_since:
         try:
-            removed = removed_since(args.removed_since, args.paths)
+            removals = removals_since(args.removed_since, args.paths)
         except CliError as exc:
             print(f"inkcast sync: {exc}", file=sys.stderr)
             return 2
-    if not paths and not removed:
+    if not paths and not removals.files and not removals.dirs:
         print("inkcast sync: no markdown files matched" + (", and none were removed." if args.removed_since else "."),
               file=sys.stderr)
         return 0
@@ -348,7 +364,8 @@ def sync_main(argv: list[str]) -> int:
 
     results: list[dict[str, Any]] = []
     with _client(url, token) as client:
-        for body in build_requests(paths, source, ref, platforms, image_base, args.dry_run, removed):
+        for body in build_requests(paths, source, ref, platforms, image_base, args.dry_run, removals.files,
+                                   removals.dirs, removals.globs):
             key = hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
             try:
                 r = client.post("/api/v1/stories:sync", json=body, headers={"Idempotency-Key": key})
