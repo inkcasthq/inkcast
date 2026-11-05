@@ -159,6 +159,66 @@ class EvictionFence(harness.MigrateScript):
         self.assertEqual(self.sql("SELECT indisvalid FROM pg_index WHERE indexrelid = to_regclass('idx_user_lookup')"), "t")
         self.assertEqual(self.sql("SELECT count(*) FROM goose_db_version WHERE version_id = 6"), "1")
 
+    def test_the_fence_ends_its_own_role_and_database_alone(self):
+        """Staging and prod share one cluster, inkcast-pg, as the roles openfga_staging and openfga_prod, each in a
+        database of its own (deploy/kustomize/shared/inkcast-db/cluster.yaml). The fence ends `openfga migrate`'s
+        sessions of its own role in its own database: another role's (whose signal would fail the run, "permission
+        denied to terminate process", signalfuncs.c:101-103 and 267-270 at REL_18_6) and another database's live on, idle
+        sessions here, so that 006's concurrent build never waits on them."""
+        self.sql("DO $$BEGIN CREATE ROLE openfga_other LOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END$$", "postgres")
+        self.sql("DROP DATABASE IF EXISTS openfga_other WITH (FORCE)", "postgres")
+        self.sql("CREATE DATABASE openfga_other OWNER openfga", "postgres")
+        self.addCleanup(self.sql, "DROP DATABASE IF EXISTS openfga_other WITH (FORCE)", "postgres")
+        pids = []
+        for role, database in (("openfga_other", "openfga"), ("openfga", "openfga_other")):
+            session = subprocess.Popen(["docker", "exec", "-i", "-e", "PGAPPNAME=openfga-migrate-goose", self.container,
+                                        "psql", "-X", "-q", "-h", "/tmp", "-U", role, "-d", database],
+                                       stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, text=True)
+            self.addCleanup(session.wait, 60)
+            self.addCleanup(session.stdin.close)
+            session.stdin.write(f"SELECT 'fence-scope {role} {database}';\n")
+            session.stdin.flush()
+            find = f"SELECT pid FROM pg_stat_activity WHERE query LIKE '%fence-scope {role} {database}''%' AND pid <> pg_backend_pid()"
+            self.wait_for(lambda: self.sql(find) != "", 30, f"no session of {role} in {database}")
+            pids.append(self.sql(find))
+        code, log = self.migrate()
+        self.assertEqual(code, 0, log)
+        self.assertNotIn("fence:", log)
+        self.assertEqual(self.sql(f"SELECT count(*) FROM pg_stat_activity WHERE pid IN ({', '.join(pids)})"), "2",
+                         "a session of another role or another database was ended")
+
+    def test_a_backend_that_does_not_end_in_5_s_fails_the_run_on_the_real_server(self):
+        """The stand-in below answers false for pg_terminate_backend; here the server does. A backend that cannot act on
+        its SIGTERM (SIGSTOP, as a stuck backend would be) outlives pg_terminate_backend(pid, 5000), which returns false
+        with a warning (signalfuncs.c:217-223 at REL_18_6); the second look finds it, and the run fails naming its pid,
+        before the repair and before `openfga migrate`. The runner runs as PID 1 of a container of its own, as the init
+        container does, so that its psql is never left to this container's postmaster."""
+        session = subprocess.Popen(["docker", "exec", "-i", "-e", "PGAPPNAME=openfga-migrate-goose", self.container,
+                                    "psql", "-X", "-q", "-h", "/tmp", "-U", "openfga", "-d", "openfga"],
+                                   stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, text=True)
+        self.addCleanup(session.wait, 60)
+        self.addCleanup(session.stdin.close)
+        session.stdin.write("SELECT 'fence-stuck';\n")
+        session.stdin.flush()
+        find = "SELECT pid FROM pg_stat_activity WHERE query LIKE '%fence-stuck''%' AND pid <> pg_backend_pid()"
+        self.wait_for(lambda: self.sql(find) != "", 30, "no session")
+        pid = self.sql(find)
+        subprocess.run(["docker", "exec", self.container, "kill", "-STOP", pid], check=True)
+        self.addCleanup(subprocess.run, ["docker", "exec", self.container, "kill", "-CONT", pid], capture_output=True)
+        postgres, openfga = harness.pinned_images()
+        runner = f"{self.container}-runner"
+        subprocess.run(["docker", "create", "--name", runner, "--network", f"container:{self.container}",
+                        "--mount", f"type=image,source={openfga},target=/opt/openfga", *self.migrate_env(),
+                        postgres, "bash", "/tmp/migrate.sh"], check=True, capture_output=True)
+        self.addCleanup(subprocess.run, ["docker", "rm", "-f", runner], capture_output=True, timeout=60)
+        subprocess.run(["docker", "cp", str(harness.SCRIPT), f"{runner}:/tmp/migrate.sh"], check=True, capture_output=True)
+        done = subprocess.run(["docker", "start", "-a", runner], capture_output=True, text=True, timeout=120)
+        log = done.stdout + done.stderr
+        self.assertEqual(done.returncode, 1, log)
+        self.assertIn(f"fence: openfga migrate's session of an earlier runner, pid {pid}, did not end within 5 s", log)
+        self.assertNotIn(harness.PASSWORD, log)
+        self.assertEqual(self.sql("SELECT to_regclass('goose_db_version') IS NULL"), "t", "openfga migrate ran")
+
     def test_application_name_in_the_query_is_refused_before_psql(self):
         """pgx takes the URI's settings over the environment's (pgconn/config.go:428, mergeSettings, at v5.11.0), so a
         URI's application_name= renames `openfga migrate`'s sessions (measured: `x`, its build left running by the
