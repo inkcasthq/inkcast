@@ -136,7 +136,9 @@ def removed_since(rev: str, patterns: list[str]) -> list[str]:
     """The markdown files ``patterns`` would have collected that ``rev`` had and HEAD no longer has, in git's order:
     ``git diff --no-renames --diff-filter=DT``, so a renamed file is a removal (its new path is a new story), and so is
     a file that became a link or a submodule (``T``: ``collect`` lists it no more), relative to the current directory
-    as the collected paths are, and regular files only, as ``collect`` lists them (a removed link or submodule, #417).
+    as the collected paths are. A deleted link is a removal too: before #417 ``collect`` followed a link to a file and
+    synced it as a story of its own (#476); a link that became a file is a new story. A removed submodule, or a linked
+    directory, is no markdown path: the stories a release before #476 (or #417) synced from one are not listed (#508).
     Raises ``CliError`` when git can't tell (not a repository, or ``rev`` unknown: a shallow
     clone that never fetched it)."""
     if rev.startswith("-"):  # git would read it as an option (``--output=FILE`` writes a file), never a revision
@@ -154,7 +156,8 @@ def removed_since(rev: str, patterns: list[str]) -> list[str]:
     found: list[str] = []
     entries = diff.stdout.split(b"\0")      # ``--raw -z``: ':<old mode> <new mode> <old> <new> D|T', then the path, each NUL-ended
     for meta, raw in zip(entries[::2], entries[1::2]):
-        if meta.split()[0] not in (b":100644", b":100755"):  # a link (120000) or a submodule (160000) was never collected
+        old, new = meta[1:].split()[:2]
+        if old not in (b"100644", b"100755", b"120000") or new in (b"100644", b"100755"):  # a file or link at rev; none now
             continue
         try:
             name = raw.decode()
@@ -192,28 +195,68 @@ def raw_base(source: str, ref: str | None) -> str | None:
 
 
 def collect(patterns: list[str]) -> list[str]:
-    """The markdown files ``patterns`` list, as git tracks them: regular files only, reached through no symbolic link,
-    so each is one ``--removed-since`` can report later (#417). ``glob`` lists a directory named like a story (``x.md``)
-    and walks into a linked directory, while git tracks a link as a link, with nothing of its own beneath it."""
+    """The markdown files ``patterns`` list, as git tracks them: regular files only, reached through no symbolic link
+    and outside every submodule, so each is one ``--removed-since`` can report later (#417, #476). ``glob`` lists a
+    directory named like a story (``x.md``) and walks into a linked directory or a submodule's working tree, while git
+    tracks a link as a link and a submodule as one gitlink, with nothing of their own beneath them. Each markdown match
+    skipped is named on stderr, once, with the reason."""
     found: list[str] = []
+    skipped: list[str] = []
+    submodules = _submodules()
     for pattern in patterns:
         matches = sorted(glob.glob(pattern, recursive=True)) or ([pattern] if os.path.isfile(pattern) else [])
         for m in matches:
             p = pathlib.PurePosixPath(pathlib.Path(m).as_posix())
-            if p.suffix.lower() in MARKDOWN and str(p) not in found and _regular_file(m):
+            if p.suffix.lower() not in MARKDOWN or str(p) in found or str(p) in skipped:
+                continue
+            reason = _not_collected(m, *submodules)
+            if reason:
+                print(f"inkcast sync: skipped {p}: {reason}", file=sys.stderr)
+                skipped.append(str(p))
+            else:
                 found.append(str(p))
     return found
 
 
-def _regular_file(path: str) -> bool:
-    """Whether ``path`` is a regular file with no symbolic link among the directories above it, as ``lstat`` sees each
-    (a link to a file is a link). False too when it is gone since ``glob`` listed it."""
+def _submodules() -> tuple[str, list[str]]:
+    """The repository's top directory and its submodules' paths from there: the index's gitlinks, mode 160000 in
+    ``git ls-files --stage`` (gitformat-index(5): object type 1110). The top is the pathspec, since from a subdirectory
+    git lists only the entries below it: an absolute path, taken literally even under ``GIT_LITERAL_PATHSPECS`` (``:/``
+    is not), and no ``-C <top>``, which would read a relative ``GIT_DIR`` or ``GIT_WORK_TREE`` from there. Nothing
+    outside a repository (a run started from above it): there is no index."""
+    try:  # bytes, as git names paths: a top directory that isn't UTF-8 is still one
+        top = os.fsdecode(subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True,
+                                         check=True).stdout.rstrip(b"\n"))
+        staged = subprocess.run(["git", "ls-files", "--stage", "-z", "--full-name", "--", top], capture_output=True,
+                                check=True).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return "", []
+    # ``-z``: '<mode> <object> <stage>\t<path>', each NUL-ended, the path verbatim (git-ls-files(1), OUTPUT)
+    return top, [os.fsdecode(entry.split(b"\t", 1)[1]) for entry in staged.split(b"\0") if entry.startswith(b"160000 ")]
+
+
+def _not_collected(path: str, top: str, submodules: list[str]) -> str | None:
+    """Why ``collect`` doesn't list ``path``, or None when it does: a symbolic link among the directories above it or
+    the path itself, as ``lstat`` sees each (a link to a file is a link); not a regular file (or gone since ``glob``
+    listed it); or below one of the ``submodules`` of the repository at ``top``."""
     parts = pathlib.Path(path).parts
     try:
-        return not any(os.path.islink(os.path.join(*parts[:n])) for n in range(1, len(parts))) \
-            and stat.S_ISREG(os.lstat(path).st_mode)
+        for n in range(1, len(parts)):
+            if os.path.islink(os.path.join(*parts[:n])):
+                return f"below the symbolic link {pathlib.Path(*parts[:n]).as_posix()}"
+        mode = os.lstat(path).st_mode
     except OSError:
-        return False
+        return "not a regular file"
+    if stat.S_ISLNK(mode):
+        return "a symbolic link"
+    if not stat.S_ISREG(mode):
+        return "not a regular file"
+    # getcwd, and so abspath, gives the physical path, as git gives the top (a link on the way is refused above)
+    inner = pathlib.Path(os.path.relpath(os.path.abspath(path), top)).as_posix() if top else ""
+    for submodule in submodules:
+        if inner.startswith(submodule + "/"):
+            return f"inside the submodule {submodule}"
+    return None
 
 
 def build_requests(paths: list[str], source: str, ref: str | None, platforms: list[str] | None,
