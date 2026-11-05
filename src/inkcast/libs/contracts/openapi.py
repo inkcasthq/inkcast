@@ -18,13 +18,14 @@ from ..auth import SCOPE, SCOPES
 from ..content.story import SCHEDULE_HORIZON_DAYS
 from .models import (
     ConnectLink, DeletionLink, DestinationInfo, ErrorBody, InsightsSummary, KpiPoint, KpiSeries, LedgerEntry, Me, PlatformInfo,
-    PostInfo, PublishRequest, PublishResponse, RateSummary, SyncRequest, SyncResponse, TokenCreate, TokenCreated, TokenInfo,
+    PostInfo, PublishRequest, PublishResponse, RateSummary, ResendResponse, SyncRequest, SyncResponse, TokenCreate,
+    TokenCreated, TokenInfo,
 )
 
 REQUEST_MODELS = (PublishRequest, SyncRequest, TokenCreate)
 MODELS = (ErrorBody, Me, PlatformInfo, ConnectLink, DeletionLink, DestinationInfo, PublishRequest, PublishResponse, PostInfo,
-          TokenCreate, TokenInfo, TokenCreated, SyncRequest, SyncResponse, LedgerEntry, RateSummary, InsightsSummary,
-          KpiPoint, KpiSeries)
+          ResendResponse, TokenCreate, TokenInfo, TokenCreated, SyncRequest, SyncResponse, LedgerEntry, RateSummary,
+          InsightsSummary, KpiPoint, KpiSeries)
 
 _ERR = {"application/problem+json": {"schema": {"$ref": "#/components/schemas/ErrorBody"}}}
 _ERRORS = {401: "Missing, invalid or expired token; or a personal access token on hold while an operator reviews a "
@@ -158,12 +159,15 @@ def openapi_document(public_url: str) -> dict[str, Any]:
                             "says so. A cancel wins over a later answer. 409 for any other status.")},
             "/api/v1/posts/{post_id}/resend": {"post": _op(
                 "resendPost", "Resend an unconfirmed post as a new one", "Posts",
-                _resp("PostInfo", "The new post: published, failed, or unconfirmed in its turn"),
+                _resp("ResendResponse", "The new post: published, failed, or unconfirmed in its turn; and the old "
+                                        "post's note"),
                 scope="posts:write", service=pub, params=[_path_param("post_id", "Post id of an `unconfirmed` post.")],
                 errors=(404, 409),
                 description="A person's decision on an `unconfirmed` post (the platform may or may not have it): check "
                             "the platform first. The post is sent again, now, as exactly one new post, and the old one "
-                            "is cancelled with an `error` saying it may already be on the platform. Inkcast never sends "
+                            "is cancelled with an `error` saying it may already be on the platform, or, for one whose "
+                            "credentials could not be decrypted when it was due, that it was never sent; the reply "
+                            "carries that note as `first_post_note`, for a client to show. Inkcast never sends "
                             "an unconfirmed post again on its own, and Git sync never creates one again: a file whose "
                             "post is unconfirmed is reported as needing this decision. 409 `not_connected` when the "
                             "platform isn't connected or refuses the stored credentials: nothing is cancelled, and the "
@@ -172,7 +176,8 @@ def openapi_document(public_url: str) -> dict[str, Any]:
                             "cancelled, and the message names when to try again, from the platform's Retry-After when "
                             "it gave one. 409 `not_resendable` when the post is not `unconfirmed` "
                             "(cancelled, or resent already); for a post resent already the body also carries `post_id`, "
-                            "the post that resend made, so a client whose first reply was lost can follow it.")},
+                            "the post that resend made, so a client whose first reply was lost can follow it, and "
+                            "`first_post_note`, the old post's note that reply carried.")},
             "/api/v1/preview": {"post": _op(
                 "preview", "Preview exactly what each platform would receive", "Posts",
                 _resp("PublishResponse", "Per-platform previews"), scope="posts:read", service=pub,

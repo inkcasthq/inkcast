@@ -153,8 +153,10 @@ class PostsRepo(Database):
                 sets.append("error = CASE WHEN attempts = ? THEN ? ELSE ? END")
                 values += [unless_found_at, value, beyond]
             elif name == "error" and keep is not None:
-                sets.append("error = CASE WHEN instr(COALESCE(error, ''), ?) > 0 THEN ? ELSE ? END")
-                values += [keep, keep if value is None else f"{value}; {keep}", value]
+                # One of its notes, as ``notes_of`` splits them: "; " on each side, never the note's text inside another.
+                sets.append("error = CASE WHEN instr('; ' || COALESCE(error, '') || '; ', '; ' || ? || '; ') > 0"
+                            " THEN ? ELSE ? END")
+                values += [keep, keep if value is None else self.join_notes([value, keep]), value]
             else:
                 sets.append(f"{name} = ?")
                 values.append(value)
@@ -205,27 +207,38 @@ class PostsRepo(Database):
 
     @staticmethod
     def notes_of(row: dict[str, Any]) -> list[str]:
-        """The notes a row's error holds, as the pipeline joins them ("; ")."""
+        """The notes a row's error holds, split where ``join_notes`` joins them ("; ")."""
         return (row["error"] or "").split("; ")
+
+    @staticmethod
+    def join_notes(notes: Iterable[str]) -> str | None:
+        """A post's notes as its ``error`` stores them: joined with "; ", or None for none. The one encoder of what
+        ``notes_of`` reads, and every writer that joins notes goes through it, so the format is one place (#533). A note
+        Inkcast recognises (``_lost``, ``_second_copy``, ``_both_copies``, ``_edited``) never holds the separator: a copy's
+        URL or id is escaped (``_named``, #504), and a platform's name holds no ";" (``discover``, ``load_platforms``).
+        Any other note may, a platform's own or one of Inkcast's messages, and reads back as its pieces."""
+        return "; ".join(notes) or None
 
     def record_success(self, post_id: str, *, held: int, status: str, result_url: str | None, remote_id: str | None,
                        sent: dict[str, Any], notes: list[str], second_copy: Callable[[int], str],
-                       both_copies: Callable[[dict[str, Any]], str], edited: str, lost: str | None = None,
+                       both_copies: Callable[[dict[str, Any]], str], edited: str, keeps: Callable[[str], bool] | None = None,
                        events: Iterable[DomainEvent] | None = None) -> tuple[bool, dict[str, Any] | None]:
         """A send's success, the platform's truth: written over whatever the post became while the send was out
         (#214), unless the row already records a confirmed copy (``CONFIRMED``, with a remote id or a URL) that is not
         this one (``same_copy``). That copy stays, another send's or a lookup's, and the row's error gains
-        ``both_copies(row)``: the platform may have both, and a person keeps one. When the row counts a later send that
-        may have arrived (``may_have_arrived_since``), ``second_copy(attempts)`` joins ``notes`` as the error of the
-        written post, so a person checks for two; so does ``lost`` when the row's error already holds it: an earlier
-        send's answer was lost after its request went out and landed over this one (``update_post(beyond=)``), and only
-        a person clears that (#234). The content the platform received, ``sent``, becomes the row's title and payload:
-        a row that held other content (``holds``; an edit while the send was out, #392) gains ``edited`` as a note, and
-        the file's entry takes the hash of what the row holds when it follows the post (``GitSync._one``), so the next
-        sync sends the edit or reports it. The read that words any note and the write share the transaction's write
-        lock (``_tx``), so a claim or an edit can't land between them and leave a record without its note. ``events``
-        are written with a success. ``(written, the row as it was)``; ``(False, None)`` for a post that no longer
-        exists (its owner erased), which is left alone."""
+        ``both_copies(row)``: the platform may have both, and a person keeps one. Every note the row's error already
+        holds that ``keeps`` names joins ``notes`` as the error of the written post: the caller's recogniser of a note
+        that the platform may have the post twice (an earlier send's answer lost after its request went out, landed over
+        this one by ``update_post(beyond=)``; another attempt that may have arrived; both copies named). Only a person
+        clears one (#234), and a success, of the copy the row records too, is no such decision (#531). When the row
+        counts a later send that may have arrived (``may_have_arrived_since``), ``second_copy(attempts)`` joins them
+        unless they hold it already (carried over), so a person checks for two. The content the platform received,
+        ``sent``, becomes the row's title and payload: a row that held other content (``holds``; an edit while the send
+        was out, #392) gains ``edited`` as a note, and the file's entry takes the hash of what the row holds when it
+        follows the post (``GitSync._one``), so the next sync sends the edit or reports it. The read that words any note
+        and the write share the transaction's write lock (``_tx``), so a claim or an edit can't land between them and
+        leave a record without its note. ``events`` are written with a success. ``(written, the row as it was)``;
+        ``(False, None)`` for a post that no longer exists (its owner erased), which is left alone."""
         with self._tx() as c:
             row = c.execute("SELECT * FROM posts WHERE id = ?", (post_id,)).fetchone()
             if row is None:
@@ -236,18 +249,20 @@ class PostsRepo(Database):
                                                                or before["result_url"] is not None)
             if recorded and not self.same_copy(before, remote_id, result_url):
                 note = both_copies(before)
-                c.execute("UPDATE posts SET error = ?, updated_at = ? WHERE id = ?",
-                          (f"{before['error']}; {note}" if before["error"] else note, now, post_id))
+                error = before["error"]
+                if note not in self.notes_of(before):  # the same two copies refused again: written once, not per answer
+                    error = self.join_notes([*self.notes_of(before), note]) if error else note
+                c.execute("UPDATE posts SET error = ?, updated_at = ? WHERE id = ?", (error, now, post_id))
                 return False, before
-            if lost is not None and lost in self.notes_of(before):
-                notes = [*notes, lost]
-            if self.may_have_arrived_since(before, held):
+            if keeps is not None:
+                notes = [*notes, *(n for n in self.notes_of(before) if keeps(n) and n not in notes)]
+            if self.may_have_arrived_since(before, held) and second_copy(before["attempts"]) not in notes:
                 notes = [*notes, second_copy(before["attempts"])]
             if not self.holds(before, sent):
                 notes = [*notes, edited]
             c.execute("UPDATE posts SET status = ?, result_url = ?, remote_id = ?, error = ?, title = ?, payload = ?,"
                       " updated_at = ? WHERE id = ?",
-                      (status, result_url, remote_id, "; ".join(notes) or None, sent["title"], json.dumps(sent), now,
+                      (status, result_url, remote_id, self.join_notes(notes), sent["title"], json.dumps(sent), now,
                        post_id))
             insert_events(c, events)
         return True, before

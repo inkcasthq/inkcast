@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from ...libs.config import ONE_TIME_LINK_DEFAULT_MINUTES
 from ...libs.contracts.models import (
     ConnectedAccount, ConnectLink, DestinationInfo, Me, PlatformInfo, PlatformResult, PostInfo,
-    PublishRequest, PublishResponse,
+    PublishRequest, PublishResponse, ResendResponse,
 )
 from ...libs.platforms import Account, Platform, PlatformError
 from ...libs.pipeline import AlreadyResent, Disconnected, Publisher, Unavailable
@@ -129,15 +129,16 @@ class InkcastService:
             raise ServiceError(status, "not_found" if status == 404 else "not_cancellable", str(exc)) from exc
         return self._post(self.store.get_post(post_id)), was
 
-    async def resend(self, user_id: str, post_id: str) -> PostInfo:
+    async def resend(self, user_id: str, post_id: str) -> ResendResponse:
         """A person's decision on an unconfirmed post (#226): it is sent again as one new post, the old one is cancelled
-        (its error says it may already be on the platform), and the new post is the reply: published, failed or
-        unconfirmed in its turn. A file that became the old post (Git sync's ledger) now has the new one, before anything
+        (its error says it may already be on the platform, or that it was never sent, #502), and the new post is the
+        reply: published, failed or unconfirmed in its turn, with the old post's error as ``first_post_note`` for the
+        clients to repeat (#523). A file that became the old post (Git sync's ledger) now has the new one, before anything
         is sent, so a sync meanwhile follows it; the send's outcome is recorded on it after. 409 ``not_connected``
         (the platform isn't connected, or refused the credentials: nothing cancelled, the reply names the reconnect),
         ``platform_unavailable`` (the platform couldn't be asked just now: nothing cancelled, the reply names when to
         try again, #445) and ``not_resendable`` (any other status; a retried resend is told the post the first one
-        made, ``post_id`` in the problem body, #234)."""
+        made, ``post_id`` in the problem body, #234, and the old post's note, ``first_post_note``)."""
         def follow(_pid: str, new_id: str) -> None:
             # Through the publisher's store: the write runs inside resend_post's transaction, on that connection (a
             # second connection would wait on the lock the first holds). In production the two are one store (#234).
@@ -151,13 +152,22 @@ class InkcastService:
         except Unavailable as exc:
             raise ServiceError(409, "platform_unavailable", str(exc)) from exc
         except AlreadyResent as exc:
-            raise ServiceError(409, "not_resendable", str(exc), post_id=exc.new_post_id) from exc
+            raise ServiceError(409, "not_resendable", str(exc), post_id=exc.new_post_id,
+                               first_post_note=self._note(post_id)) from exc
         except PlatformError as exc:
             status = 404 if str(exc).startswith("No post") else 409
             raise ServiceError(status, "not_found" if status == 404 else "not_resendable", str(exc)) from exc
         self.store.repoint_entries(o.post_id, user_id, status=o.status, url=o.url, remote_id=o.remote_id,
                                    message=o.message if o.status in ("unconfirmed", "failed") else None)
-        return self._post(self.store.get_post(o.post_id))
+        return ResendResponse(**self._post(self.store.get_post(o.post_id)).model_dump(),
+                              first_post_note=self._note(post_id))
+
+    def _note(self, post_id: str) -> str | None:
+        """The old post's own note, as the store holds it once the resend has cancelled it: the one the listing shows.
+        None once it is no longer cancelled: its first send's late answer was written over the cancel (#214), so the
+        post is on the platform after all and its error is that answer's notes; the client's warning is the right one."""
+        row = self.store.get_post(post_id) or {}
+        return row.get("error") if row.get("status") == "cancelled" else None
 
     @staticmethod
     def _post(r: dict) -> PostInfo:

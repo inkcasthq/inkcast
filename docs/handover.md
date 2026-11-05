@@ -10,10 +10,18 @@ Where the work stands and how to pick it up on another machine or in a fresh ses
 - **W1, "Finish what is in flight":** F3.1.S9 (the SQLite backups), F3.9.S5 (staging and production on OpenShift Local, OpenFGA on one shared CloudNativePG), F3.9.S8 (OpenFGA's migration as an init container), F9.1.S3 (the Keycloak production component) and F1.8.S1 (the `main` ruleset) are done. Two stories wait on the owner (see "Owner's steps"):
   - F1.8.S5 (#38): every pull request's `CodeQL` check still warns "1 configuration not found" for `.github/workflows/publish.yml:codeql`;
   - F1.8.S6 (#45): the security settings are on and `scripts/repo/settings.py check` matches. The daily `repo-settings` workflow passes since #540 (PR #542), but its token can't see the security settings, so it lists them as NOT VERIFIED.
-- **W2, "Security, publishing and Git sync safety":** worked down twice. Its issues closed on 2026-11-04, then the review follow-ups that took their place closed on 2026-11-05; the backlog PRs #448, #483, #488 and #512 record each step. The follow-ups now in W2 are #523, #531, #533 and #535; #522 is in W17.
+- **W2, "Security, publishing and Git sync safety":** worked down three times. Its issues closed on 2026-11-04, and two rounds of review follow-ups closed on 2026-11-05: #535 (PR #553), #523 (PR #554) and #531 (PR #555) in the second. The backlog PRs #448, #483, #488 and #512 record the earlier steps. Now in W2:
+  - #533 (notes split on `"; "`), in progress: the design is in [its comment](https://github.com/inkcasthq/inkcast/issues/533#issuecomment-6660072042);
+  - #559, #558 and #557, filed from the reviews of PRs #555, #554 and #553.
+  - #522 is in W17.
+- **W3, the writer web app:** F4.1.S5 (#348, the Node lock resolved in CI) is done (PRs #547 and #549). Next comes #550 (`ci-run.sh` annotations show a failure's cause), in progress, then F4.1.S1.
 - **Deployed on the lab's OpenShift Local** (by digest from `main`'s overlays; `~/.claude/skills/inkcast-crc/check.sh` reports ALL PASS after each deploy):
-  - `inkcast-staging` and `inkcast-prod`: `sha256:ea626719fd24`, built from `main` at `e056a2e9` (promotions #543 and #544).
-- **Next:** W3, the writer web app, starting with F4.1.S5 (#348, the Node lock resolved in CI), then the stories in the order W3 lists.
+  - `inkcast-staging` and `inkcast-prod`: `sha256:96f56dfc7733`, built from `main` at `058a325c` (promotions #552 and #556).
+- **In flight at 14:30 UTC on 2026-11-05:**
+  - PR #560 (#550), built and in review;
+  - #533, being built;
+  - the image from `main` at `c17a794d`, which carries the #523 and #531 fixes, on its way to staging, then production.
+- **Next:** finish W2 (#533, then #559, #558 and #557), then W3 in the order it lists.
 
 ## Decisions taken since 2026-10-27
 
