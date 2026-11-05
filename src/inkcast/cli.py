@@ -288,8 +288,9 @@ def build_requests(paths: list[str], source: str, ref: str | None, platforms: li
         batches.append({"source": source, "ref": ref, "files": [], "removed": list(removed[i:i + BATCH]),
                         "platforms": platforms, "dry_run": dry_run})
     for i in range(0, len(removed_dirs), BATCH):
-        batches.append({"source": source, "ref": ref, "files": [], "removed_dirs": list(removed_dirs[i:i + BATCH]),
-                        "removed_globs": list(globs), "platforms": platforms, "dry_run": dry_run})
+        for j in range(0, len(globs), BATCH):  # a request holds 50 of each; each batch pairs a share of both
+            batches.append({"source": source, "ref": ref, "files": [], "removed_dirs": list(removed_dirs[i:i + BATCH]),
+                            "removed_globs": list(globs[j:j + BATCH]), "platforms": platforms, "dry_run": dry_run})
     return batches
 
 
@@ -350,6 +351,10 @@ def sync_main(argv: list[str]) -> int:
         except CliError as exc:
             print(f"inkcast sync: {exc}", file=sys.stderr)
             return 2
+        # ``collect`` reads the working tree, not HEAD: a path a build step fills is synced, so not removed below.
+        for d in [d for d in removals.dirs if any(p.startswith(d + "/") for p in paths)]:
+            removals.dirs.remove(d)
+            print(f"inkcast sync: not cancelled below {d}: this run syncs files below it", file=sys.stderr)
     if not paths and not removals.files and not removals.dirs:
         print("inkcast sync: no markdown files matched" + (", and none were removed." if args.removed_since else "."),
               file=sys.stderr)

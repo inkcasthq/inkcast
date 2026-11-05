@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import fnmatch
 import re
-from functools import cache
 
 _MAGIC = re.compile(r"[*?\[]")  # what makes a pattern component a wildcard for ``glob`` (its ``has_magic``)
 
@@ -22,50 +21,40 @@ def glob_match(pattern: str, path: str) -> bool:
     ``.`` itself; ``**`` on its own is any number of directories, none hidden, and ``**`` among other characters is
     one ``*``. Python 3.13's ``glob.translate`` isn't used: 3.12 is supported, and it lets ``[!x]*`` match a hidden
     name where ``glob.glob`` doesn't."""
-    return _globbed(pattern.split("/"), path.split("/"))
+    return _walk(pattern.split("/"), path.split("/"), below=False)
 
 
 def glob_reaches_below(pattern: str, directory: str) -> bool:
     """Whether ``glob_match(pattern, path)`` holds for some path below ``directory`` (``directory/...``), by the same
     walk: a pattern that can't list anything there has nothing to cancel there."""
-    return _below(pattern.split("/"), directory.split("/"))
+    return _walk(pattern.split("/"), directory.split("/"), below=True)
 
 
-def _globbed(parts: list[str], names: list[str]) -> bool:
-    # Memoised on (component, name): several ``**`` reach one split in many ways, and the server runs the request's
-    # patterns (``removed_globs``, #508), so each split is walked once.
-    @cache
-    def walk(part: int, name: int) -> bool:
-        if part == len(parts):
-            return name == len(names)
-        head = parts[part]
-        if head == "**":
-            if part + 1 == len(parts):  # a final ** needs a non-hidden name
-                return name < len(names) and not any(n.startswith(".") for n in names[name:])
-            return walk(part + 1, name) or (
-                name < len(names) and not names[name].startswith(".") and walk(part, name + 1))
-        return name < len(names) and _name(head, names[name]) and walk(part + 1, name + 1)
-
-    return walk(0, 0)
-
-
-def _below(parts: list[str], names: list[str]) -> bool:
-    """``_globbed``'s walk over the directories ``names``, holding when components are left for at least one more name."""
-    if not names:
-        return bool(parts)
-    if not parts:
-        return False
-    head, rest = parts[0], parts[1:]
-    if head == "**":
-        if not rest:
-            return not any(name.startswith(".") for name in names)
-        for taken in range(len(names) + 1):  # at len(names): ``**`` took them all, and ``rest`` is left below
-            if _below(rest, names[taken:]):
-                return True
-            if taken < len(names) and names[taken].startswith("."):
-                return False
-        return False
-    return _name(head, names[0]) and _below(rest, names[1:])
+def _walk(parts: list[str], names: list[str], below: bool) -> bool:
+    """Whether ``parts`` take all of ``names`` (``below``: take them with components left for at least one more name).
+    A table of whether ``parts[i:]`` take ``names[j:]``, filled from the end, each cell once: the server runs this on
+    patterns a request names, and trying every split at each ``**`` grew as C(len(parts) + len(names), len(names)) (#508).
+    ``**`` before other components is any number of names, none hidden: it takes none (``done[j]``), or takes one that
+    isn't hidden and is again a ``**`` (``row[j + 1]``). A last ``**`` takes the name and any above it, never none (that
+    is a directory), none hidden. Any other component takes one name (``_name``)."""
+    n, last = len(names), len(parts) - 1
+    clean = [True] * (n + 1)  # clean[j]: no hidden name among names[j:]
+    for j in reversed(range(n)):
+        clean[j] = clean[j + 1] and not names[j].startswith(".")
+    done = [not below and j == n for j in range(n + 1)]  # no component left: it holds only with no name left
+    for i in reversed(range(len(parts))):
+        head = parts[i]
+        row = [False] * (n + 1)
+        row[n] = below or (head == "**" and i < last and done[n])  # names ran out with components left
+        for j in reversed(range(n)):
+            if head != "**":
+                row[j] = done[j + 1] and _name(head, names[j])
+            elif i == last:
+                row[j] = clean[j]
+            else:
+                row[j] = done[j] or (not names[j].startswith(".") and row[j + 1])
+        done = row
+    return done[0]
 
 
 def _name(head: str, name: str) -> bool:
