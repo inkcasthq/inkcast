@@ -220,14 +220,14 @@ class PostsRepo(Database):
         that the platform may have the post twice (an earlier send's answer lost after its request went out, landed over
         this one by ``update_post(beyond=)``; another attempt that may have arrived; both copies named). Only a person
         clears one (#234), and a success, of the copy the row records too, is no such decision (#531). When the row
-        counts a later send that may have arrived (``may_have_arrived_since``), ``second_copy(attempts)`` joins them, so
-        a person checks for two. The content the platform received, ``sent``, becomes the row's title and payload:
-        a row that held other content (``holds``; an edit while the send was out, #392) gains ``edited`` as a note, and
-        the file's entry takes the hash of what the row holds when it follows the post (``GitSync._one``), so the next
-        sync sends the edit or reports it. The read that words any note and the write share the transaction's write
-        lock (``_tx``), so a claim or an edit can't land between them and leave a record without its note. ``events``
-        are written with a success. ``(written, the row as it was)``; ``(False, None)`` for a post that no longer
-        exists (its owner erased), which is left alone."""
+        counts a later send that may have arrived (``may_have_arrived_since``), ``second_copy(attempts)`` joins them
+        unless they hold it already (carried over), so a person checks for two. The content the platform received,
+        ``sent``, becomes the row's title and payload: a row that held other content (``holds``; an edit while the send
+        was out, #392) gains ``edited`` as a note, and the file's entry takes the hash of what the row holds when it
+        follows the post (``GitSync._one``), so the next sync sends the edit or reports it. The read that words any note
+        and the write share the transaction's write lock (``_tx``), so a claim or an edit can't land between them and
+        leave a record without its note. ``events`` are written with a success. ``(written, the row as it was)``;
+        ``(False, None)`` for a post that no longer exists (its owner erased), which is left alone."""
         with self._tx() as c:
             row = c.execute("SELECT * FROM posts WHERE id = ?", (post_id,)).fetchone()
             if row is None:
@@ -243,7 +243,7 @@ class PostsRepo(Database):
                 return False, before
             if keeps is not None:
                 notes = [*notes, *(n for n in self.notes_of(before) if keeps(n))]
-            if self.may_have_arrived_since(before, held):
+            if self.may_have_arrived_since(before, held) and second_copy(before["attempts"]) not in notes:
                 notes = [*notes, second_copy(before["attempts"])]
             if not self.holds(before, sent):
                 notes = [*notes, edited]

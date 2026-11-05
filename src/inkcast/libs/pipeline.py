@@ -435,7 +435,8 @@ class Publisher:
                                 "request was sent, and may have posted a second copy", post_id, platform.id,
                                 extra={"event": "publish.second_copy", "post_id": post_id, "platform": platform.id})
                 if self.store.may_have_arrived_since(before, held):
-                    notes.append(second_copy(before["attempts"]))
+                    if second_copy(before["attempts"]) not in notes:  # carried over: an earlier success wrote it
+                        notes.append(second_copy(before["attempts"]))
                     log.warning("Post %s on %s was published by a send taken over as stuck; attempt %s, sent meanwhile, "
                                 "may have posted a second copy", post_id, platform.id, before["attempts"],
                                 extra={"event": "publish.second_copy", "post_id": post_id, "platform": platform.id})
