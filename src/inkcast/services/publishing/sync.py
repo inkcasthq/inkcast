@@ -17,8 +17,8 @@ skipped    platform not connected, or another sync of this file is in progress; 
            ``unconfirmed`` one naming no post, which waits for an edit (``_edit_to_publish``, #444);
            nothing is sent
 failed     validation or platform error; the next sync tries again
-removed    the file is gone from the repository (``SyncRequest.removed``): its pending post is cancelled;
-           a published one stays on the platform (``_removed``, #230)
+removed    the file is gone from the repository (``SyncRequest.removed``, or below one of its ``removed_dirs``,
+           #508): its pending post is cancelled; a published one stays on the platform (``_removed``, #230)
 =========  ======================================================================
 
 A brand-new entry is claimed in the ledger *before* anything is sent, so two CI runs racing on
@@ -43,6 +43,7 @@ from ...libs.contracts.models import LedgerEntry, SyncRequest, SyncResponse, Syn
 from ...libs.db import Store
 from ...libs.db.ledger import CLAIM_TTL
 from ...libs.events import DomainEvent
+from ...libs.globs import glob_match
 from ...libs.observability import Metrics
 from ...libs.pipeline import Outcome, Publisher, _lost
 from ...libs.platforms import Platform, PlatformError, Prepared
@@ -88,6 +89,7 @@ class GitSync:
             results += await self._file(user_id, req, f.path, f.markdown, f.image_base_url or req.image_base_url)
         for path in req.removed:
             results += self._removed(user_id, req, path)
+        results += self._removed_below(user_id, req)
         for r in results:
             self._count(r.platform, r.action)
         if not req.dry_run:
@@ -440,6 +442,31 @@ class GitSync:
             return [SyncResult(path=path, platform="*", action="removed",
                                message="No post came from this file; nothing to cancel.")]
         return [self._cancel_removed(user_id, req, path, entry) for entry in entries]
+
+    def _removed_below(self, user_id: str, req: SyncRequest) -> list[SyncResult]:
+        """The files below a removed linked directory or submodule (``req.removed_dirs``, #508): a release before #417
+        (or #476) synced them under the link's (or the submodule's) path, and git names only that one path. Each path of
+        this user's entries of this repository below it (``dir/``, so never ``dir-old/``) that a pattern of
+        ``req.removed_globs`` matches, or names in full, is removed as a path of ``req.removed`` is (``_removed``), once:
+        a path in ``req.removed``, or below an earlier directory, is not reported twice. A directory with none is one
+        "nothing to cancel" result. The ledger is listed only when there is a directory."""
+        if not req.removed_dirs:
+            return []
+        paths = list(dict.fromkeys(e["path"] for e in self.store.list_entries(user_id, req.source)))
+        prefixes = tuple(d + "/" for d in req.removed_dirs)
+        matching = {p for p in paths if p.startswith(prefixes)
+                    and any(glob_match(g, p) or p == g for g in req.removed_globs)}
+        done, out = set(req.removed), []
+        for d in req.removed_dirs:
+            below = [p for p in paths if p.startswith(d + "/") and p in matching]
+            if not below:
+                out.append(SyncResult(path=d, platform="*", action="removed",
+                                      message=f"No post came from below {d}; nothing to cancel."))
+            for path in below:
+                if path not in done:
+                    done.add(path)
+                    out += self._removed(user_id, req, path)
+        return out
 
     def _cancel_removed(self, user_id: str, req: SyncRequest, path: str, entry: dict) -> SyncResult:
         src, pid = req.source, entry["platform"]
