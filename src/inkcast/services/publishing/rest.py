@@ -35,8 +35,9 @@ def settle_idempotency_key(user_id: str, reservation: float, what: str, write: C
     which). That it fails (the database busy) must not turn the sync's outcome into a 500: the reservation expires on
     its own. That it matches nothing means the reservation was taken over by a repeat (the sync outlived
     IDEMPOTENCY_PENDING_SECONDS) or the person was erased, and is the repeat's to settle. Both are logged by user id and
-    the ``reservation`` (its ``created_at``, the owner ``reserve_idempotency_key`` returned), never with the key (#416):
-    an operator finds the row with ``WHERE user_id = ? AND created_at = ?`` (#475)."""
+    the ``reservation`` (its ``created_at``, the owner ``reserve_idempotency_key`` returned), never with the key (#416).
+    After a failed write an operator finds the row with ``WHERE user_id = ? AND created_at = ?`` (#475); after a
+    takeover or an erasure there is none left to find."""
     try:
         settled = write()
     except Exception:
