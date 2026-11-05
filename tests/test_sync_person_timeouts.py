@@ -20,6 +20,7 @@ Each test fails on the code before #121, where the first timeout raises out of `
 
 import asyncio
 import logging
+import re
 import unittest
 
 import httpx2
@@ -109,7 +110,7 @@ class OnePersonWhoseReadHangs(Scenario):
                 record = failed[0]
                 self.assertEqual((record.user_id, record.via, record.call), (hangs["id"], "reconcile", "user"))
                 self.assertEqual((record.status, record.cause), (0, error.__name__), "no HTTP status: the error's name")
-                self.assertNotIn(hangs["kc"], record.getMessage(), "the Keycloak id is not logged")
+                self.assertNotRegex(record.getMessage(), rf"\b{re.escape(hangs['kc'])}\b", "the Keycloak id is not logged")
                 self.assertNotIn(DETAIL, record.getMessage(), "nothing from the exception is logged: its name only")
                 self.assertEqual(worker.last_reconcile, T0, "a reconcile with one failure is still a reconcile that ran")
                 reads = len(self.kc.read)

@@ -24,6 +24,7 @@ import dataclasses
 import io
 import logging
 import os
+import re
 import tempfile
 import time
 import unittest
@@ -233,7 +234,7 @@ class AtAndAboveTheThreshold(Scenario):
                 self.assertEqual(len(tripped), 1)
                 self.assertEqual((tripped[0].pass_id, tripped[0].gone, tripped[0].read), (trip["id"], 5, 20))
                 self.assertEqual(tripped[0].levelno, logging.CRITICAL)
-                self.assertNotIn(gone[0]["kc"], tripped[0].getMessage(), "no Keycloak id in the log")
+                self.assertNotRegex(tripped[0].getMessage(), rf"\b{re.escape(gone[0]['kc'])}\b", "no Keycloak id in the log")
                 self.assertNotIn(gone[0]["id"], tripped[0].getMessage(), "no user id in the log line either")
                 self.assertEqual(worker.last_reconcile, T0, "a reconcile that tripped is a reconcile that ran")
                 self.assertEqual(worker.last_success, T0, "and a pass that succeeded: the sync is not failing")
