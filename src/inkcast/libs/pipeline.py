@@ -38,6 +38,7 @@ from .events import DomainEvent
 log = logging.getLogger(__name__)
 
 STUCK_AFTER = 600  # a post 'publishing' for longer than this was interrupted (the HTTP timeout is 30 s)
+UPDATE_FENCE_MISSES = 10  # an update's record of its PUT, worded again this many times at most (#473)
 
 
 def _sentence(text: str) -> str:
@@ -430,9 +431,12 @@ class Publisher:
             # Worded from a read of the notes and written only while they are as read (#473): a note written meanwhile
             # (another worker's late success naming a second copy, ``PostsRepo.record_success``) makes the write miss,
             # and the notes are worded again from the row as it is now, keeping every note the first read did not hold:
-            # it is news this update was never a decision about. Never given up: the platform has this update, and a
-            # row left with the content it replaced is what a later success or follow compares with (#392).
+            # it is news this update was never a decision about. Not given up on one miss: the platform has this update,
+            # and a row left with the content it replaced is what a later success or follow compares with (#392). Given
+            # up after UPDATE_FENCE_MISSES, with an error: the loop holds the event loop (nothing in it awaits), and the
+            # file's entry, not updated either, sends the same PUT again at the next sync.
             first: list[str] | None = None
+            misses = 0
             while (row := self.store.get_post(post_id)) is not None:  # None: erased meanwhile, nothing to record
                 notes = list(result.notes)
                 held, edited = self.store.notes_of(row), _edited(platform, row["result_url"], row["remote_id"])
@@ -446,6 +450,9 @@ class Publisher:
                                           payload=json.dumps(prepared.to_dict()), error="; ".join(notes) or None,
                                           if_error=row["error"] or "", **({"result_url": result.url} if result.url else {})):
                     break
+                misses += 1
+                if misses == UPDATE_FENCE_MISSES:
+                    raise RuntimeError(f"Post {post_id} kept changing while its update was recorded; sync it again.")
         self._count(platform.id, "updated")
         return Outcome(platform.id, status, post_id=post_id, url=result.url, notes=result.notes, prepared=prepared,
                        remote_id=result.remote_id or remote_id)
@@ -458,8 +465,8 @@ class Publisher:
         less than the whole payload, then that send's late answer) writes the note and the content sent with no follow, and
         the change the note names is still owed (#473). Every other note stays (a second copy, an earlier send's lost
         answer: the person's to check). Worded from the row's copy and matched by equality, as ``update`` matches it,
-        and written only while the row is as read (status, attempts and notes): a note written meanwhile (a second copy,
-        ``PostsRepo.record_success``) is never overwritten. True when cleared."""
+        and written only while the row is as read (status, attempts, notes and payload): a note written meanwhile (a second
+        copy, ``PostsRepo.record_success``) is never overwritten, nor a note settled for content the post no longer holds. True when cleared."""
         row = self.store.get_post(post_id)
         if row is None or not holds(row):
             return False
@@ -468,7 +475,7 @@ class Publisher:
             return False
         kept = [n for n in held if n != edited]
         return self.store.update_post(post_id, error="; ".join(kept) or None, only_if=row["status"],
-                                      if_attempts=row["attempts"], if_error=row["error"])
+                                      if_attempts=row["attempts"], if_error=row["error"], if_payload=row["payload"])
 
     async def confirm(self, user_id: str, platform: Platform, prepared: Prepared) -> Outcome | None:
         """For an ``unconfirmed`` publish: ask the platform whether the post exists. None = the platform can't be
