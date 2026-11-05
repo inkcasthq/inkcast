@@ -200,8 +200,9 @@ class CiRunCause(unittest.TestCase):
 
     def test_a_buffered_python_traceback_that_lands_first_is_shown(self):
         # Without -u, Python block-buffers stdout into a pipe: the traceback (stderr) comes out before the prints.
+        # ci.yml sets PYTHONUNBUFFERED, which would turn the buffering off, so the child runs without it.
         program = 'for i in range(80):\n    print(f"step {i} ok")\nraise ValueError("the cause, printed first")\n'
-        _, out, (_, message) = run("py", sys.executable, "-c", program)
+        _, out, (_, message) = run("py", "env", "-u", "PYTHONUNBUFFERED", sys.executable, "-c", program)
         self.assertTrue(out.startswith("Traceback (most recent call last):"))
         self.assertIn("ValueError: the cause, printed first", message)
         self.assertTrue(message.endswith("step 79 ok\n"))
