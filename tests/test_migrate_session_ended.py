@@ -38,6 +38,17 @@ ZOMBIE = 'kill() { if [ "$1" = -0 ]; then return 0; fi; builtin kill "$@"; }\n'
 # The only `read -t` in the script is the session's; bash's timeout status is 128 + SIGALRM. ("$@", not "$*": the
 # script calls read with IFS empty.)
 TIMEOUT = 'read() { for a in "$@"; do [ "$a" = -t ] && return 142; done; builtin read "$@"; }\n'
+# Once bash reaps the coprocess it unsets PSQL, and `${PSQL[0]}` under set -u ends the run without a word. Two ways
+# there: bash held up between a statement's write and its read (a loaded node) while the session ends and is reaped,
+# made certain here by a second after the write; and a psql killed between statements (OOM, a stray kill) while the
+# script sleeps in its wait for the lock, as the stand-in below is after the lock's holder is named.
+SLOW_AFTER_WRITE = 'printf() { builtin printf "$@"; local s=$?; [[ "$1" != *__done__* ]] || sleep 1; return "$s"; }\n'
+KILLED_BETWEEN = """#!/bin/sh
+for a in "$@"; do [ "$a" = -c ] && { echo 1; exit 0; }; done
+IFS= read -r _; IFS= read -r _; printf 'f\\n__done__\\n'
+IFS= read -r _; IFS= read -r _; printf 'nobody\\n__done__\\n'
+kill -KILL $$
+"""
 
 
 def bash() -> str | None:
@@ -78,6 +89,16 @@ class ALostSessionIsNamedAsLost(unittest.TestCase):
         log = self.migrate(SILENT, TIMEOUT)
         self.assertIn("no answer from the database session in 60 s", log)
         self.assertNotIn("the database session ended", log)
+
+    def test_a_session_bash_reaped_before_its_answer_is_read_is_logged_as_ended(self):
+        log = self.migrate(STAND_IN, SLOW_AFTER_WRITE)
+        self.assertIn("the database session ended", log)
+        self.assertNotIn("unbound variable", log)
+
+    def test_a_session_killed_between_statements_is_logged_as_gone(self):
+        log = self.migrate(KILLED_BETWEEN, "")
+        self.assertIn("the database session is gone", log)
+        self.assertNotIn("unbound variable", log)
 
 if __name__ == "__main__":
     unittest.main()

@@ -156,9 +156,10 @@ reply=""
 query() {  # query SQL: the statement's result lines in `reply`, or a failed run when the session is gone or silent for 60 s
   local line status=0
   reply=""
-  { printf '%s;\n\\echo __done__\n' "$1" >&"${PSQL[1]}"; } 2>/dev/null || { log "the database session is gone"; exit 1; }
+  # ${PSQL[n]-}: bash unsets PSQL once it reaps psql, and under set -u the bare expansion would end the run unlogged
+  { printf '%s;\n\\echo __done__\n' "$1" >&"${PSQL[1]-}"; } 2>/dev/null || { log "the database session is gone"; exit 1; }
   while :; do
-    IFS= read -r -t 60 line <&"${PSQL[0]}" || { status=$?; break; }
+    IFS= read -r -t 60 line 2>/dev/null <&"${PSQL[0]-}" || { status=$?; break; }
     [ "$line" = "__done__" ] && { reply="${reply%$'\n'}"; return 0; }
     reply+="${line}"$'\n'
   done
