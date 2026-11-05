@@ -26,8 +26,14 @@ if [ "$want" != "$(node --version)" ]; then
 fi
 
 old="$(mktemp)"; trap 'rm -f "$old"' EXIT
-if [ -f package-lock.json ]; then mv package-lock.json "$old"; else echo '{}' > "$old"; fi
-npm install --package-lock-only --ignore-scripts --no-audit --no-fund --no-update-notifier
+had_lock=false
+if [ -f package-lock.json ]; then mv package-lock.json "$old"; had_lock=true; else echo '{}' > "$old"; fi
+if ! npm install --package-lock-only --ignore-scripts --no-audit --no-fund --no-update-notifier; then
+  # A failed resolution leaves the lock as it was, never missing or half written.
+  if $had_lock; then mv "$old" package-lock.json; else rm -f package-lock.json; fi
+  echo "npm could not resolve the lock; web/package-lock.json is unchanged" >&2
+  exit 1
+fi
 echo "web/package-lock.json written by Node $(node --version), npm $(npm --version)"
 
 # What moved, by install path: "name old -> new", "added name version" or "removed name version".
