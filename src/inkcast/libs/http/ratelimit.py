@@ -16,7 +16,7 @@ real abuse pressure add the limit at the edge (Gateway API / the ingress) too.
 ``limited`` accepts a Starlette endpoint function or an ASGI app (the MCP SDK's routes are the latter)
 and answers ``429 application/problem+json`` with ``Retry-After`` when the bucket is empty. Reads are
 limited only where a route asks for it (``{"GET"}``), and a HEAD counts as the GET it is: Starlette answers HEAD on
-every GET route with the same handler (issue #400).
+every GET route with the same handler (issue #400). A set counts the methods it names, HEAD included (issue #479).
 """
 
 from __future__ import annotations
@@ -102,7 +102,8 @@ class RateLimiter:
 
 def limited(endpoint: Any, limiter: RateLimiter, name: str, methods: set[str] = WRITE_METHODS) -> Callable:
     """Wrap a Starlette endpoint function or an ASGI app so requests with these ``methods`` obey ``limiter``
-    (writes by default; pass ``{"GET"}`` for a GET that creates state, like /tokens/new: its HEAD is counted too)."""
+    (writes by default; pass ``{"GET"}`` for a GET that creates state, like /tokens/new: its HEAD is counted too).
+    Any set means what it says: ``{"HEAD"}`` counts HEAD, and only HEAD."""
     app = request_response(endpoint) if inspect.isfunction(endpoint) or inspect.ismethod(endpoint) else endpoint
     return _Guarded(app, limiter, name, methods)
 
@@ -111,13 +112,16 @@ class _Guarded:
     """An ASGI app (a class instance, so Starlette's Route treats it as one and not as a request handler)."""
 
     def __init__(self, app: Callable, limiter: RateLimiter, name: str, methods: set[str]):
-        self.app, self.limiter, self.name, self.methods = app, limiter, name, methods
+        # Upper-cased as Starlette's Route upper-cases its own methods, so a set written {"post"} counts the POST the
+        # route beside it accepts (ASGI gives the method upper-cased).
+        self.app, self.limiter, self.name, self.methods = app, limiter, name, {m.upper() for m in methods}
 
     async def __call__(self, scope: dict[str, Any], receive: Callable, send: Callable) -> None:
         method = scope.get("method")
-        if method == "HEAD":        # the GET's handler runs, so it costs what the GET costs (RFC 9110 §9.3.2; issue #400)
-            method = "GET"
-        if scope["type"] == "http" and method in self.methods:
+        # A HEAD runs the GET's handler, so it costs what the GET costs (RFC 9110 §9.3.2; issue #400); a set that names
+        # HEAD itself counts it as well (issue #479).
+        counted = method in self.methods or (method == "HEAD" and "GET" in self.methods)
+        if scope["type"] == "http" and counted:
             client = (scope.get("client") or ("", 0))[0]
             wait = await self.limiter.check(self.name, client)
             if wait:

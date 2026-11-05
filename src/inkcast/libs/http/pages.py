@@ -64,7 +64,7 @@ from your own tool (e.g. <code>/mcp</code> in Claude Code).</p>
 
 def connect_form(ticket: str, platform_name: str, help_text: str, fields: Iterable, csrf: str,
                  error: str | None = None) -> HTMLResponse:
-    """The connect page. ``csrf`` is the token bound to the ticket (libs/http/onetime): the POST must carry it back."""
+    """The connect page. ``csrf`` is the token bound to this page and the ticket (libs/http/onetime): the POST must carry it back."""
     err = f"<p class=err>{escape(error)}</p>" if error else ""
     inputs = []
     for f in fields:
@@ -85,7 +85,7 @@ def connect_form(ticket: str, platform_name: str, help_text: str, fields: Iterab
 def deletion_start(ticket: str, csrf: str) -> HTMLResponse:
     """The page a deletion link opens (issue #401). Opening it changes nothing, so a previewer or a scanner that
     fetches the link leaves it good; Continue is the POST that starts the fresh sign-in and uses the link up.
-    ``csrf`` is the token bound to the ticket (libs/http/onetime)."""
+    ``csrf`` is the token bound to this page and the ticket (libs/http/onetime)."""
     return _page("Delete your account", f"""
 <h1>Delete your Inkcast account?</h1>
 <p>This link starts deleting your account. Nothing is deleted yet, and nothing happens until you continue.</p>

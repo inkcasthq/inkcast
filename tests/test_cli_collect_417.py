@@ -19,7 +19,7 @@ import tempfile
 import unittest
 from typing import Iterator
 
-from inkcast.cli import collect, removed_since
+from inkcast.cli import collect, glob_match, removed_since
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 FILES = ("a.md", "posts/a.md", "posts/sub/b.md", "x.md/c.md")   # ``x.md`` is a directory holding a story
@@ -77,7 +77,8 @@ class CollectListsRegularFilesUnderTheirOwnPath(unittest.TestCase):
 class RemovedSinceReportsWhatCollectHadListed(unittest.TestCase):
     """The review's differential test (test_sync_removed_globs.py), with a linked directory, a link to a file and a
     directory named like a story in the tree: what ``collect`` listed at the first commit is exactly what
-    ``--removed-since`` reports once the second commit has removed everything, pattern by pattern."""
+    ``--removed-since`` reports once the second commit has removed everything, pattern by pattern, with the link to a
+    file a pattern matches: before #417 ``collect`` synced it as a story of its own, so its removal is reported (#476)."""
 
     PATTERNS = ("**/*.md", "posts/**/*.md", "*.md", "posts/*.md", "linked/*.md", "linked/b.md", "x.md", "x.md/*.md",
                 "posts/link.md")
@@ -98,8 +99,10 @@ class RemovedSinceReportsWhatCollectHadListed(unittest.TestCase):
         with inside(repo):
             for pattern in self.PATTERNS:
                 with self.subTest(pattern=pattern):
-                    self.assertEqual(sorted(removed_since(first, [pattern])), sorted(collected[pattern]))
-            self.assertEqual(removed_since(first, ["**/*.md"]), ["a.md", "posts/a.md", "posts/sub/b.md", "x.md/c.md"])
+                    link = ["posts/link.md"] if glob_match(pattern, "posts/link.md") else []
+                    self.assertEqual(sorted(removed_since(first, [pattern])), sorted(collected[pattern] + link))
+            self.assertEqual(removed_since(first, ["**/*.md"]),
+                             ["a.md", "posts/a.md", "posts/link.md", "posts/sub/b.md", "x.md/c.md"])
 
 
 def case_insensitive(directory: pathlib.Path) -> bool:

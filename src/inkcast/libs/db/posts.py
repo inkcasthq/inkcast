@@ -121,7 +121,8 @@ class PostsRepo(Database):
     def update_post(self, post_id: str, events: Iterable[DomainEvent] | None = None,
                     only_if: str | tuple[str, ...] | None = None, unless: str | None = None,
                     if_attempts: int | None = None, unless_found_at: int | None = None, beyond: str | None = None,
-                    keep: str | None = None, if_error: str | None = None, **fields: Any) -> bool:
+                    keep: str | None = None, if_error: str | None = None, if_payload: str | None = None,
+                    **fields: Any) -> bool:
         """Change fields; ``events`` are written in the same transaction (the outbox). A post that no longer exists
         (its owner was erased while the scheduler held it) is left alone, and its events are not written either.
         ``only_if``: change it only while it still has this status, or one of these (another worker may have moved it
@@ -137,8 +138,11 @@ class PostsRepo(Database):
         ``keep``: a note the ``error`` keeps when the row's error already holds it, whatever ``fields["error"]`` says:
         the note that an earlier send's answer was lost and a second copy may be there (``_lost``), which only a person
         clears (#234). One statement too, so a note written meanwhile is never lost between a read and this write.
-        ``if_error``: change it only while its ``error`` is still this: a write worded from an earlier read of the notes
-        (``Publisher.settle_edited``, #427) never loses one written meanwhile (a second copy, ``record_success``).
+        ``if_error``: change it only while its ``error`` is still this ("" for none: a row with no notes, as ``notes_of``
+        reads it): a write worded from an earlier read of the notes (``Publisher.settle_edited``, #427;
+        ``Publisher.update``, #473) never loses one written meanwhile (a second copy, ``record_success``).
+        ``if_payload``: change it only while its ``payload`` is still this: a note settled for the content the post held
+        when it was read (``Publisher.settle_edited``, #473).
         True when the post was changed."""
         if beyond is not None and unless_found_at is None:
             raise ValueError("update_post(beyond=) needs unless_found_at: the attempt count the answer is about")
@@ -160,14 +164,16 @@ class PostsRepo(Database):
                   + (" AND attempts = ?" if if_attempts is not None else "")
                   + (" AND NOT (status IN ('published', 'draft', 'unlisted') AND attempts = ?)"
                      if unless_found_at is not None else "")
-                  + (" AND error = ?" if if_error is not None else ""))
+                  + (" AND COALESCE(error, '') = ?" if if_error is not None else "")
+                  + (" AND payload = ?" if if_payload is not None else ""))
         with self._tx() as c:
             changed = c.execute(f"UPDATE posts SET {', '.join(sets)} WHERE id = ?{status}",
                                 (*values, post_id, *statuses,
                                  *([unless] if unless else []),
                                  *([if_attempts] if if_attempts is not None else []),
                                  *([unless_found_at] if unless_found_at is not None else []),
-                                 *([if_error] if if_error is not None else []))).rowcount == 1
+                                 *([if_error] if if_error is not None else []),
+                                 *([if_payload] if if_payload is not None else []))).rowcount == 1
             if changed:
                 insert_events(c, events)
         return changed

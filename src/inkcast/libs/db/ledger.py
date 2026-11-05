@@ -9,11 +9,14 @@ creating a duplicate.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 import time
 from typing import Any
 
 from .database import Database
+
+log = logging.getLogger(__name__)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS ledger (
@@ -157,7 +160,13 @@ class LedgerRepo(Database):
         took it over after IDEMPOTENCY_PENDING_SECONDS, or the person has no row, #196): it is left as it is."""
         kept = self._exec("UPDATE idempotency SET response = ? WHERE user_id = ? AND key = ? AND created_at = ?",
                           response, user_id, key, owner) == 1
-        self._exec("DELETE FROM idempotency WHERE created_at < ?", time.time() - self.IDEMPOTENCY_SECONDS)
+        # The cleanup runs apart from the UPDATE, which has committed: in one transaction, a cleanup that failed (the
+        # database busy) would roll the completed key back with it. What it leaves, the next completion deletes (#475).
+        try:
+            self._exec("DELETE FROM idempotency WHERE created_at < ?", time.time() - self.IDEMPOTENCY_SECONDS)
+        except sqlite3.Error:
+            log.warning("Idempotency-Key responses older than 24 hours could not be deleted; the next completed key"
+                        " deletes them", exc_info=True)
         return kept
 
     def release_idempotency_key(self, user_id: str, key: str, owner: float) -> bool:

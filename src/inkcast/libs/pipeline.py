@@ -39,6 +39,7 @@ from .secrets import CredentialsUnreadable
 log = logging.getLogger(__name__)
 
 STUCK_AFTER = 600  # a post 'publishing' for longer than this was interrupted (the HTTP timeout is 30 s)
+UPDATE_FENCE_MISSES = 10  # an update's record of its PUT, worded again this many times at most (#473)
 
 
 def _sentence(text: str) -> str:
@@ -431,34 +432,54 @@ class Publisher:
         if post_id:  # a PUT's answer that names no URL (a 204) keeps the post's: the post is where it was (#214)
             # The update that sends an edit made while a send was out settles that edit's note only (#392): the success
             # that wrote it may have noted a second copy beside it (#214), which is the person's to check.
-            notes = list(result.notes)
-            row = self.store.get_post(post_id) or {"error": None, "result_url": None, "remote_id": None}
-            held, edited = self.store.notes_of(row), _edited(platform, row["result_url"], row["remote_id"])
-            if edited in held:
-                notes = [n for n in held if n != edited] + notes
-            elif _lost(platform) in held:  # an edit is no decision about a second copy: only a person clears it (#234)
-                notes = [_lost(platform)] + notes
-            self.store.update_post(post_id, status=status, title=prepared.title, payload=json.dumps(prepared.to_dict()),
-                                   error="; ".join(notes) or None, **({"result_url": result.url} if result.url else {}))
+            # Worded from a read of the notes and written only while they are as read (#473): a note written meanwhile
+            # (another worker's late success naming a second copy, ``PostsRepo.record_success``) makes the write miss,
+            # and the notes are worded again from the row as it is now, keeping every note the first read did not hold:
+            # it is news this update was never a decision about. Not given up on one miss: the platform has this update,
+            # and a row left with the content it replaced is what a later success or follow compares with (#392). Given
+            # up after UPDATE_FENCE_MISSES, with an error: the loop holds the event loop (nothing in it awaits), and the
+            # file's entry, not updated either, sends the same PUT again at the next sync.
+            first: list[str] | None = None
+            misses = 0
+            while (row := self.store.get_post(post_id)) is not None:  # None: erased meanwhile, nothing to record
+                notes = list(result.notes)
+                held, edited = self.store.notes_of(row), _edited(platform, row["result_url"], row["remote_id"])
+                if edited in held:
+                    notes = [n for n in held if n != edited] + notes
+                elif _lost(platform) in held:  # an edit is no decision about a second copy: only a person clears it (#234)
+                    notes = [_lost(platform)] + notes
+                first = held if first is None else first
+                notes += [n for n in held if n and n != edited and n not in first and n not in notes]
+                if self.store.update_post(post_id, status=status, title=prepared.title,
+                                          payload=json.dumps(prepared.to_dict()), error="; ".join(notes) or None,
+                                          if_error=row["error"] or "", **({"result_url": result.url} if result.url else {})):
+                    break
+                misses += 1
+                if misses == UPDATE_FENCE_MISSES:
+                    raise RuntimeError(f"Post {post_id} kept changing while its update was recorded; sync it again.")
         self._count(platform.id, "updated")
         return Outcome(platform.id, status, post_id=post_id, url=result.url, notes=result.notes, prepared=prepared,
                        remote_id=result.remote_id or remote_id)
 
-    def settle_edited(self, post_id: str, platform: Platform) -> bool:
+    def settle_edited(self, post_id: str, platform: Platform, holds: Callable[[dict[str, Any]], bool]) -> bool:
         """Clear the note that a post was changed while its send was out (``_edited``) once nothing is owed: Git sync
-        found the file back to what was sent (#427). Every other note stays (a second copy, an earlier send's lost
+        found the file back to what was sent (#427), and the post, which records what the platform received, holds the
+        file (``holds(row)``, on the same read as the notes). The file's entry has the hash of what was sent only once
+        it has followed the post: a success landing on a post already confirmed with its copy (such as a lookup's match on
+        less than the whole payload, then that send's late answer) writes the note and the content sent with no follow, and
+        the change the note names is still owed (#473). Every other note stays (a second copy, an earlier send's lost
         answer: the person's to check). Worded from the row's copy and matched by equality, as ``update`` matches it,
-        and written only while the row is as read (status, attempts and notes): a note written meanwhile (a second copy,
-        ``PostsRepo.record_success``) is never overwritten. True when cleared."""
+        and written only while the row is as read (status, attempts, notes and payload): a note written meanwhile (a second
+        copy, ``PostsRepo.record_success``) is never overwritten, nor a note settled for content the post no longer holds. True when cleared."""
         row = self.store.get_post(post_id)
-        if row is None:
+        if row is None or not holds(row):
             return False
         held, edited = self.store.notes_of(row), _edited(platform, row["result_url"], row["remote_id"])
         if edited not in held:
             return False
         kept = [n for n in held if n != edited]
         return self.store.update_post(post_id, error="; ".join(kept) or None, only_if=row["status"],
-                                      if_attempts=row["attempts"], if_error=row["error"])
+                                      if_attempts=row["attempts"], if_error=row["error"], if_payload=row["payload"])
 
     async def confirm(self, user_id: str, platform: Platform, prepared: Prepared) -> Outcome | None:
         """For an ``unconfirmed`` publish: ask the platform whether the post exists. None = the platform can't be
