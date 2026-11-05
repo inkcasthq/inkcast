@@ -100,5 +100,6 @@ class ALostSessionIsNamedAsLost(unittest.TestCase):
         self.assertIn("the database session is gone", log)
         self.assertNotIn("unbound variable", log)
 
+
 if __name__ == "__main__":
     unittest.main()
