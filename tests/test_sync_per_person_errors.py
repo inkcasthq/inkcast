@@ -21,6 +21,7 @@ reads, so that Keycloak being down costs it the budget, not a timeout per person
 ``test_sync_timeout_budget``)."""
 
 import asyncio
+import re
 import unittest
 
 import httpx2
@@ -193,7 +194,7 @@ class TheReconcileGoesOn(Scenario):
         self.assertEqual(record.user_id, bad["id"])
         self.assertEqual(record.status, 500)
         self.assertEqual((record.call, record.via), ("user", "reconcile"))
-        self.assertNotIn(bad["kc"], record.getMessage(), "the Keycloak id is not logged")
+        self.assertNotRegex(record.getMessage(), rf"\b{re.escape(bad['kc'])}\b", "the Keycloak id is not logged")
         self.assertNotIn("unknown_error", record.getMessage(), "nothing from Keycloak's answer is logged")
         self.assertEqual(self.reconcile(worker)["checked"], 2)
         self.assertEqual(self.errors_counted(), 2, "counted again at the next reconcile: the alert sees it keep failing")

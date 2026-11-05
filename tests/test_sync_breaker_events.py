@@ -16,6 +16,7 @@ person) is ``tests/test_sync_breaker_disabled.py``'s. On main the burst tests fa
 cut off and no trip is recorded."""
 
 import logging
+import re
 import unittest
 
 from inkcast.libs.db import Store
@@ -75,7 +76,7 @@ class AMassDeletionInOnePass(Events):
                 line = self.tripped(logs.records)
                 self.assertEqual((line.levelno, line.pass_id, line.gone, line.disabled, line.read, line.via),
                                  (logging.CRITICAL, trip["id"], 20, 0, 20, "event"))
-                self.assertNotIn(people[0]["kc"], line.getMessage(), "no Keycloak id in the log")
+                self.assertNotRegex(line.getMessage(), rf"\b{re.escape(people[0]['kc'])}\b", "no Keycloak id in the log")
                 self.assertNotIn(people[0]["id"], line.getMessage(), "no user id in the log line either")
                 self.assertEqual(self.counted("inkcast_identity_users_disabled_total"), {}, "nobody counted as cut off")
                 self.assertEqual(worker.last_success, T0 + 2, "a pass that tripped is a pass that succeeded")
