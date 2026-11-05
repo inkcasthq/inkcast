@@ -21,7 +21,6 @@ import functools
 import json
 import logging
 import math
-import re
 import sqlite3
 import time
 import uuid
@@ -97,15 +96,27 @@ def _both_copies(platform: Platform, recorded: str, answered: str, attempt: int 
             f"answer. Check {platform.name}: keep one and remove the other.")
 
 
-_OPEN = "\0"  # a builder's argument left open when a note is recognised: no note holds it
-
-
 def _is_second_copy(platform: Platform, note: str) -> bool:
     """Whether ``note`` says ``platform`` may have the post twice: ``_lost``, ``_second_copy`` or ``_both_copies``,
-    matched whole against the builders' own wording with their arguments left open, so the writers and this reading
-    share one wording. Only a person clears such a note (#234), so an update keeps it (#504)."""
-    words = (_lost(platform), _second_copy(platform, _OPEN), _both_copies(platform, _OPEN, _OPEN, _OPEN))
-    return any(re.fullmatch(".+".join(map(re.escape, w.split(_OPEN))), note, re.DOTALL) for w in words)
+    matched whole against the builders' own wording with each argument any non-empty text, so the writers and this
+    reading share one wording. Only a person clears such a note (#234), so an update keeps it (#504). Linear, with no
+    regex: the notes and a copy's URL or id come from the platform, and a pattern with an open gap per argument
+    backtracks in cubic time on a long note (26 KB took a second)."""
+    if note == _lost(platform):
+        return True
+    # A builder's argument left open: longer than the platform name, the only other text the wording holds.
+    marker = "\0" * (len(platform.name) + 1)
+    head, tail = _second_copy(platform, marker).split(marker)
+    if len(note) > len(head) + len(tail) and note.startswith(head) and note.endswith(tail):
+        return True
+    head, recorded, answered, tail = _both_copies(platform, marker, marker, marker).split(marker)
+    if len(note) <= len(head) + len(tail) or not (note.startswith(head) and note.endswith(tail)):
+        return False
+    middle = note[len(head):len(note) - len(tail)]
+    # The first ``recorded`` after one character, then the last ``answered`` with a character on each side: if any
+    # split of ``middle`` leaves the three arguments non-empty, this one does.
+    i = middle.find(recorded, 1)
+    return i >= 0 and middle.rfind(answered, i + len(recorded) + 1, len(middle) - 1) >= 0
 
 
 def _undecryptable() -> str:
