@@ -24,10 +24,11 @@ waves:
   why: 'Follow-ups in code that already runs: links written to the log, double-sends, lost posts and data kept after erasure.
     These are the failures a writer or an auditor notices first (handover, suggested order 1), so they come before new screens.'
   items:
-  - '#533'
   - '#559'
   - '#558'
   - '#557'
+  - '#564'
+  - '#565'
 - id: W3
   phase: 1
   title: The writer web app
@@ -36,7 +37,6 @@ waves:
     W6, and the approved Connections tab shows no channel health, so channel health is W10.'
   items:
   - F4.1.S5
-  - '#550'
   - F4.1.S1
   - F4.1.S2
   - F4.1.S3
@@ -380,9 +380,9 @@ issues:
   273: "Fix the tokensave saving rate under tool, model and effort filters"
   299: "OpenFGA to PostgreSQL with cert-manager client certificates instead of passwords"
   522: "Alerts: a failure in the scheduler's first tick after a restart is never seen by increase()"
-  533: "Publishing: a note holding '; ' is split, so readers miss it"
-  550: "ci-run.sh annotations show the output's tail, which hides npm ci's cause"
   557: "inkcast sync: a newline in a file name splits its stderr line in two"
   558: "Resend: a late success of the first send leaves two published copies and no note"
   559: "Publishing: an uncertain answer over a published row drops its two-copies note"
+  564: "CI kind job: stack.sh downloads kind and kubectl a second time, and a 504 fails the job"
+  565: "Split services: a 502 through the Gateway right after a rolling restart"
   360: "Backlog tracker: every story in one execution order, reviewed wave by wave"

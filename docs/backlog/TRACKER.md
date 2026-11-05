@@ -47,10 +47,11 @@ Follow-ups in code that already runs: links written to the log, double-sends, lo
 
 | # | Item | Status | Title | Epic | Issue |
 |---:|---|---|---|---|---|
-| 8 | #533 | open issue | Publishing: a note holding '; ' is split, so readers miss it | | [#533](https://github.com/inkcasthq/inkcast/issues/533) |
-| 9 | #559 | open issue | Publishing: an uncertain answer over a published row drops its two-copies note | | [#559](https://github.com/inkcasthq/inkcast/issues/559) |
-| 10 | #558 | open issue | Resend: a late success of the first send leaves two published copies and no note | | [#558](https://github.com/inkcasthq/inkcast/issues/558) |
-| 11 | #557 | open issue | inkcast sync: a newline in a file name splits its stderr line in two | | [#557](https://github.com/inkcasthq/inkcast/issues/557) |
+| 8 | #559 | open issue | Publishing: an uncertain answer over a published row drops its two-copies note | | [#559](https://github.com/inkcasthq/inkcast/issues/559) |
+| 9 | #558 | open issue | Resend: a late success of the first send leaves two published copies and no note | | [#558](https://github.com/inkcasthq/inkcast/issues/558) |
+| 10 | #557 | open issue | inkcast sync: a newline in a file name splits its stderr line in two | | [#557](https://github.com/inkcasthq/inkcast/issues/557) |
+| 11 | #564 | open issue | CI kind job: stack.sh downloads kind and kubectl a second time, and a 504 fails the job | | [#564](https://github.com/inkcasthq/inkcast/issues/564) |
+| 12 | #565 | open issue | Split services: a 502 through the Gateway right after a rolling restart | | [#565](https://github.com/inkcasthq/inkcast/issues/565) |
 
 ### W3: The writer web app (phase 1, 1 of 15 stories done)
 
@@ -58,8 +59,7 @@ The order that PR #358 set. The approved writer-app mockup (F4.1.S4, ADR-0004, A
 
 | # | Item | Status | Title | Epic | Issue |
 |---:|---|---|---|---|---|
-| 12 | F4.1.S5 | done | Node lock resolved in CI, as the Python lock is | E4 | [#348](https://github.com/inkcasthq/inkcast/issues/348) |
-| 13 | #550 | open issue | ci-run.sh annotations show the output's tail, which hides npm ci's cause | | [#550](https://github.com/inkcasthq/inkcast/issues/550) |
+| 13 | F4.1.S5 | done | Node lock resolved in CI, as the Python lock is | E4 | [#348](https://github.com/inkcasthq/inkcast/issues/348) |
 | 14 | F4.1.S1 | planned | Vite workspace, packages/ui, light and dark themes | E4 |  |
 | 15 | F4.1.S2 | planned | Responsive to 360px, axe-clean | E4 |  |
 | 16 | F4.1.S3 | planned | CI web job (typecheck, vitest, Playwright) | E4 |  |
@@ -552,7 +552,7 @@ Outside the product. Worked only when the owner asks.
 | F4.1.S2 | planned | Responsive to 360px, axe-clean |  | 15 (W3) |
 | F4.1.S3 | planned | CI web job (typecheck, vitest, Playwright) |  | 16 (W3) |
 | F4.1.S4 | done | Mockup: the writer web app (Posts, Compose, Connections, Git sync, Tokens, Insights, API), approved before UI code | [#347](https://github.com/inkcasthq/inkcast/issues/347) |  |
-| F4.1.S5 | done | Node lock resolved in CI, as the Python lock is | [#348](https://github.com/inkcasthq/inkcast/issues/348) | 12 (W3) |
+| F4.1.S5 | done | Node lock resolved in CI, as the Python lock is | [#348](https://github.com/inkcasthq/inkcast/issues/348) | 13 (W3) |
 | F4.2.S1 | planned | WebApp service: OIDC with Keycloak, HttpOnly SameSite session | [#349](https://github.com/inkcasthq/inkcast/issues/349) | 17 (W3) |
 | F4.2.S2 | planned | Generated API client |  | 18 (W3) |
 | F4.2.S3 | planned | inkcast-web on OpenShift: in each environment's namespace, its own host, promoted by digest | [#350](https://github.com/inkcasthq/inkcast/issues/350) | 19 (W3) |
