@@ -33,7 +33,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 REPO = "inkcasthq/inkcast"
 
 
-UNVERIFIED: list[str] = []   # reads this token may not make (admin-only paths): reported, not counted as drift
+UNVERIFIED: list[str] = []   # what this token can't read: reported, not counted as drift (#540)
 
 
 class GhError(Exception):
@@ -89,13 +89,22 @@ def live_ruleset(repo: str, name: str) -> dict | None:
 
 
 def check(repo: str) -> list[str]:
+    """The differences between the live repository and the files. A value GitHub doesn't show this token goes to
+    UNVERIFIED instead: a 403 on an admin-only path, or a field a 200 leaves out (#540). The ruleset leaves out
+    bypass_actors unless the token can edit it, and the repository the merge settings without contents: write; GitHub's
+    schema never makes those null, so null or absent means not shown. security_and_analysis is null without admin."""
     drift = []
     for want in rulesets():
         have = live_ruleset(repo, want["name"])
         if not have:
             drift.append(f"ruleset {want['name']!r} is missing")
             continue
+        hidden = have.get("bypass_actors") is None
+        if hidden:
+            UNVERIFIED.append(f"repos/{repo}/rulesets/{have['id']} bypass_actors")
         for key in ("target", "enforcement", "bypass_actors", "conditions"):
+            if key == "bypass_actors" and hidden:
+                continue
             if not subset(want[key], have.get(key)):
                 drift.append(f"ruleset {want['name']!r}: {key} is {json.dumps(have.get(key))}, want {json.dumps(want[key])}")
         live_rules = {r["type"]: r for r in have.get("rules", [])}
@@ -112,12 +121,17 @@ def check(repo: str) -> list[str]:
     settings = json.loads((ROOT / ".github" / "repo-settings.json").read_text())
     _, live = gh("GET", f"repos/{repo}")
     for key, value in settings["repository"].items():
-        if live.get(key) != value:
-            drift.append(f"repository {key} is {live.get(key)!r}, want {value!r}")
-    analysis = live.get("security_and_analysis") or {}
-    for key, value in settings["security_and_analysis"].items():
-        if (analysis.get(key) or {}).get("status") != value:
-            drift.append(f"security_and_analysis {key} is {(analysis.get(key) or {}).get('status')!r}, want {value!r}")
+        if live.get(key) is None:
+            UNVERIFIED.append(f"repos/{repo} {key}")
+        elif live[key] != value:
+            drift.append(f"repository {key} is {live[key]!r}, want {value!r}")
+    analysis = live.get("security_and_analysis")
+    if analysis is None:
+        UNVERIFIED.append(f"repos/{repo} security_and_analysis")
+    else:
+        for key, value in settings["security_and_analysis"].items():
+            if (analysis.get(key) or {}).get("status") != value:
+                drift.append(f"security_and_analysis {key} is {(analysis.get(key) or {}).get('status')!r}, want {value!r}")
     status, _ = gh("GET", f"repos/{repo}/vulnerability-alerts", ok404=True, soft=True)
     if status != -1 and (status == 204) != settings["vulnerability_alerts"]:
         drift.append(f"vulnerability alerts are {'on' if status == 204 else 'off'}")

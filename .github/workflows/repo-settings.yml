@@ -1,6 +1,7 @@
 # Repository settings as code (E1.F1.8.S1, S6): fails when the live main ruleset or the security settings drift
 # from .github/rulesets/*.json and .github/repo-settings.json. It only reads; the owner applies changes with
-# `scripts/repo/settings.py apply` (admin). Reads GITHUB_TOKEN can't make (admin-only paths) are reported, not failed.
+# `scripts/repo/settings.py apply` (admin). What GITHUB_TOKEN can't see is reported as NOT VERIFIED, not failed: the
+# admin-only paths (403) and the fields a 200 leaves out (bypass_actors, merge settings, security_and_analysis; #540).
 name: repo-settings
 
 on:
