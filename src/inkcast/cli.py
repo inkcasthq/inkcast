@@ -219,12 +219,15 @@ def collect(patterns: list[str]) -> list[str]:
 
 def _submodules() -> tuple[str, list[str]]:
     """The repository's top directory and its submodules' paths from there: the index's gitlinks, mode 160000 in
-    ``git ls-files --stage`` (gitformat-index(5): object type 1110). Run from the top, since from a subdirectory git
-    lists only the entries below it. Nothing outside a repository (a run started from above it): there is no index."""
+    ``git ls-files --stage`` (gitformat-index(5): object type 1110). The top is the pathspec, since from a subdirectory
+    git lists only the entries below it: an absolute path, taken literally even under ``GIT_LITERAL_PATHSPECS`` (``:/``
+    is not), and no ``-C <top>``, which would read a relative ``GIT_DIR`` or ``GIT_WORK_TREE`` from there. Nothing
+    outside a repository (a run started from above it): there is no index."""
     try:  # bytes, as git names paths: a top directory that isn't UTF-8 is still one
         top = os.fsdecode(subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True,
                                          check=True).stdout.rstrip(b"\n"))
-        staged = subprocess.run(["git", "-C", top, "ls-files", "--stage", "-z"], capture_output=True, check=True).stdout
+        staged = subprocess.run(["git", "ls-files", "--stage", "-z", "--full-name", "--", top], capture_output=True,
+                                check=True).stdout
     except (OSError, subprocess.CalledProcessError):
         return "", []
     # ``-z``: '<mode> <object> <stage>\t<path>', each NUL-ended, the path verbatim (git-ls-files(1), OUTPUT)
