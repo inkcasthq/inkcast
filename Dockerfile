@@ -29,7 +29,10 @@ COPY LICENSE NOTICE /licenses/
 RUN pip install --require-hashes --no-deps -r /tmp/requirements.lock \
  && pip install --no-deps /tmp/*.whl && pip check && rm -f /tmp/*.whl /tmp/requirements.lock \
  # OpenShift runs containers as an arbitrary UID in group 0: make writable paths group-0 owned.
- && mkdir -p /data && chgrp -R 0 /data && chmod -R g=u /data
+ && mkdir -p /data && chgrp -R 0 /data && chmod -R g=u /data \
+ # No package manager at run time: nothing here installs a package, and what isn't shipped can't be exploited or fail
+ # the image scan (apt's CVE-2026-109518 failed it before the base image was rebuilt). Nothing installed depends on it.
+ && dpkg --purge apt libapt-pkg7.0
 USER 1001
 VOLUME ["/data"]
 EXPOSE 8787 9090

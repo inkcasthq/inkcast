@@ -23,11 +23,17 @@
 #   2b. a hand-over grace (#409): a runner whose lock session died alone still runs its migration until its next
 #      probe (step 4), so when other sessions of this role exist, this runner waits twice the probe interval plus
 #      the server's client check before touching the schema, as leader election hands a lease over (client-go's
-#      LeaseDuration: a candidate waits it out before it acts). No fence is built yet: `openfga migrate` runs goose
-#      as a black box, with no token the database could check (Kleppmann, "How to do distributed locking"), where
-#      goose's own Provider, golang-migrate and Flyway lock on the very connection that migrates. A runner paused
-#      beyond that grace is the residual, bounded by nothing; the repair of step 3 and a retry cover what it leaves
-#      (ending such a runner's sessions before the repair is #494; docs/research/openfga-2026-10.md §7);
+#      LeaseDuration: a candidate waits it out before it acts). A grace is not a fence: a runner paused rather than
+#      dead wakes after it, and its statement in flight runs on meanwhile, while `openfga migrate` runs goose as a
+#      black box, with no token the database could check (Kleppmann, "How to do distributed locking"), where goose's
+#      own Provider, golang-migrate and Flyway lock on the very connection that migrates. So an eviction fence follows
+#      the grace (#494; docs/research/openfga-2026-10.md §7): `openfga migrate` runs under a name of its own,
+#      openfga-migrate-goose (step 4), and this runner ends every session of its role and database with that name,
+#      with pg_terminate_backend(pid, 5000) (a role may end its own sessions: signalfuncs.c:88-103 at REL_18_6), and
+#      fails the run when one does not end in time. It closes a paused runner's statement in flight: that statement
+#      ends, and fails its `openfga migrate`. It leaves open a runner thawed between two statements, or after the
+#      fence: database/sql opens it a new connection, and it runs on until its own probe ends it, PROBE_SECONDS at
+#      most; the repair of step 3 and a retry cover what that leaves to 006;
 #   3. repair what an interrupted 006 leaves: `idx_user_lookup` INVALID is dropped, and goose's version-6 rows go
 #      when that index is invalid or missing, so that `openfga migrate` applies 006 again (goose up.go:99-106 at
 #      v3.28.0 plans every file above the table's highest version). Not once a version above 6 is recorded: goose
@@ -52,8 +58,9 @@
 # accepts: "invalid database uri: parse ...: net/url: invalid userinfo", measured with v1.22.0; issue #410).
 # A URI no split makes safe is refused before psql runs, in words that quote none of it (#474): a raw `@` or `/` in
 # the password, which libpq and pgx misread (net/url splits at the last `@` and refuses a `/`); a password in the
-# query, which would stay on psql's command line; and options=, which would replace PGOPTIONS (below) and with it the
-# client check that ends a killed runner's statement.
+# query, which would stay on psql's command line; options=, which would replace PGOPTIONS (below) and with it the
+# client check that ends a killed runner's statement; and application_name= or service=, which could rename
+# `openfga migrate`'s sessions out of the fence's reach (step 2b).
 # The lab's e2e proofs are scripts/dev/openfga-recovery-e2e.sh.
 set -euo pipefail
 : "${OPENFGA_DATASTORE_URI:?OPENFGA_DATASTORE_URI is not set: the Secret openfga-db-app, key uri}"
@@ -64,6 +71,7 @@ probe_seconds="${PROBE_SECONDS:-2}"
 # lock/session_locker_options.go at v3.28.0) and deliberately not that one: an OpenFGA that one day locks there
 # itself, inside the run this session wraps, would wait on this session for ever.
 lock_key="${LOCK_KEY:-1473304569}"
+# psql's sessions' name; `openfga migrate` runs under one of its own (step 4), which the fence of step 2b ends.
 export PGAPPNAME=openfga-migrate PGCONNECT_TIMEOUT=10
 # Server-side keepalives on these sessions: a runner cut off without a FIN (a node partition) holds the lock until the
 # server finds it gone, after the OS's 7200 s of idle with tcp_keepalives_idle 0, PostgreSQL's and CloudNativePG's
@@ -73,6 +81,11 @@ export PGAPPNAME=openfga-migrate PGCONNECT_TIMEOUT=10
 # tests/test_review_openfga_migrate.py.
 export PGOPTIONS="-c tcp_keepalives_idle=20 -c tcp_keepalives_interval=5 -c tcp_keepalives_count=3 -c client_connection_check_interval=2s"
 log() { printf '%s migrate: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
+# A service file can override PGAPPNAME in pgx. Do not let an inherited service select one for either connection.
+if [ -n "${PGSERVICE-}" ]; then
+  log "PGSERVICE is refused: a service file can override PGAPPNAME and hide openfga migrate's sessions from the fence"
+  exit 1
+fi
 # $1 percent-decoded into `decoded` as libpq decodes (conninfo_uri_decode at REL_18_6, as pgx's uriDecode at v5.11.0):
 # its leading and trailing spaces dropped, then each %XX, and nothing else; what libpq refuses there (a space left
 # inside, a % without two hex digits after it, %00) refused in words that quote none of it. Its backslashes are
@@ -105,7 +118,10 @@ fi
 # ends the authority, and which started the query below early; a password in the query, which libpq and pgx honour
 # over the user information's, its keyword percent-decoded (conninfo_uri_parse_params), and which the split leaves on
 # psql's command line; options=, which replaces PGOPTIONS above whole (pgx: pgconn/config.go mergeSettings at
-# v5.11.0), its client check included; and a control character outside the password, which net/url refuses (and
+# v5.11.0), its client check included; application_name=, which renames `openfga migrate`'s sessions as pgx takes the
+# URI's settings over PGAPPNAME's (mergeSettings, the same), so the fence would miss them (measured: a paused build
+# under `x` ran on); service=, which can load a service file whose application_name overrides PGAPPNAME; and a
+# control character outside the password, which net/url refuses (and
 # prints the URI) and at which `read` below stops (a newline), so that a parameter after it would go unread.
 # No writer of the Secret sets one: Inkcast's generator writes sslmode=require alone, CloudNativePG no query
 # (pkg/specs/secrets.go at v1.30.1).
@@ -120,6 +136,8 @@ if [[ "$db_uri" == *\?* ]]; then
     case "${decoded,,}" in          # libpq refuses an upper-case key; the value would still be on psql's command line
       *password*|*secret*|scram_*) log "the datastore URI (the Secret openfga-db-app, key uri) is refused: it carries a password or a secret in its query (password=, sslpassword=, oauth_client_secret=, scram_client_key=), which psql's command line would show; the password goes in the user information"; exit 1 ;;
       *options*) log "the datastore URI (the Secret openfga-db-app, key uri) is refused: its query sets options=, which would replace PGOPTIONS and the client check that ends a killed runner's statement"; exit 1 ;;
+      *application_name*) log "the datastore URI (the Secret openfga-db-app, key uri) is refused: its query sets application_name=, which would rename openfga migrate's sessions and hide them from the fence that ends a paused runner's statement"; exit 1 ;;
+      *service*) log "the datastore URI (the Secret openfga-db-app, key uri) is refused: its query sets service=, which can override PGAPPNAME through a service file and hide openfga migrate's sessions from the fence"; exit 1 ;;
     esac
   done
 fi
@@ -153,8 +171,8 @@ coproc PSQL { psql -X -q -At -v ON_ERROR_STOP=1 "$db_uri"; }
 # shellcheck disable=SC2153  # PSQL_PID: bash sets NAME_PID for a coprocess named NAME
 psql_pid=$PSQL_PID
 reply=""
-query() {  # query SQL: the statement's result lines in `reply`, or a failed run when the session is gone or silent for 60 s
-  local line status=0
+query() {  # query SQL [timeout message]: the statement's result lines in `reply`, or a failed run after 60 s of silence
+  local line status=0 timeout_message="${2:-no answer from the database session in 60 s}"
   reply=""
   # ${PSQL[n]-}: bash unsets PSQL once it reaps psql, and under set -u the bare expansion would end the run unlogged
   { printf '%s;\n\\echo __done__\n' "$1" >&"${PSQL[1]-}"; } 2>/dev/null || { log "the database session is gone"; exit 1; }
@@ -166,7 +184,7 @@ query() {  # query SQL: the statement's result lines in `reply`, or a failed run
   # read's own status tells a timeout (above 128) from the end of psql's output; `kill -0` can't, as it succeeds on
   # a psql that has exited and that bash has not reaped yet (#510)
   if [ "$status" -gt 128 ]; then
-    log "no answer from the database session in 60 s"
+    log "$timeout_message"
   else
     log "the database session ended (the database restarted, or a statement failed above)"
   fi
@@ -198,6 +216,26 @@ if [ "$reply" != 0 ]; then
   log "${reply} other session(s) of this role: waiting ${grace} s for a runner whose lock session died to end its migration"
   sleep "$grace"
 fi
+
+# 2b, the fence (#494): a session of this role and database named openfga-migrate-goose is an earlier runner's
+# `openfga migrate`, as this run's has not started; it ends here, before the repair. pg_terminate_backend waits up to
+# 5 s for each backend to exit, and returns false, with a warning, when one has not, or when the pid was no backend
+# any more: one that ended on its own meanwhile (signalfuncs.c:67-76 and 217-223 at REL_18_6). A second look tells
+# them apart, in a statement of its own, as pg_stat_activity is read once a transaction (monitoring.sgml). Only
+# pids and counts are logged.
+query "SELECT count(*), coalesce(string_agg(pid::text, ', '), ''), coalesce(string_agg(pid::text, ',') FILTER (WHERE NOT ended), '')
+       FROM (SELECT pid, pg_terminate_backend(pid, 5000) AS ended FROM pg_stat_activity
+             WHERE usename = current_user AND datname = current_database() AND application_name = 'openfga-migrate-goose'
+               AND pid <> pg_backend_pid()) AS fenced" "fence: no answer from the database session in 60 s while ending earlier runner sessions; this run fails, the kubelet starts it again"
+IFS='|' read -r fenced fenced_pids unended <<< "$reply"
+if [ -n "$unended" ]; then
+  query "SELECT coalesce(string_agg(pid::text, ', '), '') FROM pg_stat_activity WHERE pid IN (${unended})" "fence: no answer from the database session in 60 s while checking which earlier runner sessions remain; this run fails, the kubelet starts it again"
+  if [ -n "$reply" ]; then
+    log "fence: openfga migrate's session of an earlier runner, pid ${reply}, did not end within 5 s: this run fails, the kubelet starts it again"
+    exit 1
+  fi
+fi
+[ "$fenced" = 0 ] || log "fence: ended ${fenced} session(s) of openfga migrate left by an earlier runner (pid ${fenced_pids})"
 
 # 3. The repair, under the lock. to_regclass honours the search path, and is NULL when the object is missing.
 query "SELECT (to_regclass('idx_user_lookup') IS NOT NULL
@@ -238,7 +276,8 @@ fi
 # password in the connection string" (cmd/migrate/migrate.go:42 at v1.22.0). It parses the URI with Go's net/url
 # before that override (pkg/storage/migrate/migrate.go:80-94) and prints a URI it refuses, password included (#410);
 # the override it encodes itself (url.UserPassword), so the password reaches pgx whatever it holds. Empty when the URI
-# had none.
+# had none. Its sessions are named openfga-migrate-goose, PGAPPNAME on its command alone (pgx maps it to
+# application_name: pgconn/config.go:711 at v5.11.0), for the fence of step 2b.
 query "SELECT format('lock held by pid %s, running openfga migrate', pg_backend_pid())"
 log "$reply"
 end_migration() {  # the EXIT trap while `openfga migrate` runs: this run takes the migration with it
@@ -247,7 +286,7 @@ end_migration() {  # the EXIT trap while `openfga migrate` runs: this run takes 
     log "killed openfga migrate (pid ${migrate_pid}): this run ends without it"
   fi
 }
-OPENFGA_DATASTORE_URI="$db_uri" OPENFGA_DATASTORE_PASSWORD="${PGPASSWORD-}" "$OPENFGA_BINARY" migrate &
+PGAPPNAME=openfga-migrate-goose OPENFGA_DATASTORE_URI="$db_uri" OPENFGA_DATASTORE_PASSWORD="${PGPASSWORD-}" "$OPENFGA_BINARY" migrate &
 migrate_pid=$!
 trap end_migration EXIT
 while sleep "$probe_seconds" & probe_pid=$!; wait -n "$probe_pid" "$migrate_pid"; kill -0 "$migrate_pid" 2>/dev/null; do
