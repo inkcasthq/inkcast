@@ -276,7 +276,7 @@ class MigrateScript(unittest.TestCase):
             time.sleep(0.25)
         self.assertEqual(self.sql(building), "1", "006's build never started")
         subprocess.run(["docker", "kill", "-s", "TERM", runner], check=True, capture_output=True)   # as the kubelet does
-        running = "SELECT count(*) FROM pg_stat_activity WHERE application_name = 'openfga-migrate' AND state = 'active'"
+        running = "SELECT count(*) FROM pg_stat_activity WHERE application_name LIKE 'openfga-migrate%' AND state = 'active'"
         killed = time.monotonic()
         while self.sql(running) != "0" and time.monotonic() - killed < 10:
             time.sleep(0.5)
@@ -320,7 +320,7 @@ class MigrateScript(unittest.TestCase):
         # The lock session alone: the one backend that holds the advisory lock; OpenFGA's own connections live on.
         self.assertEqual(self.sql("SELECT count(pg_terminate_backend(pid)) FROM pg_locks WHERE locktype = 'advisory' AND granted"), "1")
         died = time.monotonic()
-        running = "SELECT count(*) FROM pg_stat_activity WHERE application_name = 'openfga-migrate' AND state = 'active'"
+        running = "SELECT count(*) FROM pg_stat_activity WHERE application_name LIKE 'openfga-migrate%' AND state = 'active'"
         while self.sql(running) != "0" and time.monotonic() - died < 10:
             time.sleep(0.5)
         self.assertEqual(self.sql("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND granted"), "0")
