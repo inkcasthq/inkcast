@@ -108,6 +108,19 @@ class CiRunReview550(unittest.TestCase):
                     self.assertTrue(text.endswith(rest))
                     self.assertLessEqual(len(message.encode()), LIMIT)
 
+    def test_the_causes_fill_the_room_to_the_byte_and_no_further(self):
+        # The causes take only the room the tail and the separator leave: a cause that fits to the byte is shown, and one
+        # a byte longer is not.
+        tail = "".join(f"tail line {i:02} {'t' * 100}\n" for i in range(25))
+        sep = "----- the last 25 of 26 lines -----\n"
+        room = LIMIT - len(tail) - len(sep)
+        for extra, shown in ((0, True), (1, False)):
+            with self.subTest(extra=extra):
+                cause = "error: " + "c" * (room - 1 - len("error: ") + extra)
+                _, _, (_, message) = self.fails_with((cause + "\n" + tail).encode())
+                self.assertEqual(message, cause + "\n" + sep + tail if shown else tail)
+                self.assertLessEqual(len(message.encode()), LIMIT)
+
 
 if __name__ == "__main__":
     unittest.main()
