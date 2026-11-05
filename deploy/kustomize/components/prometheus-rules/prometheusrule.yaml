@@ -69,7 +69,8 @@ spec:
       annotations:
         summary: Posts are unconfirmed and wait for a person
         description: '{{ $value }} publish(es) in the last hour ended unconfirmed: the platform may or may not have the post.
-          Someone must check the platform before anyone publishes again.'
+          Someone must check the platform before anyone publishes again. A post whose send never began, its credentials sealed
+          under another INKCAST_SECRET_KEY (publish.recovery.unsent), is not on it: see InkcastPostsCannotBeSent.'
         runbook_url: https://github.com/inkcasthq/inkcast/blob/main/docs/runbooks/alerts.md#inkcastunconfirmedpublishes
     - alert: InkcastPostRecoveringTooLong
       expr: max(inkcast_posts_recovering_oldest_age_seconds) > 3600
@@ -100,10 +101,12 @@ spec:
         description: '{{ $value }} time(s) in 30 minutes a post on {{ $labels.platform }} could not even begin its send (publish.send.failed)
           or its recovery (publish.recovery.failed): its credentials can''t be decrypted, sealed under another INKCAST_SECRET_KEY
           than the scheduler runs on, or its payload can''t be read (a rollback). The scheduler goes on ticking for everyone
-          else, so InkcastSchedulerStalled does not fire. None of these posts is sent: on a platform Inkcast can ask, each
-          stays ''recovering'' until INKCAST_PUBLISH_RECOVERY_MAX_HOURS; on one it can''t, each is unconfirmed at the next
-          stuck pass, for its owner to resend. Both log lines name the post, with the traceback. Check the key first: each
-          pod''s secret-key against the inkcast-secrets Secret (the runbook''s commands).'
+          else, so InkcastSchedulerStalled does not fire. A send failure means this attempt sent nothing. A recovery failure
+          cannot establish whether an earlier send arrived. Each stays ''recovering'' until INKCAST_PUBLISH_RECOVERY_MAX_HOURS,
+          except on a platform Inkcast can''t ask, where one whose credentials can''t be decrypted is unconfirmed at the next
+          stuck pass, for its owner to reconnect and resend (InkcastUnconfirmedPublishes fires). Both log lines name the post,
+          with the traceback. Check the key first: each pod''s secret-key against the inkcast-secrets Secret (the runbook''s
+          commands).'
         runbook_url: https://github.com/inkcasthq/inkcast/blob/main/docs/runbooks/alerts.md#inkcastpostscannotbesent
     - alert: InkcastPublishFailureRateHigh
       expr: sum by (platform) (rate(inkcast_publish_total{status=~"failed|update_failed"}[30m])) / clamp_min(sum by (platform)
