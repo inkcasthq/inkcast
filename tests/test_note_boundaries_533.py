@@ -21,6 +21,7 @@ import ast
 import asyncio
 import collections
 import pathlib
+import re
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -119,8 +120,8 @@ class HeldDiscoverLoadsANameANoteCanHold(unittest.TestCase):
 # ---- 2. one encoder beside the one decoder --------------------------------------------------------------------------
 
 SRC = pathlib.Path(inkcast.__file__).parent  # the package these tests imported, so the scan reads the code that runs
-# Every join with the notes' separator in src/inkcast that writes no post's notes, by (file, enclosing scope): how many.
-# Each words other text, so it stays a plain join; none goes through ``join_notes``.
+# Every use of the notes' separator in src/inkcast that writes no post's notes, by (file, enclosing scope): how many.
+# Each words other text, so it stays a plain join, or reads or escapes the separator; none goes through ``join_notes``.
 OTHER_JOINS = {
     ("env_secrets.py", "describe"): 1,                                       # a secret's change, described
     ("libs/http/rest.py", "Authed.__call__.endpoint"): 1,                     # a 422's message
@@ -132,6 +133,8 @@ OTHER_JOINS = {
     ("services/publishing/sync.py", "GitSync._one"): 1,
     ("services/publishing/sync.py", "GitSync._create"): 1,
     ("libs/db/posts.py", "PostsRepo.join_notes"): 1,                          # the encoder itself
+    ("libs/db/posts.py", "PostsRepo.notes_of"): 1,                            # the decoder
+    ("libs/pipeline.py", "_named"): 1,                                        # a copy's URL or id, its "; " escaped
 }
 # Every writer that joins notes into a post's ``error``, by (file, enclosing scope): its calls of ``join_notes``.
 WRITERS = {
@@ -144,13 +147,14 @@ WRITERS = {
 }
 
 
-def separator(node: ast.AST) -> bool:
-    return isinstance(node, ast.Constant) and node.value == "; "
+# A format template with the separator between two fields: "%s; %s", "{}; {}", "{0}; {name}".
+TEMPLATE = re.compile(r"(%[-#0-9.]*[a-z]|\{[^{}]*\}); (%[-#0-9.]*[a-z]|\{[^{}]*\})")
 
 
 def scan() -> tuple[collections.Counter, collections.Counter]:
-    """Every join with "; " in src/inkcast (a ``"; ".join(...)``, an f-string's "; " between two fields, a ``+ "; "``),
-    and every call of ``join_notes``, each by (file, enclosing scope)."""
+    """Every use of "; " in src/inkcast, each by (file, enclosing scope): the constant itself, whatever joins with it (a
+    ``"; ".join(...)``, ``str.join("; ", ...)``, an f-string's "; " between two fields, a ``+ "; "``, a ``SEP = "; "``),
+    and a ``%`` or ``.format`` template holding it between two fields. Then every call of ``join_notes``."""
     joins: collections.Counter = collections.Counter()
     encoded: collections.Counter = collections.Counter()
     for path in sorted(SRC.rglob("*.py")):
@@ -161,19 +165,11 @@ def scan() -> tuple[collections.Counter, collections.Counter]:
             if named:
                 scope.append(node.name)
             key = (where, ".".join(scope))
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-                if node.func.attr == "join" and separator(node.func.value):
-                    joins[key] += 1
-                elif node.func.attr == "join_notes":
-                    encoded[key] += 1
-            elif isinstance(node, ast.JoinedStr):
-                parts = node.values
-                for before, text, after in zip(parts, parts[1:], parts[2:]):
-                    if separator(text) and isinstance(before, ast.FormattedValue) and isinstance(after, ast.FormattedValue):
-                        joins[key] += 1
-            elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add) and (separator(node.left)
-                                                                                 or separator(node.right)):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and (node.value == "; "
+                                                                                 or TEMPLATE.search(node.value)):
                 joins[key] += 1
+            elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "join_notes":
+                encoded[key] += 1
             for child in ast.iter_child_nodes(node):
                 visit(child)
             if named:
@@ -199,7 +195,7 @@ class FindingOneEncoderBesideTheDecoder(unittest.TestCase):
     def test_every_join_with_the_separator_is_the_encoder_or_writes_no_posts_notes(self):
         joins, _ = scan()
         self.assertEqual(dict(joins), OTHER_JOINS,
-                         'a join with "; " in src/inkcast: if it writes a post\'s notes, join them with '
+                         'a use of "; " in src/inkcast: if it writes a post\'s notes, join them with '
                          "PostsRepo.join_notes; if it doesn't, list it in OTHER_JOINS with what it writes")
 
     def test_every_writer_of_a_posts_notes_joins_them_with_join_notes(self):

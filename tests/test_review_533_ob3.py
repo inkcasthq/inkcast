@@ -13,9 +13,10 @@ import unittest
 
 import httpx2
 
+import test_publishing_keep_notes_531 as t
 from inkcast.libs.db.posts import PostsRepo
 from inkcast.libs.pipeline import _is_second_copy, _lost
-from inkcast.libs.platforms import Platform, load_platforms
+from inkcast.libs.platforms import Platform, PlatformError, load_platforms
 from inkcast.libs.platforms.devto import DevtoPlatform
 from test_note_boundaries_533 import RULE, registered
 from test_review_publishing_214 import Harness
@@ -110,6 +111,27 @@ class FindingKeepAsksWhatNotesOfReads(Harness):
             for error in errors:
                 with self.subTest(keep=keep, error=error):
                     self.assertEqual(self.kept(error, keep), keep in PostsRepo.notes_of({"error": error}))
+
+
+# ---- 3. an uncertain answer over a re-send is worded as its error ----------------------------------------------------
+
+
+class HeldAnUncertainAnswerOverAReSendIsWordedAsItsError(t.Sends):
+    """``_deliver``'s ``beyond`` words the platform's answer as ``error=`` does, ``str(exc)``, since #533's
+    ``join_notes``; before, an f-string formatted it. Not a finding: it pins the change the integrator chose to keep."""
+
+    def test_an_answer_whose_format_differs_from_its_text(self):
+        class Odd(PlatformError):
+            def __str__(self):
+                return "Findable said: maybe"
+
+            def __format__(self, spec):
+                return "formatted otherwise"
+
+        post_id = self.post("publishing")
+        self.store.update_post(post_id, attempts=2)                      # another worker's re-send is out
+        ((_, error),) = self.sends(post_id, Odd("x", uncertain=True), held=1)
+        self.assertEqual(self.store.notes_of({"error": error}), ["Findable said: maybe", _lost(self.platform)])
 
 
 if __name__ == "__main__":

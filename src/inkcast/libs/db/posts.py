@@ -214,8 +214,9 @@ class PostsRepo(Database):
     def join_notes(notes: Iterable[str]) -> str | None:
         """A post's notes as its ``error`` stores them: joined with "; ", or None for none. The one encoder of what
         ``notes_of`` reads, and every writer that joins notes goes through it, so the format is one place (#533). A note
-        Inkcast words never holds the separator: a copy's URL or id is escaped (``_named``, #504), and a platform's name
-        holds no ";" (``discover``). A platform's own note may, and reads back as its pieces."""
+        Inkcast recognises (``_lost``, ``_second_copy``, ``_both_copies``, ``_edited``) never holds the separator: a copy's
+        URL or id is escaped (``_named``, #504), and a platform's name holds no ";" (``discover``, ``load_platforms``).
+        Any other note may, a platform's own or one of Inkcast's messages, and reads back as its pieces."""
         return "; ".join(notes) or None
 
     def record_success(self, post_id: str, *, held: int, status: str, result_url: str | None, remote_id: str | None,
