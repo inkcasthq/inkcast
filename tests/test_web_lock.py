@@ -96,5 +96,58 @@ class Manifest(unittest.TestCase):
                 self.assertRegex(version, EXACT, f"{field}: pin {name} exactly")
 
 
+class Lock(unittest.TestCase):
+    """web/package-lock.json comes from web-lock-refresh.yml (PR B of #348), and CI installs it with npm ci only."""
+
+    def setUp(self):
+        self.manifest = json.loads(MANIFEST.read_text())
+        self.lock = json.loads((ROOT / "web" / "package-lock.json").read_text())
+
+    def test_holds_every_pinned_version_of_the_manifest(self):
+        self.assertEqual(self.lock["lockfileVersion"], 3)
+        self.assertEqual(self.lock["packages"][""]["devDependencies"], self.manifest["devDependencies"])
+        for name, version in self.manifest["devDependencies"].items():
+            self.assertEqual(self.lock["packages"][f"node_modules/{name}"]["version"], version, name)
+
+    def test_records_the_dependencies_of_the_root_and_every_workspace(self):
+        """npm ci fails when the lock lacks what a manifest asks for, not when it holds more (validate-lockfile.js
+        checks one direction), so a dependency or a workspace removed from a manifest still passes the web job."""
+        web = MANIFEST.parent
+        manifests = {"": self.manifest}
+        for pattern in self.manifest.get("workspaces", []):
+            for path in sorted(web.glob(f"{pattern}/package.json")):
+                manifests[path.parent.relative_to(web).as_posix()] = json.loads(path.read_text())
+        recorded = {key for key in self.lock["packages"] if "node_modules/" not in key}
+        self.assertEqual(recorded, set(manifests), "the lock's workspaces are the ones under web/")
+        for key, manifest in manifests.items():
+            for field in ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies"):
+                self.assertEqual(self.lock["packages"][key].get(field, {}), manifest.get(field, {}), f"{key}: {field}")
+
+    def test_every_registry_package_carries_a_sha512_integrity(self):
+        # Every installed package is fetched but a workspace, a link ("resolved": "packages/ui", "link": true), and a
+        # bundled one. Select by key, not by "resolved": npm ci installs an entry with neither resolved nor integrity.
+        fetched = {key: entry for key, entry in self.lock["packages"].items()
+                   if "node_modules/" in key and not entry.get("link") and not entry.get("inBundle")}
+        self.assertTrue(fetched, "the check must see the registry packages")
+        for key, entry in fetched.items():
+            self.assertTrue(entry.get("resolved", "").startswith("https://registry.npmjs.org/"), key)
+            self.assertRegex(entry.get("integrity", ""), r"^sha512-", key)
+
+    def test_ci_installs_it_with_npm_ci_and_checks_it_is_unchanged(self):
+        ci = yaml.safe_load((WORKFLOWS / "ci.yml").read_text())
+        self.assertIn("pull_request", ci[True])   # YAML reads the key `on` as True
+        job = ci["jobs"]["web"]
+        steps = job["steps"]
+        install = next(s for s in steps if "npm ci" in s.get("run", ""))
+        self.assertEqual(install.get("working-directory"), "web")
+        self.assertIn("--ignore-scripts", install["run"])
+        self.assertIn("git diff --exit-code -- web/package-lock.json", [s.get("run", "").split('" ', 1)[-1] for s in steps])
+        diff = next(s for s in steps if "git diff" in s.get("run", ""))
+        self.assertNotIn("working-directory", diff, "the pathspec web/package-lock.json is relative to the repository")
+        self.assertLess(steps.index(install), steps.index(diff))
+        for scope in (job, install, diff):
+            self.assertFalse({"if", "continue-on-error"} & set(scope), "both steps run, and either one fails the job")
+
+
 if __name__ == "__main__":
     unittest.main()

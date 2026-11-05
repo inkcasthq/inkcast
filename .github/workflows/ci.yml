@@ -44,6 +44,22 @@ jobs:
           enable-cache: false
       - run: scripts/ci-run.sh "locks are stale (run scripts/lock.sh)" scripts/lock.sh --check
 
+  web:
+    # E4.F4.1.S5: web/package-lock.json, resolved by web-lock-refresh.yml, still satisfies web/package.json. npm ci
+    # installs only from the lock and fails when the two disagree; the lock must be byte for byte the same afterwards.
+    # No install scripts: this checks the lock, and F4.1.S3's build adds what the packages need.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/package.json   # engines.node, the one Node pin
+          package-manager-cache: false          # do not restore setup-node's package manager cache
+      - name: npm ci from the lock
+        working-directory: web
+        run: ../scripts/ci-run.sh "web/package-lock.json disagrees with web/package.json (run web-lock-refresh.yml)" npm ci --ignore-scripts --no-audit --no-fund
+      - run: scripts/ci-run.sh "npm ci changed web/package-lock.json" git diff --exit-code -- web/package-lock.json
+
   lint:
     runs-on: ubuntu-24.04
     steps:

@@ -21,7 +21,7 @@
 ## Consequences
 - A Node toolchain enters CI, as the `web` job.
 - `web/package-lock.json` is resolved in CI by `web-lock-refresh.yml`: from scratch, on Linux, with the Node that
-  `web/package.json` pins. The first lock PR adds a web CI job that installs it with `npm ci`.
+  `web/package.json` pins. CI's `web` job only installs it, with `npm ci`.
   - Why: a lock written where `node_modules` exists can leave out other platforms' optional native packages
     ([npm/cli#4828](https://github.com/npm/cli/issues/4828)). A Vite lock from an arm64 Mac then fails on Linux with
     "Cannot find module @rollup/rollup-linux-x64-gnu" ([npm/cli#8320](https://github.com/npm/cli/issues/8320)).

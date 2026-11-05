@@ -34,9 +34,11 @@ features:
     - 'The owner approves it on its PR, or names the changes, before any UI code is written'
   - id: F4.1.S5
     title: Node lock resolved in CI, as the Python lock is
-    status: planned
+    status: done
     issue: 348
-    change: 'issue #348; new 2026-10-28: the build sandbox can''t reach npm, so the web workspace''s lock comes from CI'
+    change: 'issue #348; new 2026-10-28; built in PR #547 (web-lock-refresh.yml, scripts/web-lock.sh, web/package.json)
+      and PR #549 (the first lock, from its run on main, and ci.yml''s web job). Resolved on Linux by one pinned npm because
+      npm before 11.3.0 writes an incomplete lock where node_modules exists (npm/cli#4828, fixed by npm/cli#8184)'
     acceptance:
     - 'A workflow, run on demand and weekly like lock-refresh.yml, resolves web/package-lock.json with integrity hashes
       and pushes it to a branch; the owner''s squash merge brings it in'
