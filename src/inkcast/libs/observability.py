@@ -76,6 +76,10 @@ EVENTS: dict[str, tuple[str, str]] = {
                                              "rate-limited or unreachable); it stays 'recovering' and is checked again."),
     "publish.recovery.capped": ("warning", "A post 'recovering' for INKCAST_PUBLISH_RECOVERY_MAX_HOURS, the platform never "
                                            "saying whether it arrived, is unconfirmed for a person: never sent late on its own."),
+    "publish.recovery.unsent": ("warning", "A post whose send never began (its credentials could not be decrypted when "
+                                           "it was due), on a platform Inkcast can't ask, is unconfirmed for its owner, "
+                                           "told to reconnect, then resend or cancel it: post id and platform. Counted as "
+                                           "inkcast_publish_total{status=\"unconfirmed\"}."),
     "publish.send.failed": ("error", "A due post's send could not even begin (its credentials sealed under another "
                                      "INKCAST_SECRET_KEY, a payload this version can't read; post id and platform, with "
                                      "the traceback); it stays claimed for recovery, and the batch went on to the posts "
