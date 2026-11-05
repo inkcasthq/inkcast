@@ -255,6 +255,9 @@ class Publisher:
                        retry: bool, held: int = 0) -> Outcome:
         """The send itself, from the plug-in's call to the recorded answer. Only this is guarded (``_send``): reading
         the credentials before it says nothing about the send, and failing there must not mark the post unconfirmed."""
+        # What this send carries, read before the plug-in's call: a plug-in that changes the ``Prepared`` it is handed
+        # would otherwise leave a row that never hashes as the file, and Git sync would send it again at every sync (#503).
+        sent = prepared.to_dict()
         started = time.perf_counter()
         try:
             destination = (
@@ -348,7 +351,6 @@ class Publisher:
         # a post recovery had queued again while this send was still out (#392). The row takes the sent content back,
         # with a note, and the file's entry sees the edit at the next sync: sent as an update where the platform edits
         # posts, reported as stale (update it by hand) where it doesn't. Never a second post, and never dropped.
-        sent = prepared.to_dict()
         edited, lost = _edited(platform, result.url, result.remote_id), _lost(platform)
 
         written, before = self.store.record_success(
@@ -416,6 +418,7 @@ class Publisher:
             return Outcome(platform.id, "skipped", post_id=post_id, message=f"{platform.name} isn't connected.")
         creds, account_data = connected
         account = Account.from_dict(account_data)
+        sent = json.dumps(prepared.to_dict())  # before the plug-in's call, as ``_deliver``'s (#503)
         try:
             destination = (
                 await platform.resolve_destination(creds, account, prepared.destination) if prepared.destination else None
@@ -451,7 +454,7 @@ class Publisher:
                 first = held if first is None else first
                 notes += [n for n in held if n and n != edited and n not in first and n not in notes]
                 if self.store.update_post(post_id, status=status, title=prepared.title,
-                                          payload=json.dumps(prepared.to_dict()), error="; ".join(notes) or None,
+                                          payload=sent, error="; ".join(notes) or None,
                                           if_error=row["error"] or "", **({"result_url": result.url} if result.url else {})):
                     break
                 misses += 1
