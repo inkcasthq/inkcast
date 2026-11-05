@@ -50,10 +50,11 @@ def _sentence(text: str) -> str:
 
 
 def _named(url: str | None, remote_id: str | None) -> str:
-    """A copy of a post as a person can find it: its URL with its id, or whichever it has."""
-    if url and remote_id:
-        return f"{url} (id {remote_id})"
-    return url or f"id {remote_id}"
+    """A copy of a post as a person can find it: its URL with its id, or whichever it has. Never with the notes'
+    separator ("; ", ``PostsRepo.notes_of``) in it, which the platform's answer may hold: a note naming the copy would
+    read back as pieces, none of them the note (``_is_second_copy``, ``_edited``, #504). A URL's space is "%20"."""
+    named = f"{url} (id {remote_id})" if url and remote_id else url or f"id {remote_id}"
+    return named.replace("; ", ";%20")
 
 
 def _edited(platform: Platform, url: str | None = None, remote_id: str | None = None) -> str:
@@ -75,9 +76,48 @@ def _edited(platform: Platform, url: str | None = None, remote_id: str | None = 
 def _lost(platform: Platform) -> str:
     """The note a send's late uncertain answer leaves when it lands over another worker's re-send of the post (#234):
     this request may have arrived too. It outlives the re-send's own success (``PostsRepo.record_success`` keeps it),
-    since only a person can say whether the platform has two copies; recognised by equality, like ``_edited``."""
+    since only a person can say whether the platform has two copies; recognised by equality, like ``_edited``, and as
+    a second-copy note (``_is_second_copy``)."""
     return (f"An earlier send's answer was lost after its request was sent, and it may have arrived too: a second copy "
             f"may be on {platform.name}. Check {platform.name}, and remove the extra copy there if it is.")
+
+
+def _second_copy(platform: Platform, attempt: int | str) -> str:
+    """The note a send's success leaves when another worker's later ``attempt`` was out meanwhile and may have arrived
+    too (#214, ``PostsRepo.record_success``): a second copy may be on the platform."""
+    return (f"Attempt {attempt} was sent by another worker while this one was out, and may have arrived too: a second "
+            f"copy may be on {platform.name}. Check {platform.name}, and remove the extra copy there if it is.")
+
+
+def _both_copies(platform: Platform, recorded: str, answered: str, attempt: int | str) -> str:
+    """The note a send's success leaves when the post already records another confirmed copy (#214,
+    ``PostsRepo.record_success``): the platform may have both, the post's (``recorded``) and the one ``attempt`` was
+    answered with (``answered``), each named as ``_named`` names a copy, and a person keeps one."""
+    return (f"{platform.name} may have this post twice: {recorded}, recorded here, and {answered}, attempt {attempt}'s "
+            f"answer. Check {platform.name}: keep one and remove the other.")
+
+
+def _is_second_copy(platform: Platform, note: str) -> bool:
+    """Whether ``note`` says ``platform`` may have the post twice: ``_lost``, ``_second_copy`` or ``_both_copies``,
+    matched whole against the builders' own wording with each argument any non-empty text, so the writers and this
+    reading share one wording. Only a person clears such a note (#234), so an update keeps it (#504). Linear, with no
+    regex: the notes and a copy's URL or id come from the platform, and a pattern with an open gap per argument
+    backtracks in cubic time on a long note (26 KB took a second)."""
+    if note == _lost(platform):
+        return True
+    # A builder's argument left open: longer than the platform name, the only other text the wording holds.
+    marker = "\0" * (len(platform.name) + 1)
+    head, tail = _second_copy(platform, marker).split(marker)
+    if len(note) > len(head) + len(tail) and note.startswith(head) and note.endswith(tail):
+        return True
+    head, recorded, answered, tail = _both_copies(platform, marker, marker, marker).split(marker)
+    if len(note) <= len(head) + len(tail) or not (note.startswith(head) and note.endswith(tail)):
+        return False
+    middle = note[len(head):len(note) - len(tail)]
+    # The first ``recorded`` after one character, then the last ``answered`` with a character on each side: if any
+    # split of ``middle`` leaves the three arguments non-empty, this one does.
+    i = middle.find(recorded, 1)
+    return i >= 0 and middle.rfind(answered, i + len(recorded) + 1, len(middle) - 1) >= 0
 
 
 def _undecryptable() -> str:
@@ -364,13 +404,11 @@ class Publisher:
         # is the extra one, so the row keeps the copy it has, names both, and a person keeps one. The read that words
         # a note and the write are one transaction, so a claim can't land between them.
         def second_copy(attempt: int) -> str:
-            return (f"Attempt {attempt} was sent by another worker while this one was out, and may have arrived too: a "
-                    f"second copy may be on {platform.name}. Check {platform.name}, and remove the extra copy there if it is.")
+            return _second_copy(platform, attempt)
 
         def both_copies(row: dict[str, Any]) -> str:
-            return (f"{platform.name} may have this post twice: {_named(row['result_url'], row['remote_id'])}, recorded "
-                    f"here, and {_named(result.url, result.remote_id)}, attempt {attempts}'s answer. Check "
-                    f"{platform.name}: keep one and remove the other.")
+            return _both_copies(platform, _named(row["result_url"], row["remote_id"]), _named(result.url, result.remote_id),
+                                attempts)
 
         # The platform has what this send carried, whatever the row came to hold meanwhile: Git sync's edit in place of
         # a post recovery had queued again while this send was still out (#392). The row takes the sent content back,
@@ -459,7 +497,9 @@ class Publisher:
         status = result.status if result.status in ("draft", "unlisted") else "published"
         if post_id:  # a PUT's answer that names no URL (a 204) keeps the post's: the post is where it was (#214)
             # The update that sends an edit made while a send was out settles that edit's note only (#392): the success
-            # that wrote it may have noted a second copy beside it (#214), which is the person's to check.
+            # that wrote it may have noted a second copy beside it (#214), which is the person's to check. Otherwise the
+            # update replaces the platform's own notes from the earlier send, and keeps every second-copy note
+            # (``_is_second_copy``): an edit is no decision about a second copy, only a person clears it (#234, #504).
             # Worded from a read of the notes and written only while they are as read (#473): a note written meanwhile
             # (another worker's late success naming a second copy, ``PostsRepo.record_success``) makes the write miss,
             # and the notes are worded again from the row as it is now, keeping every note the first read did not hold:
@@ -474,8 +514,8 @@ class Publisher:
                 held, edited = self.store.notes_of(row), _edited(platform, row["result_url"], row["remote_id"])
                 if edited in held:
                     notes = [n for n in held if n != edited] + notes
-                elif _lost(platform) in held:  # an edit is no decision about a second copy: only a person clears it (#234)
-                    notes = [_lost(platform)] + notes
+                else:
+                    notes = [n for n in held if _is_second_copy(platform, n)] + notes
                 first = held if first is None else first
                 notes += [n for n in held if n and n != edited and n not in first and n not in notes]
                 if self.store.update_post(post_id, status=status, title=prepared.title,
