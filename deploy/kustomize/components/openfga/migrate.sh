@@ -154,14 +154,17 @@ coproc PSQL { psql -X -q -At -v ON_ERROR_STOP=1 "$db_uri"; }
 psql_pid=$PSQL_PID
 reply=""
 query() {  # query SQL: the statement's result lines in `reply`, or a failed run when the session is gone or silent for 60 s
-  local line
+  local line status=0
   reply=""
   { printf '%s;\n\\echo __done__\n' "$1" >&"${PSQL[1]}"; } 2>/dev/null || { log "the database session is gone"; exit 1; }
-  while IFS= read -r -t 60 line <&"${PSQL[0]}"; do
+  while :; do
+    IFS= read -r -t 60 line <&"${PSQL[0]}" || { status=$?; break; }
     [ "$line" = "__done__" ] && { reply="${reply%$'\n'}"; return 0; }
     reply+="${line}"$'\n'
   done
-  if kill -0 "$psql_pid" 2>/dev/null; then
+  # read's own status tells a timeout (above 128) from the end of psql's output; `kill -0` can't, as it succeeds on
+  # a psql that has exited and that bash has not reaped yet (#510)
+  if [ "$status" -gt 128 ]; then
     log "no answer from the database session in 60 s"
   else
     log "the database session ended (the database restarted, or a statement failed above)"
