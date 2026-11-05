@@ -238,8 +238,10 @@ class PostsRepo(Database):
                                                                or before["result_url"] is not None)
             if recorded and not self.same_copy(before, remote_id, result_url):
                 note = both_copies(before)
-                c.execute("UPDATE posts SET error = ?, updated_at = ? WHERE id = ?",
-                          (f"{before['error']}; {note}" if before["error"] else note, now, post_id))
+                error = before["error"]
+                if note not in self.notes_of(before):  # the same two copies refused again: written once, not per answer
+                    error = f"{error}; {note}" if error else note
+                c.execute("UPDATE posts SET error = ?, updated_at = ? WHERE id = ?", (error, now, post_id))
                 return False, before
             if keeps is not None:
                 notes = [*notes, *(n for n in self.notes_of(before) if keeps(n) and n not in notes)]
