@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import fnmatch
 import re
+from functools import cache
 
 _MAGIC = re.compile(r"[*?\[]")  # what makes a pattern component a wildcard for ``glob`` (its ``has_magic``)
 
@@ -31,19 +32,21 @@ def glob_reaches_below(pattern: str, directory: str) -> bool:
 
 
 def _globbed(parts: list[str], names: list[str]) -> bool:
-    if not parts:
-        return not names
-    head, rest = parts[0], parts[1:]
-    if head == "**":
-        if not rest:  # the last component: the file and any directories above it, never none (that is a directory)
-            return bool(names) and not any(name.startswith(".") for name in names)
-        for taken in range(len(names) + 1):  # zero or more directories; glob walks into no hidden one
-            if _globbed(rest, names[taken:]):
-                return True
-            if taken < len(names) and names[taken].startswith("."):
-                return False
-        return False
-    return bool(names) and _name(head, names[0]) and _globbed(rest, names[1:])
+    # Memoised on (component, name): several ``**`` reach one split in many ways, and the server runs the request's
+    # patterns (``removed_globs``, #508), so each split is walked once.
+    @cache
+    def walk(part: int, name: int) -> bool:
+        if part == len(parts):
+            return name == len(names)
+        head = parts[part]
+        if head == "**":
+            if part + 1 == len(parts):  # a final ** needs a non-hidden name
+                return name < len(names) and not any(n.startswith(".") for n in names[name:])
+            return walk(part + 1, name) or (
+                name < len(names) and not names[name].startswith(".") and walk(part, name + 1))
+        return name < len(names) and _name(head, names[name]) and walk(part + 1, name + 1)
+
+    return walk(0, 0)
 
 
 def _below(parts: list[str], names: list[str]) -> bool:

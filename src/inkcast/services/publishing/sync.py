@@ -453,10 +453,12 @@ class GitSync:
         if not req.removed_dirs:
             return []
         paths = list(dict.fromkeys(e["path"] for e in self.store.list_entries(user_id, req.source)))
+        prefixes = tuple(d + "/" for d in req.removed_dirs)
+        matching = {p for p in paths if p.startswith(prefixes)
+                    and any(glob_match(g, p) or p == g for g in req.removed_globs)}
         done, out = set(req.removed), []
         for d in req.removed_dirs:
-            below = [p for p in paths if p.startswith(d + "/")
-                     and any(glob_match(g, p) or p == g for g in req.removed_globs)]
+            below = [p for p in paths if p.startswith(d + "/") and p in matching]
             if not below:
                 out.append(SyncResult(path=d, platform="*", action="removed",
                                       message=f"No post came from below {d}; nothing to cancel."))
