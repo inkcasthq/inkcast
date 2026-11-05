@@ -25,6 +25,12 @@ None new on the server. In CI, `INKCAST_URL` and `INKCAST_TOKEN` are read by `in
 
 - **Rollout:** deploy. Then create a token (`inkcast_create_token` in Claude Code, or `POST /api/v1/tokens`) and add the example workflow to a blog repository.
 - **Rollback:** the previous digest ignores the new tables. Any token created meanwhile stops working until you roll forward again.
+- **Version mix (Idempotency-Key, #475):** a release from before 321df2a (#466) releases and completes a reservation by user and key alone (`DELETE FROM idempotency WHERE user_id = ? AND key = ? AND response = ''`, `UPDATE idempotency SET response = ? WHERE user_id = ? AND key = ?`). Run beside a later release on one database, it frees or overwrites that release's pending reservations, and the later release can't prevent it. Only two PublishingApi processes of different releases running at once mix them. The shipped manifests run PublishingApi as one replica with `strategy: Recreate`, both the default overlay and `components/split-services`, and for a rollout Kubernetes removes the old Pod before it creates the new one. So a rollout, or a rollback by reverting the digest PR, does not mix them. These do:
+  - a Pod force-deleted while it still runs (`kubectl delete pod --force --grace-period=0` frees its name before the kubelet confirms it stopped);
+  - the all-in-one `inkcast` Deployment left running beside `components/split-services`' `inkcast-publishing-api`, or the other way round;
+  - more than one replica, or `RollingUpdate` (E3's split services on PostgreSQL).
+
+  Across 321df2a, stop the old PublishingApi before the new one starts.
 
 ## Verification
 
