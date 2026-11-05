@@ -108,5 +108,11 @@ jobs:
           gh pr list --state open --label deploy --limit 200 --json number,headRefName,author,labels |
             python3 scripts/superseded_promotions.py --environment "$ENVIRONMENT" --current "$branch" |
             while read -r n; do
-              gh pr close "$n" --delete-branch --comment "Superseded by #$new, the latest promotion to $ENVIRONMENT."
+              # One merged or closed since the list was taken has nothing left to supersede (#517); one still open, or
+              # whose state can't be read, after a failed close fails the run, as merging it later would roll the
+              # environment back. The state is assigned before the case, as a case on "$(…)" ignores the query's exit
+              # status and would pass a state printed by a failed query; the exits don't lean on set -e.
+              gh pr close "$n" --delete-branch --comment "Superseded by #$new, the latest promotion to $ENVIRONMENT." ||
+                { state=$(gh pr view "$n" --json state --jq .state) || exit 1
+                  case "$state" in MERGED | CLOSED) ;; *) exit 1 ;; esac; }
             done
