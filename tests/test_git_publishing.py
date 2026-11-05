@@ -280,6 +280,45 @@ class GitPublishing(Harness):
         [entry] = self.call("GET", f"/api/v1/ledger?source={source}").json()
         self.assertEqual((entry["path"], entry["status"], entry["post_id"]), ("posts/gone.md", "cancelled", first["post_id"]))
 
+    def test_a_removed_link_cancels_the_post_main_synced_from_it(self):
+        """Issue #476 (467-d): before #417 ``collect`` followed a link to a file and synced it as a story of its own, so
+        the ledger can hold a scheduled post for ``posts/link.md``. Deleting the link cancels it; on main it went out."""
+        repo = pathlib.Path(tempfile.mkdtemp())
+        (repo / "posts").mkdir()
+        (repo / "drafts").mkdir()
+        when = (datetime.now(timezone.utc) + timedelta(days=2)).replace(microsecond=0).isoformat()
+        markdown = story("Linked", platforms="[devto]", extra=f"publish_at: {when}\n")
+        (repo / "drafts" / "linked.md").write_text(markdown)
+        (repo / "posts" / "link.md").symlink_to("../drafts/linked.md")
+        source = f"github.com/acme/blog-{self.id()}"
+        synced = self.sync({"posts/link.md": markdown}, source=source)[("posts/link.md", "devto")]   # as main synced it
+        self.assertEqual((synced["action"], synced["status"]), ("create", "scheduled"))
+
+        def git(*args: str) -> str:
+            return subprocess.run(["git", "-c", "user.name=on-call", "-c", "user.email=on-call@example.com", *args],
+                                  cwd=repo, capture_output=True, text=True, check=True).stdout.strip()
+
+        git("init", "-q", "-b", "main")
+        git("add", ".")
+        git("commit", "-q", "-m", "add")
+        before = git("rev-parse", "HEAD")
+        git("rm", "-q", "posts/link.md")
+        git("commit", "-q", "-m", "remove the link")
+        old_env, old_cwd = dict(os.environ), os.getcwd()
+        out = io.StringIO()
+        try:
+            os.environ.update({"INKCAST_URL": self.base, "INKCAST_TOKEN": self.pat["token"]})
+            os.chdir(repo)
+            with contextlib.redirect_stdout(out):
+                removed = sync_main(["--removed-since", before, "posts/**/*.md", "--source", source])
+        finally:
+            os.chdir(old_cwd)
+            os.environ.clear()
+            os.environ.update(old_env)
+        self.assertEqual(removed, 0)
+        self.assertRegex(out.getvalue(), r"D removed\s+devto\s+posts/link\.md\n    Post pst_\w+ was cancelled\.")
+        self.assertEqual(self.app.store.get_post(synced["post_id"])["status"], "cancelled")
+
     def test_the_cli_resends_and_cancels_a_post(self):
         """Issue #234: the person's decision from the same client as the sync. A sync's send got an uncertain answer
         (DEV failed after the request was sent); ``inkcast resend`` with the CI token is refused (posts:write), with
