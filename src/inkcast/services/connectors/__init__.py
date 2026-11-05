@@ -23,7 +23,7 @@ from ...libs.service import ServiceSpec
 
 def _routes(ctx: Context) -> list[Route]:
     store, registry = ctx.store, ctx.platforms
-    tokens = PageTokens(ctx.config.secret_key)
+    tokens = PageTokens(ctx.config.secret_key, "connect")
 
     async def connect(request: Request) -> Response:
         ticket = request.path_params["ticket"]
