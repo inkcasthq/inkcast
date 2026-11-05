@@ -32,7 +32,8 @@ if [ "$status" -ne 0 ]; then
              s ~ /^[A-Za-z0-9_.]*(Error|Exception): / ||                    # so a log line that names one is not a cause
              s ~ /^[A-Za-z0-9_.]*(Error|Exception)$/ ||
              s ~ /^FAILED/ || s ~ /^(FAIL|ERROR): / ||                      # pytest, unittest
-             s ~ /^(fatal|error): / || s ~ /: (fatal|error): /              # git, the shell, compilers ("f.c:1: error:")
+             s ~ /^(fatal|error): / || s ~ /: (fatal|error): / ||            # git, C compilers ("f.c:1: error:")
+             s ~ /: command not found$/                                    # bash
     }
     function continuation(c) { return c >= "\200" && c < "\300" }   # inside a UTF-8 character
     # The UTF-16 units the runner counts once it decodes s. A byte outside a well-formed UTF-8 character counts one,

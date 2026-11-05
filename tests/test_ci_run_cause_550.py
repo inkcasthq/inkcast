@@ -284,6 +284,25 @@ class CiRunCause(unittest.TestCase):
         self.assertIn("Error: 100% failed, %0A is not a newline\r\n", message)
         self.assertIn("Error: 100%25 failed, %250A is not a newline%0D%0A", out)
 
+    def test_a_command_not_found_above_the_tail_is_shown(self):
+        # bash's own wording (bash 5: "<script>: line <n>: <name>: command not found"), from a script that goes on after it.
+        text = "build.sh: line 3: kustomize: command not found\n" + "".join(f"line {i}\n" for i in range(30))
+        _, _, (_, message) = self.fails_with(text, status=127)
+        self.assertEqual(message, "build.sh: line 3: kustomize: command not found\n"
+                                  "----- the last 25 of 31 lines -----\n" + todays_tail(text))
+
+    def test_every_workflow_label_makes_a_title_the_checks_api_takes(self):
+        # A check run's annotation title is at most 255 characters (https://docs.github.com/en/rest/checks/runs,
+        # annotations[].title). The script doesn't shorten a label, so each one in the workflows must fit, escaped as a
+        # property, with the longest suffix (exit 255).
+        labels = [m[1] for path in sorted((REPO / ".github" / "workflows").glob("*.yml"))
+                  for m in re.finditer(r'ci-run\.sh "([^"]+)"', path.read_text(encoding="utf-8"))]
+        self.assertGreater(len(labels), 25)
+        for label in labels:
+            title = f"{label} failed (exit 255)"
+            escaped = title.replace("%", "%25").replace(":", "%3A").replace(",", "%2C")
+            self.assertLessEqual(len(escaped), 255, label)
+
     def test_the_title_is_escaped_as_a_property(self):
         # The toolkit's escapeProperty (actions/toolkit packages/core/src/command.ts) also escapes ':' and ','.
         _, out, (title, _) = self.fails_with("boom\n", label="stale, run: make 50%")

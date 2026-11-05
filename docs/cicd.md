@@ -51,7 +51,8 @@ print its cause first (npm) or last (a Python traceback, pytest, unittest), so t
 
 1. the first lines above the output's last 25 that look like a cause, at most 15: `npm error` lines, `Invalid:` and
    `Missing:`, `Traceback`, a line that starts with an exception (`ValueError: ...`), `FAILED`, unittest's `FAIL:`
-   and `ERROR:`, and `fatal:` and `error:` from git, the shell and compilers;
+   and `ERROR:`, `fatal:` and `error:` lines, such as git's and a C compiler's (`f.c:1: error:`), and bash's
+   `command not found`;
 2. a `----- the last 25 of N lines -----` separator;
 3. the last 25 lines.
 
