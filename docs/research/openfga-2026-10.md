@@ -99,7 +99,7 @@ These are OpenFGA **server** settings. If a deployment changes them (`OPENFGA_MA
 
 ## 7. The hand-over after a lock lost alone: a time grace, or a fence
 
-*Added 2026-11-04 for issue #474 (K5, from the review of PR #453). This is research only: nothing here is built. Sources:*
+*Added 2026-11-04 for issue #474 (K5, from the review of PR #453). Option 2, the eviction fence, is built (issue #494, 2026-11-05: "Built", below). Sources:*
 - *read over git: PostgreSQL `REL_18_6`; pgx v5.11.0 (OpenFGA v1.22.0's `go.mod:28`); Go's `database/sql` at go1.26.0 (OpenFGA's `go.mod`: `go 1.26.0`); goose v3.28.0; CloudNativePG v1.30.1;*
 - *read on the web: the PostgreSQL 18 manual and the Kubernetes documentation;*
 - *measured: on 2026-11-04, in the migration harness's container (the pinned PostgreSQL 18.6 and OpenFGA v1.22.0 images), with a scratch script outside the repository.*
@@ -117,7 +117,7 @@ A grace is a time bound, not a fence: a runner that is paused rather than dead w
 | A role may end its own sessions. `pg_terminate_backend` is allowed when the caller has the privileges of the backend's role, or of `pg_signal_backend`. It never ends a superuser's backend unless the caller is a superuser. With a timeout in milliseconds, it waits for the backend to exit; if the backend does not exit in time, it returns false with a warning. | `src/backend/storage/ipc/signalfuncs.c:50-127` (`pg_signal_backend`; the role checks at 88-103) and `:226-279` (`pg_terminate_backend` and its timeout); the PostgreSQL 18 manual, "Server Signaling Functions" |
 | As the migrating role, `pg_terminate_backend(pid, 5000)` on the paused runner's session returned true in 0.15 s. The build ended and left `idx_user_lookup` INVALID. The thawed `openfga migrate` exited 1 (`failed to run SQL migration ... CREATE INDEX CONCURRENTLY`), and no version-6 row was recorded. On a superuser's backend, the same call failed with `permission denied to terminate process`. | measured |
 | The migrating roles are not superusers. `openfga_staging` and `openfga_prod` are CloudNativePG managed roles with no `superuser` set, and it defaults to false. | `deploy/kustomize/shared/inkcast-db/cluster.yaml:32-41`; CloudNativePG v1.30.1 `api/v1/cluster_types.go:2721-2724` |
-| `openfga migrate` names its sessions with `PGAPPNAME`. pgx maps it to `application_name`, and the URI's own settings override the environment's. OpenFGA sets no `application_name` of its own. Measured: with `PGAPPNAME=openfga-migrate-goose`, its session showed that name. Today `migrate.sh` exports `PGAPPNAME=openfga-migrate` for both psql and `openfga migrate`, so their sessions cannot yet be told apart. | pgx `pgconn/config.go:701-739` (`parseEnvSettings`) and `:428` (`mergeSettings(defaultSettings, envSettings, connStringSettings)`); OpenFGA `pkg/storage/migrate/migrate.go` (no `application_name`); `migrate.sh:65` |
+| `openfga migrate` names its sessions with `PGAPPNAME`. pgx maps it to `application_name`, and the URI's own settings override the environment's. OpenFGA sets no `application_name` of its own. Measured: with `PGAPPNAME=openfga-migrate-goose`, its session showed that name. Until #494, `migrate.sh` exported `PGAPPNAME=openfga-migrate` for both psql and `openfga migrate`, so their sessions could not be told apart; `openfga migrate` now runs with `PGAPPNAME=openfga-migrate-goose` on its command alone. | pgx `pgconn/config.go:701-739` (`parseEnvSettings`) and `:428` (`mergeSettings(defaultSettings, envSettings, connStringSettings)`); OpenFGA `pkg/storage/migrate/migrate.go` (no `application_name`); `migrate.sh` (`export PGAPPNAME`, and the `openfga migrate` command of step 4) |
 | Ending a connection does not end the process. Before pgx's `database/sql` driver reuses a connection that has been idle for more than 1 s, it pings it, and it reports a failed ping as `driver.ErrBadConn`. `database/sql` then retries on another connection, and on its last try it opens a new one. So a runner thawed between two statements reconnects and goes on. **Read in source, not measured.** | pgx `stdlib/sql.go:566-598` (`ResetSession`) and `:148-151` (`OptionShouldPing`, default 1 s); Go `src/database/sql/sql.go:1572-1584` at go1.26.0 (`maxBadConnRetries`, `retry`) |
 | goose's `Provider` takes its session lock on a dedicated `*sql.Conn` and runs the migrations on that same connection, so the lock and the migration cannot come apart. OpenFGA calls goose's package-level functions instead. OpenFGA's refactor toward a migration interface of its own is open. | goose v3.28.0 `provider_run.go:277-336` (`initialize`); openfga/openfga#2448 (open); #3355 (the INVALID index, open) |
 | A fence needs a check by the storage, not by the lock holder: "the storage server to take an active role in checking tokens". | Kleppmann, "How to do distributed locking" (2016) |
@@ -131,7 +131,7 @@ A grace is a time bound, not a fence: a runner that is paused rather than dead w
      - its statement in flight runs on during the pause (measured above), beside the next runner's work;
      - once thawed, it runs on for up to `PROBE_SECONDS`, until its own probe ends it.
    - **What covers that failure:** the repair (step 3) and a retry cover 006. They do not cover the one overlap that is permanent (§6): a runner paused after it planned 003 to 006, and thawed after the other runner's 006 dropped `idx_reverse_lookup_user`, records version 3 again. That needs a database below version 3 (a new install, or an upgrade from before 003) and a pause at that moment.
-2. **Fence by eviction.**
+2. **Fence by eviction (built: issue #494).**
    - **How it works:**
      - `openfga migrate` gets a name of its own (`PGAPPNAME=openfga-migrate-goose`, on its command only).
      - Once the runner has the lock, before it repairs anything, it ends every session of its role and database that has that name, with `pg_terminate_backend(pid, 5000)`.
@@ -171,7 +171,28 @@ A grace is a time bound, not a fence: a runner that is paused rather than dead w
 - **Raise option 4 upstream, on openfga/openfga#2448.** It is the only fence that closes the late-003 overlap without an object in OpenFGA's schema.
 - **Do not build option 3 unless a late 003 is ever seen.** It fences a rare, permanent case at the price of a foreign object in OpenFGA's schema.
 
-The integrator decides whether the fence is built (issue #474).
+The integrator decided on 2026-11-04 to build option 2 beside the grace, which stays, and not to build option 3 unless a late 003 is ever seen (issue #494).
+
+### Built (issue #494)
+
+*Built on 2026-11-05. Measured in the migration harness (the pinned PostgreSQL 18.6 and OpenFGA v1.22.0 images).*
+
+- **What `migrate.sh` does** (header, steps 2b and 4):
+  - `openfga migrate` runs with `PGAPPNAME=openfga-migrate-goose` on its command alone. psql's lock session keeps `openfga-migrate`.
+  - After the grace, before the repair, the runner that holds the lock runs `pg_terminate_backend(pid, 5000)` on every session with `usename = current_user`, `datname = current_database()` and that name, except its own backend.
+  - `pg_terminate_backend` returns false both on a timeout and for a pid that is no backend any more (`signalfuncs.c:67-76`, `:217-223`). So the runner looks again in a statement of its own, because `pg_stat_activity` is read once per transaction (`monitoring.sgml`). A pid still there fails the run, and the log line names it. A pid that ended on its own is not a failure.
+  - It logs pids and counts only. When there is nothing to end, it logs nothing, so a run without the race is unchanged.
+  - A URI whose query sets `application_name=` (any case or encoding of the key, `fallback_application_name=` included) is refused before psql, as `options=` is.
+- **Measured:**
+  - With `PGAPPNAME=openfga-migrate-goose`, the session building 006 showed `openfga-migrate-goose|openfga|openfga` (name, `usename`, `datname`) and the lock holder `openfga-migrate`.
+  - With `application_name=x` in the URI as well, the build ran as `x`, and the fence's statement left it running.
+  - A runner was paused (SIGSTOP on all its processes) during 006, and its lock session was ended alone. The next runner waited the grace (6 s) and then ended the paused build, 6.1 s after it started, with the snapshot that build waited for still held. Its repair dropped the INVALID index and its 006 built it again.
+  - Thawed, the paused runner's `openfga migrate` failed (`FATAL: terminating connection due to administrator command (SQLSTATE 57P01)`) and the runner exited 1. One version-6 row remained, over a valid `idx_user_lookup`.
+  - Before the fence, the next runner's repair (`DROP INDEX CONCURRENTLY`) waited on that build until its session gave up after 60 s.
+- **The tests:** `tests/test_migrate_eviction_fence.py`.
+- **Still open, as option 2 above says:**
+  - A runner thawed between two statements, or after the fence, gets a new connection from `database/sql` (read in source, not measured). It runs on until its own probe ends it.
+  - **[UNVERIFIED]** A backend whose client is cut off may not exit within the 5 s, and that fails the run.
 
 ## Sources
 
