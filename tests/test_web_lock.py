@@ -109,6 +109,20 @@ class Lock(unittest.TestCase):
         for name, version in self.manifest["devDependencies"].items():
             self.assertEqual(self.lock["packages"][f"node_modules/{name}"]["version"], version, name)
 
+    def test_records_the_dependencies_of_the_root_and_every_workspace(self):
+        """npm ci fails when the lock lacks what a manifest asks for, not when it holds more (validate-lockfile.js
+        checks one direction), so a dependency or a workspace removed from a manifest still passes the web job."""
+        web = MANIFEST.parent
+        manifests = {"": self.manifest}
+        for pattern in self.manifest.get("workspaces", []):
+            for path in sorted(web.glob(f"{pattern}/package.json")):
+                manifests[path.parent.relative_to(web).as_posix()] = json.loads(path.read_text())
+        recorded = {key for key in self.lock["packages"] if "node_modules/" not in key}
+        self.assertEqual(recorded, set(manifests), "the lock's workspaces are the ones under web/")
+        for key, manifest in manifests.items():
+            for field in ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies"):
+                self.assertEqual(self.lock["packages"][key].get(field, {}), manifest.get(field, {}), f"{key}: {field}")
+
     def test_every_registry_package_carries_a_sha512_integrity(self):
         # A workspace is a link ("resolved": "packages/ui", "link": true): it is in the tree, not fetched.
         fetched = {key: entry for key, entry in self.lock["packages"].items()

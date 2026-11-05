@@ -171,6 +171,17 @@ class LockDrift(unittest.TestCase):
             result = lock_tests(manifest, lock, workspaces)
             self.assertTrue(result.wasSuccessful(), result.failures + result.errors)
 
+    def test_a_dependency_removed_from_a_workspace_fails(self):
+        foo = {**FOO, "dependencies": {"left-pad": "1.3.0"}}
+        self.assertFalse(lock_tests(self.manifest, LOCK_WORKSPACE, {"packages/foo/package.json": foo}).wasSuccessful())
+
+    def test_a_workspace_removed_fails(self):
+        self.assertFalse(lock_tests(self.manifest, LOCK_WORKSPACE, {}).wasSuccessful())
+
+    def test_a_dependency_removed_from_web_package_json_dependencies_fails(self):
+        manifest = {**self.manifest, "dependencies": {"left-pad": "1.3.0"}}
+        self.assertFalse(lock_tests(manifest, LOCK_ROOT_DEPENDENCIES, {}).wasSuccessful())
+
 
 if __name__ == "__main__":
     unittest.main()
