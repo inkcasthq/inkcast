@@ -33,9 +33,9 @@ esac
 
 def close_loop() -> str:
     """The step's loop over the superseded PRs, from `while read -r n; do` to its `done`."""
-    found = re.search(r"^( *)while read -r n; do\n.*?^\1done$", WORKFLOW.read_text(), re.M | re.S)
-    assert found, "promote.yml has no close loop"
-    return found.group(0)
+    found = [m.group(0) for m in re.finditer(r"^( *)while read -r n; do\n.*?^\1done$", WORKFLOW.read_text(), re.M | re.S)]
+    assert len(found) == 1, f"promote.yml has {len(found)} loops over `read -r n`, not one: the test can't tell which"
+    return found[0]
 
 
 class ASupersededPromotionMergedMeanwhile(unittest.TestCase):
