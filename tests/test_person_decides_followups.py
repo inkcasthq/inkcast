@@ -317,7 +317,8 @@ class FindingARetriedResendNamesTheNewPost(Harness):
         self.assertIn(f"resent as post {first.id}, which is published", caught.exception.message,
                       "the client whose first reply was lost isn't told the new post")
         self.assertIn("is cancelled; only unconfirmed posts can be resent", caught.exception.message)
-        self.assertEqual(caught.exception.extra, {"post_id": first.id})
+        self.assertEqual(caught.exception.extra, {"post_id": first.id,
+                                                  "first_post_note": self.store.get_post(old_id)["error"]})
         from inkcast.libs.http.rest import problem
         body = json.loads(problem(caught.exception.status, caught.exception.code, caught.exception.message,
                                   **caught.exception.extra).body)
@@ -332,7 +333,8 @@ class FindingARetriedResendNamesTheNewPost(Harness):
         self.assertEqual(third.status, "published")
         with self.assertRaises(ServiceError) as caught:
             asyncio.run(self.service.resend(self.user, old_id))
-        self.assertEqual(caught.exception.extra, {"post_id": second.id})
+        self.assertEqual(caught.exception.extra, {"post_id": second.id,
+                                                  "first_post_note": self.store.get_post(old_id)["error"]})
         self.assertIn(f"resent as post {second.id}, which is cancelled", caught.exception.message)
         self.assertNotIn(third.id, caught.exception.message)
         self.assertEqual(self.store.get_post(old_id)["resent_as"], second.id)

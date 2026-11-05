@@ -400,9 +400,11 @@ def post_main(command: str, argv: list[str]) -> int:
     """``inkcast resend <post-id>`` and ``inkcast cancel <post-id>``: the person's decision on a post a sync reported
     as waiting for one (``POST /api/v1/posts/{id}/resend`` and ``.../cancel``, a ``posts:write`` token). The reply is
     the post: for a resend the new one (published, or failed, unconfirmed or recovering in its turn: exit 1, and the
-    first post is cancelled either way); for a cancel the cancelled one, with its note when it may already be on the
-    platform. The API's refusals (409: not unconfirmed, resent already, the platform not connected or not answering
-    just now; 404) are exit 1 with the message; a token short of the scope is exit 2."""
+    first post is cancelled either way), then the first post's note (``first_post_note``: it may already be on the
+    platform, or it was never sent, #523; a server without the field gets the warning); for a cancel the cancelled
+    one, with its note when it may already be on the platform. The API's refusals (409: not unconfirmed; resent
+    already, with the first post's note; the platform not connected or not answering just now; 404) are exit 1 with
+    the message; a token short of the scope is exit 2."""
     prog = f"inkcast {command}"
     parser = argparse.ArgumentParser(prog=prog, description={
         "resend": "Send an unconfirmed post again, now, as one new post; the old one is cancelled. Check the platform "
@@ -428,6 +430,13 @@ def post_main(command: str, argv: list[str]) -> int:
             return 1
     if r.status_code != 200:
         print(f"{prog}: {r.status_code}: {_detail(r)}", file=sys.stderr)
+        try:
+            # A retried resend, its first reply lost: the 409 carries what that reply said of the first post (#523).
+            note = r.json().get("first_post_note") if command == "resend" else None
+        except (ValueError, AttributeError):
+            note = None
+        if note:
+            print(f"Post {args.post_id} is cancelled: {note}", file=sys.stderr)
         return 2 if r.status_code in (401, 403) else 1
     post = r.json()
     if args.json:
@@ -436,6 +445,10 @@ def post_main(command: str, argv: list[str]) -> int:
         line = f"{post['status']}  " + (f"{post['url']}  " if post.get("url") else "") + f"(post {post['id']})"
         print(line + (f"\n    {post['error']}" if post.get("error") else ""))
         if command == "resend":
-            print(f"Post {args.post_id} is cancelled; it may already be on the platform from the first send: check, and "
+            # The first post's own note, as the server knows it: it may already be on the platform, or it was never
+            # sent (#523). A server from before the field sends none, and the warning stays.
+            note = post.get("first_post_note")
+            print(f"Post {args.post_id} is cancelled: {note}" if note else
+                  f"Post {args.post_id} is cancelled; it may already be on the platform from the first send: check, and "
                   "remove the extra copy if it is.")
     return 0 if command == "cancel" or post["status"] in CONFIRMED else 1

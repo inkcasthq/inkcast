@@ -5,8 +5,8 @@
 Since #502 Inkcast knows when a post was never sent: its credentials could not be decrypted when it was due, on a
 platform it can't ask (Medium). The first post's note says so when its owner resends it, but the replies the owner
 reads at that moment were hard-coded: "it may already be on ...: check, and remove the extra copy", a copy Inkcast knows
-was never made. The resend's REST reply now carries the first post's note (``first_post_note``, beside every field the
-new post had in it before, AIP-180), and each client prints it in place of that line. A reply without it, from a server
+was never made. The resend's REST reply now carries the first post's note (``first_post_note``, added beside every
+field the reply had before, AIP-180), and each client prints it in place of that line. A reply without it, from a server
 before this field, keeps the line: a client never says less than it knows. A retried resend, its first reply lost, is
 told the note too, beside the post the first resend made.
 
@@ -85,15 +85,12 @@ class FrontDoors(unittest.TestCase):
         cls.server.should_exit = True
         cls.ctx.store.close()
 
-    def store(self) -> Store:
-        return self.ctx.store
-
     def post(self, status: str, **fields) -> str:
         prepared = self.blind.prepare({"title": "t"}, "Body.")
-        post_id = self.store().create_post(group_id="g", user_id=self.user, platform=self.blind.id, title="t",
+        post_id = self.ctx.store.create_post(group_id="g", user_id=self.user, platform=self.blind.id, title="t",
                                            status=status, run_at=time.time() - 1, payload=prepared.to_dict())
         if fields:
-            self.store().update_post(post_id, **fields)
+            self.ctx.store.update_post(post_id, **fields)
         return post_id
 
     def never_sent(self) -> str:
@@ -104,7 +101,7 @@ class FrontDoors(unittest.TestCase):
         with self.assertLogs("inkcast.libs.pipeline", level="WARNING"):
             asyncio.run(scheduler.run_due(now=time.time()))
             asyncio.run(scheduler.run_due(now=time.time() + STUCK_AFTER + 1))
-        row = self.store().get_post(post_id)
+        row = self.ctx.store.get_post(post_id)
         self.assertEqual(row["status"], "unconfirmed")
         self.assertTrue(row["error"].startswith(UNSENT_MARKER + " Reconnect Blind"), row["error"])
         return post_id
@@ -115,7 +112,7 @@ class FrontDoors(unittest.TestCase):
 
     def note(self, post_id: str) -> str:
         """The first post's note: its error, written by the resend that cancelled it."""
-        row = self.store().get_post(post_id)
+        row = self.ctx.store.get_post(post_id)
         self.assertEqual(row["status"], "cancelled")
         return row["error"]
 
@@ -232,9 +229,9 @@ class FindingTheRestReplyCarriesTheFirstPostsNote(FrontDoors):
 
 
 class FindingARetriedResendIsToldTheFirstPostsNote(FrontDoors):
-    def test_the_409_carries_it_beside_the_new_post_and_the_cli_prints_it(self):
+    def test_the_409_carries_it_beside_the_new_post_and_both_clients_print_it(self):
         """The first reply was lost: the retry is told the post the first resend made (#234), and now what the lost
-        reply said of the first post too. ``inkcast`` has no listing to follow the new post through."""
+        reply said of the first post too, which a retry whose first reply said "may already be on" never heard."""
         for make in (self.never_sent, self.maybe_out):
             with self.subTest(first=make.__name__):
                 old_id = make()
@@ -243,12 +240,31 @@ class FindingARetriedResendIsToldTheFirstPostsNote(FrontDoors):
                 self.assertEqual(again.status_code, 409, again.text)
                 body = again.json()
                 self.assertEqual((body["error"], body["post_id"]), ("not_resendable", first["id"]))
-                self.assertEqual(body.get("first_post_note"), first["first_post_note"])
+                self.assertEqual(body.get("first_post_note"), self.note(old_id))
+                self.assertEqual(body["first_post_note"], first["first_post_note"])
                 code, out, err = self.cli(old_id)
                 self.assertEqual((code, out), (1, ""))
                 self.assertIn(f"inkcast resend: 409: Post {old_id} is cancelled; only unconfirmed posts can be resent.",
                               err)
                 self.assertIn(f"\nPost {old_id} is cancelled: {self.note(old_id)}\n", err)
+                error, text = self.mcp(old_id)
+                self.assertTrue(error, text)
+                self.assertIn(f"It was resent as post {first['id']}, which is published: follow that one.", text)
+                self.assertIn(f"\n  The first post is cancelled: {self.note(old_id)}", text)
+
+
+class HeldARefusalOfAPostNotResentIsAsBefore(FrontDoors):
+    def test_a_post_cancelled_by_hand_carries_no_note(self):
+        """Only a resent post's 409 names a new post and its note; the cancel's own reply said the note already."""
+        old_id = self.maybe_out()
+        httpx2.post(f"{self.cfg.public_url}/api/v1/posts/{old_id}/cancel",
+                    headers={"Authorization": f"Bearer {self.access}"}, timeout=30).raise_for_status()
+        refused = self.rest(old_id)
+        self.assertEqual(refused.status_code, 409, refused.text)
+        self.assertNotIn("post_id", refused.json())
+        self.assertNotIn("first_post_note", refused.json())
+        code, out, err = self.cli(old_id)
+        self.assertEqual((code, out, err.count("\n")), (1, "", 1))
 
 
 class HeldAReplyWithoutTheFieldKeepsTodaysWarning(unittest.TestCase):

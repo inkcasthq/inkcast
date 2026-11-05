@@ -26,7 +26,9 @@ from ...libs.account import deletion_link
 from ...libs.auth import SCOPE, SCOPES, Principal
 from ...libs.config import PAT_DAYS_CEILING
 from ...libs.content.story import SCHEDULE_HORIZON_DAYS
-from ...libs.contracts.models import PostInfo, PublishRequest, PublishResponse, SyncFile, SyncRequest, SyncResponse
+from ...libs.contracts.models import (
+    PostInfo, PublishRequest, PublishResponse, ResendResponse, SyncFile, SyncRequest, SyncResponse,
+)
 from ...libs.runtime import Context
 from .sync import GitSync
 from .usecases import InkcastService, ServiceError
@@ -95,14 +97,18 @@ def render_resend(post: PostInfo, old_id: str, registry: dict) -> str:
     """The resend's reply: the new post, as a publish reply would show it, and the one thing left to the person. Any
     status but a confirmed one is named as it is, with the post's note: 'unconfirmed' (the person decides again),
     'failed', or 'recovering' (the send outlasted STUCK_AFTER and another worker took it over; it was called FAILED
-    before, #234)."""
+    before, #234). The first post's own note follows, as the server knows it: that it may already be on the platform,
+    or that it was never sent (#502, #523). Without one (a ``PostInfo``) the warning stays, so the reply never says
+    less than it knows."""
     name = registry[post.platform].name if post.platform in registry else post.platform
     if post.status in ("published", "draft", "unlisted"):
         what = post.status + (f" → {post.url}" if post.url else "")
     else:
         what = f"{post.status.upper()} — {post.error}"
-    return (f"Resent “{post.title}” (post `{old_id}`) as post `{post.id}`: {what}\n"
-            f"  The first post is cancelled; it may already be on {name}: check {name}, and remove the extra copy if it is.")
+    note = post.first_post_note if isinstance(post, ResendResponse) else None
+    first = (f"The first post is cancelled: {note}" if note else
+             f"The first post is cancelled; it may already be on {name}: check {name}, and remove the extra copy if it is.")
+    return f"Resent “{post.title}” (post `{old_id}`) as post `{post.id}`: {what}\n  {first}"
 
 
 def render_sync(resp: SyncResponse) -> str:
@@ -152,7 +158,9 @@ def build_mcp(ctx: Context, service: InkcastService, sync: GitSync) -> MCPServer
             result = fn(who.user_id, *args)
             return await result if asyncio.iscoroutine(result) else result
         except ServiceError as exc:
-            raise ToolError(exc.message) from exc
+            # A retried resend, its first reply lost: the refusal repeats what that reply said of the first post (#523).
+            note = exc.extra.get("first_post_note")
+            raise ToolError(f"{exc.message}\n  The first post is cancelled: {note}" if note else exc.message) from exc
 
     @mcp.tool(title="List platforms", annotations=ToolAnnotations(read_only_hint=True))
     async def inkcast_platforms() -> str:

@@ -53,6 +53,8 @@ class ErrorBody(BaseModel):
     message: str = Field(description="What went wrong and how to fix it.")
     post_id: str | None = Field(None, description="On a 409 `not_resendable` for a post resent already: the post that "
                                                   "resend made, to follow when the first reply was lost.")
+    first_post_note: str | None = Field(None, description="On that 409 too: the resent post's note, as the lost reply "
+                                                          "carried it (`first_post_note`).")
 
 
 class Me(BaseModel):
@@ -149,6 +151,17 @@ class PostInfo(BaseModel):
     url: str | None = None
     error: str | None = None
     attempts: int = 0
+
+
+class ResendResponse(PostInfo):
+    """A resend's reply: the new post, every field as ``PostInfo`` has it, and the first post's note, so a client
+    repeats what the server knows of the first post instead of a warning of its own (#523). A field of this route's
+    reply only: no other posts route carries it."""
+
+    first_post_note: str | None = Field(None, description=(
+        "The `error` of the first post, the one this resend cancelled: that it may already be on the platform, or that "
+        "it was never sent (its credentials could not be decrypted when it was due). Show it in place of a warning of "
+        "your own; a server from before this field sends none."))
 
 
 # ---- personal access tokens (IdentityService) --------------------------------------------

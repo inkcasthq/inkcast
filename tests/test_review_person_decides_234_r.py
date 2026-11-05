@@ -205,7 +205,8 @@ class FindingARetriedResendWhileDisconnectedNamesTheNewPost(Harness):
             asyncio.run(self.service.resend(self.user, old_id))
         self.assertNotIn("still unconfirmed", caught.exception.message, "the reply says the resent post is unconfirmed")
         self.assertEqual((caught.exception.status, caught.exception.code, caught.exception.extra),
-                         (409, "not_resendable", {"post_id": first.id}))
+                         (409, "not_resendable", {"post_id": first.id,
+                                                  "first_post_note": self.store.get_post(old_id)["error"]}))
 
 
 # ---- the cap ends a post even when its last lookup can't be made (#234 item 2) ------------------------------------------
