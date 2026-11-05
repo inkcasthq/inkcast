@@ -45,6 +45,22 @@ tag vX.Y.Z ────► publish.yml (same) ► release: GitHub Release + mani
 | `lock-refresh.yml` | weekly, or manual | the `deps/lock-refresh` branch |
 | `web-lock-refresh.yml` | weekly, or manual | the `deps/web-lock-refresh` branch |
 
+**Reading a failure.** The workflows run their commands through `scripts/ci-run.sh`. When a command fails, the script
+puts one error annotation on the check run (`gh api repos/inkcasthq/inkcast/check-runs/<id>/annotations`). A tool can
+print its cause first (npm) or last (a Python traceback, pytest, unittest), so the annotation holds:
+
+1. the first lines above the output's last 25 that look like a cause, at most 15: `npm error` lines, `Invalid:` and
+   `Missing:`, `Traceback`, a line that starts with an exception (`ValueError: ...`), `FAILED`, unittest's `FAIL:`
+   and `ERROR:`, `fatal:` and `error:` lines, such as git's and a C compiler's (`f.c:1: error:`), and bash's
+   `command not found`;
+2. a `----- the last 25 of N lines -----` separator;
+3. the last 25 lines.
+
+With no such line, the annotation is the last 25 lines alone. The runner keeps 4096 characters of a message, so the
+cause lines only fill the room the last 25 lines leave, and last lines longer than that are cut in their middle.
+Lines that look like a cause can be noise, such as a traceback that a passing test logs. The step log has the full
+output.
+
 ## Environments and promotion
 
 **Staging**
