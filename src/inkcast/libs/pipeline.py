@@ -100,9 +100,10 @@ def _both_copies(platform: Platform, recorded: str, answered: str, attempt: int 
 def _is_second_copy(platform: Platform, note: str) -> bool:
     """Whether ``note`` says ``platform`` may have the post twice: ``_lost``, ``_second_copy`` or ``_both_copies``,
     matched whole against the builders' own wording with each argument any non-empty text, so the writers and this
-    reading share one wording. Only a person clears such a note (#234), so an update keeps it (#504). Linear, with no
-    regex: the notes and a copy's URL or id come from the platform, and a pattern with an open gap per argument
-    backtracks in cubic time on a long note (26 KB took a second)."""
+    reading share one wording. Only a person clears such a note (#234), so an update keeps it (#504), and so does a
+    send's success (``PostsRepo.record_success(keeps=)``, #531). Linear, with no regex: the notes and a copy's URL or
+    id come from the platform, and a pattern with an open gap per argument backtracks in cubic time on a long note
+    (26 KB took a second)."""
     if note == _lost(platform):
         return True
     # A builder's argument left open: longer than the platform name, the only other text the wording holds.
@@ -401,8 +402,10 @@ class Publisher:
         # published post is refused, so nothing is sent again, and the URL stays). The one thing a success never
         # replaces is a confirmed copy of another post already on the row (``PostsRepo.record_success``): a re-send
         # that arrived, or a lookup's match (DEV's matches by title, so an older article). Nothing says which of the two
-        # is the extra one, so the row keeps the copy it has, names both, and a person keeps one. The read that words
-        # a note and the write are one transaction, so a claim can't land between them.
+        # is the extra one, so the row keeps the copy it has, names both, and a person keeps one. Nor does a success
+        # clear a note that the platform may have the post twice (``_is_second_copy``, as ``update`` keeps it): one
+        # naming the copy recorded is no person's decision (#234, #531). The read that words a note and the write are one
+        # transaction, so a claim can't land between them.
         def second_copy(attempt: int) -> str:
             return _second_copy(platform, attempt)
 
@@ -414,24 +417,26 @@ class Publisher:
         # a post recovery had queued again while this send was still out (#392). The row takes the sent content back,
         # with a note, and the file's entry sees the edit at the next sync: sent as an update where the platform edits
         # posts, reported as stale (update it by hand) where it doesn't. Never a second post, and never dropped.
-        edited, lost = _edited(platform, result.url, result.remote_id), _lost(platform)
+        edited, keeps = _edited(platform, result.url, result.remote_id), functools.partial(_is_second_copy, platform)
 
         written, before = self.store.record_success(
             post_id, held=held, status=status, result_url=result.url, remote_id=result.remote_id, sent=sent,
-            notes=result.notes, second_copy=second_copy, both_copies=both_copies, edited=edited, lost=lost,
+            notes=result.notes, second_copy=second_copy, both_copies=both_copies, edited=edited, keeps=keeps,
             events=self._event("post.published", post_id, user_id, platform.id, status=status, scheduled=scheduled,
                                attempts=attempts, lag_seconds=round(lag, 3) if lag is not None else None))
         if written or before is None:  # before is None: erased meanwhile, the row left alone and the answer kept
             notes = list(result.notes)
             if written:
                 self._count(platform.id, status)
-                if lost in self.store.notes_of(before):  # an earlier send's uncertain answer landed over this re-send
-                    notes.append(lost)
+                kept = [n for n in self.store.notes_of(before) if keeps(n)]  # as ``record_success`` carried them over
+                notes += [n for n in kept if n not in notes]  # the success's own notes may hold one
+                if _lost(platform) in kept:  # an earlier send's uncertain answer landed over this re-send
                     log.warning("Post %s on %s was published by a re-send; an earlier send's answer was lost after its "
                                 "request was sent, and may have posted a second copy", post_id, platform.id,
                                 extra={"event": "publish.second_copy", "post_id": post_id, "platform": platform.id})
                 if self.store.may_have_arrived_since(before, held):
-                    notes.append(second_copy(before["attempts"]))
+                    if second_copy(before["attempts"]) not in notes:  # carried over: an earlier success wrote it
+                        notes.append(second_copy(before["attempts"]))
                     log.warning("Post %s on %s was published by a send taken over as stuck; attempt %s, sent meanwhile, "
                                 "may have posted a second copy", post_id, platform.id, before["attempts"],
                                 extra={"event": "publish.second_copy", "post_id": post_id, "platform": platform.id})
