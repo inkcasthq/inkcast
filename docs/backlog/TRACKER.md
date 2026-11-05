@@ -47,10 +47,10 @@ Follow-ups in code that already runs: links written to the log, double-sends, lo
 
 | # | Item | Status | Title | Epic | Issue |
 |---:|---|---|---|---|---|
-| 8 | #531 | open issue | Publishing: a success of the recorded copy drops a 'may have this post twice' note | | [#531](https://github.com/inkcasthq/inkcast/issues/531) |
-| 9 | #535 | open issue | inkcast sync: a deleted file that is still in the working tree is synced, then cancelled | | [#535](https://github.com/inkcasthq/inkcast/issues/535) |
-| 10 | #523 | open issue | Resend: the MCP and CLI replies say a never-sent post may already be on the platform | | [#523](https://github.com/inkcasthq/inkcast/issues/523) |
-| 11 | #533 | open issue | Publishing: a note holding '; ' is split, so readers miss it | | [#533](https://github.com/inkcasthq/inkcast/issues/533) |
+| 8 | #533 | open issue | Publishing: a note holding '; ' is split, so readers miss it | | [#533](https://github.com/inkcasthq/inkcast/issues/533) |
+| 9 | #559 | open issue | Publishing: an uncertain answer over a published row drops its two-copies note | | [#559](https://github.com/inkcasthq/inkcast/issues/559) |
+| 10 | #558 | open issue | Resend: a late success of the first send leaves two published copies and no note | | [#558](https://github.com/inkcasthq/inkcast/issues/558) |
+| 11 | #557 | open issue | inkcast sync: a newline in a file name splits its stderr line in two | | [#557](https://github.com/inkcasthq/inkcast/issues/557) |
 
 ### W3: The writer web app (phase 1, 1 of 15 stories done)
 
