@@ -351,7 +351,12 @@ def sync_main(argv: list[str]) -> int:
         except CliError as exc:
             print(f"inkcast sync: {exc}", file=sys.stderr)
             return 2
-        # ``collect`` reads the working tree, not HEAD: a path a build step fills is synced, so not removed below.
+        # ``collect`` reads the working tree, not HEAD: a path a build step fills is synced, so neither removed (#535)
+        # nor removed below (#508). For a relative pattern both lists are relative to the current directory, in
+        # ``PurePosixPath``'s form; an absolute or ``..`` pattern reports no removal (``removals_since``).
+        for p in [p for p in removals.files if p in paths]:
+            removals.files.remove(p)
+            print(f"inkcast sync: not cancelled {p}: this run syncs it", file=sys.stderr)
         for d in [d for d in removals.dirs if any(p.startswith(d + "/") for p in paths)]:
             removals.dirs.remove(d)
             print(f"inkcast sync: not cancelled below {d}: this run syncs files below it", file=sys.stderr)
