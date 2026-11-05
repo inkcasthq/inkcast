@@ -14,4 +14,4 @@ for image in $images; do
   echo "pull $image"
   docker pull -q "$image"
 done
-INKCAST_MIGRATE_HARNESS=required PYTHONPATH=src:tests python3 -m unittest -v tests.test_review_openfga_migrate tests.test_review_openfga_migrate_4xx_r
+INKCAST_MIGRATE_HARNESS=required PYTHONPATH=src:tests python3 -m unittest -v tests.test_review_openfga_migrate tests.test_review_openfga_migrate_4xx_r tests.test_review_474_ob3

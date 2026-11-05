@@ -12,10 +12,12 @@
   (InkcastBackupMissing) covers the days in between. One run never removes every earlier backup (issue #405): when
   the newest backup from before today has aged out (``keep`` or more days old; more than one with ``keep`` 1),
   either this clock has jumped that far ahead or no backup succeeded for the whole retention window, and the run
-  removes nothing and says so (``Backup.refused``; the command exits 1, so the Job fails and the alert fires). A
-  copy a wrong clock dated after today ages out with the day its run followed (``previous``), not with its own
-  date (``_dated``).
-* ``verify_backup``: the checksum against the manifest, then the integrity check.
+  removes nothing and says so (``Backup.refused``; the command exits 1, so the Job fails and the alert fires). Such a
+  day costs one copy: a run that finds today's copy of the same database there already, still matching its
+  checksum (the Job's retries), takes none, and is refused the same way (issue #471). A copy a wrong clock dated after today ages out with the day its
+  run followed (``previous``), not with its own date (``_dated``).
+* ``verify_backup``: the checksum against the manifest (one that is empty or cannot be read fails, issue #471), then
+  the integrity check.
 * ``restore_backup``: verifies first, refuses while the scheduler's heartbeat is fresh (the server is still running),
   and never deletes the current database: it is moved aside as ``<db>.before-restore-<time>`` with its WAL files.
   That name is to the second, so a second restore in the same second is refused before it copies anything (#202).
@@ -95,6 +97,7 @@ class Backup:
     removed_backups: int = 0    # backups ``keep`` or more days older than this one, removed once it was good
     removed_copies: int = 0     # the copies restores left beside the database (``ASIDE``) that old, removed too
     refused: str = ""           # why retention removed nothing although copies had aged out (issue #405), or ""
+    copied: bool = True         # False: a refused day's copy (``path``) was there already, so none was taken (#471)
 
     @property
     def name(self) -> str:
@@ -121,13 +124,20 @@ def _aged_out(stamp: datetime, now: float, keep: int) -> bool:
     return (today - stamp.date()).days >= keep
 
 
+def _manifest(backup: pathlib.Path) -> dict:
+    """The manifest beside ``backup``, or {} for one that is missing or cannot be read as an object: not JSON, another
+    shape, or nested too deep to parse, which raises RecursionError (issue #471; it takes write access to the volume)."""
+    try:
+        manifest = json.loads(_manifest_path(backup).read_text())
+    except (OSError, ValueError, RecursionError):
+        return {}
+    return manifest if isinstance(manifest, dict) else {}
+
+
 def _previous(backup: pathlib.Path) -> str:
     """The stamp of the backup that was the newest when ``backup`` was taken (``previous`` in its manifest), or "" for a
     manifest that lacks it (from before issue #405) or cannot be read."""
-    try:
-        previous = json.loads(_manifest_path(backup).read_text()).get(PREVIOUS, "")
-    except (OSError, ValueError, AttributeError):
-        return ""
+    previous = _manifest(backup).get(PREVIOUS, "")
     return previous if isinstance(previous, str) else ""
 
 
@@ -167,8 +177,8 @@ def _refusal(dated: dict[pathlib.Path, datetime], now: float, keep: int) -> str:
     (InkcastBackupMissing has fired for as long); on a clock ``keep - 1`` or more days ahead it is the one sign there is
     (issue #405). Either way the next good backup, a day on, finds a gap of one day and removes them. Today's other
     copies are not consulted: a run's judgement of its clock rests on the days before it, so a Job retried minutes
-    after a refused run (each attempt takes a backup) refuses again rather than trusting the copy the first attempt
-    dated by the same clock."""
+    after a refused run refuses again rather than trusting the copy the first attempt dated by the same clock; finding
+    that copy, it takes no other (``take_backup``, issue #471)."""
     today = datetime.fromtimestamp(now, timezone.utc).date()
     before = [stamp for stamp in dated.values() if stamp.date() < today]
     if not before:
@@ -333,6 +343,17 @@ def take_backup(database: pathlib.Path, directory: pathlib.Path, *, keep: int = 
         raise BackupError(f"{target.name} already exists; one backup per second at most.")
     dated = _dated(directory, now)                  # the backups before this one, as retention dates them (issue #405)
     newest = max(dated.values(), default=None)      # recorded in the manifest: what this copy's day follows
+    refused = _refusal(dated, now, keep)
+    if refused:
+        # Today's copy of the same database is a good copy of the day, whether its run was refused or not (keep can
+        # change during the day), so another one, the Job's retry, would only fill the volume: one copy a day (#471). A
+        # copy that changed after it was taken (its checksum) is no restore point, so it does not stand for the day.
+        today = datetime.fromtimestamp(now, timezone.utc).date()
+        for held in sorted((path for path, day in dated.items() if day.date() == today), reverse=True):
+            found = _manifest(held)
+            if found.get("source") == str(database) and _sha256(held) == found.get("sha256"):
+                return Backup(held, found, refused=f"{refused} Today's copy, {held.name}, is there already, so this run "
+                                                   f"took none.", copied=False)
     partial = directory / f".{target.name}.partial"
     old_umask = os.umask(0o027)
     try:
@@ -370,7 +391,6 @@ def take_backup(database: pathlib.Path, directory: pathlib.Path, *, keep: int = 
     # after any run of failed ones, and a backup taken by hand evicts no daily copy. The copies restores left beside
     # the database go by the same rule: they hold whoever was erased after the restore (issue #112). A run that would
     # remove every earlier backup removes nothing, copies included (issue #405).
-    refused = _refusal(dated, now, keep)
     if refused:
         return Backup(target, manifest, refused=refused)
     return Backup(target, manifest, removed_backups=_prune_backups(directory, keep, now, dated),
@@ -381,7 +401,9 @@ def verify_backup(path: pathlib.Path) -> dict:
     manifest_file = _manifest_path(path)
     if not path.exists() or not manifest_file.exists():
         raise BackupError(f"{path} or its manifest is missing.")
-    manifest = json.loads(manifest_file.read_text())
+    manifest = _manifest(path)
+    if not manifest:
+        raise BackupError(f"{path.name}'s manifest is empty or can't be read.")
     if _sha256(path) != manifest.get("sha256"):
         raise BackupError(f"{path.name} doesn't match its manifest's checksum: it changed after it was taken.")
     result = _integrity(path)

@@ -14,7 +14,8 @@ status: 0 done, 1 failed, 2 bad usage. Each outcome is one log line with an even
 `restore.done`, `restore.refused`, `restore.stopped`). A backup that is good but whose retention was refused (the
 newest earlier backup has aged out, `keep` or more days old (more than 1 with keep 1): a clock that far ahead, or no
 backup for that long; #405) logs `backup.done` and then `backup.retention.refused`, and exits 1: the Job fails, so
-InkcastBackupMissing fires and someone looks at the clock. Runbook: docs/runbooks/backup-restore.md.
+InkcastBackupMissing fires and someone looks at the clock. The Job's retries find that day's copy and take none: each
+logs `backup.retention.refused` alone, naming the copy, and exits 1 (#471). Runbook: docs/runbooks/backup-restore.md.
 """
 
 from __future__ import annotations
@@ -85,12 +86,13 @@ def backup_main(argv: list[str]) -> int:
     except (BackupError, OSError) as exc:
         log.error("Backup failed: %s", exc, extra={"event": "backup.failed", "database": str(args.database)})
         return 1
-    log.info("Backup %s: %d bytes, sha256 %s, %d tables; removed %d backup(s) and %d pre-restore cop(ies) %d or more "
-             "days old", b.name, b.manifest["size"], b.manifest["sha256"][:12], len(b.manifest["rows"]),
-             b.removed_backups, b.removed_copies, args.keep,
-             extra={"event": "backup.done", "backup": b.name, "size": b.manifest["size"],
-                    "rows": sum(b.manifest["rows"].values()), "removed_backups": b.removed_backups,
-                    "removed_copies": b.removed_copies})
+    if b.copied:            # a retry on a refused day took none: its refusal below names the day's copy (#471)
+        log.info("Backup %s: %d bytes, sha256 %s, %d tables; removed %d backup(s) and %d pre-restore cop(ies) %d or "
+                 "more days old", b.name, b.manifest["size"], b.manifest["sha256"][:12], len(b.manifest["rows"]),
+                 b.removed_backups, b.removed_copies, args.keep,
+                 extra={"event": "backup.done", "backup": b.name, "size": b.manifest["size"],
+                        "rows": sum(b.manifest["rows"].values()), "removed_backups": b.removed_backups,
+                        "removed_copies": b.removed_copies})
     if b.refused:           # the backup counts; the Job must not, so that the alert on a missed backup fires (#405)
         log.error("Retention refused: %s", b.refused, extra={"event": "backup.retention.refused", "backup": b.name})
         return 1

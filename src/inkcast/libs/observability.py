@@ -164,8 +164,9 @@ EVENTS: dict[str, tuple[str, str]] = {
     "backup.done": ("info", "A database backup was taken, checked and kept (name, size, rows), and the backups and pre-restore "
                             "copies INKCAST_BACKUP_KEEP or more days old removed (removed_backups, removed_copies)."),
     "backup.failed": ("critical", "A database backup failed; nothing was removed. The alert fires when none succeeds for 26 h."),
-    "backup.retention.refused": ("critical", "The backup was taken and is good (its backup.done line precedes this), but "
-                                             "nothing aged out: the newest backup from before today has aged out "
+    "backup.retention.refused": ("critical", "The backup was taken and is good (its backup.done line precedes this; the "
+                                             "Job's retries find that copy, take none and log this alone, naming it, "
+                                             "#471), but nothing aged out: the newest backup from before today has aged out "
                                              "(INKCAST_BACKUP_KEEP days old or more), which is the node's clock that far "
                                              "ahead (check it) or no backup for that long (InkcastBackupMissing has fired "
                                              "as long). The command exits 1 so the Job fails and that alert fires; on a "

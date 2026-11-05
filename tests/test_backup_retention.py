@@ -133,7 +133,7 @@ class Retention(unittest.TestCase):
         self.assertIn("removed 1 backup(s) and 1 pre-restore cop(ies) 1 or more days old", done.getMessage())
 
 
-@unittest.skipUnless(shutil.which("kubectl"), "kubectl renders the kustomizations (CI's manifests job has it)")
+@unittest.skipUnless(shutil.which("kubectl"), "kubectl renders the kustomizations (CI's test job has the runner image's)")
 class TheCronJob(unittest.TestCase):
     """One source for the number of days: the CronJob reads ``INKCAST_BACKUP_KEEP`` from the ConfigMap the server
     reads, so the deletion pages and the retention cannot disagree."""
