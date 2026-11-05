@@ -18,7 +18,7 @@ import unittest
 from dataclasses import dataclass, field
 
 import test_review_publishing_214 as r214
-from inkcast.libs.pipeline import STUCK_AFTER, Publisher, _both_copies, _edited, _lost, _named, _second_copy
+from inkcast.libs.pipeline import STUCK_AFTER, Outcome, Publisher, _both_copies, _edited, _lost, _named, _second_copy
 from inkcast.libs.platforms import PlatformError, PublishResult
 
 TRIMMED = "Findable trimmed the tags to four."                       # a platform's own note on a send
@@ -133,45 +133,65 @@ class FindingWorkersReachASuccessOfTheCopyRecorded(r214.Harness):
         self.platforms[self.platform.id] = self.platform
         self.publisher = Publisher(self.store, self.platforms)
 
-    def test_a_lookups_match_then_another_copys_success_then_the_first_copys_own_answer(self):
+    def three_workers(self, found: str) -> tuple[list, Outcome]:
         """Worker A sends (attempt 1). Past STUCK_AFTER, worker B's stuck pass is told "missing" (A's request has not
-        arrived) and re-sends (attempt 2). Both requests then arrive, copies 1 and 2, their answers held. Past
-        STUCK_AFTER again, worker C's lookup finds copy 1 and records it. B's success names copy 2: refused, both named.
-        A's success names copy 1, the copy recorded: on 058a325c it replaced the note naming copy 2 with "attempt 2 may
-        have arrived too", and nothing on the post said where the second copy is."""
+        arrived) and re-sends (attempt 2); both answers are held. The ``found`` worker's request ("a" or "b") reaches
+        Findable first, copy 1, and past STUCK_AFTER again worker C's lookup finds it and records it; the other's arrives
+        after, copy 2. The other's success names copy 2: refused, both named. Last, the found worker's own success names
+        copy 1, the copy recorded. ``(seen, the last success's outcome)``: each worker's statuses, the post's URL and
+        error after it."""
         post_id = self.post()
         b, c = self.replica(), self.replica()
+        other = "b" if found == "a" else "a"
         seen = []
 
         async def run():
-            a_gate, b_gate = Gate(), Gate()
-            self.platform.gates = [a_gate, b_gate]
-            a_tick = asyncio.create_task(self.publisher.run_due(now=time.time()))
-            await a_gate.began.wait()
-            b_tick = asyncio.create_task(b.run_due(now=time.time() + STUCK_AFTER + 1))   # missing → re-queued → sending
-            await b_gate.began.wait()
-            for gate in (a_gate, b_gate):                                     # A's request arrives, then B's
-                gate.arrive.set()
-                await gate.arrived.wait()
-            (found,) = await c.run_due(now=time.time() + STUCK_AFTER + 1)     # C's lookup finds copy 1
-            seen.append(("c", found.status, found.url, self.store.get_post(post_id)["error"]))
-            b_gate.answer.set()
-            requeued, b_outcome = await b_tick
-            seen.append(("b", requeued.status, b_outcome.status, b_outcome.url, self.store.get_post(post_id)["error"]))
-            a_gate.answer.set()
-            (a_outcome,) = await a_tick
-            return a_outcome
+            gates = {"a": Gate(), "b": Gate()}
+            self.platform.gates = [gates["a"], gates["b"]]
+            ticks = {"a": asyncio.create_task(self.publisher.run_due(now=time.time()))}
+            await gates["a"].began.wait()
+            ticks["b"] = asyncio.create_task(b.run_due(now=time.time() + STUCK_AFTER + 1))  # missing → re-queued → sending
+            await gates["b"].began.wait()
+            gates[found].arrive.set()
+            await gates[found].arrived.wait()
+            recorded = await c.run_due(now=time.time() + STUCK_AFTER + 1)     # C's lookup finds copy 1
+            seen.append(("c", [o.status for o in recorded], recorded[0].url, self.store.get_post(post_id)["error"]))
+            gates[other].arrive.set()
+            await gates[other].arrived.wait()
+            for worker in (other, found):
+                gates[worker].answer.set()
+                outcomes = await ticks[worker]
+                seen.append((worker, [o.status for o in outcomes], outcomes[-1].url, self.store.get_post(post_id)["error"]))
+            return outcomes[-1]
 
-        a_outcome = asyncio.run(run())
-        twice = _both_copies(self.platform, _named("https://findable/1", "1"), _named("https://findable/2", "2"), 2)
-        attempt_2 = _second_copy(self.platform, 2)
-        self.assertEqual(seen, [("c", "published", "https://findable/1", None),
-                                ("b", "scheduled", "published", "https://findable/1", twice)])
+        outcome = asyncio.run(run())
         post = self.store.get_post(post_id)
         self.assertEqual((post["status"], post["result_url"], post["attempts"], self.platform.sent),
                          ("published", "https://findable/1", 2, ["t", "t"]))
-        self.assertEqual(post["error"], f"{twice}; {attempt_2}", "A's success dropped the note naming copy 2")
-        self.assertEqual(a_outcome.notes, [twice, attempt_2])
+        return seen, outcome
+
+    def test_the_lookup_finds_the_first_sends_copy_and_its_own_success_lands_last(self):
+        """On 058a325c A's success replaced the note naming copy 2 with "attempt 2 may have arrived too": nothing on
+        the post said where the second copy is."""
+        seen, outcome = self.three_workers(found="a")
+        twice = _both_copies(self.platform, _named("https://findable/1", "1"), _named("https://findable/2", "2"), 2)
+        attempt_2 = _second_copy(self.platform, 2)
+        self.assertEqual(seen, [("c", ["published"], "https://findable/1", None),
+                                ("b", ["scheduled", "published"], "https://findable/1", twice),
+                                ("a", ["published"], "https://findable/1", f"{twice}; {attempt_2}")],
+                         "A's success dropped the note naming copy 2")
+        self.assertEqual(outcome.notes, [twice, attempt_2])
+
+    def test_the_lookup_finds_the_re_sends_copy_and_its_own_success_lands_last(self):
+        """The issue's outcome through the scheduler: on 058a325c B's success, the latest send's, wrote ``error=None``,
+        and a post the platform has twice read as any published post."""
+        seen, outcome = self.three_workers(found="b")
+        twice = _both_copies(self.platform, _named("https://findable/1", "1"), _named("https://findable/2", "2"), 1)
+        self.assertEqual(seen, [("c", ["published"], "https://findable/1", None),
+                                ("a", ["published"], "https://findable/1", twice),
+                                ("b", ["scheduled", "published"], "https://findable/1", twice)],
+                         "B's success dropped the note naming copy 2")
+        self.assertEqual(outcome.notes, [twice])
 
 
 class FindingRecordSuccessKeepsTheNotesItsCallerNames(r214.Harness):
