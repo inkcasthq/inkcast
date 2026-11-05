@@ -133,5 +133,78 @@ class OrganisationPolicy(unittest.TestCase):
         self.assertIn("gh api GET repos/o/r: HTTP 404", str(stop.exception.code))
 
 
+def as_github_token(routes: dict) -> dict:
+    """What GITHUB_TOKEN with contents: read gets (run 41852018655): every read answers 200, but the ruleset leaves out
+    bypass_actors and the repository leaves out security_and_analysis and the merge settings; the admin-only paths
+    answer 403 (#540)."""
+    settings = json.loads((REPO / ".github" / "repo-settings.json").read_text())
+    ruleset = {k: v for k, v in routes[("GET", "repos/o/r/rulesets/7")][1].items() if k != "bypass_actors"}
+    live = {k: v for k, v in routes[("GET", "repos/o/r")][1].items()
+            if k != "security_and_analysis" and k not in settings["repository"]}
+    admin = (403, {"message": "Resource not accessible by integration"})
+    return {**routes, ("GET", "repos/o/r/rulesets/7"): (200, ruleset), ("GET", "repos/o/r"): (200, live),
+            ("GET", "repos/o/r/vulnerability-alerts"): admin, ("GET", "repos/o/r/actions/permissions/workflow"): admin,
+            ("GET", "orgs/o/actions/permissions/workflow"): admin}
+
+
+class OmittedFields(unittest.TestCase):
+    """GitHub answers a token that can't see a setting with 200 and leaves the field out (#540): that is NOT VERIFIED,
+    as a 403 is, and never a difference; a value it does return is still compared."""
+
+    def setUp(self):
+        self.settings = load_settings()
+
+    def check(self, routes: dict) -> list[str]:
+        with mock.patch.object(self.settings, "subprocess", types.SimpleNamespace(run=FakeGh(routes))):
+            return self.settings.check("o/r")
+
+    def test_the_scheduled_runs_token_finds_no_drift_when_the_settings_match(self):
+        self.assertEqual(self.check(as_github_token(matching())), [])
+        unverified = "\n".join(self.settings.UNVERIFIED)
+        for name in ("bypass_actors", "security_and_analysis", "allow_squash_merge", "squash_merge_commit_message"):
+            self.assertIn(name, unverified)
+
+    def test_main_passes_and_lists_what_it_could_not_read(self):
+        out = io.StringIO()
+        with mock.patch.object(sys, "argv", ["settings.py", "check", "o/r"]), contextlib.redirect_stdout(out), \
+                mock.patch.object(self.settings, "subprocess", types.SimpleNamespace(run=FakeGh(as_github_token(matching())))):
+            code = self.settings.main()
+        self.assertEqual(code, 0, out.getvalue())
+        self.assertNotIn("DRIFT", out.getvalue())
+        self.assertIn("NOT VERIFIED (this token can't read it): repos/o/r/rulesets/7 bypass_actors", out.getvalue())
+
+    def test_a_readable_rule_that_drifted_is_still_drift(self):
+        routes = as_github_token(matching())
+        ruleset = routes[("GET", "repos/o/r/rulesets/7")][1]
+        routes[("GET", "repos/o/r/rulesets/7")] = (200, {**ruleset, "enforcement": "disabled"})
+        drift = self.check(routes)
+        self.assertEqual(len(drift), 1, drift)
+        self.assertIn("enforcement", drift[0])
+
+    def test_returned_values_that_differ_are_still_drift(self):
+        routes = matching()
+        live = routes[("GET", "repos/o/r")][1]
+        ruleset = routes[("GET", "repos/o/r/rulesets/7")][1]
+        routes[("GET", "repos/o/r")] = (200, {
+            **live, "allow_merge_commit": True,
+            "security_and_analysis": {**live["security_and_analysis"], "secret_scanning": {"status": "disabled"}}})
+        routes[("GET", "repos/o/r/rulesets/7")] = (200, {**ruleset, "bypass_actors": [
+            {"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}]})
+        drift = "\n".join(self.check(routes))
+        for name in ("bypass_actors", "allow_merge_commit", "secret_scanning is 'disabled'"):
+            self.assertIn(name, drift)
+        self.assertEqual(self.settings.UNVERIFIED, [])
+
+    def test_a_security_setting_missing_from_a_returned_object_is_drift(self):
+        """An admin sees security_and_analysis; a setting missing from it is off or unavailable, not unreadable."""
+        routes = matching()
+        live = routes[("GET", "repos/o/r")][1]
+        analysis = {k: v for k, v in live["security_and_analysis"].items() if k != "secret_scanning_non_provider_patterns"}
+        routes[("GET", "repos/o/r")] = (200, {**live, "security_and_analysis": analysis})
+        drift = self.check(routes)
+        self.assertEqual(len(drift), 1, drift)
+        self.assertIn("secret_scanning_non_provider_patterns is None", drift[0])
+
+
 if __name__ == "__main__":
     unittest.main()
