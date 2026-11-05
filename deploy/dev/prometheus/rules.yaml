@@ -91,7 +91,8 @@ groups:
       description: '{{ $value }} time(s) in 30 minutes a post on {{ $labels.platform }} could not even begin its send (publish.send.failed)
         or its recovery (publish.recovery.failed): its credentials can''t be decrypted, sealed under another INKCAST_SECRET_KEY
         than the scheduler runs on, or its payload can''t be read (a rollback). The scheduler goes on ticking for everyone
-        else, so InkcastSchedulerStalled does not fire. None of these posts is sent: each stays ''recovering'' until INKCAST_PUBLISH_RECOVERY_MAX_HOURS,
+        else, so InkcastSchedulerStalled does not fire. A send failure means this attempt sent nothing. A recovery failure
+        cannot establish whether an earlier send arrived. Each stays ''recovering'' until INKCAST_PUBLISH_RECOVERY_MAX_HOURS,
         except on a platform Inkcast can''t ask, where one whose credentials can''t be decrypted is unconfirmed at the next
         stuck pass, for its owner to reconnect and resend (InkcastUnconfirmedPublishes fires). Both log lines name the post,
         with the traceback. Check the key first: each pod''s secret-key against the inkcast-secrets Secret (the runbook''s

@@ -80,12 +80,29 @@ def _lost(platform: Platform) -> str:
             f"may be on {platform.name}. Check {platform.name}, and remove the extra copy there if it is.")
 
 
-def _undecryptable(platform: Platform) -> str:
+def _undecryptable() -> str:
     """The error a due post's claim records when its credentials could not be decrypted, so its send never began
     (``run_due``): the stuck pass tells it from a send a restart interrupted (#502). Recognised by equality, like
-    ``_lost``; every way out of 'recovering' writes another error, so it never outlives the claim it is about."""
-    return (f"{platform.name}'s stored credentials could not be decrypted when this post was due (they were sealed "
-            f"under another INKCAST_SECRET_KEY than the scheduler runs on), so it was not sent.")
+    ``_lost``; every way out of 'recovering' writes another error, so it never outlives the claim it is about. It
+    names no platform: a plug-in's display name can change between the claim and the stuck pass."""
+    return ("Stored credentials could not be decrypted when this post was due (they were sealed "
+            "under another INKCAST_SECRET_KEY than the scheduler runs on), so it was not sent.")
+
+
+def _never_sent(row: dict[str, Any]) -> bool:
+    """A post whose send never began (#502): 'recovering' with the claim's marker, or 'unconfirmed' with the whole
+    message the stuck pass wrote from it. An uncertain send stores the plug-in's own error text as 'unconfirmed'
+    (``_send``), which could begin with the marker, so the message must also end with this post's own links."""
+    error = row["error"] or ""
+    if row["status"] == "recovering":
+        return error == _undecryptable()
+    if row["status"] != "unconfirmed":
+        return False
+    post_id = row["id"]
+    tail = (f"(inkcast_connect, or POST /api/v1/platforms/{row['platform']}/connect-link), then resend it "
+            f"(inkcast_resend, or POST /api/v1/posts/{post_id}/resend) or cancel it "
+            f"(inkcast_cancel, or POST /api/v1/posts/{post_id}/cancel).")
+    return error.startswith(_undecryptable() + " Reconnect ") and error.endswith(tail)
 
 
 class Disconnected(PlatformError):
@@ -555,11 +572,11 @@ class Publisher:
         def recovered(status: str) -> list[DomainEvent]:
             return self._event("post.recovered", post_id, row["user_id"], platform.id, status=status)
 
-        if "find" not in platform.capabilities and row["error"] == _undecryptable(platform):
+        if "find" not in platform.capabilities and row["error"] == _undecryptable():
             # The claim's record that this send never began (``run_due``), on a platform that can't be asked: no
             # restart, and nothing was sent. Its owner is told what happened, and decides (#502). Counted unconfirmed,
             # where InkcastUnconfirmedPublishes sees it: InkcastPostsCannotBeSent ends 30 minutes after the send.
-            message = (f"{row['error']} Reconnect {platform.name} (inkcast_connect, or POST /api/v1/platforms/"
+            message = (f"{_undecryptable()} Reconnect {platform.name} (inkcast_connect, or POST /api/v1/platforms/"
                        f"{platform.id}/connect-link), then resend it (inkcast_resend, or POST /api/v1/posts/{post_id}/"
                        f"resend) or cancel it (inkcast_cancel, or POST /api/v1/posts/{post_id}/cancel).")
             written = self.store.update_post(post_id, status="unconfirmed", error=message, events=recovered("unconfirmed"),
@@ -702,7 +719,7 @@ class Publisher:
                     # Raised by ``_send``'s read of the credentials: everything from the plug-in's call on is guarded
                     # there, so this send never began. The claim records it for the stuck pass (#502), only while it is
                     # still this claim: another worker may have taken the post over and resolved it meanwhile.
-                    self.store.update_post(row["id"], error=_undecryptable(platform), only_if="publishing",
+                    self.store.update_post(row["id"], error=_undecryptable(), only_if="publishing",
                                            if_attempts=row["attempts"])
         return outcomes
 
@@ -757,12 +774,15 @@ class Publisher:
             raise PlatformError(f"No post {post_id!r}.")
         # One conditional write, under the lock, so a scheduler claim can't land between the status check and it.
         name = getattr(self.platforms.get(row["platform"]), "name", row["platform"])
+        never_sent = _never_sent(row)
         notes = {
             "recovering": (f"Cancelled while Inkcast was still asking {name} whether an interrupted send arrived: it may "
                            f"already be on {name}. Check {name}, and remove it there if it is."),
             "unconfirmed": (f"Cancelled while {name} had not said whether it arrived: it may already be on {name}. Check "
                             f"{name}, and remove it there if it is."),
         }
+        if never_sent:
+            notes["recovering"] = notes["unconfirmed"] = f"Cancelled by the person. {_undecryptable()}"
         was = self.store.cancel_if_pending(
             post_id, user_id, events=self._event("post.cancelled", post_id, user_id, row["platform"]), notes=notes,
             also=also)
@@ -833,7 +853,9 @@ class Publisher:
         # Before the cancel too: a payload this version can't read (a rollback) would fail the send after it (#472).
         prepared = Prepared.from_dict(json.loads(row["payload"]))
         new_id = self.store.new_post_id()
-        note = (f"Resent by the person as post {new_id}; it may already be on {platform.name} from the first send. Check "
+        note = (f"Resent by the person as post {new_id}. {_undecryptable()}"
+                if _never_sent(row) else
+                f"Resent by the person as post {new_id}; it may already be on {platform.name} from the first send. Check "
                 f"{platform.name}, and remove the extra copy there if it is.")
         events = [*self._event("post.cancelled", post_id, user_id, platform.id, reason="resent"),
                   *self._event("post.resent", post_id, user_id, platform.id, new_post_id=new_id)]
