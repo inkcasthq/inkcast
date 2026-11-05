@@ -4,7 +4,7 @@
 
 This page lists every story in the backlog and the order in which the work is done. To change a story, edit its epic file in `docs/backlog/`. To change the order, edit `docs/backlog/order.yaml`. Then run `scripts/backlog/tracker.py`. The tests fail when this page is out of date.
 
-The backlog holds 310 stories: 88 done, 3 in progress and 219 planned.
+The backlog holds 310 stories: 89 done, 3 in progress and 218 planned.
 
 Tracked in [#360](https://github.com/inkcasthq/inkcast/issues/360): Backlog tracker: every story in one execution order, reviewed wave by wave.
 
@@ -15,7 +15,7 @@ Tracked in [#360](https://github.com/inkcasthq/inkcast/issues/360): Backlog trac
 | E1 | Platform foundations | 31 | 2 | 2 | 35 |
 | E2 | Git publishing | 17 | 0 | 3 | 20 |
 | E3 | Tenancy, data and authorization (OpenFGA) | 15 | 0 | 49 | 64 |
-| E4 | SaaS web app | 8 | 0 | 26 | 34 |
+| E4 | SaaS web app | 9 | 0 | 25 | 34 |
 | E5 | Billing, entitlements and metering | 0 | 1 | 39 | 40 |
 | E6 | Admin portal | 0 | 0 | 15 | 15 |
 | E7 | Reliability, observability and operations | 7 | 0 | 41 | 48 |
@@ -52,13 +52,13 @@ Follow-ups in code that already runs: links written to the log, double-sends, lo
 | 10 | #523 | open issue | Resend: the MCP and CLI replies say a never-sent post may already be on the platform | | [#523](https://github.com/inkcasthq/inkcast/issues/523) |
 | 11 | #533 | open issue | Publishing: a note holding '; ' is split, so readers miss it | | [#533](https://github.com/inkcasthq/inkcast/issues/533) |
 
-### W3: The writer web app (phase 1, 0 of 15 stories done)
+### W3: The writer web app (phase 1, 1 of 15 stories done)
 
 The order that PR #358 set. The approved writer-app mockup (F4.1.S4, ADR-0004, ADR-0016) is the contract for every screen. Phase 1 is one writer, so the Insights screen shows the writer's own posts. The workspace scope is F4.10.S5 in W6, and the approved Connections tab shows no channel health, so channel health is W10.
 
 | # | Item | Status | Title | Epic | Issue |
 |---:|---|---|---|---|---|
-| 12 | F4.1.S5 | planned | Node lock resolved in CI, as the Python lock is | E4 | [#348](https://github.com/inkcasthq/inkcast/issues/348) |
+| 12 | F4.1.S5 | done | Node lock resolved in CI, as the Python lock is | E4 | [#348](https://github.com/inkcasthq/inkcast/issues/348) |
 | 13 | F4.1.S1 | planned | Vite workspace, packages/ui, light and dark themes | E4 |  |
 | 14 | F4.1.S2 | planned | Responsive to 360px, axe-clean | E4 |  |
 | 15 | F4.1.S3 | planned | CI web job (typecheck, vitest, Playwright) | E4 |  |
@@ -543,7 +543,7 @@ Outside the product. Worked only when the owner asks.
 | F3.10.S4 | planned | ADR: Valkey over Redis (BSD-3 vs RSALv2/SSPL/AGPL; Linux Foundation; drop-in for the commands used); ADR: posts table + outbox, no broker until an external consumer needs one |  | 36 (W4) |
 | F3.10.S5 | planned | Cache uses behind the seam: single-flight platform lookups (destinations, find_existing), idempotency markers, refresh locks, OpenFGA check cache |  | 39 (W4) |
 
-### E4: SaaS web app (8 of 34 done)
+### E4: SaaS web app (9 of 34 done)
 
 | Story | Status | Title | Issue | Order |
 |---|---|---|---|---|
@@ -551,7 +551,7 @@ Outside the product. Worked only when the owner asks.
 | F4.1.S2 | planned | Responsive to 360px, axe-clean |  | 14 (W3) |
 | F4.1.S3 | planned | CI web job (typecheck, vitest, Playwright) |  | 15 (W3) |
 | F4.1.S4 | done | Mockup: the writer web app (Posts, Compose, Connections, Git sync, Tokens, Insights, API), approved before UI code | [#347](https://github.com/inkcasthq/inkcast/issues/347) |  |
-| F4.1.S5 | planned | Node lock resolved in CI, as the Python lock is | [#348](https://github.com/inkcasthq/inkcast/issues/348) | 12 (W3) |
+| F4.1.S5 | done | Node lock resolved in CI, as the Python lock is | [#348](https://github.com/inkcasthq/inkcast/issues/348) | 12 (W3) |
 | F4.2.S1 | planned | WebApp service: OIDC with Keycloak, HttpOnly SameSite session | [#349](https://github.com/inkcasthq/inkcast/issues/349) | 16 (W3) |
 | F4.2.S2 | planned | Generated API client |  | 17 (W3) |
 | F4.2.S3 | planned | inkcast-web on OpenShift: in each environment's namespace, its own host, promoted by digest | [#350](https://github.com/inkcasthq/inkcast/issues/350) | 18 (W3) |

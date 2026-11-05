@@ -96,5 +96,35 @@ class Manifest(unittest.TestCase):
                 self.assertRegex(version, EXACT, f"{field}: pin {name} exactly")
 
 
+class Lock(unittest.TestCase):
+    """web/package-lock.json comes from web-lock-refresh.yml (PR B of #348), and CI installs it with npm ci only."""
+
+    def setUp(self):
+        self.manifest = json.loads(MANIFEST.read_text())
+        self.lock = json.loads((ROOT / "web" / "package-lock.json").read_text())
+
+    def test_holds_every_pinned_version_of_the_manifest(self):
+        self.assertEqual(self.lock["lockfileVersion"], 3)
+        self.assertEqual(self.lock["packages"][""]["devDependencies"], self.manifest["devDependencies"])
+        for name, version in self.manifest["devDependencies"].items():
+            self.assertEqual(self.lock["packages"][f"node_modules/{name}"]["version"], version, name)
+
+    def test_every_registry_package_carries_a_sha512_integrity(self):
+        fetched = {key: entry for key, entry in self.lock["packages"].items() if "resolved" in entry}
+        self.assertTrue(fetched, "the check must see the registry packages")
+        for key, entry in fetched.items():
+            self.assertTrue(entry["resolved"].startswith("https://registry.npmjs.org/"), key)
+            self.assertRegex(entry.get("integrity", ""), r"^sha512-", key)
+
+    def test_ci_installs_it_with_npm_ci_and_checks_it_is_unchanged(self):
+        ci = yaml.safe_load((WORKFLOWS / "ci.yml").read_text())
+        self.assertIn("pull_request", ci[True])   # YAML reads the key `on` as True
+        steps = ci["jobs"]["web"]["steps"]
+        install = next(s for s in steps if "npm ci" in s.get("run", ""))
+        self.assertEqual(install.get("working-directory"), "web")
+        self.assertIn("--ignore-scripts", install["run"])
+        self.assertIn("git diff --exit-code -- web/package-lock.json", [s.get("run", "").split('" ', 1)[-1] for s in steps])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -85,7 +85,7 @@ every merged promotion opened another.
 ## Dependency locks
 
 The Python locks and web lock are resolved in CI, never in a build. Each workflow pushes a `deps/` branch.
-The owner opens a pull request from that branch. The first web lock PR adds its CI check.
+The owner opens a pull request from that branch, and its CI checks the lock (the `locks` and `web` jobs).
 A pull request opened with the workflow's token would run no CI.
 
 | Lock | Resolved by | Branch |
@@ -102,8 +102,8 @@ A pull request opened with the workflow's token would run no CI.
   `actions/setup-node` reads it, and the npm that Node ships writes the lock.
 - The branch's commit lists what moved. Open the pull request with
   `gh pr create --head deps/web-lock-refresh --title 'Refresh the web lock'`.
-- The first lock PR adds a CI job that installs the lock with `npm ci`. It fails when `package.json` and the lock
-  disagree, and it never writes the lock.
+- CI's `web` job installs the lock with `npm ci` only. It fails when `package.json` and the lock disagree, and then
+  checks that the lock is byte for byte unchanged. It is not a required check yet: F4.1.S3 makes the web job one.
 
 Why on Linux, from scratch: a lock written where `node_modules` exists can leave out other platforms' optional
 native packages ([npm/cli#4828](https://github.com/npm/cli/issues/4828)). `npm ci` on Linux then fails
