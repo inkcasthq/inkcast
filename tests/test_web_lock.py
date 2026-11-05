@@ -124,12 +124,13 @@ class Lock(unittest.TestCase):
                 self.assertEqual(self.lock["packages"][key].get(field, {}), manifest.get(field, {}), f"{key}: {field}")
 
     def test_every_registry_package_carries_a_sha512_integrity(self):
-        # A workspace is a link ("resolved": "packages/ui", "link": true): it is in the tree, not fetched.
+        # Every installed package is fetched but a workspace, a link ("resolved": "packages/ui", "link": true), and a
+        # bundled one. Select by key, not by "resolved": npm ci installs an entry with neither resolved nor integrity.
         fetched = {key: entry for key, entry in self.lock["packages"].items()
-                   if "resolved" in entry and not entry.get("link")}
+                   if "node_modules/" in key and not entry.get("link") and not entry.get("inBundle")}
         self.assertTrue(fetched, "the check must see the registry packages")
         for key, entry in fetched.items():
-            self.assertTrue(entry["resolved"].startswith("https://registry.npmjs.org/"), key)
+            self.assertTrue(entry.get("resolved", "").startswith("https://registry.npmjs.org/"), key)
             self.assertRegex(entry.get("integrity", ""), r"^sha512-", key)
 
     def test_ci_installs_it_with_npm_ci_and_checks_it_is_unchanged(self):

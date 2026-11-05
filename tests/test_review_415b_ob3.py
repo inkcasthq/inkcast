@@ -10,7 +10,10 @@
    from a manifest.
 
 The locks below are what that npm wrote (`npm install --package-lock-only`) for the manifests here; each drift was run
-through the web job's commands in node:26.13.0-bookworm-slim and passed `npm ci` and the `git diff` check."""
+through the web job's commands in node:26.13.0-bookworm-slim and passed `npm ci` and the `git diff` check.
+
+3. A registry package with no "resolved" and no "integrity" must fail: npm ci installs it from the registry by version,
+   with nothing to verify it against, and exits 0 (measured the same way)."""
 
 import json
 import pathlib
@@ -181,6 +184,13 @@ class LockDrift(unittest.TestCase):
     def test_a_dependency_removed_from_web_package_json_dependencies_fails(self):
         manifest = {**self.manifest, "dependencies": {"left-pad": "1.3.0"}}
         self.assertFalse(lock_tests(manifest, LOCK_ROOT_DEPENDENCIES, {}).wasSuccessful())
+
+
+    def test_a_registry_package_without_resolved_or_integrity_fails(self):
+        lock = json.loads(json.dumps(LOCK_ROOT_DEPENDENCIES))
+        for field in ("resolved", "integrity"):
+            del lock["packages"]["node_modules/is-number"][field]
+        self.assertFalse(lock_tests(self.with_dependencies, lock, {}).wasSuccessful())
 
 
 if __name__ == "__main__":
