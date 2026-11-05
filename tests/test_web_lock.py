@@ -46,12 +46,10 @@ class WebLockRefresh(unittest.TestCase):
             self.assertRegex(comment, r"^\s*# v\d+\.\d+\.\d+$", f"{ref}: name the version in a comment")
 
     def test_resolves_from_scratch_without_install_scripts(self):
+        """The resolution itself (flags, the node_modules guard, recovery) runs in test_review_547_codex.py."""
         steps = self.flow["jobs"]["refresh"]["steps"]
-        self.assertTrue(any("scripts/web-lock.sh" in s.get("run", "") for s in steps))
-        script = SCRIPT.read_text()
-        self.assertIn("npm install --package-lock-only --ignore-scripts", script)
-        self.assertIn("mv package-lock.json", script, "the old lock is moved aside before resolving")
-        self.assertIn("-name node_modules", script, "a tree with node_modules is refused (npm/cli#4828)")
+        self.assertIn('scripts/ci-run.sh "web lock" scripts/web-lock.sh "$RUNNER_TEMP/moved.txt"',
+                      [s.get("run", "") for s in steps])
         setup = next(s for s in steps if s.get("uses", "").startswith("actions/setup-node@"))
         self.assertEqual(str(setup["with"]["package-manager-cache"]).lower(), "false")
 
@@ -64,8 +62,10 @@ class NodePin(unittest.TestCase):
     def test_node_comes_from_web_package_json_only(self):
         """engines.node is the one Node pin: every setup-node reads it with node-version-file, none names a version,
         and no other file pins Node."""
-        engines = json.loads(MANIFEST.read_text())["engines"]
-        self.assertRegex(engines["node"], EXACT, "pin an exact Node version")
+        manifest = json.loads(MANIFEST.read_text())
+        self.assertRegex(manifest["engines"]["node"], EXACT, "pin an exact Node version")
+        self.assertNotIn("node", manifest.get("volta", {}), "setup-node reads volta.node before engines.node")
+        self.assertNotIn("runtime", manifest.get("devEngines", {}), "setup-node reads devEngines.runtime before engines.node")
         setups = 0
         for path in WORKFLOWS.glob("*.yml"):
             for job in yaml.safe_load(path.read_text())["jobs"].values():
@@ -81,6 +81,8 @@ class NodePin(unittest.TestCase):
         """Builds install with `npm ci`, which never writes the lock; only scripts/web-lock.sh resolves one."""
         for path in WORKFLOWS.glob("*.yml"):
             self.assertNotRegex(path.read_text(), r"\bnpm (install|i|update|up)\b", path.name)
+            if path.name != "web-lock-refresh.yml":
+                self.assertNotIn("scripts/web-lock.sh", path.read_text(), path.name)
 
 
 class Manifest(unittest.TestCase):

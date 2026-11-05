@@ -84,8 +84,9 @@ every merged promotion opened another.
 
 ## Dependency locks
 
-Both locks are resolved in CI, never in a build. Each workflow pushes a `deps/` branch; the owner opens a pull
-request from it, and its CI checks the lock. A pull request opened with the workflow's token would run no CI.
+The Python locks and web lock are resolved in CI, never in a build. Each workflow pushes a `deps/` branch.
+The owner opens a pull request from that branch. The first web lock PR adds its CI check.
+A pull request opened with the workflow's token would run no CI.
 
 | Lock | Resolved by | Branch |
 |---|---|---|
@@ -96,13 +97,13 @@ request from it, and its CI checks the lock. A pull request opened with the work
 
 - It runs every Monday, and on demand: `gh workflow run web-lock-refresh.yml`.
 - It resolves from scratch: no `node_modules`, no old lock, no install scripts
-  (`npm install --package-lock-only --ignore-scripts`). Every package gets a sha512 `integrity`.
+  (`npm install --package-lock-only --ignore-scripts`). Registry package entries get npm `integrity` hashes.
 - It runs on Linux, with the Node that `engines.node` in `web/package.json` pins. That field is the only Node pin:
   `actions/setup-node` reads it, and the npm that Node ships writes the lock.
 - The branch's commit lists what moved. Open the pull request with
   `gh pr create --head deps/web-lock-refresh --title 'Refresh the web lock'`.
-- CI installs the lock with `npm ci` only. It fails when `package.json` and the lock disagree, and it never writes
-  the lock. That job comes with the first lock.
+- The first lock PR adds a CI job that installs the lock with `npm ci`. It fails when `package.json` and the lock
+  disagree, and it never writes the lock.
 
 Why on Linux, from scratch: a lock written where `node_modules` exists can leave out other platforms' optional
 native packages ([npm/cli#4828](https://github.com/npm/cli/issues/4828)). `npm ci` on Linux then fails

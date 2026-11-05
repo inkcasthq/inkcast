@@ -4,7 +4,7 @@
 # web/package-lock.json from scratch on Linux, with the Node that web/package.json's engines.node pins, weekly and on
 # demand, and push it to the deps/web-lock-refresh branch. It pushes a branch only: a pull request opened with this
 # workflow's token would not run CI, so the owner (or automation acting as the owner) opens it, and the squash merge
-# is then the owner's commit like every other. Builds never write the lock: they install it with `npm ci`.
+# is then the owner's commit like every other. The first lock PR adds a web CI job that installs with `npm ci`.
 name: web-lock-refresh
 
 on:
@@ -29,7 +29,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: web/package.json   # engines.node, the one Node pin
-          package-manager-cache: false          # resolve from the registry, never from a cache
+          package-manager-cache: false          # do not restore setup-node's package manager cache
       - name: Resolve web/package-lock.json from scratch
         run: scripts/ci-run.sh "web lock" scripts/web-lock.sh "$RUNNER_TEMP/moved.txt"
       - name: Push deps/web-lock-refresh when it changed

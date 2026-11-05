@@ -7,14 +7,14 @@
 #
 # It resolves from scratch: no node_modules and no old lock. npm before 11.3.0 drops other platforms' optional
 # native packages from a lock written where node_modules exists (npm/cli#4828, fixed by npm/cli#8184), and a Linux
-# `npm ci` then can't find them (npm/cli#8320). Every entry gets npm's sha512 integrity and no install script runs.
+# `npm ci` then can't find them (npm/cli#8320). Registry packages get npm integrity hashes; no install script runs.
 # It runs with the Node that web/package.json's engines.node pins, so the npm that Node ships writes the lock.
 set -euo pipefail
 WEB="$(cd "$(dirname "$0")/../web" && pwd)"
 moved="${1:-/dev/null}"
 cd "$WEB"
 
-stale="$(find . -name node_modules -type d -prune -print)"
+stale="$(find . -name node_modules \( -type d -o -type l \) -prune -print)"
 if [ -n "$stale" ]; then
   echo "node_modules found (${stale//$'\n'/, }): remove it, or run this in a clean checkout (npm/cli#4828)" >&2
   exit 1
@@ -25,19 +25,19 @@ if [ "$want" != "$(node --version)" ]; then
   exit 1
 fi
 
-old="$(mktemp)"; trap 'rm -f "$old"' EXIT
-had_lock=false
-if [ -f package-lock.json ]; then mv package-lock.json "$old"; had_lock=true; else echo '{}' > "$old"; fi
-if ! npm install --package-lock-only --ignore-scripts --no-audit --no-fund --no-update-notifier; then
-  # A failed resolution leaves the lock as it was, never missing or half written.
-  if $had_lock; then mv "$old" package-lock.json; else rm -f package-lock.json; fi
+scratch="$(mktemp -d "$WEB/../.web-lock.XXXXXX")"
+trap 'rm -rf "$scratch"' EXIT
+cp -R "$WEB"/. "$scratch"/
+rm -f "$scratch/package-lock.json"
+old="$WEB/package-lock.json"
+if [ ! -f "$old" ]; then old="$scratch/.old-lock.json"; echo '{}' > "$old"; fi
+if ! (cd "$scratch" && npm install --package-lock-only --ignore-scripts --no-audit --no-fund --no-update-notifier); then
   echo "npm could not resolve the lock; web/package-lock.json is unchanged" >&2
   exit 1
 fi
-echo "web/package-lock.json written by Node $(node --version), npm $(npm --version)"
 
 # What moved, by install path: "name old -> new", "added name version" or "removed name version".
-node - "$old" package-lock.json <<'JS' | tee "$moved"
+node - "$old" "$scratch/package-lock.json" <<'JS' | tee "$moved"
 const fs = require("fs");
 const [before, after] = process.argv.slice(2).map((f) => JSON.parse(fs.readFileSync(f, "utf8")).packages || {});
 const lines = [];
@@ -50,3 +50,5 @@ for (const key of [...new Set([...Object.keys(before), ...Object.keys(after)])].
 }
 console.log(lines.length ? lines.join("\n") : "no version moved");
 JS
+mv -f "$scratch/package-lock.json" "$WEB/package-lock.json"
+echo "web/package-lock.json written by Node $(node --version), npm $(npm --version)"

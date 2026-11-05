@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 # Copyright 2026 ScalarOps Technologies LLC
-"""Review of #547 (F4.1.S5): scripts/web-lock.sh moves the old lock aside before npm resolves. When npm fails (the
-registry down, a version that doesn't exist), the old lock must be put back, not deleted with the temporary file."""
+"""Review of #547 (F4.1.S5): a failed npm resolution must leave the original lock in place."""
 
 import json
 import os

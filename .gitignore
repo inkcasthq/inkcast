@@ -14,3 +14,6 @@ deploy/keycloak/.secrets/
 
 # Local CodeQL run (scripts/dev/codeql.sh): databases and SARIF
 .codeql/
+
+# scripts/web-lock.sh resolves in a scratch copy beside web/; a killed run can leave one behind
+/.web-lock.*/
