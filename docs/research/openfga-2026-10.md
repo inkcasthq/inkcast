@@ -183,6 +183,8 @@ The integrator decided on 2026-11-04 to build option 2 beside the grace, which s
   - `pg_terminate_backend` returns false both on a timeout and for a pid that is no backend any more (`signalfuncs.c:67-76`, `:217-223`). So the runner looks again in a statement of its own, because `pg_stat_activity` is read once per transaction (`monitoring.sgml`). A pid still there fails the run, and the log line names it. A pid that ended on its own is not a failure.
   - It logs pids and counts only. When there is nothing to end, it logs nothing, so a run without the race is unchanged.
   - A URI whose query sets `application_name=` (any case or encoding of the key, `fallback_application_name=` included) is refused before psql, as `options=` is.
+  - A URI with `service=` or an inherited `PGSERVICE` is refused before psql. pgx v5.11.0 reads service file settings after `PGAPPNAME`. An offline `pgconn.ParseConfig` check changed `application_name` from `openfga-migrate-goose` to `out-of-fence` when the URI selected a service file.
+  - If the fence query has no answer after 60 s, the runner fails and names the fence. More than 12 backends that each take the full 5 s can cause this.
 - **Measured:**
   - With `PGAPPNAME=openfga-migrate-goose`, the session building 006 showed `openfga-migrate-goose|openfga|openfga` (name, `usename`, `datname`) and the lock holder `openfga-migrate`.
   - With `application_name=x` in the URI as well, the build ran as `x`, and the fence's statement left it running.

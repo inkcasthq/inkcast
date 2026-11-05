@@ -203,18 +203,29 @@ done
 
 @unittest.skipIf(bash() is None, "no bash 4.3 or later on PATH")
 class AFenceThatCannotEndASession(unittest.TestCase):
-    def migrate(self, recheck: str) -> tuple[int, str, bool]:
+    def migrate(self, recheck: str, uri_query: str = "", service_env: bool = False,
+                fence_timeout: bool = False) -> tuple[int, str, bool]:
         """The script against the stand-in: its exit code, its log, and whether `openfga migrate` ran."""
         stubs = pathlib.Path(tempfile.mkdtemp(prefix="migrate-fence-"))
         self.addCleanup(shutil.rmtree, stubs, True)
         ran = stubs / "openfga-ran"
         (stubs / "psql").write_text(STAND_IN)
         (stubs / "openfga").write_text(f"#!/bin/sh\ntouch '{ran}'\nexit 0\n")
+        (stubs / "service.conf").write_text("[hidden]\napplication_name=out-of-fence\n")
         for stub in ("psql", "openfga"):
             (stubs / stub).chmod(0o755)
         env = {**os.environ, "PATH": f"{stubs}{os.pathsep}{os.environ['PATH']}", "CONNECT_TIMEOUT": "5",
                "OPENFGA_BINARY": str(stubs / "openfga"), "RECHECK": recheck,
-               "OPENFGA_DATASTORE_URI": "postgres://openfga:not-a-secret@127.0.0.1:5432/openfga?sslmode=disable"}
+               "OPENFGA_DATASTORE_URI": f"postgres://openfga:not-a-secret@127.0.0.1:5432/openfga?sslmode=disable{uri_query}",
+               "PGSERVICEFILE": str(stubs / "service.conf")}
+        env.pop("PGSERVICE", None)
+        if service_env:
+            env["PGSERVICE"] = "hidden"
+        if fence_timeout:
+            (stubs / "env.sh").write_text(
+                'printf() { [[ "${2-}" != *"pg_terminate_backend(pid, 5000)"* ]] || fence_read=1; builtin printf "$@"; }\n'
+                'read() { if [[ "${fence_read-}" = 1 ]]; then for a in "$@"; do [[ "$a" != -t ]] || return 142; done; fi; builtin read "$@"; }\n')
+            env["BASH_ENV"] = str(stubs / "env.sh")
         done = subprocess.run([bash(), str(harness.SCRIPT)], env=env, capture_output=True, text=True, timeout=30)
         return done.returncode, done.stdout + done.stderr, ran.exists()
 
@@ -237,6 +248,23 @@ class AFenceThatCannotEndASession(unittest.TestCase):
         self.assertNotIn("did not end", log)
         self.assertIn("fence: ended 1 session(s) of openfga migrate left by an earlier runner (pid 4242)", log)
         self.assertTrue(ran, "openfga migrate did not run")
+
+    def test_a_service_cannot_rename_the_migration_session(self):
+        for kwargs in ({"uri_query": "&service=hidden"}, {"uri_query": "&%73ervice=hidden"},
+                       {"uri_query": "&SERVICE=hidden"}, {"service_env": True}):
+            with self.subTest(kwargs=kwargs):
+                code, log, ran = self.migrate(recheck="", **kwargs)
+                self.assertEqual(code, 1, log)
+                self.assertIn("service", log)
+                self.assertIn("is refused", log)
+                self.assertFalse(ran)
+
+    def test_a_fence_timeout_names_the_fence(self):
+        code, log, ran = self.migrate(recheck="", fence_timeout=True)
+        self.assertEqual(code, 1, log)
+        self.assertIn("fence:", log)
+        self.assertIn("no answer from the database session in 60 s", log)
+        self.assertFalse(ran)
 
 
 def load_tests(loader: unittest.TestLoader, standard_tests: unittest.TestSuite, pattern: str | None) -> unittest.TestSuite:

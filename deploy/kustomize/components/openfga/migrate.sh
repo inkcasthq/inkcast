@@ -59,8 +59,8 @@
 # A URI no split makes safe is refused before psql runs, in words that quote none of it (#474): a raw `@` or `/` in
 # the password, which libpq and pgx misread (net/url splits at the last `@` and refuses a `/`); a password in the
 # query, which would stay on psql's command line; options=, which would replace PGOPTIONS (below) and with it the
-# client check that ends a killed runner's statement; and application_name=, which would rename `openfga migrate`'s
-# sessions out of the fence's reach (step 2b).
+# client check that ends a killed runner's statement; and application_name= or service=, which could rename
+# `openfga migrate`'s sessions out of the fence's reach (step 2b).
 # The lab's e2e proofs are scripts/dev/openfga-recovery-e2e.sh.
 set -euo pipefail
 : "${OPENFGA_DATASTORE_URI:?OPENFGA_DATASTORE_URI is not set: the Secret openfga-db-app, key uri}"
@@ -81,6 +81,11 @@ export PGAPPNAME=openfga-migrate PGCONNECT_TIMEOUT=10
 # tests/test_review_openfga_migrate.py.
 export PGOPTIONS="-c tcp_keepalives_idle=20 -c tcp_keepalives_interval=5 -c tcp_keepalives_count=3 -c client_connection_check_interval=2s"
 log() { printf '%s migrate: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
+# A service file can override PGAPPNAME in pgx. Do not let an inherited service select one for either connection.
+if [ -n "${PGSERVICE-}" ]; then
+  log "PGSERVICE is refused: a service file can override PGAPPNAME and hide openfga migrate's sessions from the fence"
+  exit 1
+fi
 # $1 percent-decoded into `decoded` as libpq decodes (conninfo_uri_decode at REL_18_6, as pgx's uriDecode at v5.11.0):
 # its leading and trailing spaces dropped, then each %XX, and nothing else; what libpq refuses there (a space left
 # inside, a % without two hex digits after it, %00) refused in words that quote none of it. Its backslashes are
@@ -115,7 +120,8 @@ fi
 # psql's command line; options=, which replaces PGOPTIONS above whole (pgx: pgconn/config.go mergeSettings at
 # v5.11.0), its client check included; application_name=, which renames `openfga migrate`'s sessions as pgx takes the
 # URI's settings over PGAPPNAME's (mergeSettings, the same), so the fence would miss them (measured: a paused build
-# under `x` ran on); and a control character outside the password, which net/url refuses (and
+# under `x` ran on); service=, which can load a service file whose application_name overrides PGAPPNAME; and a
+# control character outside the password, which net/url refuses (and
 # prints the URI) and at which `read` below stops (a newline), so that a parameter after it would go unread.
 # No writer of the Secret sets one: Inkcast's generator writes sslmode=require alone, CloudNativePG no query
 # (pkg/specs/secrets.go at v1.30.1).
@@ -131,6 +137,7 @@ if [[ "$db_uri" == *\?* ]]; then
       *password*|*secret*|scram_*) log "the datastore URI (the Secret openfga-db-app, key uri) is refused: it carries a password or a secret in its query (password=, sslpassword=, oauth_client_secret=, scram_client_key=), which psql's command line would show; the password goes in the user information"; exit 1 ;;
       *options*) log "the datastore URI (the Secret openfga-db-app, key uri) is refused: its query sets options=, which would replace PGOPTIONS and the client check that ends a killed runner's statement"; exit 1 ;;
       *application_name*) log "the datastore URI (the Secret openfga-db-app, key uri) is refused: its query sets application_name=, which would rename openfga migrate's sessions and hide them from the fence that ends a paused runner's statement"; exit 1 ;;
+      *service*) log "the datastore URI (the Secret openfga-db-app, key uri) is refused: its query sets service=, which can override PGAPPNAME through a service file and hide openfga migrate's sessions from the fence"; exit 1 ;;
     esac
   done
 fi
@@ -164,8 +171,8 @@ coproc PSQL { psql -X -q -At -v ON_ERROR_STOP=1 "$db_uri"; }
 # shellcheck disable=SC2153  # PSQL_PID: bash sets NAME_PID for a coprocess named NAME
 psql_pid=$PSQL_PID
 reply=""
-query() {  # query SQL: the statement's result lines in `reply`, or a failed run when the session is gone or silent for 60 s
-  local line status=0
+query() {  # query SQL [timeout message]: the statement's result lines in `reply`, or a failed run after 60 s of silence
+  local line status=0 timeout_message="${2:-no answer from the database session in 60 s}"
   reply=""
   # ${PSQL[n]-}: bash unsets PSQL once it reaps psql, and under set -u the bare expansion would end the run unlogged
   { printf '%s;\n\\echo __done__\n' "$1" >&"${PSQL[1]-}"; } 2>/dev/null || { log "the database session is gone"; exit 1; }
@@ -177,7 +184,7 @@ query() {  # query SQL: the statement's result lines in `reply`, or a failed run
   # read's own status tells a timeout (above 128) from the end of psql's output; `kill -0` can't, as it succeeds on
   # a psql that has exited and that bash has not reaped yet (#510)
   if [ "$status" -gt 128 ]; then
-    log "no answer from the database session in 60 s"
+    log "$timeout_message"
   else
     log "the database session ended (the database restarted, or a statement failed above)"
   fi
@@ -219,10 +226,10 @@ fi
 query "SELECT count(*), coalesce(string_agg(pid::text, ', '), ''), coalesce(string_agg(pid::text, ',') FILTER (WHERE NOT ended), '')
        FROM (SELECT pid, pg_terminate_backend(pid, 5000) AS ended FROM pg_stat_activity
              WHERE usename = current_user AND datname = current_database() AND application_name = 'openfga-migrate-goose'
-               AND pid <> pg_backend_pid()) AS fenced"
+               AND pid <> pg_backend_pid()) AS fenced" "fence: no answer from the database session in 60 s while ending earlier runner sessions; this run fails, the kubelet starts it again"
 IFS='|' read -r fenced fenced_pids unended <<< "$reply"
 if [ -n "$unended" ]; then
-  query "SELECT coalesce(string_agg(pid::text, ', '), '') FROM pg_stat_activity WHERE pid IN (${unended})"
+  query "SELECT coalesce(string_agg(pid::text, ', '), '') FROM pg_stat_activity WHERE pid IN (${unended})" "fence: no answer from the database session in 60 s while checking which earlier runner sessions remain; this run fails, the kubelet starts it again"
   if [ -n "$reply" ]; then
     log "fence: openfga migrate's session of an earlier runner, pid ${reply}, did not end within 5 s: this run fails, the kubelet starts it again"
     exit 1
