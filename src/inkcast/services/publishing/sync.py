@@ -7,7 +7,7 @@ rendered payload) and what it became (post id, remote id, URL). A sync then deci
 
 =========  ======================================================================
 create     no ledger entry: publish, or schedule at the time as written if the file has ``publish_at`` (ADR-0015)
-unchanged  same rendered payload as last time: do nothing
+unchanged  same rendered payload as last time, and a confirmed post holds it (#503): do nothing
 update     payload changed and the platform can edit posts (DEV): edit in place;
            a post still waiting in the schedule is re-scheduled with the new content
 stale      payload changed but the platform can't edit (Medium): leave it, say so
@@ -235,6 +235,13 @@ class GitSync:
             replaced = self.store.get_post(entry["replaces"]) if entry and entry["replaces"] and not entry["post_id"] else None
             return await self._create(user_id, req, path, story, platform, prepared, digest, entry,
                                       created_at=self._creation_kept(replaced, story) if replaced else None)
+
+        # A confirmed post records what the platform has. A success landing on a row already confirmed with its copy (a
+        # lookup's match on less than the whole payload, then that send's late answer) rewrites the payload with no
+        # follow, so the entry can hash as the file while the platform has other content: the change is still owed, and
+        # its note says the next sync sends it (#503).
+        if post and post["status"] in self.store.CONFIRMED and stored_hash(json.loads(post["payload"])) != digest:
+            changed = True
 
         schedule_changed = False
         if post and post["status"] == "scheduled":  # not sent yet: the schedule time matters too (as written, ADR-0015)

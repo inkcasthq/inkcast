@@ -89,8 +89,8 @@ Publishing by hand (`inkcast_publish`, `POST /api/v1/posts`) is different: there
 | Result | Meaning |
 |---|---|
 | `create` | New: published, or scheduled at its `publish_at` (due at once if that has passed) |
-| `update` | Changed: edited in place (DEV), or re-scheduled if it hadn't gone out yet |
-| `unchanged` | Same content as last time: nothing sent |
+| `update` | Changed: edited in place (DEV), or re-scheduled if it hadn't gone out yet. Also when the file is the same as last time but the published post doesn't hold it yet: a change made while a send was out is still owed |
+| `unchanged` | Same content as last time, and the post holds it: nothing sent |
 | `stale` | Changed, but the platform can't edit posts (Medium), or its answer to the publish named no id for the post, which an update needs. Edit it by hand at the URL shown; Inkcast won't post it again |
 | `skipped` | The platform isn't connected, another sync of the file is running, or the file's post needs your decision: its last publish is `unconfirmed` (resend or cancel it, below; one from before posts were recorded has no post to resend: edit the file to publish it, below), or its send was interrupted and Inkcast is still asking the platform whether it arrived (`recovering`; cancel it if you don't want it) |
 | `failed` | Invalid file or platform error; the next sync tries again. A file that fails validation changes nothing: a post its last valid version scheduled stays and goes out at its time, and the message names it |
