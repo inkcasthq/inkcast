@@ -1,0 +1,146 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
+# Copyright 2026 ScalarOps Technologies LLC
+"""Issue #502: a send that never began, on a platform Inkcast can't ask whether a post arrived (no ``find``, as Medium),
+was called a restart, and no alert stayed on.
+
+A scheduler on the wrong INKCAST_SECRET_KEY can't decrypt a due post's credentials: the send can't begin, it is counted
+``send_failed`` (#472) and the post is left claimed. At the next stuck pass, recovery can't ask the platform, so it
+marked the post 'unconfirmed' with "Inkcast restarted while this post was being sent", although nothing was sent, and
+counted it ``recovered``: InkcastUnconfirmedPublishes never saw it, and InkcastPostsCannotBeSent resolved 30 minutes
+after the last due post while the post waited for its owner. Now the claim records that the send never began, the
+owner is told what happened (reconnect, then resend or cancel), and the post is counted ``unconfirmed``.
+
+Each ``Finding`` test failed on main (e76004e3); the ``Held`` tests pin what stays."""
+
+import asyncio
+import unittest
+
+from inkcast.libs.alerting import ALERTS
+from inkcast.libs.observability import EVENTS
+from inkcast.libs.pipeline import STUCK_AFTER, Publisher
+
+from test_person_decides import Blind, Findable
+from test_wrong_key_472 import RUNBOOK, WrongKeyScheduler
+
+RESTARTED = "Inkcast restarted while this post was being sent"
+
+
+class OnABlindPlatform(WrongKeyScheduler):
+    platform_class = Blind
+
+    def never_sent(self) -> str:
+        """A due post the wrong-key scheduler could not begin to send, then its stuck pass."""
+        post_id = self.post("scheduled")
+        self.tick(publisher=self.wrong)
+        self.assertEqual((self.counted("send_failed"), self.status(post_id)), (1, "publishing"))
+        with self.assertLogs("inkcast.libs.pipeline", level="WARNING") as self.logged:
+            self.tick(later=STUCK_AFTER + 1, publisher=self.wrong)
+        return post_id
+
+
+class FindingASendThatNeverBeganIsNotCalledARestart(OnABlindPlatform):
+    def test_the_owner_is_told_the_credentials_could_not_be_decrypted_and_to_reconnect(self):
+        """The post was unconfirmed with "Inkcast restarted while this post was being sent to Blind, which can't be
+        checked automatically", though the send never began."""
+        post_id = self.never_sent()
+        post = self.store.get_post(post_id)
+        self.assertEqual(post["status"], "unconfirmed")
+        self.assertNotIn(RESTARTED, post["error"])                            # the restart's words on main
+        self.assertEqual(post["error"], (
+            "Blind's stored credentials could not be decrypted when this post was due (they were sealed under another "
+            "INKCAST_SECRET_KEY than the scheduler runs on), so it was not sent. Reconnect Blind (inkcast_connect, or "
+            f"POST /api/v1/platforms/blind/connect-link), then resend it (inkcast_resend, or POST /api/v1/posts/{post_id}"
+            f"/resend) or cancel it (inkcast_cancel, or POST /api/v1/posts/{post_id}/cancel)."))
+        self.assertEqual(self.platform.sent, [])
+
+
+class HeldTheOwnersResendIsTheOneSend(OnABlindPlatform):
+    def test_it_was_not_sent_so_the_owners_resend_sends_it_once(self):
+        """The owner's resend, on a process that reads the credentials, is the one send: nothing went out before it."""
+        post_id = self.never_sent()
+        outcome = asyncio.run(self.service.resend(self.user, post_id))
+        self.assertEqual((outcome.status, self.status(post_id), self.platform.sent), ("published", "cancelled", ["t"]))
+
+
+class FindingSuchAPostIsCountedWhereTheUnconfirmedAlertSeesIt(OnABlindPlatform):
+    def test_it_is_counted_unconfirmed_not_recovered_and_logged_by_id(self):
+        """Counted ``recovered``: InkcastUnconfirmedPublishes, which reads only ``unconfirmed``, never fired, and
+        InkcastPostsCannotBeSent resolved 30 minutes after the send while the post waited for its owner."""
+        post_id = self.never_sent()
+        self.assertEqual((self.counted("unconfirmed"), self.counted("recovered")), (1, 0))   # (0, 1) on main
+        rule = next(a for a in ALERTS if a.name == "InkcastUnconfirmedPublishes")
+        self.assertIn('inkcast_publish_total{status="unconfirmed"}', rule.expr)
+        unsent = [r for r in self.logged.records if getattr(r, "event", None) == "publish.recovery.unsent"]
+        self.assertEqual([(r.post_id, r.platform) for r in unsent], [(post_id, "blind")])
+        self.assertIn("publish.recovery.unsent", EVENTS)
+
+
+class HeldASendThatBeganIsStillARestart(OnABlindPlatform):
+    def interrupted(self, **fields) -> str:
+        """A post whose send began, and the process stopped: 'publishing', untouched for longer than STUCK_AFTER."""
+        post_id = self.post("publishing", **fields)
+        self.store._exec("UPDATE posts SET updated_at = updated_at - ? WHERE id = ?", STUCK_AFTER + 1, post_id)
+        return post_id
+
+    def test_a_restart_mid_send_on_a_scheduler_that_cannot_read_the_credentials_is_still_a_restart(self):
+        """The request may have reached the platform: the restart's words and its count, whatever the key of the
+        scheduler that makes the stuck pass, and whatever an earlier attempt left in the error."""
+        for fields in ({}, {"error": "retrying: Blind rate limit hit; try again in 15 minutes."}):
+            with self.subTest(fields=fields):
+                before = self.counted("recovered")
+                post_id = self.interrupted(**fields)
+                self.tick(publisher=self.wrong)
+                post = self.store.get_post(post_id)
+                self.assertEqual(post["status"], "unconfirmed")
+                self.assertIn(f"{RESTARTED} to Blind, which can't be checked automatically.", post["error"])
+                self.assertEqual((self.counted("recovered") - before, self.counted("unconfirmed")), (1, 0))
+
+    def test_a_claim_taken_over_before_the_read_failed_keeps_what_it_became(self):
+        """The record that the send never began is written only while the claim is still this send's: another worker
+        that took the post over and resolved it meanwhile keeps its answer."""
+        post_id = self.post("scheduled")
+        resolved = f"{RESTARTED} to Blind, which can't be checked automatically."
+        read = self.wrong.store.get_credentials
+
+        def taken_over_then_unreadable(user_id, platform_id):
+            self.store.update_post(post_id, status="unconfirmed", error=resolved)
+            return read(user_id, platform_id)
+
+        self.wrong.store.get_credentials = taken_over_then_unreadable
+        self.tick(publisher=self.wrong)
+        self.assertEqual((self.status(post_id), self.store.get_post(post_id)["error"]), ("unconfirmed", resolved))
+
+
+class HeldAPlatformThatCanBeAskedStillAsks(WrongKeyScheduler):
+    platform_class = Findable
+
+    def test_the_post_stays_recovering_and_a_scheduler_on_the_right_key_sends_it(self):
+        """On a platform Inkcast can ask, a send that never began is asked about as before (#472): 'recovering' while
+        the lookup can't be made, and sent once a scheduler that reads the credentials finds it missing."""
+        post_id = self.post("scheduled")
+        self.tick(publisher=self.wrong)
+        self.tick(later=STUCK_AFTER + 1, publisher=self.wrong)
+        self.assertEqual((self.status(post_id), self.counted("recovery_failed"), self.counted("unconfirmed")),
+                         ("recovering", 1, 0))
+        right = Publisher(self.store, self.platforms)
+        self.tick(later=2 * (STUCK_AFTER + 1), publisher=right)              # missing: queued again
+        self.tick(later=2 * (STUCK_AFTER + 1), publisher=right)              # and sent
+        self.assertEqual((self.status(post_id), self.platform.sent), ("published", ["t"]))
+
+
+class FindingTheRunbookSaysWhatTheOwnerSees(unittest.TestCase):
+    def test_step_4_gives_the_owners_words_not_the_restarts(self):
+        """Step 4 said the post is marked unconfirmed with "Inkcast restarted while this post was being sent"."""
+        text = RUNBOOK.read_text()
+        section = text.split("## InkcastPostsCannotBeSent", 1)[1].split("\n## ", 1)[0]
+        step4 = section.split("\n4. ", 1)[1]
+        self.assertNotIn(RESTARTED, step4)
+        for named in ("could not be decrypted when this post was due", "so it was not sent", "Reconnect",
+                      "InkcastUnconfirmedPublishes"):
+            self.assertIn(named, step4)
+        unconfirmed = text.split("## InkcastUnconfirmedPublishes", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("publish.recovery.unsent", unconfirmed)
+
+
+if __name__ == "__main__":
+    unittest.main()
