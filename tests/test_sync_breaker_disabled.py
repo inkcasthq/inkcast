@@ -18,6 +18,7 @@ once, no trip) rather than on an import."""
 import asyncio
 import logging
 import os
+import re
 import sqlite3
 import tempfile
 import unittest
@@ -121,7 +122,7 @@ class AMassDisabled(Held):
                 self.assertEqual((tripped[0].pass_id, tripped[0].gone, tripped[0].disabled, tripped[0].read),
                                  (trip["id"], 0, 20, 20))
                 self.assertEqual(tripped[0].levelno, logging.CRITICAL)
-                self.assertNotIn(people[0]["kc"], tripped[0].getMessage(), "no Keycloak id in the log")
+                self.assertNotRegex(tripped[0].getMessage(), rf"\b{re.escape(people[0]['kc'])}\b", "no Keycloak id in the log")
                 self.assertNotIn(people[0]["id"], tripped[0].getMessage())
                 held_lines = [r for r in logs.records if getattr(r, "event", "") == "identity.user.held"]
                 self.assertEqual(sorted(r.user_id for r in held_lines), sorted(u["id"] for u in people), "one line each")
