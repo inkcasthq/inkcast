@@ -51,8 +51,9 @@ def _sentence(text: str) -> str:
 
 def _named(url: str | None, remote_id: str | None) -> str:
     """A copy of a post as a person can find it: its URL with its id, or whichever it has. Never with the notes'
-    separator ("; ", ``PostsRepo.notes_of``) in it, which the platform's answer may hold: a note naming the copy would
-    read back as pieces, none of them the note (``_is_second_copy``, ``_edited``, #504). A URL's space is "%20"."""
+    separator ("; ", ``PostsRepo.join_notes``) in it, which the platform's answer may hold: a note naming the copy would
+    read back as pieces, none of them the note (``_is_second_copy``, ``_edited``, #504). A URL's space is "%20". The
+    platform's name, which every note holds as it is, is held to the same by ``discover`` (#533)."""
     named = f"{url} (id {remote_id})" if url and remote_id else url or f"id {remote_id}"
     return named.replace("; ", ";%20")
 
@@ -350,7 +351,7 @@ class Publisher:
                 # this request may have arrived too, and the note says so (``_lost``), so that the re-send's own
                 # success, landing after, keeps the flag that a person checks for a second copy (#234).
                 written = self.store.update_post(post_id, status="unconfirmed", error=str(exc), unless="cancelled",
-                                                 unless_found_at=held, beyond=f"{exc}; {_lost(platform)}",
+                                                 unless_found_at=held, beyond=self.store.join_notes([str(exc), _lost(platform)]),
                                                  events=self._event("post.unconfirmed", post_id, user_id, platform.id))
                 if written:  # counted, logged and alerted on only as the post's answer, never over a cancel (#226)
                     self._count(platform.id, "unconfirmed")
@@ -458,7 +459,8 @@ class Publisher:
         """A plug-in bug while sending. It may have crashed after the platform accepted the post (reading the reply),
         so it is ambiguous like any uncertain failure: unconfirmed, never 'failed', which Git sync would create again."""
         written = self.store.update_post(post_id, status="unconfirmed", error=f"internal error: {exc}", unless="cancelled",
-                                         unless_found_at=held, beyond=f"internal error: {exc}; {_lost(platform)}",
+                                         unless_found_at=held,
+                                         beyond=self.store.join_notes([f"internal error: {exc}", _lost(platform)]),
                                          events=self._event("post.unconfirmed", post_id, user_id, platform.id))  # as _deliver's
         if written:
             self._count(platform.id, "unconfirmed")
@@ -524,7 +526,7 @@ class Publisher:
                 first = held if first is None else first
                 notes += [n for n in held if n and n != edited and n not in first and n not in notes]
                 if self.store.update_post(post_id, status=status, title=prepared.title,
-                                          payload=sent, error="; ".join(notes) or None,
+                                          payload=sent, error=self.store.join_notes(notes),
                                           if_error=row["error"] or "", **({"result_url": result.url} if result.url else {})):
                     break
                 misses += 1
@@ -552,7 +554,7 @@ class Publisher:
         if edited not in held:
             return False
         kept = [n for n in held if n != edited]
-        return self.store.update_post(post_id, error="; ".join(kept) or None, only_if=row["status"],
+        return self.store.update_post(post_id, error=self.store.join_notes(kept), only_if=row["status"],
                                       if_attempts=row["attempts"], if_error=row["error"], if_payload=row["payload"])
 
     async def confirm(self, user_id: str, platform: Platform, prepared: Prepared) -> Outcome | None:
