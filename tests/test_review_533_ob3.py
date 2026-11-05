@@ -3,17 +3,22 @@
 """OB3's review of #562 (issue #533). Each ``Finding`` class failed on 82c6967c.
 
 1. ``discover()`` checks a plug-in's ``name`` on its class, but every note reads it on the instance (``platform.name``),
-   which ``load_platforms`` makes: a name set in ``__init__`` reached the notes with a ";" or a newline in it."""
+   which ``load_platforms`` makes: a name set in ``__init__`` reached the notes with a ";" or a newline in it.
+2. ``update_post(keep=)`` asks whether the row's error holds the note with SQL ``instr``, a substring match, where every
+   other reader asks ``notes_of``: the ``_lost`` note's text quoted inside a longer note was kept as a note of its own."""
 
 import asyncio
+import itertools
 import unittest
 
 import httpx2
 
+from inkcast.libs.db.posts import PostsRepo
 from inkcast.libs.pipeline import _is_second_copy, _lost
 from inkcast.libs.platforms import Platform, load_platforms
 from inkcast.libs.platforms.devto import DevtoPlatform
 from test_note_boundaries_533 import RULE, registered
+from test_review_publishing_214 import Harness
 
 
 def named_in_init(name: str, **attrs: object) -> type[Platform]:
@@ -71,6 +76,40 @@ class FindingTheNameRuleHoldsForTheInstancesName(unittest.TestCase):
             platform = load_platforms(self.http)["odd"]
         self.assertEqual(platform.name, "Hash node")
         self.assertTrue(_is_second_copy(platform, _lost(platform)))
+
+
+# ---- 2. update_post(keep=) keeps a note the row holds whole -------------------------------------------------------------
+
+
+class FindingKeepAsksWhatNotesOfReads(Harness):
+    def kept(self, error: str | None, keep: str) -> bool:
+        """A lookup's answer over an 'unconfirmed' post whose error is ``error`` (``recover``, ``GitSync``'s check): whether
+        the post keeps ``keep``."""
+        post_id = self.post("unconfirmed")
+        self.store.update_post(post_id, error=error)
+        self.store.update_post(post_id, status="published", result_url="https://findable/1", remote_id="1", error=None,
+                               keep=keep, only_if="unconfirmed")
+        return self.store.get_post(post_id)["error"] == keep
+
+    def test_the_lost_notes_text_inside_a_longer_note_is_not_kept(self):
+        lost = _lost(self.platform)
+        self.assertFalse(self.kept(f"Findable said: {lost} (quoted)", lost))
+        self.assertFalse(self.kept(f"Inkcast restarted, and {lost}. Check Findable.", lost))
+
+    def test_the_lost_note_whole_is_kept(self):
+        lost = _lost(self.platform)
+        for error in (lost, PostsRepo.join_notes(["Findable said: a; b", lost]), PostsRepo.join_notes([lost, "x"])):
+            with self.subTest(error=error):
+                self.assertTrue(self.kept(error, lost))
+
+    def test_kept_exactly_when_notes_of_holds_it(self):
+        """Every error up to four pieces of "K", ";", " ", "x", and None: kept exactly when ``notes_of`` holds ``keep``.
+        A ``keep`` without "; ", as every note Inkcast keeps is (``_lost``: the name rule, #533)."""
+        errors = [None, *("".join(p) for n in range(5) for p in itertools.product(("K", ";", " ", "x"), repeat=n))]
+        for keep in ("K", "K;K", "K K"):
+            for error in errors:
+                with self.subTest(keep=keep, error=error):
+                    self.assertEqual(self.kept(error, keep), keep in PostsRepo.notes_of({"error": error}))
 
 
 if __name__ == "__main__":

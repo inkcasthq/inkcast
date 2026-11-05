@@ -153,7 +153,9 @@ class PostsRepo(Database):
                 sets.append("error = CASE WHEN attempts = ? THEN ? ELSE ? END")
                 values += [unless_found_at, value, beyond]
             elif name == "error" and keep is not None:
-                sets.append("error = CASE WHEN instr(COALESCE(error, ''), ?) > 0 THEN ? ELSE ? END")
+                # One of its notes, as ``notes_of`` splits them: "; " on each side, never the note's text inside another.
+                sets.append("error = CASE WHEN instr('; ' || COALESCE(error, '') || '; ', '; ' || ? || '; ') > 0"
+                            " THEN ? ELSE ? END")
                 values += [keep, keep if value is None else self.join_notes([value, keep]), value]
             else:
                 sets.append(f"{name} = ?")
