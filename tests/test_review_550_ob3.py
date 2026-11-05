@@ -93,6 +93,21 @@ class CiRunReview550(unittest.TestCase):
                 self.assertIn(MARK, message)
                 self.assertLessEqual(len(message.encode("utf-16-le")) // 2, LIMIT)
 
+    def test_the_head_of_a_cut_never_splits_a_character(self):
+        # The cut keeps the message's first and last bytes. Pad moves the first cut across every byte of a 2-, 3- and
+        # 4-byte character, one byte at a time.
+        for char in ("\u00e9", "\u20ac", "\U0001f600"):
+            for pad in range(len(char.encode())):
+                with self.subTest(char=char, pad=pad):
+                    lines = ["a" * pad + char * 1500] + [f"{i:02} " + char * 400 for i in range(24)]
+                    text = "".join(line + "\n" for line in lines)
+                    _, _, (_, message) = self.fails_with(text.encode())   # run() decodes strictly
+                    head, rest = message.split("\n" + MARK + "\n")
+                    self.assertTrue(lines[0].startswith(head))
+                    self.assertGreaterEqual(len(head.encode()), (LIMIT - len(MARK) - 2) // 2 - 3)
+                    self.assertTrue(text.endswith(rest))
+                    self.assertLessEqual(len(message.encode()), LIMIT)
+
 
 if __name__ == "__main__":
     unittest.main()
