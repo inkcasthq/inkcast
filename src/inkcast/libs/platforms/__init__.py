@@ -51,8 +51,21 @@ def discover() -> dict[str, type[Platform]]:
 
 
 def load_platforms(http: httpx2.AsyncClient, api_urls: dict[str, str] | None = None) -> dict[str, Platform]:
+    """One instance per platform ``discover()`` found. Every note reads the instance's ``name``, which ``__init__`` may
+    set, so it is held to the rule ``discover()`` holds the class's to: a plug-in whose instance breaks it is skipped,
+    and a built-in it would override stays (#533)."""
     api_urls = api_urls or {}
-    return {pid: cls(http, api_urls.get(pid)) for pid, cls in sorted(discover().items())}
+    loaded: dict[str, Platform] = {}
+    for pid, cls in sorted(discover().items()):
+        platform = cls(http, api_urls.get(pid))
+        if not _writable(getattr(platform, "name", None)):  # the plug-in's text, never logged, as in ``discover``
+            log.error("Platform %r is skipped: a platform's name is 1 to %d printable characters, without \";\" (Inkcast "
+                      "writes it into a post's notes, which are joined with \"; \")", pid, NAME_MAX)
+            if pid not in BUILTIN:
+                continue
+            platform = BUILTIN[pid](http, api_urls.get(pid))
+        loaded[pid] = platform
+    return loaded
 
 
 __all__ = [
