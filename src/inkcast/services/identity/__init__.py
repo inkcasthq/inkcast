@@ -225,7 +225,7 @@ def _routes(ctx: Context) -> list[Route]:
     # The link is used up only once the sign-in redirect is ready (issue #149): a provider that is down leaves it good
     # for another try. The consume is one transaction, so of two tabs that press Continue only one proceeds.
 
-    tokens = PageTokens(config.secret_key)
+    tokens = PageTokens(config.secret_key, "delete-account")
 
     async def account_delete(request: Request) -> Response:
         ticket = request.path_params["ticket"]

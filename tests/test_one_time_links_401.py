@@ -172,7 +172,7 @@ class ConnectLink(unittest.TestCase):
 class TheTokenIsBoundToTheTicket(unittest.TestCase):
     def test_make_and_check(self):
         from inkcast.libs.http.onetime import PageTokens
-        tokens, other = PageTokens("k" * 40), PageTokens("j" * 40)
+        tokens, other = PageTokens("k" * 40, "connect"), PageTokens("j" * 40, "connect")
         t = tokens.make("tkt_one")
         self.assertTrue(tokens.ok("tkt_one", t))
         self.assertEqual(t, tokens.make("tkt_one"), "stateless: the same page gives the same token")
