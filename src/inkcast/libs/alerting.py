@@ -105,7 +105,9 @@ ALERTS: tuple[Alert, ...] = (
     Alert("InkcastUnconfirmedPublishes", 'sum(increase(inkcast_publish_total{status="unconfirmed"}[1h])) > 0', "warning",
           "Posts are unconfirmed and wait for a person",
           "{{ $value }} publish(es) in the last hour ended unconfirmed: the platform may or may not have the post. "
-          "Someone must check the platform before anyone publishes again.", "publishing", for_="0m"),
+          "Someone must check the platform before anyone publishes again. A post whose send never began, its "
+          "credentials sealed under another INKCAST_SECRET_KEY (publish.recovery.unsent), is not on it: see "
+          "InkcastPostsCannotBeSent.", "publishing", for_="0m"),
     # #216: the gauge is read from the database (recovering_since), so the age survives restarts and replicas. A post
     # stays 'recovering' only while the platform refuses the lookup that would say whether its interrupted send arrived.
     Alert("InkcastPostRecoveringTooLong", "max(inkcast_posts_recovering_oldest_age_seconds) > 3600", "warning",
@@ -126,8 +128,9 @@ ALERTS: tuple[Alert, ...] = (
           "(publish.send.failed) or its recovery (publish.recovery.failed): its credentials can't be decrypted, sealed "
           "under another INKCAST_SECRET_KEY than the scheduler runs on, or its payload can't be read (a rollback). The "
           "scheduler goes on ticking for everyone else, so InkcastSchedulerStalled does not fire. None of these posts "
-          "is sent: on a platform Inkcast can ask, each stays 'recovering' until INKCAST_PUBLISH_RECOVERY_MAX_HOURS; on "
-          "one it can't, each is unconfirmed at the next stuck pass, for its owner to resend. Both log lines name the "
+          "is sent: each stays 'recovering' until INKCAST_PUBLISH_RECOVERY_MAX_HOURS, except on a platform Inkcast "
+          "can't ask, where one whose credentials can't be decrypted is unconfirmed at the next stuck pass, for its "
+          "owner to reconnect and resend (InkcastUnconfirmedPublishes fires). Both log lines name the "
           "post, with the traceback. Check the key first: each pod's secret-key against the inkcast-secrets Secret (the "
           "runbook's commands).",
           "scheduler-worker", for_="0m"),
