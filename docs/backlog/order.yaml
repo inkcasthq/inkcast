@@ -36,6 +36,7 @@ waves:
     W6, and the approved Connections tab shows no channel health, so channel health is W10.'
   items:
   - F4.1.S5
+  - '#550'
   - F4.1.S1
   - F4.1.S2
   - F4.1.S3
@@ -383,4 +384,5 @@ issues:
   531: "Publishing: a success of the recorded copy drops a 'may have this post twice' note"
   533: "Publishing: a note holding '; ' is split, so readers miss it"
   535: "inkcast sync: a deleted file that is still in the working tree is synced, then cancelled"
+  550: "ci-run.sh annotations show the output's tail, which hides npm ci's cause"
   360: "Backlog tracker: every story in one execution order, reviewed wave by wave"
