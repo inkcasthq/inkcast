@@ -183,12 +183,14 @@ class MigrateScript(unittest.TestCase):
         self.assertEqual(runner.returncode, 0, log)
         self.assertIn("waiting for the migration lock", log)
         self.assertNotIn(PASSWORD, log)
-        for uri in (f"postgres://openfga:{PASSWORD}%zz@127.0.0.1:5432/openfga",   # a token libpq cannot decode
-                    f"postgres://openfga:{PASSWORD}@[::1:5432/openfga"):            # a URI libpq cannot parse
+        for uri, ending in ((f"postgres://openfga:{PASSWORD}%zz@127.0.0.1:5432/openfga",   # a token libpq cannot decode,
+                             "is refused"),                                              # refused before psql (#474)
+                            (f"postgres://openfga:{PASSWORD}@[::1:5432/openfga",         # a URI libpq cannot parse
+                             "no database after 1 s")):
             with self.subTest(uri=uri.replace(PASSWORD, "<password>")):
                 code, log = self.migrate(uri=uri, connect_timeout="1")
                 self.assertEqual(code, 1, log)
-                self.assertIn("no database after 1 s", log)
+                self.assertIn(ending, log)
                 self.assertNotIn(PASSWORD, log)
 
     def test_a_password_net_url_refuses_reaches_no_log_of_the_init_container_or_the_server(self):
