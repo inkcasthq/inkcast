@@ -12,6 +12,7 @@ sync's own outcome still reaches the client. The syncs are held on events and th
 import asyncio
 import contextlib
 import functools
+import re
 import shutil
 import sqlite3
 import tempfile
@@ -157,6 +158,7 @@ class ARequestFreesOnlyItsOwnReservation(Harness):
         [record] = logged.records
         self.assertIn(self.user_id, record.getMessage())
         self.assertNotIn(key, record.getMessage())                          # ids and fixed strings only, never the key
+        self.assertEqual(self.logged_reservation(record), [key])           # but the row is named (#475)
         self.assertIsNotNone(record.exc_info)
         again = self.post(body, key)                                        # the reservation stays until it expires
         self.assertEqual((again.status_code, again.json().get("error")), (409, "idempotency_key_in_use"), again.text)
@@ -172,7 +174,16 @@ class ARequestFreesOnlyItsOwnReservation(Harness):
         [record] = logged.records
         self.assertIn(self.user_id, record.getMessage())
         self.assertNotIn(key, record.getMessage())
+        self.assertEqual(self.logged_reservation(record), [key])
         self.assertIsNotNone(record.exc_info)
+
+    def logged_reservation(self, record) -> list[str]:
+        """The keys of the person's rows whose ``created_at`` is the one the line names (#475): an operator's query."""
+        created_at = re.search(r"created_at ([0-9.]+)", record.getMessage())
+        self.assertIsNotNone(created_at, record.getMessage())
+        rows = self.app.store._all(f"SELECT key FROM idempotency WHERE user_id = ? AND created_at = {created_at.group(1)}",
+                                   self.user_id)
+        return [r["key"] for r in rows]
 
 
 class TheReservationNamesItsOwner(unittest.TestCase):

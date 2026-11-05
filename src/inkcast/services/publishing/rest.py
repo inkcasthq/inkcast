@@ -30,21 +30,23 @@ from .usecases import InkcastService
 log = logging.getLogger(__name__)
 
 
-def settle_idempotency_key(user_id: str, what: str, write: Callable[[], bool]) -> None:
+def settle_idempotency_key(user_id: str, reservation: float, what: str, write: Callable[[], bool]) -> None:
     """``write`` releases or completes the request's Idempotency-Key reservation once its sync has run (``what`` says
     which). That it fails (the database busy) must not turn the sync's outcome into a 500: the reservation expires on
     its own. That it matches nothing means the reservation was taken over by a repeat (the sync outlived
-    IDEMPOTENCY_PENDING_SECONDS) or the person was erased, and is the repeat's to settle. Both are logged by user id,
-    never with the key (#416)."""
+    IDEMPOTENCY_PENDING_SECONDS) or the person was erased, and is the repeat's to settle. Both are logged by user id and
+    the ``reservation`` (its ``created_at``, the owner ``reserve_idempotency_key`` returned), never with the key (#416):
+    an operator finds the row with ``WHERE user_id = ? AND created_at = ?`` (#475)."""
     try:
         settled = write()
     except Exception:
-        log.exception("Git sync of user %s ended, but its Idempotency-Key reservation could not be %s; it expires on"
-                      " its own", user_id, what)
+        log.exception("Git sync of user %s ended, but its Idempotency-Key reservation (created_at %r) could not be %s;"
+                      " it expires on its own", user_id, reservation, what)
         return
     if not settled:
-        log.warning("Git sync of user %s ended after a repeat took its Idempotency-Key reservation over (the sync outlived"
-                    " the pending window), or the person was erased: nothing %s", user_id, what)
+        log.warning("Git sync of user %s ended after a repeat took its Idempotency-Key reservation (created_at %r) over"
+                    " (the sync outlived the pending window), or the person was erased: nothing %s", user_id,
+                    reservation, what)
 
 
 def build_routes(service: InkcastService, sync: GitSync, authed: Authed, public_url: str) -> list[Route]:
@@ -108,7 +110,7 @@ def build_routes(service: InkcastService, sync: GitSync, authed: Authed, public_
         try:
             result = await sync.sync(who.user_id, req)
         except BaseException:
-            settle_idempotency_key(who.user_id, "released", release)
+            settle_idempotency_key(who.user_id, owner, "released", release)
             raise
         if any(r.action in ("skipped", "failed") for r in result.results):
             # A skipped result asks for a re-run: the file was held by another sync, its post was being sent, or its
@@ -117,9 +119,9 @@ def build_routes(service: InkcastService, sync: GitSync, authed: Authed, public_
             # replay would answer it with this result for 24 hours and sync nothing, and a removal's pending post would
             # go out (#290). So the key is freed and the re-run runs; what this run did holds in the ledger (a post made
             # is 'unchanged', a cancelled post stays cancelled), so a repeat sends nothing twice, replayed or not.
-            settle_idempotency_key(who.user_id, "released", release)
+            settle_idempotency_key(who.user_id, owner, "released", release)
         else:
-            settle_idempotency_key(who.user_id, "completed", functools.partial(
+            settle_idempotency_key(who.user_id, owner, "completed", functools.partial(
                 sync.store.complete_idempotency_key, who.user_id, key, owner, json.dumps(dump(result))))
         return result
 
