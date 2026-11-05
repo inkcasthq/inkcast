@@ -37,6 +37,8 @@ class VaultRepo(Database):
         )
 
     def get_credentials(self, user_id: str, platform: str) -> tuple[dict[str, Any], dict[str, Any]] | None:
+        """(credentials, account), or None when the platform isn't connected. ``CredentialsUnreadable`` when they were
+        sealed under another INKCAST_SECRET_KEY."""
         row = self._one("SELECT sealed, account FROM credentials WHERE user_id = ? AND platform = ?", user_id, platform)
         if not row:
             return None
