@@ -110,7 +110,9 @@ class Lock(unittest.TestCase):
             self.assertEqual(self.lock["packages"][f"node_modules/{name}"]["version"], version, name)
 
     def test_every_registry_package_carries_a_sha512_integrity(self):
-        fetched = {key: entry for key, entry in self.lock["packages"].items() if "resolved" in entry}
+        # A workspace is a link ("resolved": "packages/ui", "link": true): it is in the tree, not fetched.
+        fetched = {key: entry for key, entry in self.lock["packages"].items()
+                   if "resolved" in entry and not entry.get("link")}
         self.assertTrue(fetched, "the check must see the registry packages")
         for key, entry in fetched.items():
             self.assertTrue(entry["resolved"].startswith("https://registry.npmjs.org/"), key)
