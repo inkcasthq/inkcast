@@ -80,6 +80,14 @@ def _lost(platform: Platform) -> str:
             f"may be on {platform.name}. Check {platform.name}, and remove the extra copy there if it is.")
 
 
+def _undecryptable(platform: Platform) -> str:
+    """The error a due post's claim records when its credentials could not be decrypted, so its send never began
+    (``run_due``): the stuck pass tells it from a send a restart interrupted (#502). Recognised by equality, like
+    ``_lost``; every way out of 'recovering' writes another error, so it never outlives the claim it is about."""
+    return (f"{platform.name}'s stored credentials could not be decrypted when this post was due (they were sealed "
+            f"under another INKCAST_SECRET_KEY than the scheduler runs on), so it was not sent.")
+
+
 class Disconnected(PlatformError):
     """A resend refused before anything is cancelled: the platform isn't connected, or refused the stored credentials
     (#234). The message names the reconnect step."""
@@ -518,10 +526,12 @@ class Publisher:
 
     async def recover(self, row: dict[str, Any], now: float | None = None) -> Outcome:
         """A post the process was sending when it stopped. The request may or may not have reached the platform,
-        so: ask the platform (``find_existing``) when it can tell; otherwise mark it ``unconfirmed`` for a person.
-        Only a post the platform says is *missing* goes back in the queue. A platform that couldn't be asked just
-        now (rate-limited, unreachable) is asked again on the next stuck pass, STUCK_AFTER later: the post stays
-        ``recovering``, which only ever asks, never sends (#188). That has an end: a post 'recovering' for
+        so: ask the platform (``find_existing``) when it can tell; otherwise mark it ``unconfirmed`` for a person. One
+        whose send never began (its credentials could not be decrypted: ``run_due`` records it) is no such post: where
+        the platform can't be asked, its owner is told so, and to reconnect (#502). Only a post the platform says is
+        *missing* goes back in the queue. A platform that couldn't be asked just now (rate-limited, unreachable) is
+        asked again on the next stuck pass, STUCK_AFTER later: the post stays ``recovering``, which only ever asks,
+        never sends (#188). That has an end: a post 'recovering' for
         ``recovery_max`` (INKCAST_PUBLISH_RECOVERY_MAX_HOURS, measured from ``row["recovering_since"]``) is asked
         about one last time and, unless the platform has it, is unconfirmed for a person, "missing" included, so it
         is never sent late on its own (#216): the person cancels it or resends it (``resend``), and Git sync never
@@ -544,6 +554,22 @@ class Publisher:
 
         def recovered(status: str) -> list[DomainEvent]:
             return self._event("post.recovered", post_id, row["user_id"], platform.id, status=status)
+
+        if "find" not in platform.capabilities and row["error"] == _undecryptable(platform):
+            # The claim's record that this send never began (``run_due``), on a platform that can't be asked: no
+            # restart, and nothing was sent. Its owner is told what happened, and decides (#502). Counted unconfirmed,
+            # where InkcastUnconfirmedPublishes sees it: InkcastPostsCannotBeSent ends 30 minutes after the send.
+            message = (f"{row['error']} Reconnect {platform.name} (inkcast_connect, or POST /api/v1/platforms/"
+                       f"{platform.id}/connect-link), then resend it (inkcast_resend, or POST /api/v1/posts/{post_id}/"
+                       f"resend) or cancel it (inkcast_cancel, or POST /api/v1/posts/{post_id}/cancel).")
+            written = self.store.update_post(post_id, status="unconfirmed", error=message, events=recovered("unconfirmed"),
+                                             **fence)
+            if written:  # not over a cancel, as the cap's count (#226)
+                self._count(platform.id, "unconfirmed")
+                log.warning("Post %s on %s was never sent: its credentials could not be decrypted when it was due; now "
+                            "unconfirmed for its owner", post_id, platform.id,
+                            extra={"event": "publish.recovery.unsent", "post_id": post_id, "platform": platform.id})
+            return self._as_now(written, Outcome(platform.id, "unconfirmed", post_id=post_id, message=message))
 
         since = row.get("recovering_since")
         capped = since is not None and now - float(since) >= self.recovery_max
@@ -663,7 +689,7 @@ class Publisher:
                                                  scheduled=True, lag=lag, held=row["attempts"]))
             except sqlite3.Error:
                 raise  # the store, not this post: as in recovery, the tick stops
-            except Exception:
+            except Exception as exc:
                 # Raised outside the send's own guard (credentials sealed under another INKCAST_SECRET_KEY, a payload this
                 # version can't read): the post stays claimed, so recovery takes it after STUCK_AFTER, as when the tick
                 # stopped here, and the batch's other posts, other people's too, are sent now (#446). Counted, as a
@@ -672,6 +698,12 @@ class Publisher:
                 log.exception("Post %s on %s could not be sent; left for recovery", row["id"], row["platform"],
                               extra={"event": "publish.send.failed", "post_id": row["id"], "platform": row["platform"]})
                 self._count(row["platform"], "send_failed")
+                if isinstance(exc, CredentialsUnreadable):
+                    # Raised by ``_send``'s read of the credentials: everything from the plug-in's call on is guarded
+                    # there, so this send never began. The claim records it for the stuck pass (#502), only while it is
+                    # still this claim: another worker may have taken the post over and resolved it meanwhile.
+                    self.store.update_post(row["id"], error=_undecryptable(platform), only_if="publishing",
+                                           if_attempts=row["attempts"])
         return outcomes
 
     async def run_forever(self, interval: float, stop: asyncio.Event, housekeeping: Any = None,

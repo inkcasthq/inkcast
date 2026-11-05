@@ -111,6 +111,23 @@ class HeldASendThatBeganIsStillARestart(OnABlindPlatform):
         self.assertEqual((self.status(post_id), self.store.get_post(post_id)["error"]), ("unconfirmed", resolved))
 
 
+class HeldAPayloadThisVersionCannotReadIsNotMarked(OnABlindPlatform):
+    def test_it_stays_recovering_and_every_stuck_pass_counts_it(self):
+        """A reconnect does not mend a payload a newer version wrote (a rollback): only the credentials' error records a
+        send that never began. Such a post's recovery can't be made either, so it is counted at every stuck pass
+        (``recovery_failed``), and InkcastPostsCannotBeSent stays on while it waits, as before."""
+        post_id = self.post("scheduled")
+        self.store._exec("UPDATE posts SET payload = ? WHERE id = ?", '{"platform": "blind"}', post_id)
+        right = Publisher(self.store, self.platforms, metrics=self.wrong.metrics)
+        self.tick(publisher=right)
+        for n in (1, 2):
+            self.tick(later=n * (STUCK_AFTER + 1), publisher=right)
+        post = self.store.get_post(post_id)
+        self.assertEqual((post["status"], post["error"]), ("recovering", None))
+        self.assertEqual((self.counted("send_failed"), self.counted("recovery_failed"), self.counted("unconfirmed")),
+                         (1, 2, 0))
+
+
 class HeldAPlatformThatCanBeAskedStillAsks(WrongKeyScheduler):
     platform_class = Findable
 
