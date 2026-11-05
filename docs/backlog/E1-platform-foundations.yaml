@@ -138,10 +138,11 @@ features:
   stories:
   - id: F1.8.S1
     title: 'Protect main with a ruleset: required checks, squash only, no force-push or deletion'
-    status: in-progress
+    status: done
     issue: 34
-    change: 'new; issue #34, as code in PR #46 (approvals 0 while there is one maintainer); live once the owner runs
-      scripts/repo/settings.py apply (automation here may not write repository settings)'
+    change: 'new; issue #34, as code in PR #46 (approvals 0 while there is one maintainer); applied by the owner and
+      verified live 2026-11-05: ruleset main active, bypass_actors [], squash only, scripts/repo/settings.py check
+      "repository settings match the files"'
     acceptance:
     - 'Required checks: lint, test (3.12), test (3.13), test (3.14), test (3.15), authz, manifests, image, kind, dashboards,
       analyze (CodeQL); a pull request cannot merge while one is missing or failing'
@@ -186,7 +187,7 @@ features:
     status: in-progress
     issue: 38
     change: 'new; issue #38; docs/cicd.md says how (UI or API with security_events); the deletion itself is the
-      owner''s, since automation here cannot use the code-scanning API'
+      owner''s (it closes that configuration''s alerts for good). Still warned on PR #536''s CodeQL check, 2026-11-05'
     acceptance:
     - 'The CodeQL check on pull requests no longer warns "1 configuration not found" (needs the owner in Security, Tool
       status, or a token with security_events)'
@@ -196,8 +197,9 @@ features:
       private vulnerability reporting'
     status: in-progress
     issue: 45
-    change: 'new; issue #45, found 2026-10-19 (all off on a public repository); as code in PR #46, live once the owner
-      runs scripts/repo/settings.py apply'
+    change: 'new; issue #45, found 2026-10-19 (all off on a public repository); as code in PR #46, applied by the owner
+      (check matches, 2026-11-05). The daily workflow failed every run on fields its token can''t see (#540); the
+      security settings need a read credential with admin access for it to verify them daily, the owner''s decision'
     acceptance:
     - Secret scanning, push protection (with non-provider patterns), Dependabot security updates, vulnerability alerts and
       private vulnerability reporting are on

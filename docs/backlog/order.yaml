@@ -24,11 +24,10 @@ waves:
   why: 'Follow-ups in code that already runs: links written to the log, double-sends, lost posts and data kept after erasure.
     These are the failures a writer or an auditor notices first (handover, suggested order 1), so they come before new screens.'
   items:
-  - '#494'
-  - '#502'
-  - '#503'
-  - '#504'
-  - '#508'
+  - '#531'
+  - '#535'
+  - '#523'
+  - '#533'
 - id: W3
   phase: 1
   title: The writer web app
@@ -327,6 +326,7 @@ waves:
   - F7.7.S3
   - F7.7.S7
   - '#207'
+  - '#522'
   - F7.8.S1
   - F7.8.S2
   - F7.8.S3
@@ -378,9 +378,9 @@ issues:
   272: "Fix tokensave global.db writers waiting on dashboard reads"
   273: "Fix the tokensave saving rate under tool, model and effort filters"
   299: "OpenFGA to PostgreSQL with cert-manager client certificates instead of passwords"
-  494: "OpenFGA migrate: an eviction fence beside the hand-over grace"
-  502: "Publishing: a wrong-key send on a platform Inkcast can't ask is called a restart, and no alert stays on"
-  503: "Git sync: a change still owed after a lookup's match is never sent"
-  504: "Publishing: an update drops a second-copy note the row already held"
-  508: "inkcast sync: deleting a linked directory or a submodule leaves the posts an older version synced from it"
+  522: "Alerts: a failure in the scheduler's first tick after a restart is never seen by increase()"
+  523: "Resend: the MCP and CLI replies say a never-sent post may already be on the platform"
+  531: "Publishing: a success of the recorded copy drops a 'may have this post twice' note"
+  533: "Publishing: a note holding '; ' is split, so readers miss it"
+  535: "inkcast sync: a deleted file that is still in the working tree is synced, then cancelled"
   360: "Backlog tracker: every story in one execution order, reviewed wave by wave"
