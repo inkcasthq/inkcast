@@ -108,5 +108,8 @@ jobs:
           gh pr list --state open --label deploy --limit 200 --json number,headRefName,author,labels |
             python3 scripts/superseded_promotions.py --environment "$ENVIRONMENT" --current "$branch" |
             while read -r n; do
-              gh pr close "$n" --delete-branch --comment "Superseded by #$new, the latest promotion to $ENVIRONMENT."
+              # One merged or closed since the list was taken has nothing left to supersede (#517); one still open
+              # after a failed close fails the run, as merging it later would roll the environment back.
+              gh pr close "$n" --delete-branch --comment "Superseded by #$new, the latest promotion to $ENVIRONMENT." ||
+                [ "$(gh pr view "$n" --json state --jq .state)" != OPEN ]
             done
