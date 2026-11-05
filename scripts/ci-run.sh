@@ -14,6 +14,8 @@ trap 'rm -f "$log"' EXIT
 "$@" 2>&1 | tee "$log"
 status=${PIPESTATUS[0]}
 if [ "$status" -ne 0 ]; then
+  # The runner reads a workflow command only at the start of a line, so end a last line that has no newline.
+  [ -s "$log" ] && [ "$(tail -c 1 "$log" | wc -l)" -eq 0 ] && echo
   # LC_ALL=C: awk counts bytes, which are never fewer than the UTF-16 units the runner counts.
   CI_RUN_TITLE="${label} failed (exit ${status})" LC_ALL=C awk '
     # The runner keeps the first 4096 characters of a message and drops the rest
