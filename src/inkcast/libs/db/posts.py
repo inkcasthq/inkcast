@@ -154,7 +154,7 @@ class PostsRepo(Database):
                 values += [unless_found_at, value, beyond]
             elif name == "error" and keep is not None:
                 sets.append("error = CASE WHEN instr(COALESCE(error, ''), ?) > 0 THEN ? ELSE ? END")
-                values += [keep, keep if value is None else f"{value}; {keep}", value]
+                values += [keep, keep if value is None else self.join_notes([value, keep]), value]
             else:
                 sets.append(f"{name} = ?")
                 values.append(value)
@@ -205,8 +205,16 @@ class PostsRepo(Database):
 
     @staticmethod
     def notes_of(row: dict[str, Any]) -> list[str]:
-        """The notes a row's error holds, as the pipeline joins them ("; ")."""
+        """The notes a row's error holds, split where ``join_notes`` joins them ("; ")."""
         return (row["error"] or "").split("; ")
+
+    @staticmethod
+    def join_notes(notes: Iterable[str]) -> str | None:
+        """A post's notes as its ``error`` stores them: joined with "; ", or None for none. The one encoder of what
+        ``notes_of`` reads, and every writer that joins notes goes through it, so the format is one place (#533). A note
+        Inkcast words never holds the separator: a copy's URL or id is escaped (``_named``, #504), and a platform's name
+        holds no ";" (``discover``). A platform's own note may, and reads back as its pieces."""
+        return "; ".join(notes) or None
 
     def record_success(self, post_id: str, *, held: int, status: str, result_url: str | None, remote_id: str | None,
                        sent: dict[str, Any], notes: list[str], second_copy: Callable[[int], str],
@@ -240,7 +248,7 @@ class PostsRepo(Database):
                 note = both_copies(before)
                 error = before["error"]
                 if note not in self.notes_of(before):  # the same two copies refused again: written once, not per answer
-                    error = f"{error}; {note}" if error else note
+                    error = self.join_notes([*self.notes_of(before), note]) if error else note
                 c.execute("UPDATE posts SET error = ?, updated_at = ? WHERE id = ?", (error, now, post_id))
                 return False, before
             if keeps is not None:
@@ -251,7 +259,7 @@ class PostsRepo(Database):
                 notes = [*notes, edited]
             c.execute("UPDATE posts SET status = ?, result_url = ?, remote_id = ?, error = ?, title = ?, payload = ?,"
                       " updated_at = ? WHERE id = ?",
-                      (status, result_url, remote_id, "; ".join(notes) or None, sent["title"], json.dumps(sent), now,
+                      (status, result_url, remote_id, self.join_notes(notes), sent["title"], json.dumps(sent), now,
                        post_id))
             insert_events(c, events)
         return True, before
