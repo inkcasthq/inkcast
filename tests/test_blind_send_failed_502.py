@@ -16,8 +16,10 @@ import asyncio
 import unittest
 
 from inkcast.libs.alerting import ALERTS
+from inkcast.libs.config import Config
 from inkcast.libs.observability import EVENTS
 from inkcast.libs.pipeline import STUCK_AFTER, Publisher
+from inkcast.libs.runtime import build_metrics
 
 from test_person_decides import Blind, Findable
 from test_wrong_key_472 import RUNBOOK, WrongKeyScheduler
@@ -73,6 +75,18 @@ class FindingSuchAPostIsCountedWhereTheUnconfirmedAlertSeesIt(OnABlindPlatform):
         unsent = [r for r in self.logged.records if getattr(r, "event", None) == "publish.recovery.unsent"]
         self.assertEqual([(r.post_id, r.platform) for r in unsent], [(post_id, "blind")])
         self.assertIn("publish.recovery.unsent", EVENTS)
+
+
+class FindingTheUnconfirmedCountStartsAtZero(unittest.TestCase):
+    def test_every_platform_exposes_the_unconfirmed_count_at_zero_from_the_start(self):
+        """The series was made by its first increment, and ``increase()`` sees no rise in a series' first sample: the
+        first post a pod counted unconfirmed on a platform never fired InkcastUnconfirmedPublishes (promtool 3.7.0: a
+        series first scraped at 1 gave no sample; first scraped at 0, then 1, gave 1), the alert this count is for."""
+        cfg = Config(public_url="http://localhost:8787", secret_key="k" * 40, database_path=":memory:")
+        rendered = build_metrics(None, {"devto": None, "medium": None}, cfg).render()
+        for platform in ("devto", "medium"):
+            with self.subTest(platform=platform):
+                self.assertIn(f'inkcast_publish_total{{platform="{platform}",status="unconfirmed"}} 0', rendered)
 
 
 class HeldASendThatBeganIsStillARestart(OnABlindPlatform):
