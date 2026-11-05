@@ -467,10 +467,11 @@ class Publisher:
         file (``holds(row)``, on the same read as the notes). The file's entry has the hash of what was sent only once
         it has followed the post: a success landing on a post already confirmed with its copy (such as a lookup's match on
         less than the whole payload, then that send's late answer) writes the note and the content sent with no follow, and
-        the change the note names is still owed (#473). Every other note stays (a second copy, an earlier send's lost
-        answer: the person's to check). Worded from the row's copy and matched by equality, as ``update`` matches it,
-        and written only while the row is as read (status, attempts, notes and payload): a note written meanwhile (a second
-        copy, ``PostsRepo.record_success``) is never overwritten, nor a note settled for content the post no longer holds. True when cleared."""
+        the change the note names is still owed (#473): the next sync sends it (``GitSync._one``, #503). Every other note
+        stays (a second copy, an earlier send's lost answer: the person's to check). Worded from the row's copy and
+        matched by equality, as ``update`` matches it, and written only while the row is as read (status, attempts, notes
+        and payload): a note written meanwhile (a second copy, ``PostsRepo.record_success``) is never overwritten, nor a
+        note settled for content the post no longer holds. True when cleared."""
         row = self.store.get_post(post_id)
         if row is None or not holds(row):
             return False
