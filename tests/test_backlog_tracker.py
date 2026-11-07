@@ -30,8 +30,12 @@ def backlog(*stories: tuple[str, str]) -> list[dict]:
                                                         for sid, status in stories]}]}]
 
 
+MILESTONES = {p: {"title": f"Phase {p}", "description": "Goal."} for p in tracker.PHASES}  # every plan needs them (#571)
+
+
 def order(*items: str, tooling: tuple[str, ...] = (), issues: dict | None = None) -> dict:
-    return {"waves": [{"id": "W1", "phase": 1, "title": "Wave", "why": "Because.", "items": list(items)}],
+    return {"milestones": MILESTONES,
+            "waves": [{"id": "W1", "phase": 1, "title": "Wave", "why": "Because.", "items": list(items)}],
             "tooling": list(tooling), "issues": issues or {}}
 
 
@@ -69,7 +73,8 @@ class RenderTest(unittest.TestCase):
     def test_order_numbers_run_across_waves_and_each_story_shows_its_place(self):
         epics = backlog(("F1.1.S1", "planned"), ("F1.1.S2", "done"))
         epics[0]["features"][0]["stories"][0]["issue"] = 12
-        plan = {"waves": [{"id": "W1", "phase": 1, "title": "One", "why": "x", "items": ["#7"]},
+        plan = {"milestones": MILESTONES,
+                "waves": [{"id": "W1", "phase": 1, "title": "One", "why": "x", "items": ["#7"]},
                           {"id": "W2", "phase": 1, "title": "Two", "why": "y", "items": ["F1.1.S1"]}],
                 "issues": {7: "A | bug"}}
         text = tracker.render(epics, plan)
@@ -109,7 +114,8 @@ class ReviewFindingsTest(unittest.TestCase):
         unquoted = yaml.safe_load("waves:\n- id: W1\n  phase: 1\n  title: W\n  why: y\n  items:\n  - #342\n")
         self.assertIn("None (W1) is neither a story id nor '#N' (quote '#N' in YAML)",
                       self.problems(backlog(), unquoted))
-        empty = yaml.safe_load("waves:\n- id: W1\n  phase: 1\n  title: W\n  why: y\n  items:\nissues:\n")
+        empty = {**yaml.safe_load("waves:\n- id: W1\n  phase: 1\n  title: W\n  why: y\n  items:\nissues:\n"),
+                 "milestones": MILESTONES}
         self.assertEqual(self.problems(backlog(), empty), [])
         self.assertIn("### W1: W (phase 1, 0 of 0 stories done)", tracker.render(backlog(), empty))
         self.assertIn("342 (W1) is neither a story id nor '#N' (quote '#N' in YAML)",
@@ -170,7 +176,7 @@ class PhaseTest(unittest.TestCase):
     """Each wave names its delivery phase, the phases run in order, and a story sits in a wave of its own phase."""
 
     def problems(self, epics: list[dict], waves: list[dict]) -> list[str]:
-        return tracker.validate(tracker.index(epics), {"waves": waves, "issues": {}})
+        return tracker.validate(tracker.index(epics), {"milestones": MILESTONES, "waves": waves, "issues": {}})
 
     def wave(self, wid: str, phase, *items: str) -> dict:
         return {"id": wid, "phase": phase, "title": "Wave", "why": "Because.", "items": list(items)}
@@ -199,7 +205,8 @@ class PhaseTest(unittest.TestCase):
         self.assertEqual(problems, ["F1.1.S2 (W1) is phase 1, but W1 is phase 'ongoing'"])
 
     def test_the_wave_header_names_its_phase(self):
-        text = tracker.render(backlog(("F1.1.S1", "planned")), {"waves": [self.wave("W9", "ongoing", "F1.1.S1")]})
+        text = tracker.render(backlog(("F1.1.S1", "planned")),
+                              {"milestones": MILESTONES, "waves": [self.wave("W9", "ongoing", "F1.1.S1")]})
         self.assertIn("### W9: Wave (phase ongoing, 0 of 1 stories done)", text)
 
 

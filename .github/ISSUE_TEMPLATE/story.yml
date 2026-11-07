@@ -1,0 +1,41 @@
+name: Story
+description: A piece of a backlog feature that a person can use. It has an entry in docs/backlog/E*.yaml.
+title: '[F<epic>.<feature>.S<n>] '
+labels: [story]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        A form can't set a milestone. The story's place in `docs/backlog/order.yaml` gives its milestone. Keep the story id in
+        the title: `tracker.py --drift` matches it with the backlog.
+  - type: textarea
+    id: story
+    attributes:
+      label: User story
+      description: As a person in this role, I can do this, so that I get this.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Each one a check that a test or a measurement can settle.
+      value: |
+        - [ ]
+    validations:
+      required: true
+  - type: textarea
+    id: tasks
+    attributes:
+      label: Tasks
+      value: |
+        - [ ]
+  - type: textarea
+    id: design
+    attributes:
+      label: Design note
+      description: What changes, why, and the alternative not taken. A change to a screen needs an approved mockup first.
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope

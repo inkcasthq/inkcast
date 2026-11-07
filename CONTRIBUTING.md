@@ -42,6 +42,7 @@ Every contributor signs the [Inkcast Contributor License Agreement](legal/CLA-IN
    request's CodeQL check.
 4. **Add tests.** New platform plug-ins come with a fake of the platform's API (see `tests/fakes.py`) and a guide-compliant `prepare()`. Read [docs/writing-a-platform-plugin.md](docs/writing-a-platform-plugin.md).
 5. **Write clear commits** that say why, not only what.
+6. **Set the milestone on your pull request.** Use the milestone of the issue that it closes, and say in the template if the change is a hotfix instead. An issue form can't set a milestone, because GitHub's forms have no such key. An issue's place in `docs/backlog/order.yaml` gives its milestone, and a maintainer runs `scripts/backlog/tracker.py --milestones inkcasthq/inkcast` to write it. `--drift` reports a difference. See [Delivery phases](docs/epics/README.md#delivery-phases).
 
 ## Ground rules
 

@@ -6,11 +6,16 @@
     scripts/backlog/tracker.py                               # rewrite the tracker
     scripts/backlog/tracker.py --check                       # exit 1 if the order is invalid or the tracker is stale
     scripts/backlog/tracker.py --drift inkcasthq/inkcast     # compare with the GitHub issues (needs `gh`; not in CI)
+    scripts/backlog/tracker.py --milestones inkcasthq/inkcast  # make GitHub's milestones match the order (needs `gh`)
 
 The stories live in docs/backlog/E*.yaml and the order in docs/backlog/order.yaml. Every story that is not done must
 appear in the order exactly once, so a new story cannot be filed without a place in the queue. Each wave names its
 delivery phase (docs/epics/README.md, "Delivery phases"), and the stories in it must belong to that phase or be
 ongoing work. Tests run --check.
+
+Each phase is one GitHub milestone, defined in the order's `milestones:`. An issue's place gives its milestone: GitHub's
+issue forms have no milestone key, so a template cannot set one (#571). --drift reports a difference, and --milestones
+writes what it reports.
 """
 
 from __future__ import annotations
@@ -21,6 +26,7 @@ import pathlib
 import re
 import subprocess
 import sys
+from typing import NamedTuple
 
 import yaml
 
@@ -109,6 +115,17 @@ def validate(stories: dict[str, tuple[dict, dict, dict]], order: dict) -> list[s
     for sid, (_, _, story) in stories.items():
         if story.get("status") != "done" and sid not in seen:
             problems.append(f"{sid} is {story.get('status')} but has no place in docs/backlog/order.yaml")
+    milestones = order.get("milestones") or {}
+    for p in PHASES:
+        missing = [key for key in ("title", "description") if not (milestones.get(p) or {}).get(key)]
+        if missing:
+            problems.append(f"phase {p!r} has no milestone {' or '.join(missing)} under 'milestones:'")
+    for p in milestones:
+        if p not in PHASES:
+            problems.append(f"milestone {p!r} is not one of the phases {', '.join(map(str, PHASES))}")
+    titles = [m.get("title") for m in milestones.values() if m and m.get("title")]
+    if len(set(titles)) != len(titles):
+        problems.append(f"milestone titles repeat: {titles}")
     return problems
 
 
@@ -170,6 +187,12 @@ def render(epics: list[dict], order: dict) -> str:
         c = _count([s for f in epic["features"] for s in f["stories"]])
         out.append(f"| {epic['id']} | {_cell(epic['title'])} | {c['done']} | {c['in-progress']} | {c['planned']} "
                    f"| {sum(c.values())} |")
+    out += ["", "## Milestones", "",
+            "Each delivery phase is one GitHub milestone, a release with one goal. A milestone counts the issues and pull "
+            "requests that exist, and most planned stories have no issue yet, so this page is the count of stories.", "",
+            "| Phase | Milestone | Goal |", "|---|---|---|"]
+    out += [f"| {p} | {_cell(order['milestones'][p]['title'])} | {_cell(order['milestones'][p]['description'])} |"
+            for p in PHASES]
     out += ["", "## Execution order", "",
             "Work the waves from top to bottom, and the items in each wave in the order listed. An item is a story, "
             "or an open issue that is not a story. Each wave names its delivery phase (see the epics index): the "
@@ -245,10 +268,123 @@ def drift(repo: str, stories: dict[str, tuple[dict, dict, dict]], order: dict) -
     return problems
 
 
+def wanted_milestones(stories: dict[str, tuple[dict, dict, dict]], order: dict) -> dict[int, str]:
+    """Issue number -> the title of the milestone its place gives it: its wave's phase, or a done story's own phase once
+    it has left the order. A closed '#N' leaves the order too and nothing here names it, so it keeps the milestone it
+    has, and the milestone's count of closed issues stays true. An issue under ISSUE_LISTS is outside the releases."""
+    defined = order["milestones"]
+    wanted: dict[int, str] = {}
+    for _, feature, story in stories.values():
+        if story.get("issue") and phase(feature, story) in defined:
+            wanted[story["issue"]] = defined[phase(feature, story)]["title"]
+    for wave in order["waves"]:
+        for item in wave.get("items") or []:
+            number = int(item[1:]) if ISSUE_REF.fullmatch(item) else stories[item][2].get("issue")
+            if number:
+                wanted[number] = defined[wave["phase"]]["title"]
+    return wanted
+
+
+class MilestoneChange(NamedTuple):
+    """One write that makes GitHub match the order. ``number`` is the issue or pull request (they share an endpoint), and
+    ``milestone`` the title it takes, or None to clear it."""
+
+    says: str
+    title: str | None = None
+    description: str | None = None
+    number: int | None = None
+    milestone: str | None = None
+
+
+def milestone_changes(order: dict, wanted: dict[int, str], existing: list[dict], issues: list[dict],
+                      prs: list[dict]) -> tuple[list[MilestoneChange], list[str]]:
+    """What differs from the order, as GitHub's ``existing`` milestones, ``issues`` and open ``prs`` read: ``(the writes
+    that fix it, what only a person can settle)``. A milestone the order does not define is only reported: a title
+    changed in the order leaves the old one holding its issues, and deleting it is a person's decision. Due dates and
+    open or closed are never compared, so a date the owner sets and a milestone closed at its release stay."""
+    current = {m["title"]: m for m in existing}
+    changes = []
+    for definition in order["milestones"].values():
+        title, description = definition["title"], definition["description"]
+        if title not in current:
+            changes.append(MilestoneChange(f"milestone {title!r} does not exist", title=title, description=description))
+        elif (current[title].get("description") or "") != description:
+            changes.append(MilestoneChange(f"milestone {title!r}: its description differs from order.yaml",
+                                           title=title, description=description))
+    defined = {m["title"] for m in order["milestones"].values()}
+    settle = [f"milestone {title!r} is on GitHub but not in order.yaml" for title in sorted(set(current) - defined)]
+
+    def has(item: dict) -> str | None:
+        return (item.get("milestone") or {}).get("title")
+
+    outside = {int(i[1:]) for key in ISSUE_LISTS for i in order.get(key) or []}
+    for issue in sorted(issues, key=lambda i: i["number"]):
+        number, actual = issue["number"], has(issue)
+        if number in wanted and actual != wanted[number]:
+            changes.append(MilestoneChange(f"#{number}: milestone {actual!r}, expected {wanted[number]!r}", number=number,
+                                           milestone=wanted[number]))
+        elif number in outside and actual is not None:
+            changes.append(MilestoneChange(f"#{number}: milestone {actual!r}, but it is outside the releases", number=number))
+    for pr in sorted(prs, key=lambda p: p["number"]):
+        closes = sorted(r["number"] for r in pr.get("closingIssuesReferences") or [] if r["number"] in wanted)
+        if closes and has(pr) not in {wanted[n] for n in closes}:
+            changes.append(MilestoneChange(f"pull request #{pr['number']}: milestone {has(pr)!r}, but it closes #{closes[0]}, "
+                                           f"which expects {wanted[closes[0]]!r}", number=pr["number"],
+                                           milestone=wanted[closes[0]]))
+    return changes, settle
+
+
+def _gh(*args: str) -> str:
+    return subprocess.run(["gh", *args], check=True, capture_output=True, text=True).stdout
+
+
+def _read_milestones(repo: str) -> list[dict]:
+    pages = json.loads(_gh("api", "--paginate", "--slurp", f"repos/{repo}/milestones?state=all&per_page=100"))
+    return [milestone for page in pages for milestone in page]
+
+
+def _planned_changes(repo: str, stories: dict[str, tuple[dict, dict, dict]], order: dict,
+                     existing: list[dict]) -> tuple[list[MilestoneChange], list[str]]:
+    issues = json.loads(_gh("issue", "list", "--repo", repo, "--state", "all", "--limit", "5000",
+                            "--json", "number,milestone"))
+    prs = json.loads(_gh("pr", "list", "--repo", repo, "--state", "open", "--limit", "500",
+                         "--json", "number,milestone,closingIssuesReferences"))
+    return milestone_changes(order, wanted_milestones(stories, order), existing, issues, prs)
+
+
+def milestone_drift(repo: str, stories: dict[str, tuple[dict, dict, dict]], order: dict) -> list[str]:
+    """Where GitHub's milestones disagree with the order, one line each. Reads only."""
+    changes, settle = _planned_changes(repo, stories, order, _read_milestones(repo))
+    return [c.says for c in changes] + settle
+
+
+def apply_milestones(repo: str, stories: dict[str, tuple[dict, dict, dict]], order: dict) -> tuple[list[str], list[str]]:
+    """Make GitHub's milestones match the order: ``(what was written, what only a person can settle)``. The milestones
+    are written first, since an issue takes a milestone by a number that only exists once it is made. A second run with
+    nothing changed writes nothing."""
+    existing = _read_milestones(repo)
+    changes, settle = _planned_changes(repo, stories, order, existing)
+    numbers = {m["title"]: m["number"] for m in existing}
+    for c in changes:
+        if c.title is None:
+            continue
+        fields = ("-f", f"title={c.title}", "-f", f"description={c.description}")
+        if c.title in numbers:
+            _gh("api", "-X", "PATCH", f"repos/{repo}/milestones/{numbers[c.title]}", *fields)
+        else:
+            numbers[c.title] = json.loads(_gh("api", "-X", "POST", f"repos/{repo}/milestones", *fields))["number"]
+    for c in changes:
+        if c.number is not None:
+            value = "null" if c.milestone is None else str(numbers[c.milestone])  # gh -F sends these as JSON
+            _gh("api", "-X", "PATCH", f"repos/{repo}/issues/{c.number}", "-F", f"milestone={value}")
+    return [c.says for c in changes], settle
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--drift", metavar="REPO")
+    parser.add_argument("--milestones", metavar="REPO")
     args = parser.parse_args(argv)
     epics, order = load_epics(), yaml.safe_load(ORDER.read_text())
     try:
@@ -261,9 +397,15 @@ def main(argv: list[str]) -> int:
         print("The backlog or its order is invalid:\n  " + "\n  ".join(problems), file=sys.stderr)
         return 1
     if args.drift:
-        found = drift(args.drift, stories, order)
+        found = drift(args.drift, stories, order) + milestone_drift(args.drift, stories, order)
         print("\n".join(found) if found else "The backlog, the order and the GitHub issues agree.")
         return 1 if found else 0
+    if args.milestones:
+        written, settle = apply_milestones(args.milestones, stories, order)
+        print("\n".join(f"wrote: {line}" for line in written) if written else "The milestones already match the order.")
+        if settle:
+            print("For a person to settle:\n  " + "\n  ".join(settle), file=sys.stderr)
+        return 1 if settle else 0
     text = render(epics, order) + "\n"
     if args.check:
         if not TRACKER.exists() or TRACKER.read_text() != text:

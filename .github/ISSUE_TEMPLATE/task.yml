@@ -1,0 +1,34 @@
+name: Task
+description: Work on the repository, its tools or its operations, which is neither a bug nor a backlog story.
+labels: [task]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        A form can't set a milestone. A maintainer gives this issue its place in `docs/backlog/order.yaml`, and that place
+        gives its milestone.
+  - type: textarea
+    id: why
+    attributes:
+      label: What and why
+      description: The current state, measured where you can, and what the work changes.
+    validations:
+      required: true
+  - type: textarea
+    id: sources
+    attributes:
+      label: Sources
+      description: Links to the documents that the design rests on.
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Each one a check that a test or a measurement can settle.
+      value: |
+        - [ ]
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope

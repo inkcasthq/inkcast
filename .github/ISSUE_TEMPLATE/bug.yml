@@ -1,0 +1,58 @@
+name: Bug
+description: Something does the wrong thing. For a security vulnerability, use the private report instead.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        A form can't set a milestone. A maintainer gives this issue its place in `docs/backlog/order.yaml`, and that place
+        gives its milestone.
+  - type: textarea
+    id: what-happens
+    attributes:
+      label: What happens
+      description: The behaviour you saw, with the file and line where you know them, and the exact output or error.
+    validations:
+      required: true
+  - type: dropdown
+    id: evidence
+    attributes:
+      label: Measured or inferred
+      description: Did you see this happen, or does it follow from reading the code?
+      options:
+        - Measured
+        - Inferred from the code
+    validations:
+      required: true
+  - type: textarea
+    id: why-it-matters
+    attributes:
+      label: Why it matters
+      description: Who notices, and what it costs them.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: Steps or a script that show it, with the commit or version you ran.
+      render: bash
+  - type: textarea
+    id: should-happen
+    attributes:
+      label: What should happen
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Each one a check that a test or a measurement can settle.
+      value: |
+        - [ ] A test shows the behaviour above, and fails before the fix.
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope

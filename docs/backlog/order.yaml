@@ -4,6 +4,26 @@
 # An item is a story id from docs/backlog/E*.yaml, or '#N' for an open GitHub issue that is not a backlog story.
 # Every story that is not done must appear exactly once. scripts/backlog/tracker.py checks this and generates
 # docs/backlog/TRACKER.md from it; edit this file, never the tracker.
+# Each phase is one GitHub milestone. `tracker.py --milestones` writes these, and gives each issue its wave's milestone.
+milestones:
+  1:
+    title: 'Phase 1: One writer from a browser'
+    description: One writer uses Inkcast from a browser, on staging and then production.
+  2:
+    title: 'Phase 2: Shared workspaces'
+    description: Several people share a workspace.
+  3:
+    title: 'Phase 3: Identity and account lifecycle'
+    description: Identity and the account lifecycle are complete.
+  4:
+    title: 'Phase 4: Sold and operated'
+    description: Inkcast is sold and operated.
+  5:
+    title: 'Phase 5: More platforms'
+    description: More platforms, with per-workspace platform app credentials.
+  ongoing:
+    title: Ongoing beside every phase
+    description: Alerts, tests, dashboards, backups, cost and upkeep. No release of its own, so it stays open.
 waves:
 - id: W1
   phase: 1
@@ -29,6 +49,9 @@ waves:
   - '#557'
   - '#564'
   - '#565'
+  - '#572'
+  - '#573'
+  - '#574'
 - id: W3
   phase: 1
   title: The writer web app
@@ -385,4 +408,7 @@ issues:
   559: "Publishing: an uncertain answer over a published row drops its two-copies note"
   564: "CI kind job: stack.sh downloads kind and kubectl a second time, and a 504 fails the job"
   565: "Split services: a 502 through the Gateway right after a rolling restart"
+  572: "Publishing: a timeout at the same attempt count can leave two copies and no note"
+  573: "MCP replies: a second-copy note on a confirmed post is not shown"
+  574: "Test: the failed-write case in test_review_plugin_error_shapes never fires its lock"
   360: "Backlog tracker: every story in one execution order, reviewed wave by wave"
