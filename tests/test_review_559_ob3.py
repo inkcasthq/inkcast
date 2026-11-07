@@ -4,8 +4,11 @@
 
 1. ``GitSync._create`` wrote the hash of what its own send carried over an entry whose post records another worker's copy
    and other content. The file then read as changed at the next sync, though the platform had it: one more update where
-   the platform edits posts, and "update it by hand" at every sync where it doesn't."""
+   the platform edits posts, and "update it by hand" at every sync where it doesn't.
+2. ``render_resend`` shows a confirmed post's status and URL only. A resend's send whose uncertain answer lands on another
+   worker's copy now reads 'published', so the MCP reply lost the note it showed while that post read 'unconfirmed'."""
 
+import asyncio
 import json
 import time
 import unittest
@@ -15,6 +18,8 @@ from inkcast.libs.db.ledger import CLAIM_TTL
 from inkcast.libs.pipeline import STUCK_AFTER, _lost
 from inkcast.libs.platforms import PlatformError
 from inkcast.services.publishing.sync import stored_hash
+from inkcast.services.publishing.mcp_tools import render_resend
+from test_person_decides import SyncHarness
 from test_sync_edit_during_send_392 import Editable, Hooked
 from test_sync_error_after_post import PATH, SOURCE, SyncCase, markdown
 
@@ -106,6 +111,27 @@ class FindingAnUncertainAnswerIsNotReportedStale(OverACopyWithOtherContent):
         again = self.sync(body="Y.")
         self.assertEqual((again.action, again.status, again.message), ("unchanged", "published", None))
         self.assertEqual(self.entry()["message"], None)
+
+
+class FindingTheMCPResendReplyShowsTheNote(SyncHarness):
+    def test_an_uncertain_answer_over_a_re_sends_copy(self):
+        old = self.unconfirmed()
+        other = self.replica()
+
+        async def out(prepared):
+            await other.run_due(now=later())
+            raise PlatformError("Findable timed out after the request was sent.", uncertain=True)
+
+        self.platform.during_publish = out
+        reply = asyncio.run(self.service.resend(self.user, old))
+        self.assertEqual((reply.status, reply.error), ("published", _lost(self.platform)))
+        text = render_resend(reply, old, self.platforms)
+        self.assertIn(f"published → {reply.url}\n  {_lost(self.platform)}\n  The first post is cancelled", text)
+
+    def test_a_confirmed_post_with_no_note_reads_as_it_did(self):
+        reply = render_resend(self.service._post({**self.store.get_post(self.post("published")), "result_url": "https://f/1"}),
+                              "pst_old", self.platforms)
+        self.assertIn("published → https://f/1\n  The first post is cancelled;", reply)
 
 
 if __name__ == "__main__":

@@ -97,12 +97,13 @@ def render_resend(post: PostInfo, old_id: str, registry: dict) -> str:
     """The resend's reply: the new post, as a publish reply would show it, and the one thing left to the person. Any
     status but a confirmed one is named as it is, with the post's note: 'unconfirmed' (the person decides again),
     'failed', or 'recovering' (the send outlasted STUCK_AFTER and another worker took it over; it was called FAILED
-    before, #234). The first post's own note follows, as the server knows it: that it may already be on the platform,
-    or that it was never sent (#502, #523). Without one (a ``PostInfo``) the warning stays, so the reply never says
-    less than it knows."""
+    before, #234). A confirmed post's notes follow its URL, as in the listing: its send's uncertain answer may have landed
+    on another worker's copy, and said so only there (#559). The first post's own note follows, as the server knows it:
+    that it may already be on the platform, or that it was never sent (#502, #523). Without one (a ``PostInfo``) the
+    warning stays, so the reply never says less than it knows."""
     name = registry[post.platform].name if post.platform in registry else post.platform
     if post.status in ("published", "draft", "unlisted"):
-        what = post.status + (f" → {post.url}" if post.url else "")
+        what = post.status + (f" → {post.url}" if post.url else "") + (f"\n  {post.error}" if post.error else "")
     else:
         what = f"{post.status.upper()} — {post.error}"
     note = post.first_post_note if isinstance(post, ResendResponse) else None
