@@ -32,6 +32,11 @@ The owner's order of delivery (2026-10-29). Each open feature in `docs/backlog/*
 carries its own only when it differs from its feature's; `tests/test_backlog_phases.py` keeps every open feature in a
 phase. A phase starts when the one before it can be used, not when every story in it is done.
 
+Each phase is one GitHub milestone, and `docs/backlog/order.yaml` defines them. A milestone counts the issues and pull
+requests that exist, so `docs/backlog/TRACKER.md` remains the count of stories. When a phase can be used, tag the release
+as [docs/cicd.md](../cicd.md#versioning) says, name the milestone in the release notes, and close the milestone. The
+ongoing milestone has no release, so it stays open. No milestone has a due date until the owner sets one.
+
 | Phase | Goal | What is in it |
 |---|---|---|
 | 1 | One writer uses Inkcast from a browser, on staging and then production | E4 shell, the `inkcast-web` sign-in and deployment, and the screens from the approved writer app mockup (Posts, Compose, Connections, Git publishing, Tokens, Insights, API) and the calendar. What is in progress: repository hardening (F1.8), the OpenShift Local deployment (F3.9.S5–S7), the SQLite backup stopgap (F3.1.S9), erasure (F3.3.S5), the Keycloak component (F9.1.S3). Beside it, the security bugs from reviews: #112, #139, #149, #161, #212, #214 |
