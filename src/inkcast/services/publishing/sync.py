@@ -417,7 +417,11 @@ class GitSync:
                 else:
                     self.store.put_entry(user_id, src, path, pid, status="failed", content_hash=digest, message=o.message)
                 return SyncResult(**base, action="failed" if o.status == "failed" else "skipped", message=o.message)
-            self.store.put_entry(user_id, src, path, pid, content_hash=digest, post_id=o.post_id, status=o.status,
+            # A confirmed copy this send did not record (its answer landed on another worker's, #214, #559) holds what the
+            # platform has, not always what this send carried: the entry takes its hash, as one following its post does.
+            kept = self.store.get_post(o.post_id) if o.prepared is None and o.status in self.store.CONFIRMED else None
+            has = stored_hash(json.loads(kept["payload"])) if kept else digest
+            self.store.put_entry(user_id, src, path, pid, content_hash=has, post_id=o.post_id, status=o.status,
                                  url=o.url, remote_id=o.remote_id, replaces=None,
                                  message=o.message if o.status in ("unconfirmed", "scheduled") else None)
         except Exception:
