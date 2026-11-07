@@ -57,10 +57,11 @@ def build_metrics(store: Store | None, registry: dict[str, Platform], config: Co
     m.counter("inkcast_publish_total", "Publish attempts by platform and outcome.")
     # At 0 from the start: increase() sees no rise in a series' first sample, so InkcastPostsCannotBeSent would miss a
     # scheduler's first post it can't send after every restart (#472; Prometheus, "Avoid missing metrics"), and
-    # InkcastUnconfirmedPublishes a pod's first unconfirmed post on a platform, a send that never began among them (#502).
+    # InkcastUnconfirmedPublishes a pod's first unconfirmed post on a platform, a send that never began among them (#502),
+    # and InkcastPostMayBeOnThePlatformTwice its first possible second copy (#559).
     # Only once the 0 has been scraped: the scheduler's first tick runs before the first scrape (#522).
     for platform in registry:
-        for status in ("send_failed", "recovery_failed", "unconfirmed"):
+        for status in ("send_failed", "recovery_failed", "unconfirmed", "second_copy"):
             m.inc("inkcast_publish_total", 0, platform=platform, status=status)
     m.counter("inkcast_scheduler_ticks_total", "Completed scheduler ticks.")
     m.counter("inkcast_sync_total", "Git publishing sync results by platform and action.")

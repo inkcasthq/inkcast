@@ -53,6 +53,15 @@ SLO burn-rate alerts carry `slo`, `burn_rate`, `long_window` and `short_window` 
 2. The person decides: after checking the platform, `inkcast_resend` (or `POST /api/v1/posts/{id}/resend`) sends the post again as exactly one new post and cancels the old one, or `inkcast_cancel` (or `POST /api/v1/posts/{id}/cancel`) cancels it. For a post whose credentials could not be decrypted before its send, the old post's error says it was not sent. For other posts, either reply says the post may already be on the platform. Inkcast never sends an unconfirmed post again on its own, and Git sync never creates one again: a Git-synced file whose post is unconfirmed is reported as needing that decision on every push (the sync still asks `find_existing`, and records a post the platform does have). Only a post the person will not act on is resolved by hand: if it exists on the platform, record it (`result_url`, `remote_id`, status `published`); if not and it must go out, set `scheduled` with `run_at=now` and `recovering_since=NULL` (the cap's clock), and say so in the ticket.
 3. A burst of unconfirmed posts on one platform means that platform is timing out: see `InkcastPublishFailureRateHigh`.
 
+## InkcastPostMayBeOnThePlatformTwice
+
+**Meaning:** a send's answer showed that a post may be on its platform twice. For example, a send that outlasted `STUCK_AFTER` answered after another worker re-sent the post. The post keeps the copy it records, with its status. It doesn't read `unconfirmed`, so `InkcastUnconfirmedPublishes` doesn't fire for it. The platform's first copy can't be removed by Inkcast, and only a person clears the note.
+
+1. Find the posts: the `publish.second_copy` log lines name each post id and platform. The post's `error` names both copies, or the attempt that may have made one, or says that an earlier send's answer was lost.
+2. Check the platform. If it holds two copies, keep one and remove the other there.
+3. Don't resend the post. A resend can make another copy.
+4. Several in one hour on one platform means that its sends outlast `STUCK_AFTER` (600 s). See `InkcastPublishFailureRateHigh` and the platform's status page.
+
 ## InkcastPostRecoveringTooLong
 
 **Meaning:** a post whose send was interrupted (the process stopped mid-send: a deploy, an OOM kill, a node drain) has been `recovering` for over an hour. Every stuck pass (10 minutes) the scheduler asks the platform whether the post arrived (`find_existing`), and the platform keeps refusing the lookup for a reason that should pass: rate-limited (a 429), unreachable, or a 5xx. Recovery only asks, it never sends; so the post is neither out nor shown to anyone as unconfirmed. The age is `inkcast_posts_recovering_oldest_age_seconds`, read from the database (`posts.recovering_since`), so it survives restarts.

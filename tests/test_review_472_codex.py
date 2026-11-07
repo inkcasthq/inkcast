@@ -39,7 +39,7 @@ class FindingTheFailureRateCountsAttemptsOnly(unittest.TestCase):
         """A ``send_failed`` count is no attempt at the platform: in the denominator and the volume gate it would dilute
         InkcastPublishFailureRateHigh, which before #472 counted every status there was."""
         rule = next(alert for alert in ALERTS if alert.name == "InkcastPublishFailureRateHigh")
-        self.assertEqual(rule.expr.count('inkcast_publish_total{status!="send_failed"}[30m]'), 2, rule.expr)
+        self.assertEqual(rule.expr.count('inkcast_publish_total{status!~"send_failed|second_copy"}[30m]'), 2, rule.expr)
 
 
 class HeldAWrongKeySendLogsNoSecret(Harness):

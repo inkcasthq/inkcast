@@ -200,6 +200,12 @@ class Publisher:
         if self.metrics:
             self.metrics.inc("inkcast_publish_total", platform=platform, status=status)
 
+    def _second_copy_seen(self, post_id: str, platform: Platform, message: str, *args: Any) -> None:
+        """A post may be on its platform twice: logged, and counted, so InkcastPostMayBeOnThePlatformTwice fires. On a
+        scheduled send nobody reads the reply, so otherwise only the note on the row says so (#559)."""
+        self._count(platform.id, "second_copy")
+        log.warning(message, *args, extra={"event": "publish.second_copy", "post_id": post_id, "platform": platform.id})
+
     def _observe(self, name: str, value: float, **labels: str) -> None:
         if self.metrics:
             self.metrics.observe(name, value, **labels)
@@ -425,15 +431,15 @@ class Publisher:
                 kept = [n for n in self.store.notes_of(before) if keeps(n)]  # as ``record_success`` carried them over
                 notes += [n for n in kept if n not in notes]  # the success's own notes may hold one
                 if _lost(platform) in kept:  # an earlier send's uncertain answer landed over this re-send
-                    log.warning("Post %s on %s was published by a re-send; an earlier send's answer was lost after its "
-                                "request was sent, and may have posted a second copy", post_id, platform.id,
-                                extra={"event": "publish.second_copy", "post_id": post_id, "platform": platform.id})
+                    self._second_copy_seen(post_id, platform, "Post %s on %s was published by a re-send; an earlier send's "
+                                           "answer was lost after its request was sent, and may have posted a second copy",
+                                           post_id, platform.id)
                 if self.store.may_have_arrived_since(before, held):
                     if second_copy(before["attempts"]) not in notes:  # carried over: an earlier success wrote it
                         notes.append(second_copy(before["attempts"]))
-                    log.warning("Post %s on %s was published by a send taken over as stuck; attempt %s, sent meanwhile, "
-                                "may have posted a second copy", post_id, platform.id, before["attempts"],
-                                extra={"event": "publish.second_copy", "post_id": post_id, "platform": platform.id})
+                    self._second_copy_seen(post_id, platform, "Post %s on %s was published by a send taken over as stuck; "
+                                           "attempt %s, sent meanwhile, may have posted a second copy", post_id, platform.id,
+                                           before["attempts"])
                 if not self.store.holds(before, sent):
                     notes.append(edited)
                     log.warning("Post %s on %s was changed while its send was out; %s has it as it was sent, and the "
@@ -441,10 +447,10 @@ class Publisher:
                                 extra={"event": "publish.edited_meanwhile", "post_id": post_id, "platform": platform.id})
             return Outcome(platform.id, status, post_id=post_id, url=result.url, notes=notes, prepared=prepared,
                            remote_id=result.remote_id)
-        log.warning("Post %s on %s: attempt %s answered %s (%s), and the post records another copy (%s); %s may have "
-                    "both, and a person keeps one", post_id, platform.id, attempts, status,
-                    _named(result.url, result.remote_id), _named(before["result_url"], before["remote_id"]), platform.id,
-                    extra={"event": "publish.second_copy", "post_id": post_id, "platform": platform.id})
+        self._second_copy_seen(post_id, platform, "Post %s on %s: attempt %s answered %s (%s), and the post records another "
+                               "copy (%s); %s may have both, and a person keeps one", post_id, platform.id, attempts, status,
+                               _named(result.url, result.remote_id), _named(before["result_url"], before["remote_id"]),
+                               platform.id)
         return Outcome(platform.id, before["status"], post_id=post_id, url=before["result_url"],
                        remote_id=before["remote_id"], message=both_copies(before))
 
@@ -464,15 +470,15 @@ class Publisher:
         later attempt) it is written: this request may have arrived too, and the note says so (``_lost``), so that the
         re-send's own success, landing after, keeps the flag that a person checks for a second copy (#234). Over a copy a
         later attempt confirmed, the post is on the platform all the same: it keeps its status, its copy and its notes, and
-        gains that note (#559). Like a success refused over a copy, that is logged and neither counted nor an event, since
-        the post's state did not change. The caller is told the post as it is, its notes in ``notes``, as a written success
+        gains that note (#559). Like a success refused over a copy, that writes no event, since the post's state did not
+        change, and it is counted as a possible second copy (``_second_copy_seen``), not as 'unconfirmed'. The caller is told the post as it is, its notes in ``notes``, as a written success
         tells them: a confirmed post's reply reads nothing else (``render_publish``)."""
         written, copy = self.store.record_uncertain(post_id, held=held, error=error, lost=_lost(platform),
                                                     events=self._event("post.unconfirmed", post_id, user_id, platform.id))
         if copy is not None:
-            log.warning("Post %s on %s records a copy (%s), and an earlier send's uncertain answer landed on it (%s): %s may "
-                        "have both, and a person keeps one", post_id, platform.id, _named(copy["result_url"], copy["remote_id"]),
-                        error, platform.id, extra={"event": "publish.second_copy", "post_id": post_id, "platform": platform.id})
+            self._second_copy_seen(post_id, platform, "Post %s on %s records a copy (%s), and an earlier send's uncertain "
+                                   "answer landed on it (%s): %s may have both, and a person keeps one", post_id, platform.id,
+                                   _named(copy["result_url"], copy["remote_id"]), error, platform.id)
             return False, Outcome(platform.id, copy["status"], post_id=post_id, url=copy["result_url"],
                                   remote_id=copy["remote_id"], notes=self.store.notes_of(copy))
         if written:

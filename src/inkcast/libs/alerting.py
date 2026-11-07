@@ -108,6 +108,13 @@ ALERTS: tuple[Alert, ...] = (
           "Someone must check the platform before anyone publishes again. A post whose send never began, its "
           "credentials sealed under another INKCAST_SECRET_KEY (publish.recovery.unsent), is not on it: see "
           "InkcastPostsCannotBeSent.", "publishing", for_="0m"),
+    # #559: an uncertain answer over a confirmed copy leaves the post 'published', so the alert above doesn't see it. The
+    # count starts at 0 (build_metrics).
+    Alert("InkcastPostMayBeOnThePlatformTwice", 'sum(increase(inkcast_publish_total{status="second_copy"}[1h])) > 0', "warning",
+          "A post may be on its platform twice",
+          "{{ $value }} time(s) in the last hour a send's answer showed that a post may be on its platform twice. The post "
+          "stays as it is, and its error says which copies to check. A person keeps one copy and removes the other. The "
+          "publish.second_copy log lines name each post.", "publishing", for_="0m"),
     # #216: the gauge is read from the database (recovering_since), so the age survives restarts and replicas. A post
     # stays 'recovering' only while the platform refuses the lookup that would say whether its interrupted send arrived.
     Alert("InkcastPostRecoveringTooLong", "max(inkcast_posts_recovering_oldest_age_seconds) > 3600", "warning",
@@ -135,11 +142,12 @@ ALERTS: tuple[Alert, ...] = (
           "post, with the traceback. Check the key first: each pod's secret-key against the inkcast-secrets Secret (the "
           "runbook's commands).",
           "scheduler-worker", for_="0m"),
-    # A send that could not even begin (send_failed, #472) is no attempt: left out, so the ratio means what it did.
+    # A send that could not even begin (send_failed, #472) is no attempt, and a possible second copy (#559) only says more
+    # about an attempt counted already: both are left out, so the ratio means what it did.
     Alert("InkcastPublishFailureRateHigh",
           'sum by (platform) (rate(inkcast_publish_total{status=~"failed|update_failed"}[30m]))'
-          ' / clamp_min(sum by (platform) (rate(inkcast_publish_total{status!="send_failed"}[30m])), 1e-9) > 0.2'
-          ' and sum by (platform) (increase(inkcast_publish_total{status!="send_failed"}[30m])) >= 5',
+          ' / clamp_min(sum by (platform) (rate(inkcast_publish_total{status!~"send_failed|second_copy"}[30m])), 1e-9) > 0.2'
+          ' and sum by (platform) (increase(inkcast_publish_total{status!~"send_failed|second_copy"}[30m])) >= 5',
           "warning", "More than 20% of publishes to {{ $labels.platform }} fail",
           "{{ $value | humanizePercentage }} of attempts to {{ $labels.platform }} failed over 30 minutes (at least 5 "
           "attempts). A platform outage, revoked credentials or a plug-in bug.", "publishing", for_="10m"),

@@ -143,6 +143,8 @@ A publish can end `unconfirmed`: the platform's answer was lost after the reques
 
 A file whose entry is from before Inkcast recorded post ids (`unconfirmed`, naming no post) has no post to resend or cancel. It is `skipped` on every push, on every platform, until you edit it: the edit is published as a new post, so check the platform first and remove the first copy if it did arrive. The sync still asks the platform, and records the post if the platform has it; it never sends such a file again on its own, whatever the platform says.
 
+A post can also read `published` with a note that the platform may have it twice: another send's answer arrived after the post was confirmed. Check the platform and remove the extra copy there. Don't resend that post, because a resend can make another copy.
+
 The sync result names the post id and both calls. From the CLI, with a `posts:write` token in `INKCAST_TOKEN`:
 
 ```bash

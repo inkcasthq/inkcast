@@ -63,6 +63,19 @@ groups:
         Someone must check the platform before anyone publishes again. A post whose send never began, its credentials sealed
         under another INKCAST_SECRET_KEY (publish.recovery.unsent), is not on it: see InkcastPostsCannotBeSent.'
       runbook_url: https://github.com/inkcasthq/inkcast/blob/main/docs/runbooks/alerts.md#inkcastunconfirmedpublishes
+  - alert: InkcastPostMayBeOnThePlatformTwice
+    expr: sum(increase(inkcast_publish_total{status="second_copy"}[1h])) > 0
+    for: 0m
+    labels:
+      severity: warning
+      team: inkcast
+      service: publishing
+    annotations:
+      summary: A post may be on its platform twice
+      description: '{{ $value }} time(s) in the last hour a send''s answer showed that a post may be on its platform twice.
+        The post stays as it is, and its error says which copies to check. A person keeps one copy and removes the other.
+        The publish.second_copy log lines name each post.'
+      runbook_url: https://github.com/inkcasthq/inkcast/blob/main/docs/runbooks/alerts.md#inkcastpostmaybeontheplatformtwice
   - alert: InkcastPostRecoveringTooLong
     expr: max(inkcast_posts_recovering_oldest_age_seconds) > 3600
     for: 0m
@@ -100,7 +113,7 @@ groups:
       runbook_url: https://github.com/inkcasthq/inkcast/blob/main/docs/runbooks/alerts.md#inkcastpostscannotbesent
   - alert: InkcastPublishFailureRateHigh
     expr: sum by (platform) (rate(inkcast_publish_total{status=~"failed|update_failed"}[30m])) / clamp_min(sum by (platform)
-      (rate(inkcast_publish_total{status!="send_failed"}[30m])), 1e-9) > 0.2 and sum by (platform) (increase(inkcast_publish_total{status!="send_failed"}[30m]))
+      (rate(inkcast_publish_total{status!~"send_failed|second_copy"}[30m])), 1e-9) > 0.2 and sum by (platform) (increase(inkcast_publish_total{status!~"send_failed|second_copy"}[30m]))
       >= 5
     for: 10m
     labels:

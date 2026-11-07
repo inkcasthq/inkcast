@@ -96,7 +96,8 @@ EVENTS: dict[str, tuple[str, str]] = {
                                        "another worker re-sent it, or after a lookup recorded another post, or its uncertain "
                                        "answer landed over a copy the post records. The post's error names both copies, or "
                                        "the attempt that may have made one, or says an earlier send's answer was lost; a "
-                                       "person checks the platform, keeps one and removes the other."),
+                                       "person checks the platform, keeps one and removes the other. Counted as "
+                                       "inkcast_publish_total{status=\"second_copy\"}."),
     "publish.edited_meanwhile": ("warning", "Git sync changed a post in place while its send was still out, and that send "
                                             "succeeded: the platform has the post as it was sent, the post says so, and "
                                             "the next sync sends the change as an update, or reports the file stale."),

@@ -22,10 +22,13 @@ from dataclasses import dataclass
 import test_person_decides as pd
 import test_publishing_keep_notes_531 as k531
 import test_review_publishing_214 as r214
+from inkcast.libs.alerting import ALERTS
+from inkcast.libs.config import Config
 from inkcast.libs.contracts.models import PublishRequest
 from inkcast.libs.observability import Metrics
 from inkcast.libs.pipeline import STUCK_AFTER, Publisher, _both_copies, _edited, _lost, _named
 from inkcast.libs.platforms import PlatformError, PublishResult
+from inkcast.libs.runtime import build_metrics
 from inkcast.services.publishing.mcp_tools import render_publish
 
 TIMEOUT = "Findable timed out after the request was sent."
@@ -249,14 +252,15 @@ class FindingThePostIsNotCountedOrLoggedAsUnconfirmed(Recorded):
     """As a success refused over a copy, which also leaves a note: a warning that says so, and nothing that counts the
     post as a send's result."""
 
-    def test_no_event_no_count_and_the_second_copy_log(self):
+    def test_no_event_and_the_second_copy_log_and_count(self):
         post_id = self.recorded()
         self.measured()
         before = self.events(post_id)
         with self.assertLogs("inkcast.libs.pipeline", level="WARNING") as logged:
             self.sends(post_id, timeout(), held=1)
         self.assertEqual(self.events(post_id), before, "a post that stays published wrote an event")
-        self.assertEqual(self.publisher.metrics.snapshot().get("inkcast_publish_total", {}), {}, "it was counted")
+        self.assertEqual(self.publisher.metrics.snapshot().get("inkcast_publish_total", {}),
+                         {(("platform", "findable"), ("status", "second_copy")): 1}, "counted as anything else, or not at all")
         self.assertEqual([getattr(r, "event", None) for r in logged.records], ["publish.second_copy"])
         self.assertIn(_named(URL, "1"), logged.records[0].getMessage())
         self.assertIn(TIMEOUT, logged.records[0].getMessage())
@@ -268,7 +272,8 @@ class FindingThePostIsNotCountedOrLoggedAsUnconfirmed(Recorded):
         with self.assertLogs("inkcast.libs.pipeline", level="WARNING") as logged:
             self.sends(post_id, RuntimeError("boom"), held=1)
         self.assertEqual(self.events(post_id), before)
-        self.assertEqual(self.publisher.metrics.snapshot().get("inkcast_publish_total", {}), {})
+        self.assertEqual(self.publisher.metrics.snapshot().get("inkcast_publish_total", {}),
+                         {(("platform", "findable"), ("status", "second_copy")): 1})
         self.assertEqual([getattr(r, "event", None) for r in logged.records if r.levelname == "WARNING"], ["publish.second_copy"])
 
     def test_a_second_answer_logs_again(self):
@@ -538,6 +543,59 @@ class HeldTheReadAndTheWriteShareTheWriteLock(Recorded):
         post_id = self.post("publishing")
         self.store.update_post(post_id, attempts=2)
         self.assert_locked(self.watched(post_id, timeout(), held=1))
+
+
+class FindingAPossibleSecondCopyAlerts(Recorded):
+    """Before #559 this path counted ``unconfirmed``, so InkcastUnconfirmedPublishes fired. A post that stays published
+    must not lose that signal: on a scheduled send nobody reads the reply."""
+
+    def test_the_alert_reads_the_count_and_the_count_starts_at_zero(self):
+        rule = next(a for a in ALERTS if a.name == "InkcastPostMayBeOnThePlatformTwice")
+        self.assertIn('inkcast_publish_total{status="second_copy"}', rule.expr)
+        rendered = build_metrics(None, {"findable": self.platform}, Config(public_url="http://localhost:8787", secret_key="k" * 40,
+                                                                           database_path=":memory:")).render()
+        self.assertIn('inkcast_publish_total{platform="findable",status="second_copy"} 0', rendered)
+
+    def test_a_refused_success_counts_too(self):
+        post_id = self.recorded()
+        self.measured()
+        self.sends(post_id, k531.copy(9), held=2)
+        self.assertEqual(self.counted("second_copy"), 1)
+
+    def test_a_re_sends_success_over_a_lost_answer_counts_too(self):
+        post_id = self.post("publishing")
+        self.store.update_post(post_id, attempts=2)
+        self.measured()
+        self.sends(post_id, timeout(), held=1)                                # 'unconfirmed', with the lost note
+        self.sends(post_id, k531.copy(1), held=2)
+        self.assertEqual((self.counted("unconfirmed"), self.counted("second_copy")), (1, 1))
+
+    def test_the_failure_rate_is_not_diluted_by_it(self):
+        rule = next(a for a in ALERTS if a.name == "InkcastPublishFailureRateHigh")
+        self.assertEqual(rule.expr.count('status!~"send_failed|second_copy"'), 2, rule.expr)
+
+
+class PinnedTheEdgesOfTheWrite(Recorded):
+    """What the mutants of the review of 12e5c835 showed nothing pinned."""
+
+    def test_the_note_moves_updated_at(self):
+        post_id = self.recorded()
+        self.store._exec("UPDATE posts SET updated_at = 1 WHERE id = ?", post_id)
+        self.sends(post_id, timeout(), held=1)
+        self.assertGreater(self.store.get_post(post_id)["updated_at"], 1)
+
+    def test_a_copy_recorded_at_fewer_attempts_than_the_answer_held_is_kept_too(self):
+        post_id = self.recorded()
+        self.sends(post_id, timeout(), held=3)
+        post = self.store.get_post(post_id)
+        self.assertEqual((post["status"], post["result_url"], post["error"]), ("published", URL, _lost(self.platform)))
+
+    def test_a_post_that_no_longer_exists_is_neither_written_nor_counted(self):
+        post_id = self.recorded()
+        self.measured()
+        self.store._exec("DELETE FROM posts WHERE id = ?", post_id)
+        ((outcome, _),) = [(self.publisher._uncertain(post_id, self.user, self.platform, TIMEOUT, TIMEOUT, 1)[1], None)]
+        self.assertEqual((outcome.status, self.counted(), self.counted("second_copy")), ("unconfirmed", 0, 0))
 
 
 if __name__ == "__main__":
