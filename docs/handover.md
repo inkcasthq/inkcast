@@ -2,7 +2,7 @@
 
 Where the work stands and how to pick it up on another machine or in a fresh session, without the chat history. **Update this page at the end of every working session** (it's the hand-off, not a changelog: replace what's stale).
 
-**As of 2026-11-05.**
+**As of 2026-11-07.**
 
 ## Where things stand
 
@@ -15,19 +15,32 @@ Where the work stands and how to pick it up on another machine or in a fresh ses
   - Three rounds of review follow-ups closed on 2026-11-05: #535 (PR #553), #523 (PR #554), #531 (PR #555) and #533 (PR #562: a platform's name can't split a post's notes, and `PostsRepo.join_notes` is the one encoder).
   - The backlog PRs #448, #483, #488 and #512 record the earlier steps.
   - Open in W2, in this order:
-    - #559, #558 and #557, filed from the reviews of PRs #555, #554 and #553;
+    - #559 (built and reviewed, not merged; see "In flight"), #558 and #557, filed from the reviews of PRs #555, #554 and #553;
     - #564: CI's kind job downloads kind and kubectl a second time, and a 504 failed main's publish run for `df8aa17f`;
-    - #565: a 502 through the split services' Gateway right after a rolling restart, which failed main's publish run for `bca7c094`. Measure first: the issue gives the hypothesis (no `preStop` drain) and the test.
+    - #565: a 502 through the split services' Gateway right after a rolling restart, which failed main's publish run for `bca7c094`. Measure first: the issue gives the hypothesis (no `preStop` drain) and the test;
+    - #572, #573 and #574, filed from the review of #559. They join W2's list in `order.yaml` when PR #575 merges. Commit 5f298fbe on the #559 branch fixes the resend half of #573.
   - #522 is in W17.
 - **W3, the writer web app:**
   - Done: F4.1.S5 (#348, the Node lock resolved in CI; PRs #547 and #549) and #550 (PR #560: `ci-run.sh`'s annotation shows a failure's cause, sized in the UTF-16 units the runner keeps).
   - Next: F4.1.S1, which has no issue yet. Create the issue first.
 - **Deployed on the lab's OpenShift Local:**
-  - `inkcast-staging` and `inkcast-prod` run the image of `main` after this hand-off's merge.
+  - `inkcast-staging` and `inkcast-prod` both run `sha256:a0621cf47c9f`, built from `5c0e74eb`. This hand-off changes only documents, so its image is not promoted, and its promotion PR can stay open. The next image's promotion closes it.
   - The digest each one runs is the `digest:` line in `deploy/kustomize/environments/staging/kustomization.yaml` and `.../production/kustomization.yaml` on `main`; the promotion PRs write it.
-  - Each is deployed from `main`'s overlay, and `~/.claude/skills/inkcast-crc/check.sh` reports ALL PASS after each deploy.
-- **Nothing is in flight** at the end of 2026-11-05: no open PR, and no builder or reviewer running.
-- **Next:** W2's #559, then #558, #557, #564 and #565; then W3 from F4.1.S1, in the order `order.yaml` lists.
+  - Each is deployed from `main`'s overlay. `~/.claude/skills/inkcast-crc/check.sh` reported ALL PASS on 2026-11-07.
+- **In flight.** The owner paused the work on 2026-11-07. No builder or reviewer is running.
+  - **#559** is on branch `fix/559-uncertain-over-confirmed-copy` at `8378d5fa`. It is pushed, and it has no PR yet. All gates passed at that commit.
+    - The branch holds the build, two fixes from the OB3 review (`99ba59ea`, `5f298fbe`), and a new alert, `InkcastPostMayBeOnThePlatformTwice` (`8378d5fa`).
+    - The Codex review finished. Its three planted claims came back correct. It reports two defects, with fixes, and the integrator has not verified them yet:
+      - K2 (medium): one success counts `second_copy` twice when both warning conditions hold.
+      - K10 (low): the new runbook section says that `InkcastUnconfirmedPublishes` does not fire for such a post, and it can.
+    - Codex also rates K5 PLAUSIBLE: the new alert fires only if a zero was scraped before the first count. `promtool` was not available to it.
+    - The PR must state three things:
+      - The issue's second criterion cannot hold as written, because two tests pinned the old write and now pin the new outcome.
+      - Rows that the old write already moved to `unconfirmed` with a copy are not measured (see "Owner's steps").
+      - The alert is an addition by the integrator.
+  - **#571** is PR #575: one milestone per delivery phase, issue forms and a pull request template. Its checks are green. It waits for two reviews. After the merge, run `tracker.py --milestones inkcasthq/inkcast` from an up-to-date `main`, twice. The second run must write nothing.
+  - **diagram-kit:** PR #26 merged the `delivery-page` command and skill, and no reviewer read it before the merge. PR #27 is the 0.2.6 release, open and not merged. After it merges, tag `v0.2.6` on the merge commit and move the pinned install to it.
+- **Next:** finish #559, then #575, then W2's #558, #557, #564, #565, #572, #573 and #574; then W3 from F4.1.S1, in the order `order.yaml` lists.
 
 ## Decisions taken since 2026-10-27
 
@@ -35,7 +48,8 @@ Where the work stands and how to pick it up on another machine or in a fresh ses
 |---|---|---|
 | A plug-in's name | 1 to 40 printable characters without `;`, held on the class by `discover()` and on the instance by `load_platforms()`; notes are joined by `PostsRepo.join_notes` only; storing them as a JSON list waits for the PostgreSQL schema (F3.1.S1) | #533, PR #562 |
 | CI failure annotations | The first cause-like lines above the last 25, in the room the tail leaves, within the runner's 4096 UTF-16 units | #550, PR #560 |
-| Builders and reviewers | Opus 5.5 builds and reviews while the Fable limit is spent; Codex reviews too. Each finding is checked by the integrator (fails before, passes after) before it merges. Work to be reviewed again by Fable carries the `fable-review-later` label | 2026-11-04 |
+| The delivery page | Rendered from this page and the tracker at one commit by diagram-kit's `delivery-page`, which refuses to write if a required document fails. Raw HTML in the Markdown shows as text | diagram-kit PR #26 |
+| Builders and reviewers | No Fable (the owner, 2026-11-07). Opus 5.5 builds and reviews, with Codex and Cursor as needed. Heavy agents run one at a time. Each finding is checked by the integrator (fails before, passes after) before it merges. The `fable-review-later` label stays as a record | 2026-11-04, 2026-11-07 |
 | A deleted linked directory or submodule | The CLI sends the removed directories and the patterns (`removed_dirs`, `removed_globs`); the server cancels the posts its own ledger synced below them, under the `stories:sync` scope a sync token already has. A pattern's matching cost is bounded, since the server runs patterns a request names | #508, PR #536 |
 | Second-copy notes on an update | Recognised by the exact wording their builders write, in linear time (the earlier pattern took 8 s on a 53 KB note), and kept in order | #504, PR #534 |
 | OpenFGA's migration | Runs as an init container (no Job to delete and re-apply); an eviction fence ends a paused earlier runner's `openfga migrate` | F3.9.S8 PR #374; #494 PR #521 |
@@ -78,7 +92,8 @@ Earlier decisions (publishing, recovery, mockups, frontends) are in the ADRs, [`
 2. **F1.8.S6 (#45):** decide whether the daily `repo-settings` workflow gets a read credential with admin access to the repository settings (a GitHub App or a fine-grained token). Without one it verifies the ruleset's rules and lists the rest as NOT VERIFIED; the owner's `scripts/repo/settings.py check` covers everything.
 3. **openfga/openfga#2448:** a comment proposing that goose's `Provider` lock on the connection that migrates (option 4 of the #494 design). Posting outside the repository waits for the owner's yes.
 4. **The mobile app:** no epic or story covers it; `docs/product-spec.md` puts it in phase 3, ADR-0006 gives it the same Keycloak identity, and `docs/issues/13-mobile-app.md` is an unfiled draft. Whether to make it an epic and give it a wave is the owner's call.
-5. **Attribution clean-up** (the owner's call):
+5. **#559, rows already moved:** the old write could already have moved a post with a recorded copy to `unconfirmed`. The permission check denied the integrator's read of the production database, so this is not measured, and the integrator did not route around it. The owner decides whether to run that read. The query is in the #559 review's report.
+6. **Attribution clean-up** (the owner's call):
    - strip the tool-appended "Generated by" line from old PR and issue bodies;
    - decide whether to rewrite the early history of `main` (PR #4 and earlier) to drop tool trailers and re-author early commits. This needs a force-push and is destructive.
 
@@ -95,7 +110,7 @@ Not revisited since 2026-10-27; check before relying on it.
 
 Paste this into a new session, in the repo:
 
-> Read `docs/handover.md`, `CONTRIBUTING.md`, `docs/contributor-map.md` and `docs/definition-of-done.md`. Check `main` is green (including the publish runs' `kind` job), list open PRs, and run `scripts/backlog/tracker.py --drift inkcasthq/inkcast`. Run `~/.claude/skills/inkcast-crc/check.sh` and confirm staging and production run the digests in `main`'s overlays. Then continue with the first open wave in `docs/backlog/order.yaml`: W2's #559, #558, #557, #564 and #565, then W3 from F4.1.S1. One issue per PR, following "How the work is done": a builder, two adversarial reviews that prove each finding with a failing test, an arbitration comment on the PR, the gates, the merge, then the image promoted to staging and production and checked on the lab. Report W2's end on #360 and update `docs/handover.md` at the end of the session.
+> Read `docs/handover.md`, `CONTRIBUTING.md`, `docs/contributor-map.md` and `docs/definition-of-done.md`. Check `main` is green (including the publish runs' `kind` job), list open PRs, and run `scripts/backlog/tracker.py --drift inkcasthq/inkcast`. Run `~/.claude/skills/inkcast-crc/check.sh` and confirm staging and production run the digests in `main`'s overlays. Then finish what "In flight" names: verify the Codex findings on #559 (each fails before and passes after), open its PR, and merge, promote and deploy it. Then review and merge PR #575. Then continue with the first open wave in `docs/backlog/order.yaml`: W2's #558, #557, #564, #565, #572, #573 and #574, then W3 from F4.1.S1. One issue per PR, following "How the work is done": a builder, two adversarial reviews that prove each finding with a failing test, an arbitration comment on the PR, the gates, the merge, then the image promoted to staging and production and checked on the lab. Report W2's end on #360 and update `docs/handover.md` at the end of the session.
 
 To resume on the owner's machine, with the session's own notes, say: "Read memory delivery-state and delivery-runbook, and docs/handover.md, then continue autonomously from where they leave off."
 
