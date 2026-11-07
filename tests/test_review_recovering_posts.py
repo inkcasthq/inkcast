@@ -226,9 +226,9 @@ class FindingTheSendersLateFailureReSendsAPostAnotherWorkerSent(Harness):
 
 
 class HeldAnUncertainLateAnswerStillGoesToAPerson(Harness):
-    def test_a_re_sent_post_whose_first_request_may_have_arrived_is_unconfirmed_with_its_url(self):
-        """A's request may have reached the platform after B's lookup: the post may be there twice. A person checks;
-        B's URL stays on the row."""
+    def test_a_re_sent_post_whose_first_request_may_have_arrived_stays_published_and_says_so(self):
+        """A's request may have reached the platform after B's lookup: the post may be there twice. A person checks, told
+        by the note; B's copy stays on the row, and the post stays 'published', with no resend to ask for (#559)."""
         post_id = self.post("scheduled")
         other = self.replica()
 
@@ -240,7 +240,8 @@ class HeldAnUncertainLateAnswerStillGoesToAPerson(Harness):
         self.platform.during_publish = overtaken
         self.tick()
         post = self.store.get_post(post_id)
-        self.assertEqual((post["status"], post["result_url"]), ("unconfirmed", "https://hooked/1"))
+        self.assertEqual((post["status"], post["result_url"]), ("published", "https://hooked/1"))
+        self.assertIn("second copy may be on Hooked", post["error"])
 
 
 # ---- 2. the cap's clock starts at the stuck pass, not at the interruption ---------------------------------------

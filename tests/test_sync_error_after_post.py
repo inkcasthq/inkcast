@@ -135,9 +135,8 @@ class SyncCase(unittest.TestCase):
 
 
 def after_the_send(*args, **kwargs) -> bool:
-    """The write of a platform's answer to a send: 'published' (``record_success``, #214), or 'unconfirmed' for an
-    uncertain one (``update_post``)."""
-    return kwargs.get("status") in ("published", "unconfirmed")
+    """The write of a platform's answer to a send: 'published' (``record_success``, #214)."""
+    return kwargs.get("status") == "published"
 
 
 def the_post_pointer(*args, **kwargs) -> bool:
@@ -202,7 +201,7 @@ class AnUncertainSendAfterTheRowExists(SyncCase):
         platform without ``find``), and nothing sends it again."""
         self.platform.error = PlatformError("Blind returned a server error (502); it may or may not have been published.",
                                             uncertain=True)
-        self.sync_locked(Flaky(self.store.update_post, after_the_send), "update_post")
+        self.sync_locked(Flaky(self.store.record_uncertain, lambda *a, **kw: True), "record_uncertain")
         self.platform.error = None
         (post,) = self.posts()
         self.assertEqual(self.platform.sent, ["Body."])

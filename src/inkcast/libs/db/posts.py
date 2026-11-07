@@ -119,22 +119,15 @@ class PostsRepo(Database):
         return run_at
 
     def update_post(self, post_id: str, events: Iterable[DomainEvent] | None = None,
-                    only_if: str | tuple[str, ...] | None = None, unless: str | None = None,
-                    if_attempts: int | None = None, unless_found_at: int | None = None, beyond: str | None = None,
+                    only_if: str | tuple[str, ...] | None = None, if_attempts: int | None = None,
                     keep: str | None = None, if_error: str | None = None, if_payload: str | None = None,
                     **fields: Any) -> bool:
         """Change fields; ``events`` are written in the same transaction (the outbox). A post that no longer exists
         (its owner was erased while the scheduler held it) is left alone, and its events are not written either.
         ``only_if``: change it only while it still has this status, or one of these (another worker may have moved it
         on).
-        ``unless``: change it only while it does not have this status (a person cancelled it meanwhile).
         ``if_attempts``: change it only while its ``attempts`` is still this (the fence of a send or a recovery against
         its own late answer: a re-send by another worker counts an attempt, #226).
-        ``unless_found_at``: change it unless the platform has confirmed the post at this attempt count ('published',
-        'draft' or 'unlisted' with no send since: another worker's lookup found the very send a late answer is about).
-        ``beyond``: with ``unless_found_at``, the ``error`` written instead of ``fields["error"]`` when the row counts
-        more attempts than that: the answer is an earlier send's, landing over another worker's re-send, and says so
-        (``Publisher._deliver``, #234). One statement, so the attempt count it reads is the one it writes against.
         ``keep``: a note the ``error`` keeps when the row's error already holds it, whatever ``fields["error"]`` says:
         the note that an earlier send's answer was lost and a second copy may be there (``_lost``), which only a person
         clears (#234). One statement too, so a note written meanwhile is never lost between a read and this write.
@@ -144,15 +137,10 @@ class PostsRepo(Database):
         ``if_payload``: change it only while its ``payload`` is still this: a note settled for the content the post held
         when it was read (``Publisher.settle_edited``, #473).
         True when the post was changed."""
-        if beyond is not None and unless_found_at is None:
-            raise ValueError("update_post(beyond=) needs unless_found_at: the attempt count the answer is about")
         fields["updated_at"] = time.time()
         sets, values = [], []
         for name, value in fields.items():
-            if name == "error" and beyond is not None:
-                sets.append("error = CASE WHEN attempts = ? THEN ? ELSE ? END")
-                values += [unless_found_at, value, beyond]
-            elif name == "error" and keep is not None:
+            if name == "error" and keep is not None:
                 # One of its notes, as ``notes_of`` splits them: "; " on each side, never the note's text inside another.
                 sets.append("error = CASE WHEN instr('; ' || COALESCE(error, '') || '; ', '; ' || ? || '; ') > 0"
                             " THEN ? ELSE ? END")
@@ -162,18 +150,13 @@ class PostsRepo(Database):
                 values.append(value)
         statuses = (only_if,) if isinstance(only_if, str) else tuple(only_if or ())
         status = ((f" AND status IN ({', '.join('?' * len(statuses))})" if statuses else "")
-                  + (" AND status != ?" if unless else "")
                   + (" AND attempts = ?" if if_attempts is not None else "")
-                  + (" AND NOT (status IN ('published', 'draft', 'unlisted') AND attempts = ?)"
-                     if unless_found_at is not None else "")
                   + (" AND COALESCE(error, '') = ?" if if_error is not None else "")
                   + (" AND payload = ?" if if_payload is not None else ""))
         with self._tx() as c:
             changed = c.execute(f"UPDATE posts SET {', '.join(sets)} WHERE id = ?{status}",
                                 (*values, post_id, *statuses,
-                                 *([unless] if unless else []),
                                  *([if_attempts] if if_attempts is not None else []),
-                                 *([unless_found_at] if unless_found_at is not None else []),
                                  *([if_error] if if_error is not None else []),
                                  *([if_payload] if if_payload is not None else []))).rowcount == 1
             if changed:
@@ -181,6 +164,11 @@ class PostsRepo(Database):
         return changed
 
     CONFIRMED = ("published", "draft", "unlisted")  # the statuses that record a copy on the platform
+
+    @classmethod
+    def records_copy(cls, row: dict[str, Any]) -> bool:
+        """Whether ``row`` records a confirmed copy: a ``CONFIRMED`` status, with a remote id or a URL to find it by."""
+        return row["status"] in cls.CONFIRMED and (row["remote_id"] is not None or row["result_url"] is not None)
 
     @staticmethod
     def same_copy(row: dict[str, Any], remote_id: str | None, url: str | None) -> bool:
@@ -219,6 +207,36 @@ class PostsRepo(Database):
         Any other note may, a platform's own or one of Inkcast's messages, and reads back as its pieces."""
         return "; ".join(notes) or None
 
+    def record_uncertain(self, post_id: str, *, held: int, error: str, lost: str,
+                         events: Iterable[DomainEvent] | None = None) -> tuple[bool, dict[str, Any] | None]:
+        """A send's uncertain answer: the post may be out, and nothing says where. ``held`` is the attempt count the send
+        held the post at. Refused over a cancel (#216), and over a copy confirmed at ``held``, with no send since: another
+        worker's lookup found the very send the answer is about (#226). Over a copy confirmed at another count
+        (``records_copy``) the status, the copy and every note stay, and the error gains ``lost`` once: the platform has
+        that copy, this request may have made another, and a person is not asked to resend it (#559). Otherwise the post is
+        'unconfirmed', and ``events`` are written: ``error`` is its error at ``held``, and ``error`` with ``lost`` at
+        another count, an earlier send's answer landing over another worker's re-send (#234). The caller words the notes,
+        as for ``record_success``. The read that decides and the write share the transaction's write lock (``_tx``), so a
+        claim or a success can't land between them. ``(True, None)`` when written as 'unconfirmed', ``(False, the row as
+        it now is)`` when the copy stayed, and ``(False, None)`` when refused, or for a post that no longer exists."""
+        with self._tx() as c:
+            found = c.execute("SELECT * FROM posts WHERE id = ?", (post_id,)).fetchone()
+            if found is None:
+                return False, None
+            row = dict(found)
+            same_send = row["attempts"] == held
+            if row["status"] == "cancelled" or (same_send and row["status"] in self.CONFIRMED):
+                return False, None
+            if self.records_copy(row):
+                if lost not in self.notes_of(row):
+                    row["error"] = self.join_notes([*self.notes_of(row), lost]) if row["error"] else lost
+                    c.execute("UPDATE posts SET error = ?, updated_at = ? WHERE id = ?", (row["error"], time.time(), post_id))
+                return False, row
+            c.execute("UPDATE posts SET status = 'unconfirmed', error = ?, updated_at = ? WHERE id = ?",
+                      (error if same_send else self.join_notes([error, lost]), time.time(), post_id))
+            insert_events(c, events)
+        return True, None
+
     def record_success(self, post_id: str, *, held: int, status: str, result_url: str | None, remote_id: str | None,
                        sent: dict[str, Any], notes: list[str], second_copy: Callable[[int], str],
                        both_copies: Callable[[dict[str, Any]], str], edited: str, keeps: Callable[[str], bool] | None = None,
@@ -229,7 +247,7 @@ class PostsRepo(Database):
         ``both_copies(row)``: the platform may have both, and a person keeps one. Every note the row's error already
         holds that ``keeps`` names joins ``notes`` as the error of the written post: the caller's recogniser of a note
         that the platform may have the post twice (an earlier send's answer lost after its request went out, landed over
-        this one by ``update_post(beyond=)``; another attempt that may have arrived; both copies named). Only a person
+        this one by ``record_uncertain``; another attempt that may have arrived; both copies named). Only a person
         clears one (#234), and a success, of the copy the row records too, is no such decision (#531). When the row
         counts a later send that may have arrived (``may_have_arrived_since``), ``second_copy(attempts)`` joins them
         unless they hold it already (carried over), so a person checks for two. The content the platform received,
@@ -245,9 +263,7 @@ class PostsRepo(Database):
                 return False, None
             before = dict(row)
             now = time.time()
-            recorded = before["status"] in self.CONFIRMED and (before["remote_id"] is not None
-                                                               or before["result_url"] is not None)
-            if recorded and not self.same_copy(before, remote_id, result_url):
+            if self.records_copy(before) and not self.same_copy(before, remote_id, result_url):
                 note = both_copies(before)
                 error = before["error"]
                 if note not in self.notes_of(before):  # the same two copies refused again: written once, not per answer
@@ -276,7 +292,7 @@ class PostsRepo(Database):
         transaction. A 'recovering' post (its send was interrupted, and the platform has not said whether it arrived)
         is the person's to cancel too (#216), and so is an 'unconfirmed' one (#226): recovery writes its answer only
         while the post is still 'recovering' (``update_post(only_if=)``), so a cancel wins over an answer that lands
-        after it, and the sender's late failure yields to a cancel (``unless=``).
+        after it, and the sender's late failure yields to a cancel (``record_uncertain``).
 
         The status the post was cancelled from, or None when it was none of those any more: the scheduler claimed it
         a moment ago, it was already cancelled, or recovery resolved it. The read and the write share the transaction's

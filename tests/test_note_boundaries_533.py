@@ -140,8 +140,7 @@ OTHER_JOINS = {
 WRITERS = {
     ("libs/db/posts.py", "PostsRepo.update_post"): 1,       # ``keep``: the error written, and the note it keeps
     ("libs/db/posts.py", "PostsRepo.record_success"): 2,    # both copies named, over a copy recorded; the success written
-    ("libs/pipeline.py", "Publisher._deliver"): 1,          # an earlier send's uncertain answer, and ``_lost`` (``beyond``)
-    ("libs/pipeline.py", "Publisher._crashed"): 1,          # a plug-in's crash, likewise
+    ("libs/db/posts.py", "PostsRepo.record_uncertain"): 2,  # ``_lost``, over a copy recorded; over a later attempt, with the answer
     ("libs/pipeline.py", "Publisher.update"): 1,            # the notes an update keeps, and its own
     ("libs/pipeline.py", "Publisher.settle_edited"): 1,     # the notes left when the edited-while-out note is settled
 }
@@ -301,7 +300,7 @@ class HeldACopysURLOrIdHoldingTheSeparator(t.Sends):
 
     def test_a_re_sends_success_recognises_an_earlier_sends_lost_answer(self):
         """The earlier send's uncertain answer holds the separator in the platform's text, then lands over another
-        worker's re-send (``beyond``); the re-send's success keeps ``_lost``, as ``record_success`` recognises it."""
+        worker's re-send (``record_uncertain``); the re-send's success keeps ``_lost``, as ``record_success`` recognises it."""
         lost = _lost(self.platform)
         for answer, said in ((PlatformError("Findable said: a; b", uncertain=True), ["Findable said: a", "b"]),
                              (RuntimeError("boom; bang"), ["internal error: boom", "bang"])):  # ``_crashed``

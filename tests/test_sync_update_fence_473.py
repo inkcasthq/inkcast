@@ -67,9 +67,8 @@ class FindingALostAnswerNoteWrittenOverANoteFreePostOutlivesTheUpdate(SyncCase):
         lost = _lost(self.platform)
 
         def attempt_1s_late_answer(post_id):
-            """``Publisher._deliver``'s write of an uncertain answer to attempt 1, landing over the re-send (#234)."""
-            return self.store.update_post(post_id, status="unconfirmed", error="Editable timed out.", unless="cancelled",
-                                          unless_found_at=1, beyond=f"Editable timed out.; {lost}")
+            """``Publisher._uncertain``'s write of an uncertain answer to attempt 1, landing over the re-send's copy (#559)."""
+            return self.store.record_uncertain(post_id, held=1, error="Editable timed out.", lost=lost)[1] is not None
 
         patched, landed = lands_before_the_updates_write(self, attempt_1s_late_answer)
         with mock.patch.object(self.store, "update_post", patched):

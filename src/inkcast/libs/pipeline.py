@@ -8,7 +8,8 @@ the scheduler loop sends them when due, retrying transient failures under the
 ``RetryPolicy`` the Publisher was built with (INKCAST_PUBLISH_MAX_ATTEMPTS and
 INKCAST_PUBLISH_RETRY_DELAYS; libs/config). A 429's ``Retry-After`` lengthens
 the wait, up to the policy's largest delay. Only a failure whose send certainly
-never happened is retried: an uncertain one is ``unconfirmed``, whatever the policy.
+never happened is retried: an uncertain one is ``unconfirmed``, whatever the policy, or a note on a post that already
+records a confirmed copy (``Publisher._uncertain``).
 A send the process was interrupted in is ``recovering`` until the platform says whether
 it arrived, for at most INKCAST_PUBLISH_RECOVERY_MAX_HOURS; a person can cancel it meanwhile. An ``unconfirmed``
 post is a person's to cancel or resend (``resend``: one new post); it is never sent again on its own.
@@ -75,10 +76,10 @@ def _edited(platform: Platform, url: str | None = None, remote_id: str | None = 
 
 
 def _lost(platform: Platform) -> str:
-    """The note a send's late uncertain answer leaves when it lands over another worker's re-send of the post (#234):
-    this request may have arrived too. It outlives the re-send's own success (``PostsRepo.record_success`` keeps it),
-    since only a person can say whether the platform has two copies; recognised by equality, like ``_edited``, and as
-    a second-copy note (``_is_second_copy``)."""
+    """The note a send's late uncertain answer leaves when it lands over another worker's re-send of the post (#234), or
+    over the copy a re-send confirmed (#559): this request may have arrived too. It outlives the re-send's own success
+    (``PostsRepo.record_success`` keeps it), since only a person can say whether the platform has two copies; recognised
+    by equality, like ``_edited``, and as a second-copy note (``_is_second_copy``)."""
     return (f"An earlier send's answer was lost after its request was sent, and it may have arrived too: a second copy "
             f"may be on {platform.name}. Check {platform.name}, and remove the extra copy there if it is.")
 
@@ -345,19 +346,11 @@ class Publisher:
             # caller is told what the post is now (``_as_now``), so Git sync's ledger doesn't create it again.
             if exc.uncertain:
                 # Never retried, under any policy: the post may already be out, and a retry could post it twice.
-                # Not over a cancel (#216), nor over the platform's own word that this very send arrived (another
-                # worker's lookup found it, no send since): a post the platform has would read 'unconfirmed' and the
-                # person be asked to resend it, a second copy (#226). Over a re-send (a later attempt) it is written:
-                # this request may have arrived too, and the note says so (``_lost``), so that the re-send's own
-                # success, landing after, keeps the flag that a person checks for a second copy (#234).
-                written = self.store.update_post(post_id, status="unconfirmed", error=str(exc), unless="cancelled",
-                                                 unless_found_at=held, beyond=self.store.join_notes([str(exc), _lost(platform)]),
-                                                 events=self._event("post.unconfirmed", post_id, user_id, platform.id))
-                if written:  # counted, logged and alerted on only as the post's answer, never over a cancel (#226)
-                    self._count(platform.id, "unconfirmed")
+                written, outcome = self._uncertain(post_id, user_id, platform, str(exc), str(exc), held)
+                if written:  # logged and alerted on only as the post's answer, never over a cancel (#226)
                     log.warning("Post %s on %s is unconfirmed: %s", post_id, platform.id, exc,
                                 extra={"event": "publish.unconfirmed", "post_id": post_id, "platform": platform.id})
-                return self._as_now(written, Outcome(platform.id, "unconfirmed", post_id=post_id, message=str(exc)))
+                return outcome
             if retry and exc.retryable and attempts < self.retry.max_attempts:
                 # A 429's Retry-After, within the policy. getattr: a plug-in's subclass that skips the base constructor
                 # (written before the field existed) has none, and must not crash the tick (#174).
@@ -457,16 +450,34 @@ class Publisher:
 
     def _crashed(self, post_id: str, user_id: str, platform: Platform, exc: BaseException, held: int = 0) -> Outcome:
         """A plug-in bug while sending. It may have crashed after the platform accepted the post (reading the reply),
-        so it is ambiguous like any uncertain failure: unconfirmed, never 'failed', which Git sync would create again."""
-        written = self.store.update_post(post_id, status="unconfirmed", error=f"internal error: {exc}", unless="cancelled",
-                                         unless_found_at=held,
-                                         beyond=self.store.join_notes([f"internal error: {exc}", _lost(platform)]),
-                                         events=self._event("post.unconfirmed", post_id, user_id, platform.id))  # as _deliver's
+        so it is ambiguous like any uncertain failure, never 'failed', which Git sync would create again (``_uncertain``)."""
+        return self._uncertain(post_id, user_id, platform, f"internal error: {exc}", (
+            f"Internal error in the {platform.name} plug-in; the post may or may not have been published. "
+            f"Check {platform.name} before trying again."), held)[1]
+
+    def _uncertain(self, post_id: str, user_id: str, platform: Platform, error: str, message: str,
+                   held: int) -> tuple[bool, Outcome]:
+        """A send that ended without saying whether it arrived: ``(whether the post is now 'unconfirmed', what the caller
+        is told)``. It is written with ``error``, and the caller told ``message``. Not over a cancel (#216), nor over the
+        platform's own word that this very send arrived (another worker's lookup found it, no send since): a post the
+        platform has would read 'unconfirmed' and the person be asked to resend it, a second copy (#226). Over a re-send (a
+        later attempt) it is written: this request may have arrived too, and the note says so (``_lost``), so that the
+        re-send's own success, landing after, keeps the flag that a person checks for a second copy (#234). Over a copy a
+        later attempt confirmed, the post is on the platform all the same: it keeps its status, its copy and its notes, and
+        gains that note (#559). Like a success refused over a copy, that is logged and neither counted nor an event, since
+        the post's state did not change. The caller is told the post as it is, its notes in ``notes``, as a written success
+        tells them: a confirmed post's reply reads nothing else (``render_publish``)."""
+        written, copy = self.store.record_uncertain(post_id, held=held, error=error, lost=_lost(platform),
+                                                    events=self._event("post.unconfirmed", post_id, user_id, platform.id))
+        if copy is not None:
+            log.warning("Post %s on %s records a copy (%s), and an earlier send's uncertain answer landed on it (%s): %s may "
+                        "have both, and a person keeps one", post_id, platform.id, _named(copy["result_url"], copy["remote_id"]),
+                        error, platform.id, extra={"event": "publish.second_copy", "post_id": post_id, "platform": platform.id})
+            return False, Outcome(platform.id, copy["status"], post_id=post_id, url=copy["result_url"],
+                                  remote_id=copy["remote_id"], notes=self.store.notes_of(copy))
         if written:
             self._count(platform.id, "unconfirmed")
-        return self._as_now(written, Outcome(platform.id, "unconfirmed", post_id=post_id, message=(
-            f"Internal error in the {platform.name} plug-in; the post may or may not have been published. "
-            f"Check {platform.name} before trying again.")))
+        return written, self._as_now(written, Outcome(platform.id, "unconfirmed", post_id=post_id, message=message))
 
     def _as_now(self, written: bool, outcome: Outcome) -> Outcome:
         """A send's answer, as recorded; or, when it was not written because the post moved on while the send was out

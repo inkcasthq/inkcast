@@ -229,9 +229,9 @@ class FindingASuccessKeepsAnEarlierAttemptsLostAnswer(Harness):
         self.assertIn("answer was lost after its request was sent", post["error"])
         self.assertTrue(any("second copy may be on Findable" in n for n in b_outcomes[-1].notes), b_outcomes[-1])
 
-    def test_the_other_order_is_unconfirmed_with_the_url_and_the_same_flag(self):
-        """B's success lands first, then A's uncertain answer: 'unconfirmed' with B's URL (held since #216), and now
-        the same note, so whichever answer lands last the post says a second copy may be there."""
+    def test_the_other_order_stays_published_with_the_url_and_the_same_flag(self):
+        """B's success lands first, then A's uncertain answer: B's copy stays, 'published' with its URL (#559; it read
+        'unconfirmed' before), and the same note, so whichever answer lands last the post says a second copy may be there."""
         post_id = self.post("scheduled")
         b = self.replica()
 
@@ -242,8 +242,7 @@ class FindingASuccessKeepsAnEarlierAttemptsLostAnswer(Harness):
         self.platform.during_publish = overtaken
         self.tick()
         post = self.store.get_post(post_id)
-        self.assertEqual((post["status"], post["result_url"]), ("unconfirmed", "https://findable/1"))
-        self.assertIn("Findable timed out after the request was sent.", post["error"])
+        self.assertEqual((post["status"], post["result_url"]), ("published", "https://findable/1"))
         self.assertIn("second copy may be on Findable", post["error"])
 
     def test_an_uncertain_answer_with_nobody_else_holding_the_post_carries_no_such_note(self):

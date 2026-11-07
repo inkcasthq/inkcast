@@ -75,7 +75,7 @@ class FindingRecoveryFoundOverUnconfirmedKeepsTheLostNote(Harness):
         "missing", re-queues the post and re-sends it (attempt 2); copy 2 is listed, B's answer is slow. C's stuck pass
         takes the post over at attempt 2 and finds copy 2. While C's answer is out, A's answer lands: a timeout after
         the request was sent, written over C's 'recovering' as 'unconfirmed' with the note that it may have arrived too
-        (``update_post(beyond=)``). C's found answer is now written over 'unconfirmed' (#234 item 1) with error=None:
+        (``record_uncertain``). C's found answer is now written over 'unconfirmed' (#234 item 1) with error=None:
         the note is gone, B's success (the same copy C found) has nothing to keep, and a post the platform holds twice
         reads as any published post."""
         post_id = self.post("scheduled")

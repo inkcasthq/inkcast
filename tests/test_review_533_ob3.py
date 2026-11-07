@@ -117,8 +117,9 @@ class FindingKeepAsksWhatNotesOfReads(Harness):
 
 
 class HeldAnUncertainAnswerOverAReSendIsWordedAsItsError(t.Sends):
-    """``_deliver``'s ``beyond`` words the platform's answer as ``error=`` does, ``str(exc)``, since #533's
-    ``join_notes``; before, an f-string formatted it. Not a finding: it pins the change the integrator chose to keep."""
+    """``_deliver``'s write over a re-send words the platform's answer as its write over no re-send does, ``str(exc)``,
+    since #533's ``join_notes``; before, an f-string formatted it. Not a finding: it pins the change the integrator chose to
+    keep."""
 
     def test_an_answer_whose_format_differs_from_its_text(self):
         class Odd(PlatformError):

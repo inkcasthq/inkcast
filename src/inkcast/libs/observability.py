@@ -93,9 +93,10 @@ EVENTS: dict[str, tuple[str, str]] = {
                                              "than this process runs on): post id and platform. The reply asks them to "
                                              "reconnect; check the key first (InkcastPostsCannotBeSent's runbook)."),
     "publish.second_copy": ("warning", "A post may be on its platform twice: a send taken over as stuck succeeded after "
-                                       "another worker re-sent it, or after a lookup recorded another post. The post's "
-                                       "error names both copies, or the attempt that may have made one; a person checks "
-                                       "the platform, keeps one and removes the other."),
+                                       "another worker re-sent it, or after a lookup recorded another post, or its uncertain "
+                                       "answer landed over a copy the post records. The post's error names both copies, or "
+                                       "the attempt that may have made one, or says an earlier send's answer was lost; a "
+                                       "person checks the platform, keeps one and removes the other."),
     "publish.edited_meanwhile": ("warning", "Git sync changed a post in place while its send was still out, and that send "
                                             "succeeded: the platform has the post as it was sent, the post says so, and "
                                             "the next sync sends the change as an update, or reports the file stale."),
